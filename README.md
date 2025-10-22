@@ -48,8 +48,14 @@ Yobboy 文件服务器是一个集成了文件浏览、Markdown 预览、Draw.io
 ### ✨ 核心特性
 
 #### 🗂️ 文件浏览器
-- **多格式支持**：浏览和预览图片、Markdown、Draw.io 图表等多种文件格式
-- **实时预览**：支持 Markdown 文件的实时渲染，包括表格、任务列表、脚注等高级语法
+- **多格式支持**：
+  - 📷 图片格式：`.jpg`、`.jpeg`、`.png`、`.gif`、`.bmp`、`.svg`、`.webp`
+  - 📝 文档格式：`.md`、`.markdown` (Markdown 文件)
+  - 📊 Draw.io 图表：`.drawio`、`.diagram`、`.dio`、`.xml`
+  - 📄 PDF 文件：`.pdf`
+  - 🎬 视频文件：`.mp4`、`.avi`、`.mov`、`.wmv`
+  - 📋 Office 文件：`.docx`、`.xlsx`、`.pptx` (仅下载，不预览)
+- **实时预览**：支持 Markdown 文件的实时渲染，包括表格、任务列表、脚注、代码高亮等
 - **文件操作**：上传、下载、删除、重命名等完整的文件管理功能
 - **目录管理**：创建、删除文件夹，支持多级目录结构
 
@@ -110,13 +116,18 @@ Pillow>=10.0.0
 
 ### ⚙️ 配置说明
 
-程序使用 `config.ini` 文件保存配置：
+程序使用 `config.ini` 文件保存配置（首次运行自动创建）：
 
 ```ini
-[DEFAULT]
-root_path = /path/to/your/files  # 文件根目录
-password = yes           # 启动时自动打开浏览器
+[settings]
+root_dir = /path/to/your/files  # 文件服务器根目录
+password = your_password         # 登录密码（默认：ats123）
 ```
+
+**注意**：
+- 配置文件位于程序所在目录或用户目录的 `.yobboy_file_server` 文件夹中
+- 可以通过 GUI 界面的"设置"菜单修改配置
+- 修改配置后需要重启服务器才能生效
 
 ### 🎯 使用指南
 
@@ -170,6 +181,11 @@ python -m PyInstaller --onefile --windowed \
 
 本项目采用 MIT 许可证。详见 [LICENSE](LICENSE) 文件。
 
+**第三方组件许可证**：
+- **Draw.io**：本项目集成的 Draw.io 编辑器遵循 [Apache License 2.0](https://github.com/jgraph/drawio)
+- **Bootstrap**：MIT License
+- **Font Awesome**：字体遵循 SIL OFL 1.1，CSS 遵循 MIT License
+
 ### 👨‍💻 作者
 
 Copyright © 2025 Yobboy. All rights reserved.
@@ -204,8 +220,14 @@ Mom will never worry about me not knowing how to set up a server again 😎
 ### ✨ Key Features
 
 #### 🗂️ File Browser
-- **Multi-format Support**: Browse and preview images, Markdown, Draw.io diagrams, and more
-- **Real-time Preview**: Real-time rendering of Markdown files with advanced syntax support (tables, task lists, footnotes, etc.)
+- **Multi-format Support**:
+  - 📷 Images: `.jpg`, `.jpeg`, `.png`, `.gif`, `.bmp`, `.svg`, `.webp`
+  - 📝 Documents: `.md`, `.markdown` (Markdown files)
+  - 📊 Draw.io diagrams: `.drawio`, `.diagram`, `.dio`, `.xml`
+  - 📄 PDF files: `.pdf`
+  - 🎬 Videos: `.mp4`, `.avi`, `.mov`, `.wmv`
+  - 📋 Office files: `.docx`, `.xlsx`, `.pptx` (download only, no preview)
+- **Real-time Preview**: Real-time rendering of Markdown files with tables, task lists, footnotes, code highlighting, etc.
 - **File Operations**: Complete file management with upload, download, delete, and rename
 - **Directory Management**: Create and delete folders with multi-level directory support
 
@@ -268,15 +290,18 @@ Pillow>=10.0.0
 
 ### ⚙️ Configuration
 
-The program uses `config.ini` to save configuration:
+The program uses `config.ini` to save configuration (automatically created on first run):
 
 ```ini
-[DEFAULT]
-host = 0.0.0.0        # Server listening address
-port = 5000           # Server port
-root_path = /path/to/your/files  # File root directory
-auto_open_browser = yes           # Auto-open browser on startup
+[settings]
+root_dir = /path/to/your/files  # File server root directory
+password = your_password         # Login password (default: ats123)
 ```
+
+**Notes**:
+- Config file is located in the program directory or user's `.yobboy_file_server` folder
+- You can modify settings through the GUI "Settings" menu
+- Server restart required after configuration changes
 
 ### 🎯 User Guide
 
@@ -329,6 +354,11 @@ Issues and Pull Requests are welcome!
 ### 📄 License
 
 This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
+
+**Third-party Component Licenses**:
+- **Draw.io**: The integrated Draw.io editor is licensed under [Apache License 2.0](https://github.com/jgraph/drawio)
+- **Bootstrap**: MIT License
+- **Font Awesome**: Fonts under SIL OFL 1.1, CSS under MIT License
 
 ### 👨‍💻 Author
 

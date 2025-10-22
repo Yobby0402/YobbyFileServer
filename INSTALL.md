@@ -13,8 +13,8 @@
 #### 步骤：
 
 1. **下载程序**
-   - 从 [Releases](https://github.com/yourusername/YobboyFileServer/releases) 页面下载最新的 `YobboyFileServer.exe`
-   - 或直接使用项目根目录的 `YobboyFileServer.exe`
+   - 从 [Releases](https://github.com/Yobby0402/YobbyFileServer/releases) 页面下载最新的 `YobboyFileServer.exe`
+   - 或直接下载项目 ZIP 包并解压使用
 
 2. **准备图标文件（可选）**
    - 将 `文件服务器.png` 或 `文件服务器.ico` 放在与 exe 相同的目录下
@@ -55,8 +55,8 @@
 2. **克隆或下载项目**
    ```bash
    # 使用 Git 克隆
-   git clone https://github.com/yourusername/YobboyFileServer.git
-   cd YobboyFileServer
+   git clone https://github.com/Yobby0402/YobbyFileServer.git
+   cd YobbyFileServer
    
    # 或者直接下载 ZIP 并解压
    ```
@@ -79,9 +79,10 @@
 
 5. **配置程序（首次运行会自动创建）**
    ```bash
-   # 可选：复制示例配置
-   cp config.example.ini config.ini
-   # 然后编辑 config.ini，设置 root_path
+   # 首次运行时会自动创建 config.ini
+   # 配置文件包含：
+   # - root_dir: 文件服务器根目录
+   # - password: 登录密码（默认：ats123）
    ```
 
 6. **运行程序**
@@ -176,8 +177,8 @@ This is the simplest method, no Python environment required.
 #### Steps:
 
 1. **Download the Program**
-   - Download the latest `YobboyFileServer.exe` from the [Releases](https://github.com/yourusername/YobboyFileServer/releases) page
-   - Or use the `YobboyFileServer.exe` in the project root directory
+   - Download the latest `YobboyFileServer.exe` from the [Releases](https://github.com/Yobby0402/YobbyFileServer/releases) page
+   - Or download the project ZIP package and extract it
 
 2. **Prepare Icon Files (Optional)**
    - Place `文件服务器.png` or `文件服务器.ico` in the same directory as the exe
@@ -218,8 +219,8 @@ Suitable for users who need to modify the code or do secondary development.
 2. **Clone or Download the Project**
    ```bash
    # Clone with Git
-   git clone https://github.com/yourusername/YobboyFileServer.git
-   cd YobboyFileServer
+   git clone https://github.com/Yobby0402/YobbyFileServer.git
+   cd YobbyFileServer
    
    # Or download ZIP and extract
    ```
@@ -242,9 +243,10 @@ Suitable for users who need to modify the code or do secondary development.
 
 5. **Configure the Program (Auto-created on first run)**
    ```bash
-   # Optional: Copy example config
-   cp config.example.ini config.ini
-   # Then edit config.ini, set root_path
+   # Config file will be auto-created on first run
+   # Configuration includes:
+   # - root_dir: File server root directory
+   # - password: Login password (default: ats123)
    ```
 
 6. **Run the Program**
