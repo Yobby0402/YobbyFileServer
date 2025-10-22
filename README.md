@@ -74,7 +74,7 @@ Yobboy 文件服务器是一个集成了文件浏览、Markdown 预览、Draw.io
 
 #### 方式一：使用预编译的 exe（推荐）
 
-1. **下载**：从 [Releases](https://github.com/yourusername/YobboyFileServer/releases) 下载最新的 `YobboyFileServer.exe`
+1. **下载**：从 [Releases](https://github.com/Yobby0402/YobbyFileServer/releases) 下载最新的 `YobboyFileServer.exe`
 2. **运行**：双击 `YobboyFileServer.exe` 启动程序
 3. **配置**：首次运行时设置文件根目录
 4. **使用**：点击"启动服务器"按钮，程序会自动打开浏览器
@@ -83,8 +83,8 @@ Yobboy 文件服务器是一个集成了文件浏览、Markdown 预览、Draw.io
 
 1. **克隆仓库**
 ```bash
-git clone https://github.com/yourusername/YobboyFileServer.git
-cd YobboyFileServer
+git clone https://github.com/Yobby0402/YobbyFileServer.git
+cd YobbyFileServer
 ```
 
 2. **安装依赖**
@@ -232,7 +232,7 @@ Mom will never worry about me not knowing how to set up a server again 😎
 
 #### Option 1: Use Pre-compiled exe (Recommended)
 
-1. **Download**: Download the latest `YobboyFileServer.exe` from [Releases](https://github.com/yourusername/YobboyFileServer/releases)
+1. **Download**: Download the latest `YobboyFileServer.exe` from [Releases](https://github.com/Yobby0402/YobbyFileServer/releases)
 2. **Run**: Double-click `YobboyFileServer.exe` to launch
 3. **Configure**: Set the file root directory on first run
 4. **Use**: Click "Start Server" button, the program will automatically open the browser
@@ -241,8 +241,8 @@ Mom will never worry about me not knowing how to set up a server again 😎
 
 1. **Clone Repository**
 ```bash
-git clone https://github.com/yourusername/YobboyFileServer.git
-cd YobboyFileServer
+git clone https://github.com/Yobby0402/YobbyFileServer.git
+cd YobbyFileServer
 ```
 
 2. **Install Dependencies**
