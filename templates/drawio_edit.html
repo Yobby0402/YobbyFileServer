@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>编辑 Draw.io 图表</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap.min.css') }}">
+    <style>
+        body, html {
+            height: 100%;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+        }
+        .drawio-container {
+            height: 100vh;
+        }
+        .loading-spinner {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100%;
+            font-size: 1.2rem;
+            color: #6c757d;
+        }
+        .spinner {
+            width: 3rem;
+            height: 3rem;
+            margin-right: 1rem;
+        }
+        iframe {
+            width: 100%;
+            height: 100%;
+            border: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="drawio-container">
+        <div id="loading" class="loading-spinner">
+            <div class="spinner-border spinner" role="status"></div>
+            <span>正在加载 Draw.io 编辑器...</span>
+        </div>
+        <!-- 修改iframe src为直接指向draw.io，添加离线模式和中文语言参数 -->
+        <iframe id="drawio-iframe" src="/drawio?offline=1&stealth=1&local=1&sync=none&mode=device&lang=zh" style="display: none;"></iframe>
+    </div>
+    
+    <script src="{{ url_for('static', filename='js/bootstrap.min.js') }}"></script>
+    <script>
+        // 图表文件路径和内容 - 使用正确的转义方式
+        const filepath = {{ filepath|tojson|safe }};
+        const initialContent = {{ diagram_content|tojson|safe }};
+        
+        // 等待iframe加载完成
+        document.getElementById('drawio-iframe').onload = function() {
+            // 隐藏加载提示
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('drawio-iframe').style.display = 'block';
+            
+            // 初始化编辑器内容
+            if (initialContent) {
+                // 尝试发送内容到编辑器
+                try {
+                    this.contentWindow.postMessage({action: 'load', xml: initialContent}, '*');
+                } catch (e) {
+                    console.error('加载图表内容失败:', e);
+                }
+            }
+        };
+        
+        // 监听来自iframe的消息
+        window.addEventListener('message', function(e) {
+            // 这里可以处理来自Draw.io编辑器的消息
+            console.log('收到来自编辑器的消息:', e.data);
+        });
+    </script>
+</body>
+</html>

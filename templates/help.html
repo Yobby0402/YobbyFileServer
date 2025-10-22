@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>使用帮助 - Yobboy文件服务器</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap.min.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/font-awesome.min.css') }}">
+    <style>
+        body {
+            font-family: 'Microsoft YaHei', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .help-container {
+            max-width: 1000px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+            padding: 40px;
+        }
+        
+        .help-header {
+            text-align: center;
+            margin-bottom: 40px;
+            border-bottom: 3px solid #667eea;
+            padding-bottom: 20px;
+        }
+        
+        .help-header h1 {
+            color: #667eea;
+            font-size: 2.5rem;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+        
+        .help-header p {
+            color: #6c757d;
+            font-size: 1.1rem;
+        }
+        
+        .help-section {
+            margin-bottom: 40px;
+        }
+        
+        .help-section h2 {
+            color: #667eea;
+            font-size: 1.8rem;
+            font-weight: bold;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+        }
+        
+        .help-section h2 i {
+            margin-right: 15px;
+            font-size: 1.5rem;
+        }
+        
+        .help-section h3 {
+            color: #764ba2;
+            font-size: 1.3rem;
+            font-weight: bold;
+            margin-top: 25px;
+            margin-bottom: 15px;
+        }
+        
+        .help-section p, .help-section li {
+            color: #495057;
+            font-size: 1rem;
+            line-height: 1.8;
+            margin-bottom: 10px;
+        }
+        
+        .help-section ul {
+            padding-left: 20px;
+        }
+        
+        .help-section li {
+            margin-bottom: 15px;
+        }
+        
+        .feature-card {
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        }
+        
+        .feature-card h4 {
+            color: #667eea;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+        
+        .feature-card p {
+            color: #495057;
+            margin-bottom: 0;
+        }
+        
+        .back-button {
+            text-align: center;
+            margin-top: 40px;
+        }
+        
+        .back-button a {
+            display: inline-block;
+            padding: 12px 30px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            text-decoration: none;
+            border-radius: 25px;
+            font-weight: bold;
+            transition: all 0.3s ease;
+        }
+        
+        .back-button a:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.3);
+        }
+        
+        .tip-box {
+            background: #fff3cd;
+            border-left: 4px solid #ffc107;
+            padding: 15px 20px;
+            border-radius: 5px;
+            margin: 20px 0;
+        }
+        
+        .tip-box strong {
+            color: #856404;
+        }
+        
+        .tip-box p {
+            color: #856404;
+            margin-bottom: 0;
+        }
+        
+        .code-block {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 5px;
+            padding: 15px;
+            font-family: 'Consolas', 'Courier New', monospace;
+            font-size: 0.9rem;
+            color: #212529;
+            margin: 15px 0;
+            overflow-x: auto;
+        }
+    </style>
+</head>
+<body>
+    <div class="help-container">
+        <div class="help-header">
+            <h1>📖 Yobboy文件服务器使用帮助</h1>
+            <p>欢迎使用Yobboy文件服务器！本指南将帮助您快速上手。</p>
+        </div>
+        
+        <!-- 快速开始 -->
+        <div class="help-section">
+            <h2><i class="fa fa-rocket"></i>快速开始</h2>
+            
+            <h3>1. 启动服务器</h3>
+            <p><strong>方式一：使用图形界面（推荐）</strong></p>
+            <ul>
+                <li>双击运行 <code>YobboyFileServer.exe</code></li>
+                <li>点击 <strong>"启动服务器"</strong> 按钮</li>
+                <li>服务器启动后，界面会显示访问地址</li>
+                <li>在浏览器中打开显示的任何一个地址即可访问</li>
+            </ul>
+            
+            <div class="tip-box">
+                <strong>💡 提示：</strong>
+                <p>图形界面提供了菜单栏，可以方便地访问各种功能：</p>
+                <ul style="margin-top: 10px; margin-bottom: 0;">
+                    <li><strong>文件菜单：</strong>设置服务器根目录和密码、退出程序</li>
+                    <li><strong>窗口菜单：</strong>最小化到系统托盘（服务器会在后台继续运行）</li>
+                    <li><strong>帮助菜单：</strong>查看使用帮助、关于信息</li>
+                </ul>
+            </div>
+            
+            <h3>2. 登录系统</h3>
+            <ul>
+                <li>首次访问会进入登录页面</li>
+                <li>输入密码（默认密码：<code>ats123</code>）</li>
+                <li>登录成功后会进入功能选择页面</li>
+            </ul>
+            
+            <h3>3. 选择功能</h3>
+            <p>登录后您可以选择以下功能：</p>
+            <div class="feature-card">
+                <h4>📁 文件浏览器</h4>
+                <p>浏览、预览和下载服务器上的文件。支持多种文件格式查看，全离线模式，仅局域网内访问。</p>
+            </div>
+            <div class="feature-card">
+                <h4>📊 Draw.io 编辑器</h4>
+                <p>创建和编辑流程图、架构图等。支持本地文件上传和服务器保存，全离线模式，不依赖第三方服务。</p>
+            </div>
+        </div>
+        
+        <!-- 文件浏览器功能 -->
+        <div class="help-section">
+            <h2><i class="fa fa-folder-open"></i>文件浏览器功能</h2>
+            
+            <h3>支持的文件类型</h3>
+            <ul>
+                <li><strong>图片文件：</strong>JPG, PNG, GIF, BMP, SVG, WebP - 直接在线预览</li>
+                <li><strong>Markdown文件：</strong>MD, MARKDOWN - 渲染后显示，支持图片相对路径</li>
+                <li><strong>PDF文件：</strong>直接在浏览器中预览</li>
+                <li><strong>视频文件：</strong>MP4, AVI, MOV, WMV - 在线播放</li>
+                <li><strong>代码文件：</strong>Python, JavaScript, HTML, CSS等 - 语法高亮显示</li>
+                <li><strong>Draw.io文件：</strong>DRAWIO, DIO, DIAGRAM, XML - 在线预览和编辑</li>
+            </ul>
+            
+            <h3>主要操作</h3>
+            <ul>
+                <li><strong>浏览文件：</strong>点击文件夹可以进入该目录</li>
+                <li><strong>预览文件：</strong>点击文件名在弹窗中预览文件内容</li>
+                <li><strong>下载文件：</strong>点击下载按钮将文件保存到本地</li>
+                <li><strong>返回上级：</strong>使用面包屑导航快速跳转到上级目录</li>
+            </ul>
+            
+            <h3>服务器设置</h3>
+            <p>如果需要更改服务器配置（根目录和密码）：</p>
+            <ul>
+                <li><strong>图形界面：</strong>点击菜单栏 <strong>"文件 → 设置"</strong>，在弹出的设置对话框中：
+                    <ul style="margin-top: 5px;">
+                        <li>点击"浏览"按钮选择新的根目录</li>
+                        <li>在密码框中输入新密码</li>
+                        <li>点击"保存设置"按钮</li>
+                        <li>如果服务器正在运行，会自动先停止服务器</li>
+                    </ul>
+                </li>
+                <li><strong>Web界面：</strong>访问 <code>/set_root</code> 路径可以设置根目录</li>
+                <li><strong>配置文件：</strong>直接编辑 <code>config.ini</code> 文件，然后重启服务器</li>
+                <li>更改设置后需要重启服务器使配置生效</li>
+            </ul>
+        </div>
+        
+        <!-- Draw.io编辑器功能 -->
+        <div class="help-section">
+            <h2><i class="fa fa-paint-brush"></i>Draw.io 编辑器功能</h2>
+            
+            <h3>主要特性</h3>
+            <ul>
+                <li><strong>完全离线：</strong>无需连接外部服务，所有功能均在本地运行</li>
+                <li><strong>丰富的图形库：</strong>流程图、UML图、网络图、思维导图等</li>
+                <li><strong>实时保存：</strong>可以将图表保存到服务器或导出到本地</li>
+                <li><strong>多种导出格式：</strong>支持PNG、JPG、SVG、PDF等格式导出</li>
+            </ul>
+            
+            <h3>基本操作</h3>
+            <ul>
+                <li><strong>创建新图表：</strong>进入Draw.io编辑器后，从左侧图形库拖拽元素到画布</li>
+                <li><strong>保存图表：</strong>使用 <code>Ctrl+S</code> 或点击保存按钮将图表保存到服务器</li>
+                <li><strong>打开现有图表：</strong>从文件浏览器中点击.drawio文件即可编辑</li>
+                <li><strong>导出图表：</strong>点击 <strong>文件 → 导出为</strong> 选择导出格式</li>
+            </ul>
+            
+            <div class="tip-box">
+                <strong>💡 提示：</strong>
+                <p>Draw.io编辑器支持快捷键操作，常用的有：<code>Ctrl+C</code> 复制，<code>Ctrl+V</code> 粘贴，<code>Ctrl+Z</code> 撤销，<code>Delete</code> 删除选中元素。</p>
+            </div>
+        </div>
+        
+        <!-- 配置说明 -->
+        <div class="help-section">
+            <h2><i class="fa fa-cog"></i>配置说明</h2>
+            
+            <h3>配置文件位置</h3>
+            <p>配置文件 <code>config.ini</code> 保存在以下位置：</p>
+            <ul>
+                <li><strong>优先：</strong>程序运行目录</li>
+                <li><strong>备选：</strong>用户主目录下的 <code>.yobboy_file_server</code> 文件夹</li>
+            </ul>
+            
+            <h3>配置项说明</h3>
+            <div class="code-block">
+[settings]<br>
+root_dir = C:\your\path\here  # 文件浏览器根目录<br>
+password = ats123              # 登录密码
+            </div>
+            
+            <h3>修改配置的三种方式</h3>
+            <p><strong>方式一：使用GUI设置界面（推荐）</strong></p>
+            <ul>
+                <li>在图形界面中点击菜单栏 <strong>"文件 → 设置"</strong></li>
+                <li>在设置对话框中修改根目录和密码</li>
+                <li>点击"保存设置"即可，无需手动重启</li>
+                <li>如果服务器正在运行，系统会自动先停止服务器</li>
+            </ul>
+            
+            <p><strong>方式二：手动编辑配置文件</strong></p>
+            <ul>
+                <li>找到并打开 <code>config.ini</code> 文件</li>
+                <li>修改 <code>root_dir</code> 和 <code>password</code> 的值</li>
+                <li>保存文件后重启服务器使更改生效</li>
+            </ul>
+            
+            <p><strong>方式三：Web界面设置</strong></p>
+            <ul>
+                <li>登录后访问 <code>/set_root</code> 路径设置根目录</li>
+                <li>修改密码需要编辑配置文件</li>
+            </ul>
+        </div>
+        
+        <!-- 安全说明 -->
+        <div class="help-section">
+            <h2><i class="fa fa-shield"></i>安全与隐私</h2>
+            <ul>
+                <li><strong>局域网访问：</strong>服务器仅在局域网内可访问，不暴露到公网</li>
+                <li><strong>密码保护：</strong>所有功能均需要登录后才能使用</li>
+                <li><strong>离线运行：</strong>完全离线运行，不会向外部发送任何数据</li>
+                <li><strong>访问记录：</strong>所有访问记录保存在 <code>logs</code> 目录中，可随时查询</li>
+                <li><strong>路径安全：</strong>系统会自动防止路径遍历攻击，确保只能访问根目录下的文件</li>
+            </ul>
+            
+            <div class="tip-box">
+                <strong>⚠️ 注意：</strong>
+                <p>请妥善保管登录密码，不要在不受信任的设备上使用。如果怀疑密码泄露，请及时通过GUI设置界面或编辑配置文件修改密码。</p>
+            </div>
+        </div>
+        
+        <!-- 常见问题 -->
+        <div class="help-section">
+            <h2><i class="fa fa-question-circle"></i>常见问题</h2>
+            
+            <h3>Q: 服务器启动失败怎么办？</h3>
+            <p>A: 请检查以下几点：</p>
+            <ul>
+                <li>端口5000是否被其他程序占用</li>
+                <li>防火墙是否阻止了程序运行</li>
+                <li>查看日志文件获取详细错误信息</li>
+            </ul>
+            
+            <h3>Q: 无法访问服务器？</h3>
+            <p>A: 请确认：</p>
+            <ul>
+                <li>服务器是否已成功启动（查看GUI界面状态）</li>
+                <li>访问地址是否正确（使用GUI界面显示的地址）</li>
+                <li>客户端和服务器在同一局域网内</li>
+                <li>防火墙未阻止端口5000</li>
+            </ul>
+            
+            <h3>Q: 文件预览不正常？</h3>
+            <p>A: 不同文件类型的预览要求：</p>
+            <ul>
+                <li>PDF文件需要浏览器支持PDF预览</li>
+                <li>视频文件需要浏览器支持对应的编码格式</li>
+                <li>Markdown文件中的相对路径图片需要与MD文件在同一根目录下</li>
+            </ul>
+            
+            <h3>Q: 如何在其他设备访问？</h3>
+            <p>A: 操作步骤：</p>
+            <ul>
+                <li>确保所有设备在同一局域网内（连接同一WiFi或路由器）</li>
+                <li>在GUI界面查看服务器IP地址</li>
+                <li>在其他设备的浏览器中输入 <code>http://服务器IP:5000</code></li>
+                <li>输入登录密码即可访问</li>
+            </ul>
+            
+            <h3>Q: 如何修改服务器根目录和密码？</h3>
+            <p>A: 最简单的方法：</p>
+            <ul>
+                <li>在GUI界面点击菜单栏 <strong>"文件 → 设置"</strong></li>
+                <li>在弹出的设置对话框中修改根目录和密码</li>
+                <li>点击"保存设置"按钮即可</li>
+                <li>如果服务器正在运行，会自动先停止</li>
+                <li>保存后可以重新启动服务器使用新配置</li>
+            </ul>
+            
+            <h3>Q: 如何访问帮助文档？</h3>
+            <p>A: 有两种方式：</p>
+            <ul>
+                <li><strong>GUI界面：</strong>点击菜单栏 <strong>"帮助 → 使用帮助"</strong>，系统会自动打开浏览器显示帮助页面（如果服务器未运行会先启动）</li>
+                <li><strong>Web界面：</strong>在选择页面底部点击"使用帮助"链接，或直接访问 <code>/help</code> 路径</li>
+            </ul>
+            
+            <h3>Q: GUI窗口关闭后服务器会停止吗？</h3>
+            <p>A: 取决于操作方式：</p>
+            <ul>
+                <li><strong>最小化到托盘：</strong>点击菜单栏 <strong>"窗口 → 最小化到托盘"</strong>，窗口隐藏但服务器继续运行</li>
+                <li><strong>关闭窗口：</strong>直接关闭窗口会提示是否退出，服务器会停止</li>
+                <li><strong>托盘图标：</strong>双击系统托盘图标可以重新显示窗口</li>
+            </ul>
+        </div>
+        
+        <!-- 返回按钮 -->
+        <div class="back-button">
+            <a href="javascript:history.back()"><i class="fa fa-arrow-left"></i> 返回</a>
+            <a href="/" style="margin-left: 15px;"><i class="fa fa-home"></i> 首页</a>
+        </div>
+    </div>
+    
+    <script src="{{ url_for('static', filename='js/bootstrap.bundle.min.js') }}"></script>
+</body>
+</html>
+

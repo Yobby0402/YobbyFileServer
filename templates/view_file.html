@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>{{ filename }}</title>
+    <meta charset="utf-8">
+    <!-- 引入本地GitHub风格的Markdown CSS -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/github-markdown-light.min.css') }}">
+    <style>
+        body { margin: 0; padding: 20px; background-color: #f5f5f5; }
+        .container { max-width: 1000px; margin: auto; background-color: #fff; padding: 20px; border-radius: 5px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
+        h1 { color: #333; border-bottom: 2px solid #eee; padding-bottom: 10px; font-size: 1.2em; }
+        .content { margin-top: 20px; }
+        .markdown-body { box-sizing: border-box; min-width: 200px; max-width: 980px; margin: 0 auto; padding: 45px; }
+        .markdown-body img { max-width: 100%; height: auto; }
+        .image-container { text-align: center; }
+        .image-container img { max-width: 100%; height: auto; border: 1px solid #ddd; border-radius: 4px; }
+        .pdf-container { text-align: center; width: 100%; height: 90vh; }
+        .pdf-container embed { width: 100%; height: 90vh; border: 1px solid #ddd; border-radius: 4px; }
+        .back-link { margin-top: 20px; }
+        .back-link a { color: #1a73e8; text-decoration: none; }
+        .back-link a:hover { text-decoration: underline; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>正在预览: {{ filename }}</h1>
+        <div class="content">
+        {% if file_type == 'image' %}
+            <div class="image-container">
+                <img src="{{ url_for('download_file', filepath=filepath) }}" alt="{{ filename }}">
+            </div>
+        {% elif file_type == 'markdown' %}
+            <article class="markdown-body">
+                {{ content|safe }}
+            </article>
+        {% elif file_type == 'pdf' %}
+            <div class="pdf-container">
+                <embed src="{{ url_for('download_file', filepath=filepath) }}" type="application/pdf" />
+            </div>
+        {% else %}
+            <p>不支持直接预览此类型的文件。</p>
+            <a href="{{ url_for('download_file', filepath=filepath) }}">点击下载</a>
+        {% endif %}
+        </div>
+        <div class="back-link">
+            <a href="{{ back_url }}">&larr; 返回上一级</a>
+        </div>
+    </div>
+</body>
+</html>
+
+
+

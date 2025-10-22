@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>预览 Draw.io 图表</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap.min.css') }}">
+    <style>
+        body, html {
+            height: 100%;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+        }
+        .drawio-container {
+            height: 100vh;
+        }
+        .loading-spinner {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100%;
+            font-size: 1.2rem;
+            color: #6c757d;
+        }
+        .spinner {
+            width: 3rem;
+            height: 3rem;
+            margin-right: 1rem;
+        }
+        iframe {
+            width: 100%;
+            height: 100%;
+            border: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="drawio-container">
+        <div id="loading" class="loading-spinner">
+            <div class="spinner-border spinner" role="status"></div>
+            <span>正在加载 Draw.io 图表...</span>
+        </div>
+        <!-- Draw.io预览iframe，使用embed模式 -->
+        <iframe id="drawio-iframe" style="display: none;"></iframe>
+    </div>
+    
+    <script src="{{ url_for('static', filename='js/bootstrap.min.js') }}"></script>
+    <script>
+        // 图表文件路径和内容
+        const filepath = {{ filepath|tojson|safe }};
+        const initialContent = {{ diagram_content|tojson|safe }};
+        
+        console.log('[DEBUG] 预览模式 - filepath:', filepath);
+        console.log('[DEBUG] 预览模式 - initialContent length:', initialContent ? initialContent.length : 0);
+        
+        // 构建iframe src（使用lightbox模式 + URL hash）
+        const iframe = document.getElementById('drawio-iframe');
+        
+        // lightbox模式：只读预览，使用URL hash传递内容
+        let iframeSrc = '/drawio?offline=1&stealth=1&local=1&lang=zh&lightbox=1&chrome=0&nav=1&edit=_blank';
+        
+        // 如果有内容，使用URL hash传递（lightbox模式的标准做法）
+        if (initialContent && initialContent.length > 0) {
+            console.log('[DEBUG] 使用URL hash传递预览内容');
+            try {
+                // 方式1: 直接编码XML
+                const encoded = encodeURIComponent(initialContent);
+                iframeSrc += '#R' + encoded;
+                console.log('[DEBUG] 预览内容已编码到URL');
+            } catch (e) {
+                console.error('[ERROR] 编码预览内容失败:', e);
+            }
+        }
+        
+        iframe.src = iframeSrc;
+        console.log('[DEBUG] 设置预览iframe src (lightbox模式)');
+        
+        // 等待iframe加载完成
+        iframe.onload = function() {
+            console.log('[DEBUG] 预览iframe加载完成');
+            document.getElementById('loading').style.display = 'none';
+            iframe.style.display = 'block';
+        };
+    </script>
+</body>
+</html>

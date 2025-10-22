@@ -1,0 +1,960 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Yobboy 文件服务器</title>
+    <!-- 本地 CSS 资源 -->
+    <link href="{{ url_for('static', filename='css/bootstrap.min.css') }}" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/font-awesome.min.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/github-markdown-light.min.css') }}">
+    <style>
+        html, body {
+            height: 100%;
+            margin: 0;
+            padding: 0;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background-attachment: fixed;
+            scroll-behavior: smooth; /* 启用平滑滚动 */
+        }
+        body {
+            padding: 20px 0;
+            position: relative;
+        }
+        /* 主容器 */
+        .container-main {
+            background-color: white;
+            border-radius: 12px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+            min-height: calc(100vh - 40px);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            transition: box-shadow 0.3s ease;
+        }
+        .container-main:hover {
+            box-shadow: 0 15px 35px rgba(0, 0, 0, 0.15);
+        }
+
+        /* 标题和登出按钮区域 */
+        .header-row {
+            padding: 20px 25px;
+            background: linear-gradient(90deg, #f8f9fa, #e9ecef);
+            border-bottom: 1px solid #dee2e6;
+        }
+        .header-row .col {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .header-row h2 {
+            margin: 0;
+            font-weight: 600;
+            color: #2c3e50;
+        }
+        .header-actions {
+            display: flex;
+            gap: 10px;
+        }
+        .header-btn {
+            padding: 6px 12px !important;
+            border-radius: 6px;
+            transition: all 0.3s ease;
+        }
+        .header-btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        }
+
+        /* Breadcrumb 区域 - 移除旧样式，避免与新结构冲突 */
+        .breadcrumb-container {
+            position: relative;
+            z-index: 999;
+        }
+        .breadcrumb-link {
+            transition: all 0.2s ease;
+        }
+        .breadcrumb-link:hover {
+            background-color: #e3f2fd !important;
+            transform: translateY(-1px);
+            box-shadow: 0 2px 4px rgba(0, 123, 255, 0.15);
+        }
+
+        /* 内容区域容器 */
+        .content-container {
+            flex-grow: 1;
+            padding: 0;
+            overflow: hidden;
+        }
+
+        /* 文件列表区域样式 */
+        #fileListSection {
+            padding: 25px;
+            border-bottom: 1px solid #e9ecef;
+        }
+        #fileListSection h4 {
+            margin-bottom: 20px;
+            font-weight: 600;
+            color: #2c3e50;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .file-list-container {
+            background-color: #f8f9fa;
+            border-radius: 8px;
+            padding: 15px;
+            max-height: 600px;
+            overflow-y: auto;
+            box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.05);
+        }
+        .file-list {
+            list-style-type: none;
+            padding-left: 0;
+            margin-bottom: 0;
+            background-color: white;
+            border-radius: 6px;
+            overflow: hidden;
+        }
+        .file-item {
+            display: flex;
+            align-items: center;
+            padding: 12px 15px;
+            border-bottom: 1px solid #f1f3f4;
+            transition: background-color 0.2s ease;
+        }
+        .file-item:hover {
+            background-color: #f8f9fa;
+        }
+        .file-item:last-child {
+            border-bottom: none;
+        }
+        .file-icon {
+            margin-right: 15px;
+            width: 24px;
+            text-align: center;
+            flex-shrink: 0;
+            font-size: 1.2rem;
+        }
+        .file-link {
+            text-decoration: none;
+            color: #2c3e50;
+            flex-grow: 1;
+            margin-right: 15px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            cursor: pointer;
+            font-size: 1rem;
+            transition: color 0.2s ease;
+        }
+        .file-link:hover {
+            color: #007bff;
+        }
+        /* 文件操作区域样式 */
+        .file-actions {
+            display: inline-block;
+            margin-left: 10px;
+        }
+        .file-actions .download-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 4px 8px;
+            color: #007bff;
+            text-decoration: none;
+            border-radius: 4px;
+            transition: all 0.2s ease;
+        }
+        .file-actions .download-btn:hover {
+            background-color: #f8f9fa;
+            color: #0056b3;
+        }
+
+        /* 预览区域样式 */
+        #previewSection {
+            padding: 25px;
+            background-color: #fafafa;
+        }
+        #previewSection h2 {
+            margin-bottom: 20px;
+            font-weight: 600;
+            color: #2c3e50;
+            display: flex;
+            align-items: center;
+        }
+        #previewSection h2 i {
+            margin-right: 10px;
+            color: #28a745;
+        }
+        /* 修改预览区域样式，增加高度到屏幕90%左右 */
+        .preview-pane {
+            display: flex;
+            flex-direction: column;
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            overflow: hidden;
+            background-color: white;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+            min-height: 90vh; /* 确保预览区至少占屏幕90%高度 */
+        }
+        .preview-content {
+            flex-grow: 1;
+            overflow-y: auto;
+            padding: 20px;
+            min-height: calc(85vh - 60px); /* 预览内容区域高度 */
+        }
+        
+        /* 调整文件列表区域，使其在预览时可以隐藏或缩小 */
+        #fileListSection {
+            transition: all 0.3s ease;
+        }
+        
+        /* 优化文件列表最大高度，避免占用过多空间 */
+        .file-list-container {
+            background-color: #f8f9fa;
+            border-radius: 8px;
+            padding: 15px;
+            max-height: 400px;
+            overflow-y: auto;
+            box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.05);
+        }
+        
+        /* 响应式调整 */
+        @media (max-width: 768px) {
+            .preview-pane {
+                min-height: 80vh;
+            }
+            .preview-content {
+                min-height: calc(75vh - 60px);
+            }
+            .file-list-container {
+                max-height: 300px;
+            }
+        }
+        .preview-header {
+            padding: 15px 20px;
+            border-bottom: 1px solid #dee2e6;
+            background: linear-gradient(90deg, #f8f9fa, #e9ecef);
+        }
+        .preview-header h5 {
+            margin: 0;
+            font-weight: 500;
+            color: #2c3e50;
+        }
+        .preview-content {
+            flex-grow: 1;
+            overflow-y: auto;
+            padding: 20px;
+        }
+        .no-preview-placeholder {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 400px;
+            color: #6c757d;
+            font-style: italic;
+            flex-direction: column;
+        }
+        .no-preview-placeholder i {
+            font-size: 3rem;
+            margin-bottom: 15px;
+            opacity: 0.5;
+        }
+
+        /* 文件类型样式 */
+        .image-container {
+            text-align: center;
+            padding: 20px;
+        }
+        .image-container img {
+            max-width: 100%;
+            max-height: 70vh;
+            object-fit: contain;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        }
+        .pdf-container {
+            height: 70vh;
+        }
+        .pdf-container embed {
+            width: 100%;
+            height: 100%;
+            border-radius: 6px;
+        }
+        .audio-container {
+            padding: 20px;
+            background-color: #f8f9fa;
+            border-radius: 8px;
+            text-align: center;
+        }
+        .audio-container audio {
+            width: 100%;
+            max-width: 600px;
+        }
+        .text-container,
+        .code-container {
+            word-break: break-all;
+        }
+        /* 代码预览样式增强 */
+        .code-container pre {
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            font-size: 0.9rem;
+            border-radius: 6px;
+            border: none;
+            background-color: #282c34;
+            color: #abb2bf;
+            padding: 16px;
+            overflow-x: auto;
+            line-height: 1.5;
+        }
+        
+        /* 语法高亮基础样式 */
+        .code-container .keyword {
+            color: #c678dd;
+        }
+        .code-container .string {
+            color: #98c379;
+        }
+        .code-container .comment {
+            color: #5c6370;
+            font-style: italic;
+        }
+        .code-container .number {
+            color: #d19a66;
+        }
+        .code-container .operator {
+            color: #56b6c2;
+        }
+        .code-container .function {
+            color: #61afef;
+        }
+        .code-container .class-name {
+            color: #e6c07b;
+        }
+        
+        /* 不同语言特定样式 */
+        .language-python .keyword {
+            color: #c678dd;
+        }
+        .language-javascript .keyword {
+            color: #c678dd;
+        }
+        .language-html .tag {
+            color: #e06c75;
+        }
+        .language-css .property {
+            color: #56b6c2;
+        }
+        .office-preview-info {
+            padding: 25px;
+            text-align: center;
+            background-color: #e7f3ff;
+            border: 1px solid #add8e6;
+            border-radius: 8px;
+            margin: 20px;
+        }
+
+        /* 浮动滚动按钮样式 */
+        .scroll-btn {
+            position: fixed;
+            right: 30px;
+            z-index: 1000;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 55px;
+            height: 55px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
+        .scroll-btn.visible {
+            opacity: 0.9;
+            visibility: visible;
+        }
+        .scroll-btn:hover {
+            opacity: 1;
+            transform: translateY(-3px);
+            box-shadow: 0 6px 16px rgba(0, 0, 0, 0.25);
+        }
+        .scroll-btn:active {
+            transform: translateY(-1px);
+        }
+        .scroll-btn i {
+            font-size: 1.4rem;
+        }
+        #scrollToTopBtn {
+            bottom: 120px;
+        }
+        #scrollToBottomBtn {
+            bottom: 55px;
+        }
+
+        /* 响应式设计 */
+        @media (max-width: 768px) {
+            body {
+                padding: 10px 0;
+            }
+            .container-main {
+                min-height: calc(100vh - 20px);
+                border-radius: 8px;
+            }
+            .header-row,
+            .breadcrumb-row,
+            #fileListSection,
+            #previewSection {
+                padding: 15px;
+            }
+            .scroll-btn {
+                width: 45px;
+                height: 45px;
+                right: 20px;
+            }
+            .scroll-btn i {
+                font-size: 1.2rem;
+            }
+            #scrollToTopBtn {
+                bottom: 100px;
+            }
+            #scrollToBottomBtn {
+                bottom: 45px;
+            }
+            .file-list-container {
+                max-height: 400px;
+            }
+        }
+
+        /* 加载动画样式 */
+        .spinner-container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 200px;
+        }
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 4px solid rgba(0, 123, 255, 0.1);
+            border-left-color: #007bff;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        /* 页面跳转链接 */
+        .jump-link {
+            display: inline-flex;
+            align-items: center;
+            text-decoration: none;
+            color: #007bff;
+            margin-left: 20px;
+            padding: 5px 10px;
+            border-radius: 4px;
+            transition: background-color 0.2s ease;
+        }
+        .jump-link:hover {
+            background-color: rgba(0, 123, 255, 0.1);
+            text-decoration: none;
+            color: #0056b3;
+        }
+        /* 确保面包屑导航可点击 */
+        .breadcrumb-row {
+            position: relative;
+            z-index: 100;
+            pointer-events: auto;
+        }
+        .breadcrumb {
+            margin: 0;
+            padding: 0.75rem 1rem;
+            background: transparent;
+            border-radius: 0.25rem;
+        }
+        .breadcrumb a {
+            position: relative;
+            z-index: 101;
+            pointer-events: auto;
+            cursor: pointer;
+            display: inline-block;
+            padding: 2px 5px;
+            text-decoration: none !important;
+            color: #007bff !important;
+        }
+        .breadcrumb a:hover {
+            text-decoration: underline !important;
+            color: #0056b3 !important;
+            background-color: rgba(0, 123, 255, 0.05);
+        }
+        /* 防止任何可能遮挡面包屑的元素 */
+        .breadcrumb-row::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: transparent;
+            z-index: 99;
+        }
+        .jump-link i {
+            margin-right: 5px;
+        }
+        
+        /* Markdown 任务列表样式 */
+        .markdown-body ul.task-list {
+            list-style: none;
+            padding-left: 0;
+        }
+        .markdown-body ul.task-list li {
+            position: relative;
+            padding-left: 25px;
+            margin: 8px 0;
+        }
+        .markdown-body ul.task-list li input[type="checkbox"] {
+            position: absolute;
+            left: 0;
+            top: 2px;
+            margin: 0;
+            width: 16px;
+            height: 16px;
+            cursor: pointer;
+        }
+        .markdown-body ul.task-list li.task-list-item {
+            list-style: none;
+        }
+        .markdown-body ul.task-list li.task-list-item.task-list-item-checked {
+            text-decoration: line-through;
+            opacity: 0.7;
+        }
+    </style>
+</head>
+<body>
+    <div class="container-fluid">
+        <div class="row justify-content-center">
+            <div class="col-xxl-10 col-xl-11 col-lg-12">
+                <div class="container-main">
+                    <!-- 标题和登出按钮 -->
+                    <div class="header-row">
+                        <div class="col">
+                            <h2><i class="fas fa-server"></i> Yobboy 文件服务器</h2>
+                            <div class="header-actions">
+                                <a href="{{ url_for('set_root') }}" class="btn btn-outline-secondary btn-sm header-btn">
+                                    <i class="fas fa-folder-open"></i> 更换文件夹
+                                </a>
+                                <a href="{{ url_for('index') }}" class="btn btn-outline-danger btn-sm header-btn">
+                                    <i class="fas fa-arrow-left"></i> 返回选择界面
+                                </a>
+                                <a href="#previewSection" class="jump-link">
+                                    <i class="fas fa-arrow-down"></i> 预览区
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+
+                <!-- 面包屑导航 - 完全重构实现 -->
+                <div style="
+                    margin: 20px 0;
+                    padding: 10px;
+                    background: #f8f9fa;
+                    border-radius: 4px;
+                    white-space: nowrap;
+                    overflow-x: auto;
+                ">
+                    <div style="display: inline-flex; align-items: center;">
+                        <!-- 根目录链接 -->
+                        <a href="{{ url_for('file_browser') }}" style="
+                            padding: 8px 16px;
+                            background: #28a745;
+                            color: white;
+                            text-decoration: none;
+                            border-radius: 4px;
+                            font-weight: bold;
+                            margin-right: 5px;
+                            display: inline-block;
+                            cursor: pointer;
+                        ">
+                            <i class="fas fa-home"></i> 根目录
+                        </a>
+                        
+                        <!-- 路径分隔符和子目录 -->
+                        {% if current_path %}
+                            {% set path_segments = current_path.split('/') %}
+                            {% set current_build_path = [] %}
+                            
+                            {% for segment in path_segments %}
+                                {% if segment %}
+                                    <!-- 路径分隔符 -->
+                                    <span style="margin: 0 5px; color: #666;">/</span>
+                                    
+                                    <!-- 构建当前段的完整路径 -->
+                                    {% set _ = current_build_path.append(segment) %}
+                                    {% set full_path = current_build_path|join('/') %}
+                                    
+                                    <!-- 检查是否为最后一个段 -->
+                                    {% if loop.last %}
+                                        <!-- 当前目录 -->
+                                        <span style="
+                                            padding: 8px 16px;
+                                            background: #e9ecef;
+                                            color: #333;
+                                            border-radius: 4px;
+                                            font-size: 14px;
+                                            font-weight: bold;
+                                            display: inline-block;
+                                        ">
+                                            {{ segment }}
+                                        </span>
+                                    {% else %}
+                                        <!-- 子目录链接 -->
+                                        <a href="{{ url_for('file_browser', path=full_path) }}" style="
+                                            padding: 8px 16px;
+                                            background: #007bff;
+                                            color: white;
+                                            text-decoration: none;
+                                            border-radius: 4px;
+                                            font-size: 14px;
+                                            font-weight: bold;
+                                            display: inline-block;
+                                            cursor: pointer;
+                                            transition: all 0.2s ease;
+                                        ">
+                                            {{ segment }}
+                                        </a>
+                                    {% endif %}
+                                {% endif %}
+                            {% endfor %}
+                        {% endif %}
+                    </div>
+                </div>
+
+                    <!-- 内容区域容器 -->
+                    <div class="content-container">
+                        <!-- 文件列表区域 -->
+                        <section id="fileListSection">
+            <h4>
+                <i class="fas fa-list"></i> 文件列表
+            </h4>
+                            <div class="file-list-container">
+                                {% if directories or files %}
+                                    <ul class="file-list">
+                                        {% if parent_rel_path %}
+                                            <li class="file-item">
+                                                <span class="file-icon"><i class="fas fa-arrow-up"></i></span>
+                                                <a href="{{ url_for('file_browser', path=parent_rel_path) }}" class="file-link">
+                                                    <i class="fas fa-folder"></i> ..
+                                                </a>
+                                            </li>
+                                        {% endif %}
+                                        <!-- 渲染目录 -->
+                                        {% for item in directories %}
+                                            <li class="file-item">
+                                                <span class="file-icon">
+                                                    <i class="fas fa-folder" style="color: #ffc107;"></i>
+                                                </span>
+                                                <a href="{{ url_for('file_browser', path=item.path) }}" class="file-link">{{ item.name }}</a>
+                                            </li>
+                                        {% endfor %}
+                                        <!-- 渲染文件 -->
+                                        {% for item in files %}
+                                            <li class="file-item">
+                                                <span class="file-icon">
+                                                    {% set ext = item.name.split('.')[-1].lower() if '.' in item.name else '' %}
+                                            {% if ext in ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp'] %}
+                                                <i class="fas fa-file-image" style="color: #28a745;"></i>
+                                            {% elif ext in ['pdf'] %}
+                                                <i class="fas fa-file-pdf" style="color: #dc3545;"></i>
+                                            {% elif ext in ['md'] %}
+                                                <i class="fas fa-file-alt" style="color: #6c757d;"></i>
+                                            {% elif ext in ['doc', 'docx'] %}
+                                                <i class="fas fa-file-word" style="color: #185abd;"></i>
+                                            {% elif ext in ['xls', 'xlsx'] %}
+                                                <i class="fas fa-file-excel" style="color: #207245;"></i>
+                                            {% elif ext in ['ppt', 'pptx'] %}
+                                                <i class="fas fa-file-powerpoint" style="color: #d04324;"></i>
+                                            {% elif ext in ['mp3', 'wav', 'flac', 'ogg', 'wma', 'm4a'] %}
+                                                <i class="fas fa-file-audio" style="color: #8A2BE2;"></i>
+                                            {% elif ext in ['txt', 'csv', 'log', 'json', 'xml', 'yaml', 'yml'] %}
+                                                <i class="fas fa-file-alt" style="color: #6c757d;"></i>
+                                            {% elif ext in ['py', 'js', 'html', 'css', 'scss', 'php', 'java', 'c', 'cpp', 'cs', 'go', 'rb', 'sh', 'bat', 'sql', 'ts', 'tsx', 'jsx'] %}
+                                                <i class="fas fa-file-code" style="color: #007acc;"></i>
+                                            {% elif ext in ['mp4', 'mov', 'avi', 'wmv', 'webm'] %}
+                                                <i class="fas fa-file-video" style="color: #ff0000;"></i>
+                                            {% else %}
+                                                <i class="fas fa-file" style="color: #6c757d;"></i>
+                                            {% endif %}
+                                                </span>
+                                                <a href="#" class="file-link preview-trigger" data-filepath="{{ item.path }}">{{ item.name }}</a>
+                                                <div class="file-actions">
+                                                    <a href="{{ url_for('download_file', filepath=item.path) }}" class="download-btn" title="下载 {{ item.name }}" target="_blank">
+                                                        <i class="fas fa-download"></i>
+                                                    </a>
+                                                </div>
+                                            </li>
+                                        {% endfor %}
+                                    </ul>
+                                {% else %}
+                                    <div class="text-center py-5 text-muted">
+                                        <i class="fas fa-folder-open text-3xl mb-3"></i>
+                                        <p>该目录为空</p>
+                                    </div>
+                                {% endif %}
+                            </div>
+                        </section>
+
+                        <!-- 预览区域 -->
+                        <section id="previewSection">
+                            <div class="d-flex justify-content-between items-center mb-3">
+                                <h2><i class="fas fa-eye"></i> 文件预览</h2>
+                                <div class="d-flex gap-2">
+                                    <a href="#fileListSection" class="jump-link">
+                                        <i class="fas fa-arrow-up"></i> 文件列表
+                                    </a>
+                                </div>
+                            </div>
+                            <div id="previewPane" class="preview-pane">
+                                <div class="preview-header">
+                                    <h5 id="previewTitle" class="mb-0">请选择一个文件</h5>
+                                </div>
+                                <div class="preview-content">
+                                    <div class="no-preview-placeholder">
+                                        <i class="fas fa-file-alt"></i>
+                                        <p>请选择一个文件以查看预览</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </section>
+                    </div> <!-- /内容区域容器 -->
+                </div> <!-- /container-main -->
+            </div> <!-- /col -->
+        </div> <!-- /row -->
+    </div> <!-- /container-fluid -->
+
+    <!-- 浮动滚动按钮 -->
+    <button id="scrollToTopBtn" class="scroll-btn" title="回到顶部">
+        <i class="fas fa-arrow-up"></i>
+    </button>
+    <button id="scrollToBottomBtn" class="scroll-btn" title="到底部">
+        <i class="fas fa-arrow-down"></i>
+    </button>
+
+    <!-- 本地 JS 资源 -->
+    <script src="{{ url_for('static', filename='js/jquery-3.6.0.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/bootstrap.bundle.min.js') }}"></script>
+    <script>
+        // 确保在DOM加载完成后执行
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('DOM content loaded');
+            
+            // 调试面包屑导航
+            const breadcrumbLinks = document.querySelectorAll('.breadcrumb-link');
+            console.log('Breadcrumb links count:', breadcrumbLinks.length);
+            
+            breadcrumbLinks.forEach(function(link) {
+                link.addEventListener('click', function(e) {
+                    console.log('Breadcrumb link clicked:', this.href);
+                    // 不阻止默认行为，让链接正常工作
+                });
+            });
+            
+            // 使用原生JavaScript绑定事件，避免jQuery兼容性问题
+            const fileLinks = document.querySelectorAll('.file-link.preview-trigger');
+            console.log('File links count:', fileLinks.length);
+            
+            fileLinks.forEach(function(link) {
+                link.addEventListener('click', function(e) {
+                    console.log('Preview link clicked');
+                    
+                    // 获取文件名和路径
+                    const filename = this.textContent;
+                    const filepath = this.getAttribute('data-filepath');
+                    
+                    // 对于所有文件，执行普通预览
+                    e.preventDefault();
+                    e.stopPropagation();
+                    
+                    console.log('Previewing:', filepath, filename);
+                    
+                    const previewTitle = document.getElementById('previewTitle');
+        const previewContent = document.querySelector('.preview-content');
+        const noPreviewPlaceholder = document.querySelector('.no-preview-placeholder');
+        
+        previewTitle.textContent = `文件预览: ${filename}`;
+        previewContent.innerHTML = '<div class="spinner-container"><div class="spinner"></div></div>';
+        
+        // 确保元素存在后再访问其属性
+        if (noPreviewPlaceholder) {
+            noPreviewPlaceholder.style.display = 'none';
+        }
+                    
+                    // 使用Fetch API代替jQuery AJAX
+                    fetch('/get_preview_content', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({ filepath: filepath })
+                    })
+                    .then(response => response.json())
+                    .then(data => {
+                        console.log('Fetch success:', data);
+                        if (data.error) {
+                            if (previewContent) {
+                                previewContent.innerHTML = `<div class="alert alert-danger mt-3" role="alert">
+                                    <i class="fas fa-exclamation-circle"></i> 预览失败: ${data.error}
+                                </div>`;
+                            }
+                        } else {
+                            if (previewContent) {
+                                previewContent.innerHTML = data.content_html;
+                                
+                                // 如果是drawio文件，在header中添加编辑按钮
+                                if (data.file_type === 'drawio') {
+                                    previewTitle.innerHTML = `
+                                        <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+                                            <span>文件预览: ${filename}</span>
+                                            <a href="/drawio_main?filepath=${encodeURIComponent(filepath)}" 
+                                               class="btn btn-sm btn-primary" 
+                                               target="_blank" 
+                                               style="font-size: 0.9rem;">
+                                                ✏️ 编辑图表
+                                            </a>
+                                        </div>
+                                    `;
+                                }
+                                
+                                // 应用简单的代码高亮
+                                applySimpleHighlighting();
+                                
+                                // 滚动到预览区域
+                                const previewSection = document.getElementById('previewSection');
+                                if (previewSection) {
+                                    previewSection.scrollIntoView({ behavior: 'smooth' });
+                                }
+                            }
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Fetch error:', error);
+                        if (previewContent) {
+                            previewContent.innerHTML = '<div class="alert alert-danger mt-3" role="alert"><i class="fas fa-exclamation-circle"></i> 无法加载预览内容</div>';
+                        }
+                    });
+                });
+            });
+            
+            // 简单的语法高亮函数
+            function applySimpleHighlighting() {
+                const codeBlocks = document.querySelectorAll('.code-preview code, .code-container pre code');
+                if (codeBlocks && codeBlocks.length > 0) {
+                    codeBlocks.forEach(block => {
+                        let code = block.textContent;
+                        const language = block.parentElement.className.includes('language-') ? 
+                            block.parentElement.className.split('language-')[1].split(' ')[0] : '';
+                        
+                        // Python语法高亮
+                        if (language === 'python') {
+                            code = code
+                                // 关键字
+                                .replace(/\b(False|None|True|and|as|assert|async|await|break|class|continue|def|del|elif|else|except|finally|for|from|global|if|import|in|is|lambda|nonlocal|not|or|pass|raise|return|try|while|with|yield)\b/g, '<span class="keyword">$1</span>')
+                                // 字符串
+                                .replace(/('''[\s\S]*?'''|"""[\s\S]*?"""|'[^']*'|"[^"]*")/g, '<span class="string">$1</span>')
+                                // 注释
+                                .replace(/#.*$/gm, '<span class="comment">$&</span>')
+                                // 数字
+                                .replace(/\b\d+(\.\d+)?\b/g, '<span class="number">$&</span>');
+                        }
+                        // JavaScript语法高亮
+                        else if (language === 'javascript' || language === 'typescript') {
+                            code = code
+                                // 关键字
+                                .replace(/\b(abstract|arguments|await|boolean|break|byte|case|catch|char|class|const|continue|debugger|default|delete|do|double|else|enum|eval|export|extends|false|final|finally|float|for|function|goto|if|implements|import|in|instanceof|int|interface|let|long|native|new|null|package|private|protected|public|return|short|static|super|switch|synchronized|this|throw|throws|transient|true|try|typeof|var|void|volatile|while|with|yield)\b/g, '<span class="keyword">$1</span>')
+                                // 字符串
+                                .replace(/('''[\s\S]*?'''|"""[\s\S]*?"""|'[^']*'|"[^"]*")/g, '<span class="string">$1</span>')
+                                // 注释
+                                .replace(/\/\/.*$/gm, '<span class="comment">$&</span>')
+                                .replace(/\/\*[\s\S]*?\*\//g, '<span class="comment">$&</span>')
+                                // 数字
+                                .replace(/\b\d+(\.\d+)?\b/g, '<span class="number">$&</span>');
+                        }
+                        // HTML语法高亮
+                        else if (language === 'html') {
+                            code = code
+                                // 标签
+                                .replace(/<[^>]+>/g, '<span class="tag">$&</span>')
+                                // 字符串属性值
+                                .replace(/(=)('([^']*)'|"([^"]*)"|([^\s>]*))/g, '$1<span class="string">$2</span>')
+                                // 注释
+                                .replace(/<!--[\s\S]*?-->/g, '<span class="comment">$&</span>')
+                        }
+                        // CSS语法高亮
+                        else if (language === 'css') {
+                            code = code
+                                // 属性
+                                .replace(/([a-zA-Z-]+)(?=\s*:)/g, '<span class="property">$1</span>')
+                                // 值
+                                .replace(/(:\s*)([^;]+)/g, '$1<span class="string">$2</span>')
+                                // 注释
+                                .replace(/\/\*[\s\S]*?\*\//g, '<span class="comment">$&</span>')
+                                // 选择器中的ID和类
+                                .replace(/#[a-zA-Z0-9_-]+/g, '<span class="class-name">$&</span>')
+                                .replace(/\.[a-zA-Z0-9_-]+/g, '<span class="class-name">$&</span>');
+                        }
+                        
+                        block.innerHTML = code;
+                    });
+                }
+            }
+            
+            // 滚动按钮功能
+            const scrollToTopBtn = document.getElementById('scrollToTopBtn');
+            const scrollToBottomBtn = document.getElementById('scrollToBottomBtn');
+            
+            function toggleScrollButtons() {
+                if (window.scrollY > 300) {
+                    scrollToTopBtn.classList.add('visible');
+                } else {
+                    scrollToTopBtn.classList.remove('visible');
+                }
+                
+                if (window.scrollY < document.body.offsetHeight - window.innerHeight - 300) {
+                    scrollToBottomBtn.classList.add('visible');
+                } else {
+                    scrollToBottomBtn.classList.remove('visible');
+                }
+            }
+            
+            toggleScrollButtons();
+            window.addEventListener('scroll', toggleScrollButtons);
+            
+            scrollToTopBtn.addEventListener('click', function() {
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+            });
+            
+            scrollToBottomBtn.addEventListener('click', function() {
+                window.scrollTo({ top: document.body.offsetHeight - window.innerHeight, behavior: 'smooth' });
+            });
+            
+            // 平滑滚动到锚点
+            document.querySelectorAll('a[href^="#"]:not([href="#"]):not(.breadcrumb-link)').forEach(anchor => {
+                anchor.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    const targetId = this.getAttribute('href');
+                    const targetElement = document.querySelector(targetId);
+                    if (targetElement) {
+                        targetElement.scrollIntoView({ behavior: 'smooth' });
+                    }
+                });
+            });
+        });
+    </script>
+</body>
+</html>

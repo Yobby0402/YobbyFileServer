@@ -1,0 +1,22 @@
+# Web Framework
+Flask>=3.1.0
+Werkzeug>=3.0.0
+
+# GUI Framework
+PyQt5>=5.15.0
+
+# Markdown Rendering
+markdown-it-py>=3.0.0
+mdit-py-plugins>=0.4.0
+
+# Syntax Highlighting
+Pygments>=2.18.0
+
+# Image Processing
+Pillow>=10.0.0
+
+# Additional Dependencies
+Jinja2>=3.1.0
+MarkupSafe>=2.1.0
+
+

@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Yobboy文件服务器</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap.min.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/fontawesome.min.css') }}">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Microsoft YaHei', Arial, sans-serif;
+            height: 100vh;
+            overflow: hidden;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+        
+        .main-container {
+            display: flex;
+            height: 100vh;
+        }
+        
+        .choice-section {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .choice-section:hover {
+            transform: scale(1.02);
+        }
+        
+        .choice-section:hover::before {
+            opacity: 0.1;
+        }
+        
+        .choice-section::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(255, 255, 255, 0.1);
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+        
+        .file-browser {
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+        }
+        
+        .drawio-editor {
+            background: linear-gradient(135deg, #fa709a 0%, #fee140 100%);
+        }
+        
+        .choice-content {
+            text-align: center;
+            color: white;
+            z-index: 2;
+            position: relative;
+        }
+        
+        .choice-icon {
+            font-size: 4rem;
+            margin-bottom: 20px;
+            display: block;
+            transition: transform 0.3s ease;
+        }
+        
+        .choice-section:hover .choice-icon {
+            animation: bounce 0.6s ease;
+        }
+        
+        .choice-title {
+            font-size: 2.5rem;
+            font-weight: bold;
+            margin-bottom: 15px;
+            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+        }
+        
+        .choice-description {
+            font-size: 1.1rem;
+            opacity: 0.9;
+            max-width: 300px;
+            line-height: 1.6;
+            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+        }
+        
+        .divider {
+            width: 2px;
+            background: rgba(255, 255, 255, 0.3);
+            position: relative;
+        }
+        
+        .footer {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            text-align: center;
+            padding: 15px;
+            font-size: 0.9rem;
+        }
+        
+        .logout-link {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 10;
+        }
+        
+        .logout-link a {
+            color: white;
+            text-decoration: none;
+            background: rgba(0, 0, 0, 0.3);
+            padding: 10px 20px;
+            border-radius: 20px;
+            transition: background 0.3s ease;
+        }
+        
+        .logout-link a:hover {
+            background: rgba(0, 0, 0, 0.6);
+            color: white;
+        }
+        
+        @keyframes bounce {
+            0%, 100% {
+                transform: translateY(0);
+            }
+            25% {
+                transform: translateY(-15px);
+            }
+            50% {
+                transform: translateY(0);
+            }
+            75% {
+                transform: translateY(-8px);
+            }
+        }
+        
+        @media (max-width: 768px) {
+            .main-container {
+                flex-direction: column;
+            }
+            
+            .divider {
+                width: 100%;
+                height: 2px;
+            }
+            
+            .choice-title {
+                font-size: 2rem;
+            }
+            
+            .choice-icon {
+                font-size: 3rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="logout-link">
+        <a href="/logout">退出登录</a>
+    </div>
+    
+    <div class="main-container">
+        <div class="choice-section file-browser" onclick="window.location.href='/file_browser'">
+            <div class="choice-content">
+                <span class="choice-icon">📁</span>
+                <h2 class="choice-title">文件浏览器</h2>
+                <p class="choice-description">
+                    浏览、预览和下载服务器上的文件<br>
+                    支持多种文件格式查看和下载<br>
+                    全离线模式，仅局域网内访问，访问记录可查询
+                </p>
+            </div>
+        </div>
+        
+        <div class="divider"></div>
+        
+        <div class="choice-section drawio-editor" onclick="window.location.href='/drawio_main'">
+            <div class="choice-content">
+                <span class="choice-icon">📊</span>
+                <h2 class="choice-title">Draw.io 编辑器</h2>
+                <p class="choice-description">
+                    创建和编辑流程图、架构图<br>
+                    支持本地文件上传和服务器保存<br>
+                    全离线模式，不依赖第三方服务，本地存储，安全可靠
+                </p>
+            </div>
+        </div>
+    </div>
+    
+    <div class="footer">
+        © 2025 Yobboy文件服务器 - 本地化文件管理与图表编辑解决方案
+        <br>
+        <a href="/help" style="color: #4facfe; text-decoration: none; margin-top: 10px; display: inline-block;">
+            <i class="fa fa-question-circle"></i> 使用帮助
+        </a>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/bootstrap.bundle.min.js') }}"></script>
+</body>
+</html>
