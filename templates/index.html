@@ -358,7 +358,7 @@
         /* 浮动滚动按钮样式 */
         .scroll-btn {
             position: fixed;
-            right: 30px;
+            right: 100px; /* 往左移动，避免与工具栏重叠 */
             z-index: 1000;
             background-color: #007bff;
             color: white;
@@ -397,6 +397,80 @@
             bottom: 55px;
         }
 
+        /* 浮动工具栏样式 - 参考drawio设计 */
+        .floating-toolbar {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            z-index: 10000;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        
+        .toolbar-btn {
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            border: none;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            font-size: 24px;
+            cursor: pointer;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            text-decoration: none;
+        }
+        
+        .toolbar-btn:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+            color: white;
+            text-decoration: none;
+        }
+        
+        .toolbar-btn:active {
+            transform: translateY(-1px);
+        }
+        
+        .toolbar-btn.back-btn {
+            background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);
+        }
+        
+        .toolbar-btn.logout-btn {
+            background: linear-gradient(135deg, #fa709a 0%, #fee140 100%);
+        }
+        
+        .toolbar-btn.change-folder-btn {
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+        }
+        
+        .toolbar-btn.set-root-btn {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+        }
+        
+        .toolbar-btn .tooltip-text {
+            position: absolute;
+            right: 70px;
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 5px 10px;
+            border-radius: 4px;
+            white-space: nowrap;
+            font-size: 14px;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s;
+        }
+        
+        .toolbar-btn:hover .tooltip-text {
+            opacity: 1;
+        }
+
         /* 响应式设计 */
         @media (max-width: 768px) {
             body {
@@ -415,7 +489,7 @@
             .scroll-btn {
                 width: 45px;
                 height: 45px;
-                right: 20px;
+                right: 75px; /* 移动端也往左移 */
             }
             .scroll-btn i {
                 font-size: 1.2rem;
@@ -428,6 +502,15 @@
             }
             .file-list-container {
                 max-height: 400px;
+            }
+            .floating-toolbar {
+                right: 10px;
+                bottom: 10px;
+            }
+            .toolbar-btn {
+                width: 50px;
+                height: 50px;
+                font-size: 20px;
             }
         }
 
@@ -542,17 +625,11 @@
         <div class="row justify-content-center">
             <div class="col-xxl-10 col-xl-11 col-lg-12">
                 <div class="container-main">
-                    <!-- 标题和登出按钮 -->
+                    <!-- 标题 -->
                     <div class="header-row">
                         <div class="col">
                             <h2><i class="fas fa-server"></i> Yobboy 文件服务器</h2>
                             <div class="header-actions">
-                                <a href="{{ url_for('set_root') }}" class="btn btn-outline-secondary btn-sm header-btn">
-                                    <i class="fas fa-folder-open"></i> 更换文件夹
-                                </a>
-                                <a href="{{ url_for('index') }}" class="btn btn-outline-danger btn-sm header-btn">
-                                    <i class="fas fa-arrow-left"></i> 返回选择界面
-                                </a>
                                 <a href="#previewSection" class="jump-link">
                                     <i class="fas fa-arrow-down"></i> 预览区
                                 </a>
@@ -738,6 +815,26 @@
         </div> <!-- /row -->
     </div> <!-- /container-fluid -->
 
+    <!-- 浮动工具栏 -->
+    <div class="floating-toolbar">
+        <a href="{{ url_for('set_root') }}" class="toolbar-btn change-folder-btn" title="更换文件夹">
+            📁
+            <span class="tooltip-text">更换文件夹</span>
+        </a>
+        <button id="setCurrentAsRootBtn" class="toolbar-btn set-root-btn" title="设为共享文件夹">
+            📌
+            <span class="tooltip-text">设为共享文件夹</span>
+        </button>
+        <a href="{{ url_for('index') }}" class="toolbar-btn back-btn" title="返回选择界面">
+            🏠
+            <span class="tooltip-text">返回选择界面</span>
+        </a>
+        <a href="{{ url_for('logout') }}" class="toolbar-btn logout-btn" title="登出" onclick="return confirm('确定要登出吗？');">
+            🚪
+            <span class="tooltip-text">登出</span>
+        </a>
+    </div>
+    
     <!-- 浮动滚动按钮 -->
     <button id="scrollToTopBtn" class="scroll-btn" title="回到顶部">
         <i class="fas fa-arrow-up"></i>
@@ -954,6 +1051,36 @@
                     }
                 });
             });
+            
+            // 设置当前文件夹为共享文件夹
+            const setCurrentAsRootBtn = document.getElementById('setCurrentAsRootBtn');
+            if (setCurrentAsRootBtn) {
+                setCurrentAsRootBtn.addEventListener('click', function() {
+                    const currentPath = '{{ current_path }}';
+                    if (confirm('确定要将当前文件夹设置为共享文件夹吗？\n\n当前路径: ' + (currentPath || '根目录'))) {
+                        fetch('/set_current_as_root', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({ path: currentPath })
+                        })
+                        .then(response => response.json())
+                        .then(data => {
+                            if (data.success) {
+                                alert('共享文件夹已设置成功！\n\n新的共享路径: ' + data.new_root);
+                                // 重新加载页面到新的根目录
+                                window.location.href = '{{ url_for("file_browser") }}';
+                            } else {
+                                alert('设置失败: ' + data.error);
+                            }
+                        })
+                        .catch(error => {
+                            alert('设置失败: ' + error);
+                        });
+                    }
+                });
+            }
         });
     </script>
 </body>

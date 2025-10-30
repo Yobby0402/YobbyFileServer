@@ -456,6 +456,62 @@ def init_app(app):
             # GET请求，显示设置页面
             return render_template('set_root.html', current_root=current_root)
     
+    @app.route('/set_current_as_root', methods=['POST'])
+    def set_current_as_root():
+        """将当前浏览的文件夹设置为共享根目录"""
+        if 'logged_in' not in session:
+            return jsonify({'error': '请先登录'}), 401
+        
+        data = request.get_json()
+        current_path = data.get('path', '')
+        
+        # 获取当前根目录
+        root_dir = current_app.config.get('ROOT_DIR')
+        if not root_dir:
+            return jsonify({'error': '根目录未设置'}), 400
+        
+        # 计算新的根目录路径
+        if current_path:
+            new_root = os.path.join(root_dir, current_path)
+        else:
+            new_root = root_dir
+        
+        # 验证新路径
+        try:
+            new_root = os.path.normpath(new_root)
+            if not os.path.exists(new_root) or not os.path.isdir(new_root):
+                return jsonify({'error': '目标路径不存在或不是目录'}), 400
+        except Exception as e:
+            return jsonify({'error': f'路径验证失败: {e}'}), 400
+        
+        # 更新配置
+        current_app.config['ROOT_DIR'] = new_root
+        
+        # 保存到配置文件
+        try:
+            config = configparser.ConfigParser()
+            current_password = current_app.config.get('PASSWORD')
+            if not current_password:
+                current_password = 'ats123'
+                print("警告: 保存配置时未找到密码，使用默认密码")
+            
+            config['settings'] = {
+                'root_dir': new_root,
+                'password': current_password
+            }
+            
+            config_file = current_app.config.get('CONFIG_FILE', 'config.ini')
+            with open(config_file, 'w', encoding='utf-8') as f:
+                config.write(f)
+            
+            return jsonify({
+                'success': True,
+                'new_root': new_root,
+                'message': '共享文件夹已更新'
+            })
+        except Exception as e:
+            return jsonify({'error': f'保存配置失败: {e}'}), 500
+    
     @app.route('/get_preview_content', methods=['POST'])
     def get_preview_content():
         """获取文件预览内容"""
