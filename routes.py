@@ -10,6 +10,7 @@ from markdown_it import MarkdownIt
 from mdit_py_plugins import tasklists, deflist, footnote
 from urllib.parse import quote # 导入 quote 用于编码文件名
 import posixpath # 用于处理 URL 路径
+from share_links import ShareLinkManager  # 导入分享链接管理器
 
 # 检查用户是否已登录的函数
 def is_logged_in():
@@ -90,6 +91,7 @@ IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.svg', '.webp']
 MARKDOWN_EXTENSIONS = ['.md', '.markdown']
 PDF_EXTENSIONS = ['.pdf']
 VIDEO_EXTENSIONS = ['.mp4', '.avi', '.mov', '.wmv']
+AUDIO_EXTENSIONS = ['.mp3', '.wav', '.flac', '.ogg', '.wma', '.m4a', '.aac']  # 音频文件格式
 DRAWIO_EXTENSIONS = ['.drawio', '.diagram', '.dio', '.xml']  # 添加.xml作为draw.io格式
 
 # 修复init_app函数内部的Draw.io路由
@@ -98,6 +100,10 @@ def init_app(app):
     """初始化路由"""
     global current_app
     current_app = app
+    
+    # 初始化分享链接管理器
+    share_manager = ShareLinkManager()
+    app.config['SHARE_MANAGER'] = share_manager
     
     # 初始化Draw.io静态文件目录（静默检查，不影响运行）
     # Draw.io是可选功能，不存在也不影响文件浏览器功能
@@ -424,26 +430,32 @@ def init_app(app):
     
     @app.route('/set_root', methods=['GET', 'POST'])
     def set_root():
-        """设置根目录"""
+        """设置根目录（需要管理员密码）"""
         if 'logged_in' not in session:
             return redirect(url_for('login'))
         
         current_root = current_app.config.get('ROOT_DIR')
         
         if request.method == 'POST':
-            new_root = request.form.get('root_path')  # 修改为root_path以匹配表单字段名
+            new_root = request.form.get('root_path')
+            admin_password = request.form.get('admin_password')  # 获取管理员密码
+            
+            # 验证管理员密码
+            correct_admin_password = current_app.config.get('ADMIN_PASSWORD', 'admin123')
+            if admin_password != correct_admin_password:
+                return render_template('set_root.html', 
+                                     error="管理员密码错误！无法修改目录。", 
+                                     current_root=current_root)
+            
             if new_root and os.path.exists(new_root) and os.path.isdir(new_root):
                 current_app.config['ROOT_DIR'] = new_root
-                # 保存到配置文件，使用与main.py相同的配置文件路径
-                # 确保保留原有的密码，不使用默认值覆盖
+                # 保存到配置文件，保留所有配置
                 config = configparser.ConfigParser()
-                current_password = current_app.config.get('PASSWORD')
-                if not current_password:
-                    current_password = 'ats123'
-                    print("警告: 保存配置时未找到密码，使用默认密码")
+                current_password = current_app.config.get('PASSWORD', 'ats123')
                 config['settings'] = {
                     'root_dir': new_root,
-                    'password': current_password
+                    'password': current_password,
+                    'admin_password': correct_admin_password
                 }
                 # 获取配置文件路径
                 config_file = current_app.config.get('CONFIG_FILE', 'config.ini')
@@ -458,12 +470,18 @@ def init_app(app):
     
     @app.route('/set_current_as_root', methods=['POST'])
     def set_current_as_root():
-        """将当前浏览的文件夹设置为共享根目录"""
+        """将当前浏览的文件夹设置为共享根目录（需要管理员密码）"""
         if 'logged_in' not in session:
             return jsonify({'error': '请先登录'}), 401
         
         data = request.get_json()
         current_path = data.get('path', '')
+        admin_password = data.get('admin_password', '')  # 获取管理员密码
+        
+        # 验证管理员密码
+        correct_admin_password = current_app.config.get('ADMIN_PASSWORD', 'admin123')
+        if admin_password != correct_admin_password:
+            return jsonify({'error': '管理员密码错误！无法修改目录。', 'require_password': True}), 403
         
         # 获取当前根目录
         root_dir = current_app.config.get('ROOT_DIR')
@@ -490,14 +508,12 @@ def init_app(app):
         # 保存到配置文件
         try:
             config = configparser.ConfigParser()
-            current_password = current_app.config.get('PASSWORD')
-            if not current_password:
-                current_password = 'ats123'
-                print("警告: 保存配置时未找到密码，使用默认密码")
+            current_password = current_app.config.get('PASSWORD', 'ats123')
             
             config['settings'] = {
                 'root_dir': new_root,
-                'password': current_password
+                'password': current_password,
+                'admin_password': correct_admin_password
             }
             
             config_file = current_app.config.get('CONFIG_FILE', 'config.ini')
@@ -577,6 +593,19 @@ def init_app(app):
         elif ext in VIDEO_EXTENSIONS:
             file_type = 'video'
             content_html = f'<div class="video-container"><video controls src="{preview_url}"></video></div>'
+        elif ext in AUDIO_EXTENSIONS:
+            file_type = 'audio'
+            content_html = f'''
+            <div class="audio-player-container">
+                <div class="audio-info">
+                    <h3><i class="fas fa-music"></i> {filename}</h3>
+                    <p>音频文件</p>
+                </div>
+                <audio controls src="{preview_url}" style="width: 100%; max-width: 600px;">
+                    您的浏览器不支持音频播放
+                </audio>
+            </div>
+            '''
         elif ext in DRAWIO_EXTENSIONS:
             file_type = 'drawio'
             # 提供draw.io文件的预览功能，编辑按钮在header中
@@ -906,10 +935,12 @@ def init_app(app):
     @app.route('/drawio_embed')
     def drawio_embed():
         """嵌入draw.io编辑器用于预览"""
-        if not is_logged_in():
-            return redirect(url_for('login'))
+        # 注意：此路由用于分享链接预览，不需要登录检查
+        # 登录检查在分享链接路由中已完成
         
         filepath = request.args.get('filepath')
+        readonly = request.args.get('readonly', '0')  # 是否只读模式
+        
         if not filepath:
             return make_response("文件路径不能为空", 400)
         
@@ -938,7 +969,8 @@ def init_app(app):
         
         return render_template('drawio_embed.html', 
                               filepath=filepath, 
-                              diagram_content=diagram_content)
+                              diagram_content=diagram_content,
+                              readonly=(readonly == '1'))
 
 
 
@@ -1041,6 +1073,324 @@ def init_app(app):
     def drawio_proxy():
         """禁用Draw.io的代理功能，返回404"""
         return '', 404
+
+    # =============================
+    # 分享链接功能路由
+    # =============================
+    
+    @app.route('/create_share', methods=['POST'])
+    def create_share():
+        """创建分享链接"""
+        if not is_logged_in():
+            return jsonify({'error': '请先登录'}), 401
+        
+        data = request.get_json()
+        file_path = data.get('file_path')
+        is_directory = data.get('is_directory', False)
+        password = data.get('password', '')
+        expire_hours = data.get('expire_hours')
+        max_visits = data.get('max_visits', -1)
+        description = data.get('description', '')
+        
+        if not file_path:
+            return jsonify({'error': '文件路径不能为空'}), 400
+        
+        # 验证文件是否存在
+        root_dir = current_app.config.get('ROOT_DIR')
+        full_path = os.path.join(root_dir, file_path)
+        
+        try:
+            full_path = os.path.normpath(full_path)
+            if not full_path.startswith(os.path.normpath(root_dir)):
+                return jsonify({'error': '访问被拒绝'}), 403
+            if not os.path.exists(full_path):
+                return jsonify({'error': '文件不存在'}), 404
+        except Exception as e:
+            return jsonify({'error': f'路径验证失败: {e}'}), 400
+        
+        # 创建分享链接
+        try:
+            share_manager = current_app.config['SHARE_MANAGER']
+            share_info = share_manager.create_share_link(
+                file_path=file_path,
+                is_directory=is_directory,
+                password=password if password else None,
+                expire_hours=int(expire_hours) if expire_hours else None,
+                max_visits=int(max_visits) if max_visits else -1,
+                created_by=session.get('username', 'anonymous'),
+                description=description
+            )
+            
+            # 生成完整的分享链接URL
+            share_url = url_for('share_view', share_code=share_info['share_code'], _external=True)
+            share_info['share_url'] = share_url
+            
+            return jsonify({
+                'success': True,
+                'message': '分享链接创建成功',
+                'data': share_info
+            })
+        except Exception as e:
+            return jsonify({'error': f'创建分享链接失败: {e}'}), 500
+    
+    @app.route('/share/<share_code>')
+    def share_view(share_code):
+        """访问分享链接"""
+        share_manager = current_app.config['SHARE_MANAGER']
+        
+        # 检查是否需要密码
+        link = share_manager.get_share_link(share_code)
+        if not link:
+            return render_template('share_error.html', 
+                                 error='分享链接不存在或已被删除'), 404
+        
+        # 如果需要密码且未验证，显示密码输入页面
+        if link['password'] and not session.get(f'share_verified_{share_code}'):
+            return render_template('share_password.html', share_code=share_code)
+        
+        # 验证分享链接
+        result = share_manager.verify_share_link(share_code)
+        if not result['valid']:
+            return render_template('share_error.html', error=result['reason']), 403
+        
+        # 记录访问
+        client_ip = request.environ.get('REMOTE_ADDR', 'unknown')
+        user_agent = request.headers.get('User-Agent', '')
+        share_manager.record_visit(share_code, client_ip, user_agent)
+        
+        # 获取文件信息
+        link_data = result['data']
+        root_dir = current_app.config.get('ROOT_DIR')
+        full_path = os.path.join(root_dir, link_data['file_path'])
+        
+        # 安全检查
+        try:
+            full_path = os.path.normpath(full_path)
+            if not full_path.startswith(os.path.normpath(root_dir)):
+                return render_template('share_error.html', error='访问被拒绝'), 403
+        except Exception:
+            return render_template('share_error.html', error='路径解析错误'), 400
+        
+        if not os.path.exists(full_path):
+            return render_template('share_error.html', error='文件不存在'), 404
+        
+        # 渲染分享页面
+        return render_template('share_view.html',
+                             share_code=share_code,
+                             link_data=link_data,
+                             file_path=link_data['file_path'],
+                             is_directory=link_data['is_directory'],
+                             filename=os.path.basename(full_path))
+    
+    @app.route('/share/<share_code>/verify', methods=['POST'])
+    def share_verify_password(share_code):
+        """验证分享链接密码"""
+        data = request.get_json()
+        password = data.get('password', '')
+        
+        share_manager = current_app.config['SHARE_MANAGER']
+        result = share_manager.verify_share_link(share_code, password)
+        
+        if result['valid']:
+            # 标记为已验证
+            session[f'share_verified_{share_code}'] = True
+            return jsonify({'success': True, 'message': '验证成功'})
+        else:
+            return jsonify({'success': False, 'message': result['reason']}), 403
+    
+    @app.route('/share/<share_code>/download')
+    def share_download(share_code):
+        """下载分享的文件"""
+        share_manager = current_app.config['SHARE_MANAGER']
+        
+        # 检查是否已验证密码
+        link = share_manager.get_share_link(share_code)
+        if not link:
+            abort(404)
+        
+        if link['password'] and not session.get(f'share_verified_{share_code}'):
+            abort(403)
+        
+        # 验证分享链接
+        result = share_manager.verify_share_link(share_code)
+        if not result['valid']:
+            abort(403)
+        
+        # 获取文件
+        link_data = result['data']
+        root_dir = current_app.config.get('ROOT_DIR')
+        full_path = os.path.join(root_dir, link_data['file_path'])
+        
+        try:
+            full_path = os.path.normpath(full_path)
+            if not full_path.startswith(os.path.normpath(root_dir)):
+                abort(403)
+        except Exception:
+            abort(400)
+        
+        if not os.path.exists(full_path) or os.path.isdir(full_path):
+            abort(404)
+        
+        directory = os.path.dirname(full_path)
+        filename = os.path.basename(full_path)
+        
+        return send_from_directory(directory, filename, as_attachment=True)
+    
+    @app.route('/share/<share_code>/preview')
+    def share_preview(share_code):
+        """预览分享的文件"""
+        share_manager = current_app.config['SHARE_MANAGER']
+        
+        # 检查是否已验证密码
+        link = share_manager.get_share_link(share_code)
+        if not link:
+            abort(404)
+        
+        if link['password'] and not session.get(f'share_verified_{share_code}'):
+            abort(403)
+        
+        # 验证分享链接
+        result = share_manager.verify_share_link(share_code)
+        if not result['valid']:
+            abort(403)
+        
+        # 获取文件
+        link_data = result['data']
+        root_dir = current_app.config.get('ROOT_DIR')
+        full_path = os.path.join(root_dir, link_data['file_path'])
+        
+        try:
+            full_path = os.path.normpath(full_path)
+            if not full_path.startswith(os.path.normpath(root_dir)):
+                abort(403)
+        except Exception:
+            abort(400)
+        
+        if not os.path.exists(full_path) or os.path.isdir(full_path):
+            abort(404)
+        
+        directory = os.path.dirname(full_path)
+        filename = os.path.basename(full_path)
+        
+        # 根据文件扩展名设置MIME类型或渲染预览页面
+        _, ext = os.path.splitext(filename.lower())
+        
+        # 对于drawio文件，返回预览页面而不是文件本身
+        if ext in DRAWIO_EXTENSIONS:
+            # 读取drawio文件内容
+            try:
+                with open(full_path, 'r', encoding='utf-8') as f:
+                    diagram_content = f.read()
+            except Exception as e:
+                diagram_content = ''
+            
+            # 返回drawio预览页面
+            return render_template('share_drawio_preview.html',
+                                 share_code=share_code,
+                                 filename=filename,
+                                 diagram_content=diagram_content,
+                                 file_path=link_data['file_path'])
+        
+        # 对于Markdown文件，返回渲染后的HTML
+        elif ext in MARKDOWN_EXTENSIONS:
+            try:
+                with open(full_path, 'r', encoding='utf-8') as f:
+                    markdown_content = f.read()
+                html_content = render_markdown_content(markdown_content, link_data['file_path'])
+            except Exception as e:
+                html_content = f'<p>读取文件时出错: {e}</p>'
+            
+            return render_template('share_markdown_preview.html',
+                                 share_code=share_code,
+                                 filename=filename,
+                                 content=html_content)
+        
+        # 对于其他文件类型，设置正确的MIME类型并发送
+        mimetype = None
+        
+        if ext in IMAGE_EXTENSIONS:
+            if ext in ['.jpg', '.jpeg']:
+                mimetype = 'image/jpeg'
+            elif ext == '.png':
+                mimetype = 'image/png'
+            elif ext == '.gif':
+                mimetype = 'image/gif'
+            elif ext == '.svg':
+                mimetype = 'image/svg+xml'
+            elif ext == '.webp':
+                mimetype = 'image/webp'
+        elif ext == '.pdf':
+            mimetype = 'application/pdf'
+        elif ext in VIDEO_EXTENSIONS:
+            if ext == '.mp4':
+                mimetype = 'video/mp4'
+            elif ext == '.avi':
+                mimetype = 'video/x-msvideo'
+            elif ext == '.mov':
+                mimetype = 'video/quicktime'
+        elif ext in AUDIO_EXTENSIONS:
+            if ext == '.mp3':
+                mimetype = 'audio/mpeg'
+            elif ext == '.wav':
+                mimetype = 'audio/wav'
+            elif ext == '.ogg':
+                mimetype = 'audio/ogg'
+            elif ext == '.m4a':
+                mimetype = 'audio/mp4'
+        
+        return send_from_directory(directory, filename, as_attachment=False, mimetype=mimetype)
+    
+    @app.route('/manage_shares')
+    def manage_shares():
+        """管理分享链接页面"""
+        if not is_logged_in():
+            return redirect(url_for('login'))
+        
+        share_manager = current_app.config['SHARE_MANAGER']
+        
+        # 清理过期链接
+        share_manager.cleanup_expired_links()
+        
+        # 获取所有分享链接
+        shares = share_manager.get_all_share_links()
+        
+        # 为每个分享链接生成完整URL
+        for share in shares:
+            share['share_url'] = url_for('share_view', 
+                                        share_code=share['share_code'], 
+                                        _external=True)
+        
+        from datetime import datetime
+        return render_template('manage_shares.html', shares=shares, now=datetime.now().isoformat())
+    
+    @app.route('/delete_share/<share_code>', methods=['POST'])
+    def delete_share(share_code):
+        """删除分享链接"""
+        if not is_logged_in():
+            return jsonify({'error': '请先登录'}), 401
+        
+        share_manager = current_app.config['SHARE_MANAGER']
+        
+        if share_manager.delete_share_link(share_code):
+            return jsonify({'success': True, 'message': '分享链接已删除'})
+        else:
+            return jsonify({'success': False, 'message': '删除失败'}), 500
+    
+    @app.route('/share_stats/<share_code>')
+    def share_stats(share_code):
+        """查看分享链接统计"""
+        if not is_logged_in():
+            return redirect(url_for('login'))
+        
+        share_manager = current_app.config['SHARE_MANAGER']
+        stats = share_manager.get_visit_stats(share_code)
+        
+        if not stats['link']:
+            abort(404)
+        
+        return render_template('share_stats.html', 
+                             share_code=share_code,
+                             stats=stats)
 
 
 

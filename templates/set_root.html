@@ -131,13 +131,13 @@
 <body>
     <div class="settings-card">
         <div class="settings-icon">
-            <i class="fa fa-folder-tree"></i>
+            <i class="fas fa-folder"></i>
         </div>
         <h1>设置共享文件夹</h1>
         
         {% if current_root %}
             <div class="current-root">
-                <strong><i class="fa fa-info-circle"></i> 当前共享目录:</strong>
+                <strong><i class="fas fa-info-circle"></i> 当前共享目录:</strong>
                 <span class="current-root-path">{{ current_root }}</span>
             </div>
         {% endif %}
@@ -147,19 +147,28 @@
                 <label for="root_path" class="form-label">共享路径</label>
                 <input type="text" class="form-control" id="root_path" name="root_path" placeholder="请输入要共享的文件夹路径" value="{{ current_root or '' }}" required>
             </div>
+            <div class="form-group">
+                <label for="admin_password" class="form-label" style="color: #e74c3c;">
+                    <i class="fas fa-lock"></i> 管理员密码
+                </label>
+                <input type="password" class="form-control" id="admin_password" name="admin_password" placeholder="修改目录需要管理员密码" required style="border-color: #e74c3c;">
+                <small class="text-muted" style="display: block; margin-top: 5px;">
+                    ⚠️ 此操作需要管理员密码验证
+                </small>
+            </div>
             <button type="submit" class="btn btn-primary">
-                <i class="fa fa-check-circle mr-2"></i>设置并进入
+                <i class="fas fa-check-circle mr-2"></i>设置并进入
             </button>
         </form>
         
         {% if error %}
             <div class="alert alert-danger">
-                <i class="fa fa-exclamation-circle mr-2"></i>{{ error }}
+                <i class="fas fa-exclamation-circle mr-2"></i>{{ error }}
             </div>
         {% endif %}
         
         <div class="hint">
-            <i class="fa fa-lightbulb-o"></i> 路径示例:
+            <i class="fas fa-lightbulb"></i> 路径示例:
             <ul>
                 <li>Windows: C:\MyFiles 或 C:/MyFiles</li>
                 <li>Linux/Mac: /home/user/documents</li>

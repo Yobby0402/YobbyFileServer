@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>管理分享链接 - Yobboy 文件服务器</title>
+    <link href="{{ url_for('static', filename='css/bootstrap.min.css') }}" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/font-awesome.min.css') }}">
+    <style>
+        body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background-attachment: fixed;
+            padding: 20px 0;
+        }
+        .container-main {
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+            padding: 30px;
+            margin: 20px auto;
+            max-width: 1200px;
+        }
+        .page-header {
+            margin-bottom: 30px;
+            padding-bottom: 20px;
+            border-bottom: 2px solid #e9ecef;
+        }
+        .page-header h1 {
+            color: #2c3e50;
+            font-size: 1.8rem;
+            font-weight: 700;
+            margin-bottom: 10px;
+        }
+        .page-header p {
+            color: #6c757d;
+            font-size: 1rem;
+        }
+        .share-table {
+            width: 100%;
+            margin-bottom: 1rem;
+        }
+        .share-card {
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 15px;
+            border: 2px solid #dee2e6;
+            transition: all 0.3s ease;
+        }
+        .share-card:hover {
+            border-color: #667eea;
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.2);
+        }
+        .share-card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+        .share-file-name {
+            font-size: 1.15rem;
+            font-weight: 600;
+            color: #2c3e50;
+            margin-bottom: 5px;
+        }
+        .share-file-name i {
+            margin-right: 8px;
+        }
+        .share-card small {
+            color: #6c757d;
+            font-size: 0.9rem;
+        }
+        .share-info {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin: 15px 0;
+        }
+        .info-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.95rem;
+        }
+        .info-item i {
+            color: #667eea;
+            font-size: 1.05rem;
+        }
+        .info-item span {
+            color: #495057;
+        }
+        .info-item strong {
+            color: #2c3e50;
+        }
+        .share-url {
+            background: white;
+            padding: 10px 15px;
+            border-radius: 5px;
+            border: 1px solid #dee2e6;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin: 15px 0;
+        }
+        .share-url input {
+            flex: 1;
+            border: none;
+            outline: none;
+            font-family: monospace;
+            color: #495057;
+        }
+        .btn-group-actions {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        .badge {
+            font-size: 0.85rem;
+            padding: 5px 10px;
+        }
+        .expired {
+            opacity: 0.6;
+        }
+        .expired .share-card {
+            background: #ffe5e5;
+            border-color: #dc3545;
+        }
+        .no-shares {
+            text-align: center;
+            padding: 60px 20px;
+            color: #6c757d;
+        }
+        .no-shares i {
+            font-size: 4rem;
+            margin-bottom: 20px;
+            opacity: 0.5;
+        }
+    </style>
+</head>
+<body>
+    <div class="container-main">
+        <div class="page-header">
+            <div class="d-flex justify-content-between align-items-center">
+                <div>
+                    <h1><i class="fas fa-share-nodes"></i> 管理分享链接</h1>
+                    <p class="text-muted mb-0">查看和管理您创建的所有分享链接</p>
+                </div>
+                <div>
+                    <a href="{{ url_for('file_browser') }}" class="btn btn-primary">
+                        <i class="fas fa-arrow-left"></i> 返回文件浏览器
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        {% if shares %}
+        <div class="alert alert-info">
+            <i class="fas fa-info-circle"></i> 
+            共有 <strong>{{ shares|length }}</strong> 个分享链接
+        </div>
+
+        <div class="shares-list">
+            {% for share in shares %}
+            <div class="share-card {% if share.expire_time and share.expire_time < now %}expired{% endif %}">
+                <div class="share-card-header">
+                    <div>
+                        <div class="share-file-name">
+                            <i class="fas {% if share.is_directory %}fa-folder{% else %}fa-file{% endif %}"></i>
+                            {{ share.file_path.split('/')[-1] or '根目录' }}
+                        </div>
+                        {% if share.description %}
+                        <small class="text-muted">{{ share.description }}</small>
+                        {% endif %}
+                    </div>
+                    <div>
+                        {% if share.password %}
+                        <span class="badge bg-warning"><i class="fas fa-lock"></i> 需要密码</span>
+                        {% endif %}
+                        {% if share.expire_time %}
+                            {% if share.expire_time < now %}
+                            <span class="badge bg-danger"><i class="fas fa-clock"></i> 已过期</span>
+                            {% else %}
+                            <span class="badge bg-success"><i class="fas fa-clock"></i> 有效</span>
+                            {% endif %}
+                        {% else %}
+                        <span class="badge bg-primary"><i class="fas fa-infinity"></i> 永久</span>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <div class="share-info">
+                    <div class="info-item">
+                        <i class="fas fa-link"></i>
+                        <span>分享码: <strong>{{ share.share_code }}</strong></span>
+                    </div>
+                    <div class="info-item">
+                        <i class="fas fa-eye"></i>
+                        <span>访问: <strong>{{ share.current_visits }}</strong>
+                        {% if share.max_visits > 0 %} / {{ share.max_visits }}{% else %} / 不限{% endif %}</span>
+                    </div>
+                    <div class="info-item">
+                        <i class="fas fa-calendar"></i>
+                        <span>创建: {{ share.created_at[:19] }}</span>
+                    </div>
+                    {% if share.expire_time %}
+                    <div class="info-item">
+                        <i class="fas fa-hourglass-end"></i>
+                        <span>过期: {{ share.expire_time[:19] }}</span>
+                    </div>
+                    {% endif %}
+                </div>
+
+                <div class="share-url">
+                    <input type="text" value="{{ share.share_url }}" readonly id="url-{{ share.share_code }}">
+                    <button class="btn btn-sm btn-outline-primary copy-btn" data-target="url-{{ share.share_code }}">
+                        <i class="fas fa-copy"></i> 复制
+                    </button>
+                </div>
+
+                <div class="btn-group-actions">
+                    <a href="{{ share.share_url }}" class="btn btn-sm btn-primary" target="_blank">
+                        <i class="fas fa-external-link-alt"></i> 访问
+                    </a>
+                    <a href="{{ url_for('share_stats', share_code=share.share_code) }}" class="btn btn-sm btn-info">
+                        <i class="fas fa-chart-bar"></i> 统计
+                    </a>
+                    <button class="btn btn-sm btn-danger delete-btn" data-share-code="{{ share.share_code }}">
+                        <i class="fas fa-trash"></i> 删除
+                    </button>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="no-shares">
+            <i class="fas fa-share-alt"></i>
+            <h3>还没有分享链接</h3>
+            <p class="text-muted">返回文件浏览器，点击文件旁边的分享按钮创建分享链接</p>
+            <a href="{{ url_for('file_browser') }}" class="btn btn-primary mt-3">
+                <i class="fas fa-arrow-left"></i> 返回文件浏览器
+            </a>
+        </div>
+        {% endif %}
+    </div>
+
+    <script src="{{ url_for('static', filename='js/bootstrap.bundle.min.js') }}"></script>
+    <script>
+        // 复制链接
+        document.querySelectorAll('.copy-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                const targetId = this.getAttribute('data-target');
+                const input = document.getElementById(targetId);
+                input.select();
+                document.execCommand('copy');
+                
+                const originalHtml = this.innerHTML;
+                this.innerHTML = '<i class="fas fa-check"></i> 已复制';
+                this.classList.add('btn-success');
+                this.classList.remove('btn-outline-primary');
+                
+                setTimeout(() => {
+                    this.innerHTML = originalHtml;
+                    this.classList.remove('btn-success');
+                    this.classList.add('btn-outline-primary');
+                }, 2000);
+            });
+        });
+
+        // 删除分享
+        document.querySelectorAll('.delete-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                const shareCode = this.getAttribute('data-share-code');
+                
+                if (confirm('确定要删除这个分享链接吗？\n\n删除后链接将立即失效，他人将无法访问。')) {
+                    fetch(`/delete_share/${shareCode}`, {
+                        method: 'POST'
+                    })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success) {
+                            alert('✅ 分享链接已删除');
+                            window.location.reload();
+                        } else {
+                            alert('❌ 删除失败: ' + data.message);
+                        }
+                    })
+                    .catch(error => {
+                        alert('❌ 删除失败: ' + error);
+                    });
+                }
+            });
+        });
+    </script>
+</body>
+</html>
+

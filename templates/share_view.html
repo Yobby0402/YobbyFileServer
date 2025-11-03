@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>分享文件 - {{ filename }}</title>
+    <link href="{{ url_for('static', filename='css/bootstrap.min.css') }}" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/font-awesome.min.css') }}">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            font-family: 'Microsoft YaHei', 'Segoe UI', Arial, sans-serif;
+        }
+        .share-container {
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+            padding: 45px;
+            max-width: 800px;
+            width: 100%;
+        }
+        .share-header {
+            text-align: center;
+            margin-bottom: 35px;
+            padding-bottom: 25px;
+            border-bottom: 2px solid #e9ecef;
+        }
+        .share-header .file-icon {
+            font-size: 4.5rem;
+            color: #667eea;
+            margin-bottom: 20px;
+            display: block;
+        }
+        .share-header h1 {
+            color: #2c3e50;
+            font-size: 1.8rem;
+            font-weight: 700;
+            margin-bottom: 12px;
+        }
+        .share-header p {
+            color: #6c757d;
+            font-size: 1rem;
+            margin: 0;
+        }
+        .file-info {
+            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 50%);
+            border-radius: 12px;
+            padding: 25px;
+            margin-bottom: 25px;
+            border: 1px solid #dee2e6;
+        }
+        .info-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 0;
+            border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+        }
+        .info-row:last-child {
+            border-bottom: none;
+        }
+        .info-label {
+            font-weight: 600;
+            color: #495057;
+            font-size: 0.95rem;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .info-label i {
+            color: #667eea;
+            font-size: 1.1rem;
+        }
+        .info-value {
+            color: #2c3e50;
+            font-size: 0.95rem;
+            font-weight: 500;
+        }
+        .action-buttons {
+            display: flex;
+            gap: 15px;
+            margin-top: 30px;
+        }
+        .action-buttons .btn {
+            flex: 1;
+            padding: 14px 24px;
+            font-size: 1.05rem;
+            font-weight: 600;
+            border-radius: 8px;
+            border: none;
+            transition: all 0.3s ease;
+        }
+        .action-buttons .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
+        }
+        .action-buttons .btn i {
+            margin-right: 8px;
+        }
+        .badge {
+            font-size: 0.85rem;
+            padding: 6px 12px;
+            font-weight: 600;
+        }
+        .alert {
+            border-radius: 10px;
+            padding: 16px 20px;
+            font-size: 0.95rem;
+            border: none;
+        }
+        .alert i {
+            margin-right: 8px;
+        }
+        .text-center.mt-4 {
+            margin-top: 30px;
+            padding-top: 25px;
+            border-top: 1px solid #e9ecef;
+        }
+        .text-center.mt-4 p {
+            color: #6c757d;
+            font-size: 0.9rem;
+        }
+        /* 响应式 */
+        @media (max-width: 576px) {
+            .share-container {
+                padding: 30px 25px;
+            }
+            .share-header h1 {
+                font-size: 1.5rem;
+            }
+            .action-buttons {
+                flex-direction: column;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="share-container">
+        <div class="share-header">
+            <div class="file-icon">
+                <i class="fas fa-file-alt"></i>
+            </div>
+            <h1><i class="fas fa-share-alt"></i> 分享的文件</h1>
+            <p class="text-muted">{{ link_data.description or '有人分享了一个文件给你' }}</p>
+        </div>
+
+        <div class="file-info">
+            <div class="info-row">
+                <span class="info-label"><i class="fas fa-file"></i> 文件名：</span>
+                <span class="info-value">{{ filename }}</span>
+            </div>
+            {% if link_data.expire_time %}
+            <div class="info-row">
+                <span class="info-label"><i class="fas fa-clock"></i> 过期时间：</span>
+                <span class="info-value text-warning">{{ link_data.expire_time[:19] }}</span>
+            </div>
+            {% endif %}
+            {% if link_data.max_visits > 0 %}
+            <div class="info-row">
+                <span class="info-label"><i class="fas fa-eye"></i> 访问次数：</span>
+                <span class="info-value">
+                    <span class="badge bg-info">{{ link_data.current_visits }} / {{ link_data.max_visits }}</span>
+                </span>
+            </div>
+            {% endif %}
+            <div class="info-row">
+                <span class="info-label"><i class="fas fa-calendar"></i> 创建时间：</span>
+                <span class="info-value">{{ link_data.created_at[:19] }}</span>
+            </div>
+        </div>
+
+        <div class="action-buttons">
+            {% set ext = filename.split('.')[-1].lower() if '.' in filename else '' %}
+            {% if ext in ['drawio', 'diagram', 'dio'] %}
+            <a href="{{ url_for('share_preview', share_code=share_code) }}" 
+               class="btn btn-primary" 
+               target="_blank">
+                <i class="fas fa-project-diagram"></i> 预览图表
+            </a>
+            {% else %}
+            <a href="{{ url_for('share_preview', share_code=share_code) }}" 
+               class="btn btn-primary" 
+               target="_blank">
+                <i class="fas fa-eye"></i> 在线预览
+            </a>
+            {% endif %}
+            <a href="{{ url_for('share_download', share_code=share_code) }}" 
+               class="btn btn-success">
+                <i class="fas fa-download"></i> 下载文件
+            </a>
+        </div>
+        
+        {% if ext in ['drawio', 'diagram', 'dio'] %}
+        <div class="alert alert-info mt-3">
+            <i class="fas fa-info-circle"></i> 
+            这是一个Draw.io图表文件，点击"预览图表"可以在线查看图表内容（只读模式）。
+        </div>
+        {% endif %}
+
+        <div class="text-center mt-4">
+            <p class="text-muted small">
+                <i class="fas fa-info-circle"></i> 
+                此链接由 Yobboy 文件服务器 生成
+            </p>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/bootstrap.bundle.min.js') }}"></script>
+</body>
+</html>
+

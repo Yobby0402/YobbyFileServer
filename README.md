@@ -12,7 +12,7 @@
 [![PyQt5](https://img.shields.io/badge/PyQt5-5.15+-orange.svg)](https://www.riverbankcomputing.com/software/pyqt/)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-[中文](#中文文档) | [English](#english-documentation) | [快速开始 🚀](快速开始.md)
+[中文](#中文文档) | [English](#english-documentation) | [快速开始Quick Start 🚀](快速开始.md)
 
 </div>
 
@@ -45,7 +45,38 @@ Yobboy 文件服务器是一个集成了文件浏览、Markdown 预览、Draw.io
 不需要复杂配置，不需要记住奇怪的命令，双击 exe，点击启动，扫码/输网址，搞定！
 妈妈再也不用担心我不会搭建服务器了 😎
 
+### 🌟 v2.0 新功能
+
+- 🔍 **智能搜索**：实时搜索文件，支持按类型过滤
+- 🔗 **分享链接**：一键生成分享链接，支持密码、过期时间、访问限制
+- 🎵 **音频播放**：MP3/WAV/FLAC等音频文件在线播放
+- 🖼️ **图片灯箱**：点击图片全屏查看，支持下载
+- 📺 **全屏预览**：预览区域全屏显示，专注查看内容
+- 🔒 **管理员密码**：双重密码保护，防止随意修改目录
+- 🌐 **智能网络**：自动识别真实IP，排除虚拟网络接口
+
 ### ✨ 核心特性
+
+#### 🔍 智能搜索与过滤
+- **实时搜索**：输入关键词即时过滤文件列表
+- **类型过滤**：按文件类型快速筛选（图片、文档、视频、音频、代码等）
+- **组合使用**：搜索和过滤可同时使用，快速定位文件
+
+#### 🔗 分享链接系统
+- **一键分享**：点击分享按钮即可生成分享链接
+- **密码保护**：可选密码保护，保证分享安全
+- **灵活过期**：支持1小时到30天的过期时间设置
+- **访问限制**：可设置最大访问次数
+- **二维码分享**：自动生成二维码，手机扫码即可访问
+- **访问统计**：详细的访问记录和统计数据
+- **智能预览**：Drawio/Markdown文件在线预览，无需下载
+- **智能网络**：自动识别真实网卡IP，排除虚拟网络接口
+
+#### 🎵 多媒体增强
+- **音频播放**：支持MP3、WAV、FLAC等格式在线播放
+- **图片灯箱**：点击图片全屏查看，支持下载
+- **全屏预览**：预览区域支持全屏显示
+- **视频播放**：HTML5视频播放器，支持进度控制
 
 #### 🗂️ 文件浏览器
 - **多格式支持**：
@@ -75,6 +106,7 @@ Yobboy 文件服务器是一个集成了文件浏览、Markdown 预览、Draw.io
 - **系统托盘**：支持最小化到系统托盘，后台运行
 - **实时日志**：显示服务器运行日志和访问记录
 - **一键操作**：一键启动/停止服务器，自动打开浏览器
+- **双重密码**：登录密码 + 管理员密码，保护目录修改
 
 ### 🚀 快速开始
 
@@ -120,14 +152,17 @@ Pillow>=10.0.0
 
 ```ini
 [settings]
-root_dir = /path/to/your/files  # 文件服务器根目录
-password = your_password         # 登录密码（默认：ats123）
+root_dir = /path/to/your/files   # 文件服务器根目录
+password = ats123                 # 登录密码（默认：ats123）
+admin_password = admin123         # 管理员密码（默认：admin123）
 ```
 
 **注意**：
 - 配置文件位于程序所在目录或用户目录的 `.yobboy_file_server` 文件夹中
 - 可以通过 GUI 界面的"设置"菜单修改配置
+- 修改共享目录需要输入管理员密码
 - 修改配置后需要重启服务器才能生效
+- ⚠️ **首次运行请立即修改默认密码！**
 
 ### 🎯 使用指南
 
@@ -217,7 +252,38 @@ This project was born to save your back and your dignity!
 No complex configuration needed, no weird commands to memorize. Double-click exe, hit start, scan/type URL, done!
 Mom will never worry about me not knowing how to set up a server again 😎
 
+### 🌟 v2.0 New Features
+
+- 🔍 **Smart Search**: Real-time file search with type filtering
+- 🔗 **Share Links**: One-click share with password, expiration, and access limits
+- 🎵 **Audio Player**: Play MP3/WAV/FLAC and other audio files online
+- 🖼️ **Image Lightbox**: Click images for fullscreen view with download
+- 📺 **Fullscreen Preview**: Fullscreen mode for focused viewing
+- 🔒 **Admin Password**: Dual password protection for directory changes
+- 🌐 **Smart Network**: Auto-detect real IP, exclude virtual networks
+
 ### ✨ Key Features
+
+#### 🔍 Smart Search & Filter
+- **Real-time Search**: Instantly filter files as you type
+- **Type Filter**: Quick filter by file type (images, documents, videos, audio, code, etc.)
+- **Combined Use**: Use search and filter together to locate files quickly
+
+#### 🔗 Share Link System
+- **One-Click Share**: Generate share links with a single click
+- **Password Protection**: Optional password protection for security
+- **Flexible Expiration**: Set expiration from 1 hour to 30 days
+- **Access Limit**: Set maximum visit count
+- **QR Code**: Auto-generate QR codes for mobile access
+- **Visit Statistics**: Detailed access logs and statistics
+- **Smart Preview**: Online preview for Drawio/Markdown files
+- **Smart Network**: Auto-detect real LAN IP, exclude virtual networks
+
+#### 🎵 Multimedia Enhancement
+- **Audio Player**: Play MP3, WAV, FLAC and other formats online
+- **Image Lightbox**: Click to view images in fullscreen
+- **Fullscreen Preview**: Preview area supports fullscreen mode
+- **Video Player**: HTML5 video player with progress control
 
 #### 🗂️ File Browser
 - **Multi-format Support**:
@@ -249,6 +315,7 @@ Mom will never worry about me not knowing how to set up a server again 😎
 - **System Tray**: Support minimize to system tray for background running
 - **Real-time Logs**: Display server logs and access records
 - **One-click Operations**: Start/stop server with one click, auto-open browser
+- **Dual Password**: Login password + Admin password to protect directory changes
 
 ### 🚀 Quick Start
 
@@ -294,14 +361,17 @@ The program uses `config.ini` to save configuration (automatically created on fi
 
 ```ini
 [settings]
-root_dir = /path/to/your/files  # File server root directory
-password = your_password         # Login password (default: ats123)
+root_dir = /path/to/your/files   # File server root directory
+password = ats123                 # Login password (default: ats123)
+admin_password = admin123         # Admin password (default: admin123)
 ```
 
 **Notes**:
 - Config file is located in the program directory or user's `.yobboy_file_server` folder
 - You can modify settings through the GUI "Settings" menu
+- Changing shared directory requires admin password
 - Server restart required after configuration changes
+- ⚠️ **Please change default passwords immediately after first run!**
 
 ### 🎯 User Guide
 

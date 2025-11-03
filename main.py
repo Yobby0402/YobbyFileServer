@@ -12,7 +12,7 @@ import routes
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                                 QPushButton, QTextEdit, QLabel, QGroupBox, QMessageBox, 
                                 QSystemTrayIcon, QMenu, QAction, QDialog, QLineEdit, 
-                                QFileDialog, QFormLayout, QMenuBar)
+                                QFileDialog, QFormLayout, QMenuBar, QInputDialog)
 from PyQt5.QtCore import QProcess, QTimer, Qt, pyqtSignal, QObject, QThread
 from PyQt5.QtGui import QIcon, QTextCursor
 
@@ -117,26 +117,115 @@ connection_logger.propagate = False
 
 
 def get_local_ips():
-    """获取本机所有 IPv4 地址 (除回环地址)"""
+    """
+    获取本机所有 IPv4 地址，智能排序优先返回真实可用的局域网IP
+    优先级：
+    1. 通过默认路由的IP（最可能是真实物理网卡）
+    2. 常见局域网段的IP（10.x, 172.16-31.x, 192.168.x）
+    3. 其他非虚拟网络的IP
+    4. 排除虚拟网络接口（VMware、VirtualBox、Docker等）
+    """
     ip_list = []
+    default_ip = None
+    
+    # 虚拟网络常见IP段（需要排除或降低优先级）
+    virtual_prefixes = [
+        '192.168.56.',   # VirtualBox Host-Only
+        '192.168.99.',   # Docker Toolbox
+        '192.168.116.',  # VMware
+        '192.168.113.',  # VMware
+        '192.168.137.',  # Windows移动热点
+        '172.17.',       # Docker
+        '172.18.',       # Docker
+        '172.19.',       # Docker
+        '10.0.2.',       # VirtualBox NAT
+    ]
+    
+    # 1. 首先尝试获取默认路由的IP（最可靠的真实网卡IP）
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect(("8.8.8.8", 80))
+            default_ip = s.getsockname()[0]
+            print(f"[网络] 默认路由IP（推荐）: {default_ip}")
+    except Exception as e:
+        print(f"[网络] 无法获取默认路由IP: {e}")
+    
+    # 2. 获取所有网络接口的IP地址
     try:
         hostname = socket.gethostname()
         addr_info = socket.getaddrinfo(hostname, None)
         for info in addr_info:
             if info[0] == socket.AF_INET:
                 ip = info[4][0]
-                if ip != '127.0.1' and ip not in ip_list:
+                # 排除回环地址
+                if ip != '127.0.0.1' and not ip.startswith('127.'):
                     ip_list.append(ip)
     except Exception as e:
-        print(f"获取本地 IP 时出错: {e}")
-    try:
-        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
-            s.connect(("8.8.8.8", 80))
-            default_ip = s.getsockname()[0]
-            if default_ip not in ip_list:
-                ip_list.append(default_ip)
-    except Exception:
-        pass
+        print(f"[网络] 获取主机名IP时出错: {e}")
+    
+    # 3. 智能排序IP地址
+    def ip_priority(ip):
+        """
+        计算IP的优先级（数字越小优先级越高）
+        """
+        # 最高优先级：默认路由IP
+        if ip == default_ip:
+            return 0
+        
+        # 次高优先级：排除虚拟网络后的常见局域网段
+        is_virtual = any(ip.startswith(prefix) for prefix in virtual_prefixes)
+        
+        if not is_virtual:
+            # 常见局域网段
+            if ip.startswith('192.168.'):
+                # 提取第三段数字，避免虚拟网络段
+                third_octet = int(ip.split('.')[2])
+                # 常见的真实局域网第三段通常是 0-20 或者较大的数（如100+）
+                if third_octet <= 20 or third_octet >= 100:
+                    return 1  # 高优先级真实局域网
+                else:
+                    return 3  # 可能是特殊配置的局域网
+            elif ip.startswith('10.'):
+                return 2  # 10.x.x.x 段
+            elif ip.startswith('172.'):
+                # 172.16.0.0 - 172.31.255.255 是私有地址
+                second_octet = int(ip.split('.')[1])
+                if 16 <= second_octet <= 31:
+                    return 2  # 私有局域网
+                else:
+                    return 4  # 其他172段（可能是虚拟网络）
+        
+        # 低优先级：已知的虚拟网络
+        return 10
+    
+    # 去重并排序
+    ip_list = list(set(ip_list))
+    
+    # 如果有默认IP且不在列表中，添加到列表
+    if default_ip and default_ip not in ip_list:
+        ip_list.append(default_ip)
+    
+    # 按优先级排序
+    ip_list.sort(key=ip_priority)
+    
+    # 打印所有找到的IP及其优先级（便于调试）
+    print("[网络] 找到的所有IP地址（按优先级排序）:")
+    for ip in ip_list:
+        priority = ip_priority(ip)
+        # 使用ASCII字符替代Unicode字符，避免Windows控制台编码问题
+        if priority <= 2:
+            status = "[推荐]"
+        elif priority >= 10:
+            status = "[虚拟网络]"
+        else:
+            status = "[可用]"
+        
+        try:
+            print(f"  {status} {ip} (优先级: {priority})")
+        except UnicodeEncodeError:
+            # 如果仍然有编码问题，使用纯ASCII输出
+            print(f"  {status} {ip} (priority: {priority})")
+    
     return ip_list
 
 
@@ -189,28 +278,32 @@ def load_or_create_config(app):
             settings = config['settings']
             root_dir = settings.get('root_dir', app.config['DEFAULT_ROOT_DIR'])
             password = settings.get('password', 'ats123')
+            admin_password = settings.get('admin_password', 'admin123')  # 管理员密码
             
             # 保存配置到app中（即使路径不存在也保留用户设置）
             app.config['ROOT_DIR'] = os.path.normpath(root_dir) if root_dir else app.config['DEFAULT_ROOT_DIR']
             app.config['PASSWORD'] = password
+            app.config['ADMIN_PASSWORD'] = admin_password
             
             # 检查路径是否有效（仅警告，不修改配置）
             if not os.path.isdir(app.config['ROOT_DIR']):
                 print(f"[警告] 配置的根目录 '{app.config['ROOT_DIR']}' 不存在或无效")
                 print(f"  请通过设置界面修改根目录，或手动创建该目录")
             
-            print(f"[OK] 配置已加载: 根目录={app.config['ROOT_DIR']}, 密码长度={len(password)}")
+            print(f"[OK] 配置已加载: 根目录={app.config['ROOT_DIR']}, 密码长度={len(password)}, 管理员密码已设置")
         else:
             # 配置文件格式错误，使用默认值并保存
             print("[警告] 配置文件格式错误，使用默认配置")
             app.config['ROOT_DIR'] = app.config['DEFAULT_ROOT_DIR']
             app.config['PASSWORD'] = 'ats123'
+            app.config['ADMIN_PASSWORD'] = 'admin123'
             save_config(app)
     else:
         # 配置文件不存在，创建默认配置
         print("配置文件不存在，创建默认配置")
         app.config['ROOT_DIR'] = app.config['DEFAULT_ROOT_DIR']
         app.config['PASSWORD'] = 'ats123'
+        app.config['ADMIN_PASSWORD'] = 'admin123'
         save_config(app)
 
 
@@ -220,7 +313,8 @@ def save_config(app):
     config = configparser.ConfigParser()
     config['settings'] = {
         'root_dir': app.config['ROOT_DIR'],
-        'password': app.config['PASSWORD']
+        'password': app.config['PASSWORD'],
+        'admin_password': app.config.get('ADMIN_PASSWORD', 'admin123')
     }
     with open(config_file, 'w', encoding='utf-8') as f:
         config.write(f)
@@ -234,14 +328,16 @@ class LogMessageReceiver(QObject):
 
 class SettingsDialog(QDialog):
     """设置对话框，用于配置根目录和密码"""
-    def __init__(self, parent=None, current_root='', current_password=''):
+    def __init__(self, parent=None, current_root='', current_password='', current_admin_password=''):
         super().__init__(parent)
         self.setWindowTitle("服务器设置")
         self.setMinimumWidth(500)
         self.current_root = current_root
         self.current_password = current_password
+        self.current_admin_password = current_admin_password
         self.new_root = current_root
         self.new_password = current_password
+        self.new_admin_password = current_admin_password
         
         # 设置窗口样式
         self.setStyleSheet("""
@@ -354,12 +450,36 @@ class SettingsDialog(QDialog):
         
         form_layout.addRow(root_label, root_widget)
         
-        # 密码设置
-        password_label = QLabel("密码：")
+        # 登录密码设置
+        password_label = QLabel("登录密码：")
         self.password_edit = QLineEdit(self.current_password)
         self.password_edit.setEchoMode(QLineEdit.Password)
-        self.password_edit.setPlaceholderText("输入新密码...")
+        self.password_edit.setPlaceholderText("输入登录密码...")
         form_layout.addRow(password_label, self.password_edit)
+        
+        # 管理员密码设置
+        admin_password_label = QLabel("管理员密码：")
+        admin_password_label.setStyleSheet("""
+            font-size: 11pt;
+            font-weight: bold;
+            color: #e74c3c;
+        """)
+        self.admin_password_edit = QLineEdit(self.current_admin_password)
+        self.admin_password_edit.setEchoMode(QLineEdit.Password)
+        self.admin_password_edit.setPlaceholderText("用于保护目录修改...")
+        form_layout.addRow(admin_password_label, self.admin_password_edit)
+        
+        # 管理员密码说明
+        admin_hint = QLabel("⚠️ 管理员密码用于保护目录修改等重要操作")
+        admin_hint.setStyleSheet("""
+            font-size: 9pt;
+            color: #e67e22;
+            font-weight: normal;
+            padding: 5px;
+            background: #fff3cd;
+            border-radius: 4px;
+        """)
+        form_layout.addRow("", admin_hint)
         
         layout.addLayout(form_layout)
         
@@ -400,20 +520,42 @@ class SettingsDialog(QDialog):
         # 验证输入
         self.new_root = self.root_edit.text()
         self.new_password = self.password_edit.text()
+        self.new_admin_password = self.admin_password_edit.text()
         
         if not self.new_root or not os.path.exists(self.new_root):
             QMessageBox.warning(self, "错误", "请选择有效的根目录")
             return
         
         if not self.new_password:
-            QMessageBox.warning(self, "错误", "密码不能为空")
+            QMessageBox.warning(self, "错误", "登录密码不能为空")
             return
+        
+        if not self.new_admin_password:
+            QMessageBox.warning(self, "错误", "管理员密码不能为空")
+            return
+        
+        # 检查是否修改了根目录
+        if self.new_root != self.current_root:
+            # 需要验证管理员密码
+            admin_pass, ok = QInputDialog.getText(
+                self, 
+                "验证管理员密码", 
+                "修改目录需要管理员密码：",
+                QLineEdit.Password
+            )
+            
+            if not ok:
+                return
+            
+            if admin_pass != self.current_admin_password:
+                QMessageBox.critical(self, "错误", "管理员密码错误！无法修改目录。")
+                return
         
         super().accept()
     
     def get_settings(self):
         """获取设置"""
-        return self.new_root, self.new_password
+        return self.new_root, self.new_password, self.new_admin_password
 
 
 class FlaskServerProcess(QProcess):
@@ -1132,19 +1274,21 @@ class MainWindow(QMainWindow):
         app = create_app()
         load_or_create_config(app)
         current_root = app.config.get('ROOT_DIR', os.path.expanduser('~'))
-        current_password = app.config.get('PASSWORD', 'ats123')  # 修正：使用大写的键名
+        current_password = app.config.get('PASSWORD', 'ats123')
+        current_admin_password = app.config.get('ADMIN_PASSWORD', 'admin123')
         
         # 显示设置对话框
-        dialog = SettingsDialog(self, current_root, current_password)
+        dialog = SettingsDialog(self, current_root, current_password, current_admin_password)
         if dialog.exec_() == QDialog.Accepted:
-            new_root, new_password = dialog.get_settings()
+            new_root, new_password, new_admin_password = dialog.get_settings()
             
             # 保存配置
             try:
                 config = configparser.ConfigParser()
                 config['settings'] = {
                     'root_dir': new_root,
-                    'password': new_password
+                    'password': new_password,
+                    'admin_password': new_admin_password
                 }
                 config_file = get_config_path()
                 
@@ -1161,13 +1305,15 @@ class MainWindow(QMainWindow):
                     f"设置已成功保存到配置文件！\n\n"
                     f"配置文件位置:\n{config_file}\n\n"
                     f"根目录: {new_root}\n"
-                    f"密码: {'*' * len(new_password)} (已加密显示)\n\n"
+                    f"登录密码: {'*' * len(new_password)} (已加密显示)\n"
+                    f"管理员密码: {'*' * len(new_admin_password)} (已加密显示)\n\n"
                     f"您可以重新启动服务器使用新配置。"
                 )
                 
                 print(f"配置已保存到: {config_file}")
                 print(f"根目录: {new_root}")
-                print(f"密码长度: {len(new_password)}")
+                print(f"登录密码长度: {len(new_password)}")
+                print(f"管理员密码长度: {len(new_admin_password)}")
                 
             except Exception as e:
                 import traceback
