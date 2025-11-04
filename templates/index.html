@@ -951,6 +951,30 @@
                     <i class="fas fa-list"></i> 文件列表
                 </h4>
                 <div style="display: flex; gap: 10px; align-items: center;">
+                    <!-- 新建按钮下拉菜单 -->
+                    <div class="btn-group">
+                        <button type="button" class="btn btn-success btn-sm dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="fas fa-plus"></i> 新建
+                        </button>
+                        <ul class="dropdown-menu">
+                            <li><a class="dropdown-item" href="#" onclick="showNewFileModal(); return false;">
+                                <i class="fas fa-file"></i> 新建文件
+                            </a></li>
+                            <li><a class="dropdown-item" href="#" onclick="showNewDrawioModal(); return false;">
+                                <i class="fas fa-project-diagram"></i> 新建Draw.io图表
+                            </a></li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li><a class="dropdown-item" href="#" onclick="showNewFolderModal(); return false;">
+                                <i class="fas fa-folder-plus"></i> 新建文件夹
+                            </a></li>
+                        </ul>
+                    </div>
+                    
+                    <!-- 上传按钮 -->
+                    <button type="button" class="btn btn-primary btn-sm" onclick="showUploadModal()">
+                        <i class="fas fa-upload"></i> 上传
+                    </button>
+                    
                     <!-- 搜索框 -->
                     <div class="input-group" style="max-width: 300px;">
                         <input type="text" id="searchInput" class="form-control" placeholder="搜索文件...">
@@ -2166,6 +2190,260 @@
                 }
             });
         });
+    </script>
+
+    <!-- 新建文件模态框 -->
+    <div class="modal fade" id="newFileModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="fas fa-file"></i> 新建文件</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">文件名</label>
+                        <input type="text" class="form-control" id="newFileName" placeholder="例如: document.txt">
+                        <div class="form-text">当前目录: {{ current_path or '根目录' }}</div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="button" class="btn btn-primary" onclick="createNewFile()">创建</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 新建Draw.io图表模态框 -->
+    <div class="modal fade" id="newDrawioModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="fas fa-project-diagram"></i> 新建Draw.io图表</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">图表名称</label>
+                        <input type="text" class="form-control" id="newDrawioName" placeholder="例如: 流程图">
+                        <div class="form-text">将自动添加.drawio扩展名</div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="button" class="btn btn-primary" onclick="createNewDrawio()">创建并打开</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 新建文件夹模态框 -->
+    <div class="modal fade" id="newFolderModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="fas fa-folder-plus"></i> 新建文件夹</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">文件夹名称</label>
+                        <input type="text" class="form-control" id="newFolderName" placeholder="例如: 新文件夹">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="button" class="btn btn-primary" onclick="createNewFolder()">创建</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 上传文件模态框 -->
+    <div class="modal fade" id="uploadModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="fas fa-upload"></i> 上传文件</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">选择文件（可多选）</label>
+                        <input type="file" class="form-control" id="uploadFiles" multiple>
+                        <div class="form-text">上传到: {{ current_path or '根目录' }}</div>
+                    </div>
+                    <div id="uploadProgress" style="display: none;">
+                        <div class="progress mb-2">
+                            <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width: 0%"></div>
+                        </div>
+                        <div class="text-center"><small id="uploadStatus">准备上传...</small></div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="button" class="btn btn-primary" id="uploadButton" onclick="uploadFiles()">开始上传</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 显示模态框函数
+        function showNewFileModal() {
+            const modal = new bootstrap.Modal(document.getElementById('newFileModal'));
+            modal.show();
+        }
+
+        function showNewDrawioModal() {
+            const modal = new bootstrap.Modal(document.getElementById('newDrawioModal'));
+            modal.show();
+        }
+
+        function showNewFolderModal() {
+            const modal = new bootstrap.Modal(document.getElementById('newFolderModal'));
+            modal.show();
+        }
+
+        function showUploadModal() {
+            const modal = new bootstrap.Modal(document.getElementById('uploadModal'));
+            modal.show();
+        }
+
+        // 创建新文件
+        function createNewFile() {
+            const fileName = document.getElementById('newFileName').value.trim();
+            if (!fileName) {
+                alert('请输入文件名');
+                return;
+            }
+
+            fetch('/create_file', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    filename: fileName,
+                    path: '{{ current_path }}'
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    alert('文件创建成功！');
+                    location.reload();
+                } else {
+                    alert('创建失败: ' + data.error);
+                }
+            })
+            .catch(error => {
+                alert('创建失败: ' + error);
+            });
+        }
+
+        // 创建新Draw.io图表
+        function createNewDrawio() {
+            const name = document.getElementById('newDrawioName').value.trim();
+            if (!name) {
+                alert('请输入图表名称');
+                return;
+            }
+
+            const fileName = name.endsWith('.drawio') ? name : name + '.drawio';
+            
+            fetch('/create_file', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    filename: fileName,
+                    path: '{{ current_path }}',
+                    content: '<?xml version="1.0" encoding="UTF-8"?><mxfile host="app.diagrams.net"><diagram id="id" name="Page-1"><mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/></root></mxGraphModel></diagram></mxfile>'
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // 打开Draw.io编辑器
+                    const fullPath = '{{ current_path }}' ? '{{ current_path }}/' + fileName : fileName;
+                    window.open('/drawio_main?filepath=' + encodeURIComponent(fullPath), '_blank');
+                    setTimeout(() => location.reload(), 500);
+                } else {
+                    alert('创建失败: ' + data.error);
+                }
+            })
+            .catch(error => {
+                alert('创建失败: ' + error);
+            });
+        }
+
+        // 创建新文件夹
+        function createNewFolder() {
+            const folderName = document.getElementById('newFolderName').value.trim();
+            if (!folderName) {
+                alert('请输入文件夹名称');
+                return;
+            }
+
+            fetch('/create_folder', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    foldername: folderName,
+                    path: '{{ current_path }}'
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    alert('文件夹创建成功！');
+                    location.reload();
+                } else {
+                    alert('创建失败: ' + data.error);
+                }
+            })
+            .catch(error => {
+                alert('创建失败: ' + error);
+            });
+        }
+
+        // 上传文件
+        function uploadFiles() {
+            const fileInput = document.getElementById('uploadFiles');
+            const files = fileInput.files;
+            
+            if (files.length === 0) {
+                alert('请选择要上传的文件');
+                return;
+            }
+
+            const formData = new FormData();
+            for (let i = 0; i < files.length; i++) {
+                formData.append('files', files[i]);
+            }
+            formData.append('path', '{{ current_path }}');
+
+            document.getElementById('uploadProgress').style.display = 'block';
+            document.getElementById('uploadButton').disabled = true;
+
+            fetch('/upload_files', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    alert('上传成功！共上传 ' + data.count + ' 个文件');
+                    location.reload();
+                } else {
+                    alert('上传失败: ' + data.error);
+                    document.getElementById('uploadButton').disabled = false;
+                }
+            })
+            .catch(error => {
+                alert('上传失败: ' + error);
+                document.getElementById('uploadButton').disabled = false;
+            });
+        }
     </script>
 </body>
 </html>

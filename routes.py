@@ -93,6 +93,7 @@ PDF_EXTENSIONS = ['.pdf']
 VIDEO_EXTENSIONS = ['.mp4', '.avi', '.mov', '.wmv']
 AUDIO_EXTENSIONS = ['.mp3', '.wav', '.flac', '.ogg', '.wma', '.m4a', '.aac']  # 音频文件格式
 DRAWIO_EXTENSIONS = ['.drawio', '.diagram', '.dio', '.xml']  # 添加.xml作为draw.io格式
+MODEL_3D_EXTENSIONS = ['.gltf', '.glb', '.obj', '.stl', '.fbx']  # 3D模型文件格式
 
 # 修复init_app函数内部的Draw.io路由
 
@@ -528,6 +529,53 @@ def init_app(app):
         except Exception as e:
             return jsonify({'error': f'保存配置失败: {e}'}), 500
     
+    @app.route('/view_model/<path:filepath>')
+    def view_model(filepath):
+        """3D模型查看器页面"""
+        if 'logged_in' not in session:
+            return redirect(url_for('login'))
+        
+        root_dir = current_app.config.get('ROOT_DIR')
+        if not root_dir:
+            abort(404)
+        
+        full_path = os.path.join(root_dir, filepath)
+        
+        # 安全检查
+        try:
+            full_path = os.path.normpath(full_path)
+            if not full_path.startswith(os.path.normpath(root_dir)):
+                abort(404)
+        except Exception:
+            abort(404)
+        
+        if not os.path.exists(full_path) or os.path.isdir(full_path):
+            abort(404)
+        
+        filename = os.path.basename(full_path)
+        _, ext = os.path.splitext(filename.lower())
+        
+        # 检查是否是3D模型文件
+        if ext not in MODEL_3D_EXTENSIONS:
+            abort(400)
+        
+        # 生成模型URL
+        model_url = url_for('preview_file', filepath=filepath)
+        
+        # 返回按钮URL
+        parent_dir = posixpath.dirname(filepath)
+        if not parent_dir:
+            back_url = url_for('file_browser')
+        else:
+            back_url = url_for('file_browser', path=parent_dir)
+        
+        return render_template('model_viewer.html',
+                             filename=filename,
+                             filepath=filepath,
+                             file_ext=ext,
+                             model_url=model_url,
+                             back_url=back_url)
+    
     @app.route('/get_preview_content', methods=['POST'])
     def get_preview_content():
         """获取文件预览内容"""
@@ -612,6 +660,26 @@ def init_app(app):
             content_html = f'''
             <div class="drawio-container">
                 <iframe src="/drawio_embed?filepath={quote(filepath)}" class="drawio-preview" width="100%" height="600px" style="border: none;"></iframe>
+            </div>
+            '''
+        elif ext in MODEL_3D_EXTENSIONS:
+            file_type = '3d_model'
+            # 3D模型预览 - iframe嵌入方式
+            view_model_url = url_for('view_model', filepath=filepath)
+            content_html = f'''
+            <div class="model-3d-container" style="width: 100%; height: 700px; position: relative; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.1);">
+                <iframe src="{view_model_url}" 
+                        style="width: 100%; height: 100%; border: none; display: block;"
+                        allowfullscreen>
+                </iframe>
+                <div style="position: absolute; top: 10px; left: 10px; background: rgba(0,0,0,0.7); color: white; padding: 8px 12px; border-radius: 6px; font-size: 12px; z-index: 100;">
+                    <i class="fas fa-cube"></i> {filename} ({ext.upper()})
+                </div>
+            </div>
+            <div style="margin-top: 15px; padding: 15px; background: #f8f9fa; border-radius: 8px; border-left: 4px solid #409EFF;">
+                <p style="margin: 5px 0; color: #666;"><strong>💡 操作提示:</strong></p>
+                <p style="margin: 5px 0; color: #666;">🖱️ <strong>鼠标左键</strong> - 旋转模型 | <strong>右键</strong> - 平移视角 | <strong>滚轮</strong> - 缩放</p>
+                <p style="margin: 5px 0; color: #666;">🛠️ 使用右上角工具栏可以: 重置视角、切换线框模式、显示网格、改变背景色等</p>
             </div>
             '''
         elif ext in CODE_EXTENSIONS:
@@ -1459,6 +1527,127 @@ def init_app(app):
             
         except Exception as e:
             return jsonify({'success': False, 'error': f'保存失败: {str(e)}'}), 500
+    
+    @app.route('/create_file', methods=['POST'])
+    def create_file():
+        """创建新文件"""
+        if not is_logged_in():
+            return jsonify({'success': False, 'error': '未登录'}), 401
+        
+        try:
+            data = request.json
+            filename = data.get('filename')
+            path = data.get('path', '')
+            content = data.get('content', '')
+            
+            if not filename:
+                return jsonify({'success': False, 'error': '文件名不能为空'}), 400
+            
+            root_path = current_app.config['ROOT_DIR']
+            if path:
+                full_path = os.path.join(root_path, path, filename)
+            else:
+                full_path = os.path.join(root_path, filename)
+            
+            # 安全检查
+            if not os.path.abspath(full_path).startswith(os.path.abspath(root_path)):
+                return jsonify({'success': False, 'error': '无权访问该路径'}), 403
+            
+            # 检查文件是否已存在
+            if os.path.exists(full_path):
+                return jsonify({'success': False, 'error': '文件已存在'}), 400
+            
+            # 确保目录存在
+            os.makedirs(os.path.dirname(full_path), exist_ok=True)
+            
+            # 创建文件
+            with open(full_path, 'w', encoding='utf-8') as f:
+                f.write(content)
+            
+            return jsonify({'success': True, 'message': '文件创建成功'})
+            
+        except Exception as e:
+            return jsonify({'success': False, 'error': f'创建失败: {str(e)}'}), 500
+    
+    @app.route('/create_folder', methods=['POST'])
+    def create_folder():
+        """创建新文件夹"""
+        if not is_logged_in():
+            return jsonify({'success': False, 'error': '未登录'}), 401
+        
+        try:
+            data = request.json
+            foldername = data.get('foldername')
+            path = data.get('path', '')
+            
+            if not foldername:
+                return jsonify({'success': False, 'error': '文件夹名称不能为空'}), 400
+            
+            root_path = current_app.config['ROOT_DIR']
+            if path:
+                full_path = os.path.join(root_path, path, foldername)
+            else:
+                full_path = os.path.join(root_path, foldername)
+            
+            # 安全检查
+            if not os.path.abspath(full_path).startswith(os.path.abspath(root_path)):
+                return jsonify({'success': False, 'error': '无权访问该路径'}), 403
+            
+            # 检查文件夹是否已存在
+            if os.path.exists(full_path):
+                return jsonify({'success': False, 'error': '文件夹已存在'}), 400
+            
+            # 创建文件夹
+            os.makedirs(full_path)
+            
+            return jsonify({'success': True, 'message': '文件夹创建成功'})
+            
+        except Exception as e:
+            return jsonify({'success': False, 'error': f'创建失败: {str(e)}'}), 500
+    
+    @app.route('/upload_files', methods=['POST'])
+    def upload_files():
+        """上传文件"""
+        if not is_logged_in():
+            return jsonify({'success': False, 'error': '未登录'}), 401
+        
+        try:
+            if 'files' not in request.files:
+                return jsonify({'success': False, 'error': '没有文件'}), 400
+            
+            files = request.files.getlist('files')
+            path = request.form.get('path', '')
+            
+            root_path = current_app.config['ROOT_DIR']
+            if path:
+                target_dir = os.path.join(root_path, path)
+            else:
+                target_dir = root_path
+            
+            # 安全检查
+            if not os.path.abspath(target_dir).startswith(os.path.abspath(root_path)):
+                return jsonify({'success': False, 'error': '无权访问该路径'}), 403
+            
+            # 确保目录存在
+            os.makedirs(target_dir, exist_ok=True)
+            
+            count = 0
+            for file in files:
+                if file.filename:
+                    filename = file.filename
+                    file_path = os.path.join(target_dir, filename)
+                    
+                    # 再次检查完整路径
+                    if not os.path.abspath(file_path).startswith(os.path.abspath(root_path)):
+                        continue
+                    
+                    file.save(file_path)
+                    count += 1
+            
+            return jsonify({'success': True, 'message': f'成功上传{count}个文件', 'count': count})
+            
+        except Exception as e:
+            return jsonify({'success': False, 'error': f'上传失败: {str(e)}'}), 500
 
 
 

@@ -12,7 +12,7 @@ import routes
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                                 QPushButton, QTextEdit, QLabel, QGroupBox, QMessageBox, 
                                 QSystemTrayIcon, QMenu, QAction, QDialog, QLineEdit, 
-                                QFileDialog, QFormLayout, QMenuBar, QInputDialog)
+                                QFileDialog, QFormLayout, QMenuBar, QInputDialog, QCheckBox)
 from PyQt5.QtCore import QProcess, QTimer, Qt, pyqtSignal, QObject, QThread
 from PyQt5.QtGui import QIcon, QTextCursor
 
@@ -279,11 +279,13 @@ def load_or_create_config(app):
             root_dir = settings.get('root_dir', app.config['DEFAULT_ROOT_DIR'])
             password = settings.get('password', 'ats123')
             admin_password = settings.get('admin_password', 'admin123')  # 管理员密码
+            close_to_tray = settings.get('close_to_tray', 'false').lower() == 'true'  # 关闭到托盘
             
             # 保存配置到app中（即使路径不存在也保留用户设置）
             app.config['ROOT_DIR'] = os.path.normpath(root_dir) if root_dir else app.config['DEFAULT_ROOT_DIR']
             app.config['PASSWORD'] = password
             app.config['ADMIN_PASSWORD'] = admin_password
+            app.config['CLOSE_TO_TRAY'] = close_to_tray
             
             # 检查路径是否有效（仅警告，不修改配置）
             if not os.path.isdir(app.config['ROOT_DIR']):
@@ -297,6 +299,7 @@ def load_or_create_config(app):
             app.config['ROOT_DIR'] = app.config['DEFAULT_ROOT_DIR']
             app.config['PASSWORD'] = 'ats123'
             app.config['ADMIN_PASSWORD'] = 'admin123'
+            app.config['CLOSE_TO_TRAY'] = False
             save_config(app)
     else:
         # 配置文件不存在，创建默认配置
@@ -304,6 +307,7 @@ def load_or_create_config(app):
         app.config['ROOT_DIR'] = app.config['DEFAULT_ROOT_DIR']
         app.config['PASSWORD'] = 'ats123'
         app.config['ADMIN_PASSWORD'] = 'admin123'
+        app.config['CLOSE_TO_TRAY'] = False
         save_config(app)
 
 
@@ -314,7 +318,8 @@ def save_config(app):
     config['settings'] = {
         'root_dir': app.config['ROOT_DIR'],
         'password': app.config['PASSWORD'],
-        'admin_password': app.config.get('ADMIN_PASSWORD', 'admin123')
+        'admin_password': app.config.get('ADMIN_PASSWORD', 'admin123'),
+        'close_to_tray': str(app.config.get('CLOSE_TO_TRAY', False)).lower()
     }
     with open(config_file, 'w', encoding='utf-8') as f:
         config.write(f)
@@ -328,16 +333,18 @@ class LogMessageReceiver(QObject):
 
 class SettingsDialog(QDialog):
     """设置对话框，用于配置根目录和密码"""
-    def __init__(self, parent=None, current_root='', current_password='', current_admin_password=''):
+    def __init__(self, parent=None, current_root='', current_password='', current_admin_password='', current_close_to_tray=False):
         super().__init__(parent)
         self.setWindowTitle("服务器设置")
         self.setMinimumWidth(500)
         self.current_root = current_root
         self.current_password = current_password
         self.current_admin_password = current_admin_password
+        self.current_close_to_tray = current_close_to_tray
         self.new_root = current_root
         self.new_password = current_password
         self.new_admin_password = current_admin_password
+        self.new_close_to_tray = current_close_to_tray
         
         # 设置窗口样式
         self.setStyleSheet("""
@@ -481,6 +488,36 @@ class SettingsDialog(QDialog):
         """)
         form_layout.addRow("", admin_hint)
         
+        # 关闭行为设置
+        close_behavior_label = QLabel("关闭行为：")
+        self.close_to_tray_checkbox = QCheckBox("点击关闭按钮时最小化到托盘（不退出程序）")
+        self.close_to_tray_checkbox.setChecked(self.current_close_to_tray)
+        self.close_to_tray_checkbox.setStyleSheet("""
+            QCheckBox {
+                font-size: 10pt;
+                color: #2c3e50;
+                font-weight: normal;
+                padding: 5px;
+            }
+            QCheckBox::indicator {
+                width: 18px;
+                height: 18px;
+            }
+        """)
+        form_layout.addRow(close_behavior_label, self.close_to_tray_checkbox)
+        
+        # 关闭行为说明
+        close_hint = QLabel("💡 勾选后，点击右上角关闭按钮将最小化到托盘，不会退出程序")
+        close_hint.setStyleSheet("""
+            font-size: 9pt;
+            color: #3498db;
+            font-weight: normal;
+            padding: 5px;
+            background: #e3f2fd;
+            border-radius: 4px;
+        """)
+        form_layout.addRow("", close_hint)
+        
         layout.addLayout(form_layout)
         
         # 按钮区域
@@ -521,6 +558,7 @@ class SettingsDialog(QDialog):
         self.new_root = self.root_edit.text()
         self.new_password = self.password_edit.text()
         self.new_admin_password = self.admin_password_edit.text()
+        self.new_close_to_tray = self.close_to_tray_checkbox.isChecked()
         
         if not self.new_root or not os.path.exists(self.new_root):
             QMessageBox.warning(self, "错误", "请选择有效的根目录")
@@ -555,7 +593,7 @@ class SettingsDialog(QDialog):
     
     def get_settings(self):
         """获取设置"""
-        return self.new_root, self.new_password, self.new_admin_password
+        return self.new_root, self.new_password, self.new_admin_password, self.new_close_to_tray
 
 
 class FlaskServerProcess(QProcess):
@@ -603,6 +641,9 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("Yobboy文件服务器")
         self.setGeometry(100, 100, 900, 650)
         self.setMinimumSize(700, 500)
+        
+        # 加载关闭行为配置
+        self.load_close_behavior_config()
         
         try:
             icon_path = get_resource_path('文件服务器.png')
@@ -989,10 +1030,8 @@ class MainWindow(QMainWindow):
         self.tray_icon.show()
         print("托盘图标已显示")
         
-        # 防止关闭最后一个窗口时直接退出（exe 下最小化到托盘需要）
-        app = QApplication.instance()
-        if app:
-            app.setQuitOnLastWindowClosed(False)
+        # 根据配置设置关闭行为
+        self.update_quit_behavior()
 
     def tray_icon_activated(self, reason):
         """托盘图标激活事件"""
@@ -1276,11 +1315,12 @@ class MainWindow(QMainWindow):
         current_root = app.config.get('ROOT_DIR', os.path.expanduser('~'))
         current_password = app.config.get('PASSWORD', 'ats123')
         current_admin_password = app.config.get('ADMIN_PASSWORD', 'admin123')
+        current_close_to_tray = app.config.get('CLOSE_TO_TRAY', False)
         
         # 显示设置对话框
-        dialog = SettingsDialog(self, current_root, current_password, current_admin_password)
+        dialog = SettingsDialog(self, current_root, current_password, current_admin_password, current_close_to_tray)
         if dialog.exec_() == QDialog.Accepted:
-            new_root, new_password, new_admin_password = dialog.get_settings()
+            new_root, new_password, new_admin_password, new_close_to_tray = dialog.get_settings()
             
             # 保存配置
             try:
@@ -1288,7 +1328,8 @@ class MainWindow(QMainWindow):
                 config['settings'] = {
                     'root_dir': new_root,
                     'password': new_password,
-                    'admin_password': new_admin_password
+                    'admin_password': new_admin_password,
+                    'close_to_tray': str(new_close_to_tray).lower()
                 }
                 config_file = get_config_path()
                 
@@ -1300,13 +1341,16 @@ class MainWindow(QMainWindow):
                 config_check.read(config_file, encoding='utf-8')
                 saved_password = config_check['settings'].get('password', '')
                 
+                close_behavior_text = "最小化到托盘" if new_close_to_tray else "直接退出程序"
+                
                 QMessageBox.information(
                     self, "保存成功", 
                     f"设置已成功保存到配置文件！\n\n"
                     f"配置文件位置:\n{config_file}\n\n"
                     f"根目录: {new_root}\n"
                     f"登录密码: {'*' * len(new_password)} (已加密显示)\n"
-                    f"管理员密码: {'*' * len(new_admin_password)} (已加密显示)\n\n"
+                    f"管理员密码: {'*' * len(new_admin_password)} (已加密显示)\n"
+                    f"关闭行为: {close_behavior_text}\n\n"
                     f"您可以重新启动服务器使用新配置。"
                 )
                 
@@ -1314,6 +1358,12 @@ class MainWindow(QMainWindow):
                 print(f"根目录: {new_root}")
                 print(f"登录密码长度: {len(new_password)}")
                 print(f"管理员密码长度: {len(new_admin_password)}")
+                print(f"关闭行为: {close_behavior_text}")
+                
+                # 更新主窗口的关闭行为配置
+                self.close_to_tray = new_close_to_tray
+                self.update_quit_behavior()  # 立即更新QApplication行为
+                print(f"[配置更新] 关闭行为已更新: {'最小化到托盘' if new_close_to_tray else '直接退出'}")
                 
             except Exception as e:
                 import traceback
@@ -1322,20 +1372,47 @@ class MainWindow(QMainWindow):
                 print(f"保存配置失败: {e}")
                 print(error_detail)
     
+    def load_close_behavior_config(self):
+        """加载关闭行为配置"""
+        try:
+            app = create_app()
+            load_or_create_config(app)
+            self.close_to_tray = app.config.get('CLOSE_TO_TRAY', False)
+            print(f"[配置] 关闭行为: {'最小化到托盘' if self.close_to_tray else '直接退出'}")
+        except Exception as e:
+            print(f"[警告] 加载关闭行为配置失败: {e}")
+            self.close_to_tray = False
+    
+    def update_quit_behavior(self):
+        """根据配置更新QApplication的退出行为"""
+        app = QApplication.instance()
+        if app:
+            if self.close_to_tray:
+                # 关闭到托盘模式：关闭窗口不退出应用
+                app.setQuitOnLastWindowClosed(False)
+                print("[配置] 已设置：关闭窗口不退出应用（托盘模式）")
+            else:
+                # 退出模式：关闭窗口退出应用
+                app.setQuitOnLastWindowClosed(True)
+                print("[配置] 已设置：关闭窗口退出应用（退出模式）")
+    
     def show_about(self):
         """显示关于对话框"""
         about_text = """
         <h2>🖥️ Yobboy文件服务器</h2>
-        <p><b>版本:</b> 1.0.0</p>
+        <p><b>版本:</b> v2.2</p>
         <p><b>作者:</b> Yobboy Team</p>
         <br>
         <p>一个功能强大的本地文件服务器，支持：</p>
         <ul>
-            <li>📁 文件浏览和下载</li>
+            <li>📁 文件浏览、新建、上传、下载</li>
+            <li>🎮 3D模型在线查看（Three.js）</li>
+            <li>✏️ 代码在线编辑（CodeMirror）</li>
+            <li>📊 Draw.io 离线图表编辑</li>
             <li>👀 多种文件格式预览</li>
-            <li>📊 Draw.io 图表编辑</li>
-            <li>🔒 密码保护</li>
-            <li>🌐 局域网访问</li>
+            <li>🔗 分享链接系统</li>
+            <li>🔒 双重密码保护</li>
+            <li>⚙️ 可配置关闭行为</li>
         </ul>
         <br>
         <p>© 2025 Yobboy文件服务器</p>
@@ -1346,23 +1423,42 @@ class MainWindow(QMainWindow):
     
     def closeEvent(self, event):
         """处理窗口关闭事件"""
-        if self.is_server_running:
-            reply = QMessageBox.question(
-                self, '退出', '服务器正在运行，确定要退出吗？请先停止服务器再退出',
-                QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+        # 使用实例变量中的配置
+        if self.close_to_tray:
+            # 最小化到托盘，不退出程序
+            event.ignore()
+            self.hide()
+            # 显示托盘消息提示
+            self.tray_icon.showMessage(
+                "Yobboy 文件服务器",
+                "程序已最小化到系统托盘，双击图标可恢复窗口",
+                QSystemTrayIcon.Information,
+                2000
             )
-            if reply == QMessageBox.Yes:
-                self.stop_server()
-                for _ in range(50):
-                    if not self.is_server_running:
-                        break
-                    QApplication.processEvents()
-                    QThread.msleep(100)
-                event.accept()
-            else:
-                event.ignore()
+            print("[关闭事件] 窗口已最小化到托盘")
         else:
-            event.accept()
+            # 退出程序
+            print("[关闭事件] 准备退出程序")
+            if self.is_server_running:
+                reply = QMessageBox.question(
+                    self, '退出', '服务器正在运行，确定要退出吗？',
+                    QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+                )
+                if reply == QMessageBox.Yes:
+                    self.stop_server()
+                    for _ in range(50):
+                        if not self.is_server_running:
+                            break
+                        QApplication.processEvents()
+                        QThread.msleep(100)
+                    event.accept()
+                    print("[关闭事件] 程序已退出")
+                else:
+                    event.ignore()
+                    print("[关闭事件] 用户取消退出")
+            else:
+                event.accept()
+                print("[关闭事件] 程序已退出")
 
 
 def run_flask_app(info_file_path=None):

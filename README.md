@@ -45,7 +45,16 @@ Yobboy 文件服务器是一个集成了文件浏览、Markdown 预览、Draw.io
 不需要复杂配置，不需要记住奇怪的命令，双击 exe，点击启动，扫码/输网址，搞定！
 妈妈再也不用担心我不会搭建服务器了 😎
 
-### 🌟 v2.1 最新功能
+### 🌟 v2.2 最新功能
+
+- 🎮 **3D模型查看器**：集成Three.js，支持GLTF/GLB、OBJ、STL等格式的3D模型在线预览，iframe嵌入式预览
+- 🔄 **交互式查看**：鼠标旋转、缩放、平移，线框模式、网格显示等多种查看模式
+- 📊 **模型统计**：显示顶点数、三角形数、模型尺寸等详细信息
+- ➕ **新建功能**：支持新建文件、Draw.io图表、文件夹，快速创建内容
+- 📤 **文件上传**：支持多文件同时上传，拖拽上传文件到服务器
+- ⚙️ **关闭行为可配置**：可选择关闭按钮是退出程序还是最小化到托盘
+
+### 🌟 v2.1 功能
 
 - ✏️ **在线代码编辑器**：集成CodeMirror，支持30+种语言的语法高亮，直接在预览区域编辑文件
 - 💾 **实时保存**：Ctrl+S快捷键保存，支持保存并关闭，自动刷新预览
@@ -62,6 +71,27 @@ Yobboy 文件服务器是一个集成了文件浏览、Markdown 预览、Draw.io
 - 🌐 **智能网络**：自动识别真实IP，排除虚拟网络接口
 
 ### ✨ 核心特性
+
+#### 🎮 3D模型查看器（v2.2）
+- **Three.js集成**：完全离线的3D渲染引擎，无需外部CDN
+- **多格式支持**：
+  - **GLTF/GLB** - 现代Web 3D标准格式，推荐使用
+  - **OBJ** - 传统通用3D格式
+  - **STL** - 3D打印常用格式
+  - **FBX** - Autodesk格式（计划支持）
+- **交互式控制**：
+  - 🖱️ 鼠标左键旋转模型
+  - 🖱️ 鼠标右键平移视角
+  - 🖱️ 滚轮缩放模型
+- **查看工具**：
+  - 重置视角 - 一键恢复默认视角
+  - 线框模式 - 查看模型网格结构
+  - 网格显示 - 显示参考网格
+  - 坐标轴显示 - 显示XYZ坐标轴
+  - 背景切换 - 5种背景颜色可选
+  - 自动旋转 - 自动展示模型
+- **模型信息**：实时显示顶点数、三角形数、模型尺寸等统计数据
+- **专业渲染**：支持材质、光照、阴影等高级渲染效果
 
 #### ✏️ 在线代码编辑器（v2.1）
 - **CodeMirror集成**：专业的代码编辑体验，支持100+种编程语言和标记语言
@@ -111,10 +141,16 @@ Yobboy 文件服务器是一个集成了文件浏览、Markdown 预览、Draw.io
   - 📄 PDF文件：`.pdf`
   - 🎬 视频文件：`.mp4`、`.avi`、`.mov`、`.wmv`、`.webm`
   - 🎵 音频文件：`.mp3`、`.wav`、`.flac`、`.ogg`、`.m4a`、`.aac`、`.wma`
+  - 🎮 3D模型：`.gltf`、`.glb`、`.obj`、`.stl` - 交互式3D查看器
   - 📋 Office文件：`.docx`、`.xlsx`、`.pptx` (仅下载)
   - 💻 代码文件：100+种语言支持在线编辑
 - **在线编辑**：文本和代码文件可直接在预览区域编辑，支持100+种语言的语法高亮
 - **文件操作**：下载、删除、分享等文件管理功能
+- **新建功能**：
+  - 📝 新建文件 - 快速创建文本文件
+  - 📊 新建Draw.io图表 - 一键创建并打开图表编辑器
+  - 📁 新建文件夹 - 创建目录结构
+- **文件上传**：支持单文件或多文件同时上传到当前目录
 - **目录管理**：创建、删除文件夹，支持多级目录结构
 - **分享链接**：为任意文件生成带密码和过期时间的分享链接
 
@@ -132,6 +168,7 @@ Yobboy 文件服务器是一个集成了文件浏览、Markdown 预览、Draw.io
 #### 💻 桌面 GUI
 - **现代界面**：基于 PyQt5 的现代化图形界面
 - **系统托盘**：支持最小化到系统托盘，后台运行
+- **关闭行为配置**：可选择关闭按钮行为（退出程序 或 最小化到托盘）
 - **实时日志**：显示服务器运行日志和访问记录
 - **一键操作**：一键启动/停止服务器，自动打开浏览器
 - **双重密码**：登录密码 + 管理员密码，保护目录修改
@@ -174,6 +211,21 @@ Pygments>=2.18.0
 Pillow>=10.0.0
 ```
 
+**前端库（离线集成）**：
+- Three.js r160 - 3D渲染引擎（需手动下载到 `static/libs/three/`）
+- CodeMirror 5.65 - 代码编辑器
+- Draw.io 最新版 - 图表编辑器
+- Bootstrap 5.3 - UI框架
+
+**Three.js 文件下载（使用3D功能需要）**：
+将以下文件保存到 `static/libs/three/` 目录：
+1. `three.module.js` - https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js
+2. `GLTFLoader.js` - https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/loaders/GLTFLoader.js
+3. `OBJLoader.js` - https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/loaders/OBJLoader.js
+4. `STLLoader.js` - https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/loaders/STLLoader.js
+5. `OrbitControls.js` - https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/controls/OrbitControls.js
+6. `utils/BufferGeometryUtils.js` - https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js
+
 ### ⚙️ 配置说明
 
 程序使用 `config.ini` 文件保存配置（首次运行自动创建）：
@@ -183,6 +235,7 @@ Pillow>=10.0.0
 root_dir = /path/to/your/files   # 文件服务器根目录
 password = ats123                 # 登录密码（默认：ats123）
 admin_password = admin123         # 管理员密码（默认：admin123）
+close_to_tray = false             # 关闭按钮行为（true=最小化到托盘，false=退出程序）
 ```
 
 **注意**：
@@ -200,6 +253,18 @@ admin_password = admin123         # 管理员密码（默认：admin123）
 3. 点击文件夹可以进入子目录
 4. 点击文件可以预览或下载
 
+#### 新建文件和文件夹
+1. 在文件浏览器界面，点击右上角"新建"下拉按钮
+2. 选择"新建文件"、"新建Draw.io图表"或"新建文件夹"
+3. 输入名称后确认创建
+4. 新建的Draw.io图表会自动打开编辑器
+
+#### 上传文件
+1. 在文件浏览器界面，点击右上角"上传"按钮
+2. 选择一个或多个文件（支持多选）
+3. 点击"开始上传"
+4. 文件将上传到当前浏览的目录
+
 #### Draw.io 编辑
 1. 在主页选择"Draw.io 编辑器"
 2. 可以新建图表或打开本地文件
@@ -210,6 +275,7 @@ admin_password = admin123         # 管理员密码（默认：admin123）
 1. 点击"最小化到托盘"按钮可以隐藏主窗口
 2. 双击托盘图标恢复窗口
 3. 右键托盘图标显示菜单（启动/停止服务器、退出等）
+4. 在设置中可配置关闭按钮行为（退出 或 最小化到托盘）
 
 ### 🛠️ 开发与构建
 
@@ -280,7 +346,16 @@ This project was born to save your back and your dignity!
 No complex configuration needed, no weird commands to memorize. Double-click exe, hit start, scan/type URL, done!
 Mom will never worry about me not knowing how to set up a server again 😎
 
-### 🌟 v2.1 Latest Features
+### 🌟 v2.2 Latest Features
+
+- 🎮 **3D Model Viewer**: Integrated Three.js, supports GLTF/GLB, OBJ, STL formats with iframe embedded preview
+- 🔄 **Interactive Viewing**: Mouse rotation, zoom, pan, wireframe mode, grid display and more
+- 📊 **Model Statistics**: Display vertices, triangles, model dimensions and other details
+- ➕ **Create New**: Support creating files, Draw.io diagrams, and folders quickly
+- 📤 **File Upload**: Support multiple file uploads simultaneously
+- ⚙️ **Configurable Close Behavior**: Choose between exit or minimize to tray when closing
+
+### 🌟 v2.1 Features
 
 - ✏️ **Online Code Editor**: Integrated CodeMirror with syntax highlighting for 30+ languages, edit directly in preview area
 - 💾 **Real-time Save**: Ctrl+S quick save, save and close, auto-refresh preview
@@ -345,10 +420,16 @@ Mom will never worry about me not knowing how to set up a server again 😎
   - 📊 Draw.io diagrams: `.drawio`, `.diagram`, `.dio`, `.xml`
   - 📄 PDF files: `.pdf`
   - 🎬 Videos: `.mp4`, `.avi`, `.mov`, `.wmv`
+  - 🎮 3D Models: `.gltf`, `.glb`, `.obj`, `.stl` - Interactive 3D viewer
   - 📋 Office files: `.docx`, `.xlsx`, `.pptx` (download only, no preview)
 - **Real-time Preview**: Real-time rendering of Markdown files with tables, task lists, footnotes, code highlighting, etc.
 - **Online Editing**: Text and code files can be edited directly in preview area with syntax highlighting for 100+ languages
 - **File Operations**: Download, delete, and share files
+- **Create New**:
+  - 📝 Create File - Quick create text files
+  - 📊 Create Draw.io Diagram - One-click create and open diagram editor
+  - 📁 Create Folder - Build directory structure
+- **File Upload**: Support single or multiple file uploads to current directory
 - **Directory Management**: Create and delete folders with multi-level directory support
 
 #### 🎨 Draw.io Integration
@@ -367,6 +448,7 @@ Mom will never worry about me not knowing how to set up a server again 😎
 #### 💻 Desktop GUI
 - **Modern Interface**: Modern graphical interface based on PyQt5
 - **System Tray**: Support minimize to system tray for background running
+- **Configurable Close Behavior**: Choose close button behavior (exit or minimize to tray)
 - **Real-time Logs**: Display server logs and access records
 - **One-click Operations**: Start/stop server with one click, auto-open browser
 - **Dual Password**: Login password + Admin password to protect directory changes
