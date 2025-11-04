@@ -1,5 +1,54 @@
 # 更新日志
 
+## v2.1 (2025-11-04)
+
+### ✨ 新增功能
+
+**✏️ 在线代码编辑器**
+- 集成CodeMirror专业编辑器
+- 支持30+种编程语言的语法高亮
+- 直接在预览区域编辑，无需跳转页面
+- Monokai暗色主题，护眼专业
+
+**🎨 编辑器功能**
+- 行号显示
+- 代码折叠
+- 括号自动匹配和补全
+- 查找替换（Ctrl+F / Ctrl+H）
+- 支持Ctrl+S快捷键保存
+- ESC快捷键取消编辑
+
+**💾 智能保存**
+- 保存：保存后继续编辑
+- 保存并关闭：保存后自动返回预览
+- 取消：放弃更改并返回预览
+- 未保存更改时会提示确认
+
+**📝 支持的文件类型（100+种语言）**
+- Web开发: html, css, scss, less, javascript, typescript, jsx, vue, php
+- 编程语言: python, java, c, cpp, csharp, go, rust, ruby, swift, kotlin, perl, lua, haskell, erlang, elixir, clojure
+- 脚本语言: shell, bash, batch, powershell
+- 标记语言: markdown, restructuredtext, latex, textile
+- 数据格式: json, xml, yaml, toml, protobuf
+- 数据库: sql, mysql, postgresql, cypher
+- 配置文件: nginx, dockerfile, ini, conf, properties
+- 模板引擎: jinja2, django, handlebars, pug, smarty, velocity
+- 其他: diff, git, http, verilog, vhdl, cmake, makefile 等
+
+### 🔧 技术改进
+- 新增 `/get_file_content` API用于获取文件内容
+- 优化编辑器布局，完美占满预览区域
+- 支持UTF-8和GBK编码自动检测
+- 添加详细的调试日志
+
+### 🎯 用户体验优化
+- 编辑按钮显示在预览标题栏（类似drawio）
+- 编辑和预览无缝切换
+- 保存后自动刷新预览内容
+- 优雅的通知提示动画
+
+---
+
 ## v2.0 (2025-11-03)
 
 ### 🎉 重大更新

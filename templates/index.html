@@ -8,6 +8,12 @@
     <link href="{{ url_for('static', filename='css/bootstrap.min.css') }}" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/font-awesome.min.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/github-markdown-light.min.css') }}">
+    
+    <!-- CodeMirror 编辑器 -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='libs/codemirror/lib/codemirror.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='libs/codemirror/theme/monokai.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='libs/codemirror/addon/fold/foldgutter.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='libs/codemirror/addon/dialog/dialog.css') }}">
     <style>
         html, body {
             height: 100%;
@@ -158,7 +164,8 @@
             margin-left: 10px;
         }
         .file-actions .download-btn, 
-        .file-actions .share-btn {
+        .file-actions .share-btn,
+        .file-actions .edit-btn {
             display: inline-flex;
             align-items: center;
             justify-content: center;
@@ -169,6 +176,14 @@
             cursor: pointer;
             border: none;
             background: transparent;
+        }
+        .file-actions .edit-btn {
+            color: #6f42c1;
+        }
+        .file-actions .edit-btn:hover {
+            background-color: #f8f9fa;
+            color: #5a32a3;
+            transform: translateY(-1px);
         }
         .file-actions .download-btn {
             color: #007bff;
@@ -255,6 +270,16 @@
             margin: 0;
             font-weight: 500;
             color: #2c3e50;
+        }
+        
+        /* 预览标题栏的按钮容器 */
+        .preview-header .btn {
+            transition: all 0.2s ease;
+        }
+        
+        .preview-header .btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
         }
         .preview-content {
             flex-grow: 1;
@@ -485,6 +510,53 @@
             opacity: 1;
         }
 
+        /* CodeMirror 编辑器样式优化 - 占满整个预览区域 */
+        #codeMirrorContainer {
+            height: 100%;
+            width: 100%;
+            border: none;
+            overflow: hidden;
+        }
+        
+        #codeMirrorContainer .CodeMirror {
+            height: 100% !important;
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            font-size: 14px;
+        }
+        
+        /* CodeMirror 滚动条美化 */
+        .CodeMirror-scroll {
+            overflow-y: auto !important;
+        }
+        
+        /* 编辑模式下，预览内容区域不需要padding */
+        .preview-content.editing-mode {
+            padding: 0 !important;
+        }
+        
+        /* 通知动画 */
+        @keyframes slideIn {
+            from {
+                transform: translateX(400px);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+        
+        @keyframes slideOut {
+            from {
+                transform: translateX(0);
+                opacity: 1;
+            }
+            to {
+                transform: translateX(400px);
+                opacity: 0;
+            }
+        }
+        
         /* 响应式设计 */
         @media (max-width: 768px) {
             body {
@@ -1161,6 +1233,37 @@
     <!-- 本地 JS 资源 -->
     <script src="{{ url_for('static', filename='js/jquery-3.6.0.min.js') }}"></script>
     <script src="{{ url_for('static', filename='js/bootstrap.bundle.min.js') }}"></script>
+    
+    <!-- CodeMirror 核心 -->
+    <script src="{{ url_for('static', filename='libs/codemirror/lib/codemirror.js') }}"></script>
+    
+    <!-- CodeMirror 常用语言模式 -->
+    <script src="{{ url_for('static', filename='libs/codemirror/mode/markdown/markdown.js') }}"></script>
+    <script src="{{ url_for('static', filename='libs/codemirror/mode/python/python.js') }}"></script>
+    <script src="{{ url_for('static', filename='libs/codemirror/mode/javascript/javascript.js') }}"></script>
+    <script src="{{ url_for('static', filename='libs/codemirror/mode/css/css.js') }}"></script>
+    <script src="{{ url_for('static', filename='libs/codemirror/mode/htmlmixed/htmlmixed.js') }}"></script>
+    <script src="{{ url_for('static', filename='libs/codemirror/mode/xml/xml.js') }}"></script>
+    <script src="{{ url_for('static', filename='libs/codemirror/mode/yaml/yaml.js') }}"></script>
+    <script src="{{ url_for('static', filename='libs/codemirror/mode/sql/sql.js') }}"></script>
+    <script src="{{ url_for('static', filename='libs/codemirror/mode/shell/shell.js') }}"></script>
+    <script src="{{ url_for('static', filename='libs/codemirror/mode/php/php.js') }}"></script>
+    <script src="{{ url_for('static', filename='libs/codemirror/mode/clike/clike.js') }}"></script>
+    <script src="{{ url_for('static', filename='libs/codemirror/mode/go/go.js') }}"></script>
+    <script src="{{ url_for('static', filename='libs/codemirror/mode/rust/rust.js') }}"></script>
+    <script src="{{ url_for('static', filename='libs/codemirror/mode/ruby/ruby.js') }}"></script>
+    
+    <!-- CodeMirror 扩展功能 -->
+    <script src="{{ url_for('static', filename='libs/codemirror/addon/edit/matchbrackets.js') }}"></script>
+    <script src="{{ url_for('static', filename='libs/codemirror/addon/edit/closebrackets.js') }}"></script>
+    <script src="{{ url_for('static', filename='libs/codemirror/addon/fold/foldcode.js') }}"></script>
+    <script src="{{ url_for('static', filename='libs/codemirror/addon/fold/foldgutter.js') }}"></script>
+    <script src="{{ url_for('static', filename='libs/codemirror/addon/fold/brace-fold.js') }}"></script>
+    <script src="{{ url_for('static', filename='libs/codemirror/addon/fold/markdown-fold.js') }}"></script>
+    <script src="{{ url_for('static', filename='libs/codemirror/addon/search/search.js') }}"></script>
+    <script src="{{ url_for('static', filename='libs/codemirror/addon/search/searchcursor.js') }}"></script>
+    <script src="{{ url_for('static', filename='libs/codemirror/addon/dialog/dialog.js') }}"></script>
+    
     <script>
         // 确保在DOM加载完成后执行
         document.addEventListener('DOMContentLoaded', function() {
@@ -1239,6 +1342,23 @@
                                                style="font-size: 0.9rem;">
                                                 ✏️ 编辑图表
                                             </a>
+                                        </div>
+                                    `;
+                                }
+                                
+                                // 如果是可编辑的文本文件，在header中添加编辑按钮
+                                const editableExts = ['md', 'markdown', 'txt', 'py', 'js', 'html', 'css', 'scss', 'less', 'json', 'xml', 'yaml', 'yml', 'php', 'java', 'c', 'cpp', 'cs', 'go', 'rb', 'sh', 'bat', 'sql', 'ts', 'tsx', 'jsx', 'ini', 'conf', 'cfg', 'log', 'rst', 'vue', 'rs', 'swift', 'kt'];
+                                const fileExt = filename.split('.').pop().toLowerCase();
+                                
+                                if (editableExts.includes(fileExt)) {
+                                    previewTitle.innerHTML = `
+                                        <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+                                            <span>文件预览: ${filename}</span>
+                                            <button class="btn btn-sm btn-primary" 
+                                                    onclick="openInlineEditor('${filepath}', '${filename}')"
+                                                    style="font-size: 0.9rem;">
+                                                <i class="fas fa-edit"></i> 编辑文件
+                                            </button>
                                         </div>
                                     `;
                                 }
@@ -1409,6 +1529,350 @@
                         alert('❌ 设置失败: ' + error);
                     });
                 });
+            }
+            
+            // ===================
+            // 内联编辑功能
+            // ===================
+            let isEditMode = false;
+            let currentEditFile = '';
+            let currentEditFilename = '';
+            let codeMirrorInstance = null;
+            
+            // 文件扩展名到CodeMirror模式的映射
+            const modeMap = {
+                'md': 'markdown',
+                'markdown': 'markdown',
+                'py': 'python',
+                'js': 'javascript',
+                'jsx': 'jsx',
+                'ts': 'javascript',
+                'tsx': 'javascript',
+                'html': 'htmlmixed',
+                'htm': 'htmlmixed',
+                'xml': 'xml',
+                'css': 'css',
+                'scss': 'css',
+                'less': 'css',
+                'json': 'javascript',
+                'yaml': 'yaml',
+                'yml': 'yaml',
+                'sql': 'sql',
+                'sh': 'shell',
+                'bash': 'shell',
+                'bat': 'shell',
+                'php': 'php',
+                'java': 'text/x-java',
+                'c': 'text/x-csrc',
+                'cpp': 'text/x-c++src',
+                'cs': 'text/x-csharp',
+                'go': 'go',
+                'rs': 'rust',
+                'rb': 'ruby',
+                'txt': 'text/plain',
+                'log': 'text/plain',
+                'ini': 'text/plain',
+                'conf': 'text/plain',
+                'cfg': 'text/plain',
+            };
+            
+            // 打开内联编辑器
+            window.openInlineEditor = async function(filepath, filename) {
+                try {
+                    console.log('打开编辑器，文件路径:', filepath);
+                    
+                    // 使用新的get_file_content API
+                    const url = `/get_file_content/${filepath}`;
+                    console.log('请求URL:', url);
+                    
+                    const response = await fetch(url);
+                    if (!response.ok) {
+                        console.error('响应状态:', response.status);
+                        const errorText = await response.text();
+                        throw new Error(errorText || '无法加载文件');
+                    }
+                    
+                    const content = await response.text();
+                    
+                    // 切换到编辑模式
+                    isEditMode = true;
+                    currentEditFile = filepath;
+                    currentEditFilename = filename;
+                    
+                    const previewTitle = document.getElementById('previewTitle');
+                    const previewContent = document.querySelector('.preview-content');
+                    
+                    // 更新标题，添加编辑工具栏
+                    previewTitle.innerHTML = `
+                        <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+                            <span><i class="fas fa-edit"></i> 编辑: ${filename}</span>
+                            <div style="display: flex; gap: 8px;">
+                                <button class="btn btn-sm btn-success" onclick="saveInlineEdit()" title="保存 (Ctrl+S)">
+                                    <i class="fas fa-save"></i> 保存
+                                </button>
+                                <button class="btn btn-sm btn-info" onclick="saveAndExit()" title="保存并关闭">
+                                    <i class="fas fa-check-circle"></i> 保存并关闭
+                                </button>
+                                <button class="btn btn-sm btn-danger" onclick="cancelInlineEdit()" title="取消编辑 (ESC)">
+                                    <i class="fas fa-times-circle"></i> 取消
+                                </button>
+                            </div>
+                        </div>
+                    `;
+                    
+                    // 获取文件扩展名
+                    const ext = filename.split('.').pop().toLowerCase();
+                    const mode = modeMap[ext] || 'text/plain';
+                    
+                    // 给预览区域添加编辑模式标记
+                    previewContent.classList.add('editing-mode');
+                    
+                    // 创建CodeMirror编辑器容器
+                    previewContent.innerHTML = '<div id="codeMirrorContainer"></div>';
+                    
+                    // 初始化CodeMirror
+                    codeMirrorInstance = CodeMirror(document.getElementById('codeMirrorContainer'), {
+                        value: content,
+                        mode: mode,
+                        theme: 'monokai',
+                        lineNumbers: true,
+                        lineWrapping: true,
+                        matchBrackets: true,
+                        autoCloseBrackets: true,
+                        foldGutter: true,
+                        gutters: ["CodeMirror-linenumbers", "CodeMirror-foldgutter"],
+                        extraKeys: {
+                            "Ctrl-S": function(cm) {
+                                saveInlineEdit();
+                            },
+                            "Esc": function(cm) {
+                                cancelInlineEdit();
+                            },
+                            "Ctrl-F": "findPersistent",
+                            "Ctrl-H": "replace"
+                        },
+                        viewportMargin: Infinity
+                    });
+                    
+                    // 设置编辑器占满整个区域
+                    codeMirrorInstance.setSize('100%', '100%');
+                    
+                    // 强制刷新编辑器布局
+                    setTimeout(() => {
+                        codeMirrorInstance.refresh();
+                    }, 100);
+                    
+                    // 保存原始内容
+                    codeMirrorInstance.originalContent = content;
+                    
+                    // 聚焦编辑器
+                    codeMirrorInstance.focus();
+                    
+                    // 滚动到预览区域
+                    document.getElementById('previewSection').scrollIntoView({ behavior: 'smooth' });
+                    
+                } catch (error) {
+                    alert('打开编辑器失败: ' + error.message);
+                }
+            };
+            
+            // 保存内联编辑
+            window.saveInlineEdit = async function() {
+                if (!codeMirrorInstance) return;
+                
+                const content = codeMirrorInstance.getValue();
+                
+                try {
+                    const response = await fetch('/save_file', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            filepath: currentEditFile,
+                            content: content
+                        })
+                    });
+                    
+                    const result = await response.json();
+                    
+                    if (result.success) {
+                        // 显示成功提示
+                        showNotification('保存成功！', 'success');
+                        
+                        // 退出编辑模式并重新加载预览
+                        setTimeout(() => {
+                            isEditMode = false;
+                            // 重新触发预览
+                            const previewTrigger = document.querySelector(`[data-filepath="${currentEditFile}"]`);
+                            if (previewTrigger) {
+                                previewTrigger.click();
+                            }
+                        }, 500);
+                    } else {
+                        showNotification('保存失败: ' + result.error, 'error');
+                    }
+                } catch (error) {
+                    showNotification('保存失败: ' + error.message, 'error');
+                }
+            };
+            
+            // 保存并退出编辑
+            window.saveAndExit = async function() {
+                if (!codeMirrorInstance) return;
+                
+                const content = codeMirrorInstance.getValue();
+                
+                try {
+                    const response = await fetch('/save_file', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            filepath: currentEditFile,
+                            content: content
+                        })
+                    });
+                    
+                    const result = await response.json();
+                    
+                    if (result.success) {
+                        showNotification('✅ 保存成功！正在返回预览...', 'success');
+                        
+                        // 先清理编辑器状态
+                        isEditMode = false;
+                        const tempFilepath = currentEditFile;
+                        
+                        // 销毁CodeMirror实例
+                        if (codeMirrorInstance) {
+                            const container = codeMirrorInstance.getWrapperElement();
+                            if (container && container.parentNode) {
+                                container.parentNode.removeChild(container);
+                            }
+                            codeMirrorInstance = null;
+                        }
+                        
+                        // 延迟后重新加载预览
+                        setTimeout(() => {
+                            const previewTrigger = document.querySelector(`a.preview-trigger[data-filepath="${tempFilepath}"]`);
+                            console.log('重新加载预览，触发器:', previewTrigger);
+                            if (previewTrigger) {
+                                previewTrigger.click();
+                            } else {
+                                // 手动恢复预览
+                                const previewTitle = document.getElementById('previewTitle');
+                                const previewContent = document.querySelector('.preview-content');
+                                previewTitle.innerHTML = '<h5 class="mb-0">文件已保存</h5>';
+                                previewContent.innerHTML = `
+                                    <div class="alert alert-success">
+                                        <i class="fas fa-check-circle"></i> 文件已成功保存！
+                                        <br><br>
+                                        请重新点击文件名查看更新后的内容。
+                                    </div>
+                                `;
+                            }
+                        }, 600);
+                    } else {
+                        showNotification('保存失败: ' + result.error, 'error');
+                    }
+                } catch (error) {
+                    showNotification('保存失败: ' + error.message, 'error');
+                }
+            };
+            
+            // 取消内联编辑
+            window.cancelInlineEdit = function() {
+                if (!codeMirrorInstance) {
+                    exitEditMode();
+                    return;
+                }
+                
+                const hasChanges = codeMirrorInstance.originalContent !== codeMirrorInstance.getValue();
+                
+                if (hasChanges) {
+                    if (!confirm('确定要取消编辑吗？未保存的更改将丢失。')) {
+                        return; // 用户选择不取消
+                    }
+                }
+                
+                exitEditMode();
+            };
+            
+            // 退出编辑模式并恢复预览
+            function exitEditMode() {
+                console.log('退出编辑模式');
+                isEditMode = false;
+                const tempFilepath = currentEditFile;
+                
+                // 移除编辑模式标记
+                const previewContent = document.querySelector('.preview-content');
+                if (previewContent) {
+                    previewContent.classList.remove('editing-mode');
+                }
+                
+                // 销毁CodeMirror实例
+                if (codeMirrorInstance) {
+                    console.log('销毁CodeMirror实例');
+                    const container = codeMirrorInstance.getWrapperElement();
+                    if (container && container.parentNode) {
+                        container.parentNode.removeChild(container);
+                    }
+                    codeMirrorInstance = null;
+                }
+                
+                // 重新加载预览
+                console.log('查找预览触发器，路径:', tempFilepath);
+                const previewTrigger = document.querySelector(`a.preview-trigger[data-filepath="${tempFilepath}"]`);
+                console.log('找到触发器:', previewTrigger);
+                
+                if (previewTrigger) {
+                    previewTrigger.click();
+                } else {
+                    // 如果找不到预览触发器，手动恢复预览状态
+                    console.log('未找到触发器，手动恢复预览');
+                    const previewTitle = document.getElementById('previewTitle');
+                    previewTitle.innerHTML = '<h5 class="mb-0">请选择一个文件</h5>';
+                    if (previewContent) {
+                        previewContent.innerHTML = `
+                            <div class="no-preview-placeholder">
+                                <i class="fas fa-file-alt"></i>
+                                <p>请选择一个文件以查看预览</p>
+                            </div>
+                        `;
+                    }
+                }
+            }
+            
+            // 显示通知
+            function showNotification(message, type) {
+                const notification = document.createElement('div');
+                notification.style.cssText = `
+                    position: fixed;
+                    top: 80px;
+                    right: 20px;
+                    padding: 15px 25px;
+                    border-radius: 8px;
+                    color: white;
+                    font-weight: 500;
+                    z-index: 10000;
+                    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+                    animation: slideIn 0.3s ease;
+                `;
+                
+                if (type === 'success') {
+                    notification.style.background = 'linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)';
+                } else {
+                    notification.style.background = 'linear-gradient(135deg, #fa709a 0%, #fee140 100%)';
+                }
+                
+                notification.innerHTML = `<i class="fas fa-${type === 'success' ? 'check-circle' : 'exclamation-circle'}"></i> ${message}`;
+                document.body.appendChild(notification);
+                
+                setTimeout(() => {
+                    notification.style.animation = 'slideOut 0.3s ease';
+                    setTimeout(() => notification.remove(), 300);
+                }, 3000);
             }
             
             // ===================

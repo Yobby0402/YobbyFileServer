@@ -34,18 +34,24 @@ Yobboy 文件服务器是一个集成了文件浏览、Markdown 预览、Draw.io
 
 这个项目就是为了拯救你的腰和你的尊严而生的！
 
-- 🏢 **公司组会救星**：一键启动，浏览器访问，代码、图片、PDF、视频瞬间预览，老板再也不用等你拆电脑线了
-- 🎓 **研究生汇报神器**：导师办公室投影仪在天花板上？没事，手机扫码打开网页，论文图表、实验数据、流程图直接展示
-- 📊 **临时文件分享站**：同事要你的代码、设计图、文档？甩个局域网地址，自己下载去，比微信传文件快100倍还不压缩
-- 🎨 **画图现场编辑**：客户突然要改流程图？掏出手机浏览器，Draw.io在线改，当场保存，专业度拉满
-- 📁 **Markdown笔记展示**：写的技术文档、项目计划想让团队看？浏览器一开，表格、代码高亮、任务列表全都美美地渲染出来
+- 🏢 **公司组会救星**：一键启动，浏览器访问，代码、图片、PDF、视频瞬间预览，现场编辑代码文档，老板再也不用等你拆电脑线了
+- 🎓 **研究生汇报神器**：导师办公室投影仪在天花板上？没事，手机扫码打开网页，论文图表、实验数据、代码文件直接展示和编辑
+- 📊 **临时文件分享站**：同事要你的代码、设计图、文档？甩个局域网地址或者二维码，在线预览，需要的话自己下载，比微信传文件快100倍还不压缩
+- 🎨 **代码现场修改**：客户突然要改配置文件？掏出手机浏览器，CodeMirror在线编辑，语法高亮，当场保存，专业度拉满
+- 📁 **文档在线编辑**：Markdown笔记、Python脚本、配置文件想实时编辑？浏览器一开，语法高亮、代码折叠、查找替换全都有
 
 **比 FileZilla 简单 10 倍，比 FTP 优雅 100 倍，比抱着电脑跑轻松 1000 倍！**
 
 不需要复杂配置，不需要记住奇怪的命令，双击 exe，点击启动，扫码/输网址，搞定！
 妈妈再也不用担心我不会搭建服务器了 😎
 
-### 🌟 v2.0 新功能
+### 🌟 v2.1 最新功能
+
+- ✏️ **在线代码编辑器**：集成CodeMirror，支持30+种语言的语法高亮，直接在预览区域编辑文件
+- 💾 **实时保存**：Ctrl+S快捷键保存，支持保存并关闭，自动刷新预览
+- 🎨 **专业编辑体验**：行号、代码折叠、括号匹配、查找替换等完整功能
+
+### 🌟 v2.0 核心功能
 
 - 🔍 **智能搜索**：实时搜索文件，支持按类型过滤
 - 🔗 **分享链接**：一键生成分享链接，支持密码、过期时间、访问限制
@@ -56,6 +62,25 @@ Yobboy 文件服务器是一个集成了文件浏览、Markdown 预览、Draw.io
 - 🌐 **智能网络**：自动识别真实IP，排除虚拟网络接口
 
 ### ✨ 核心特性
+
+#### ✏️ 在线代码编辑器（v2.1）
+- **CodeMirror集成**：专业的代码编辑体验，支持100+种编程语言和标记语言
+- **语法高亮完整支持**：
+  - **Web开发**: HTML, CSS, SCSS, Less, JavaScript, TypeScript, JSX, Vue, PHP
+  - **编程语言**: Python, Java, C/C++, C#, Go, Rust, Ruby, Swift, Kotlin, Perl, Lua
+  - **脚本语言**: Shell, PowerShell, Bash, Batch
+  - **数据格式**: JSON, XML, YAML, TOML, Protobuf
+  - **标记语言**: Markdown, reStructuredText, LaTeX, Textile
+  - **数据库**: SQL, MySQL, PostgreSQL, Cypher
+  - **配置文件**: Nginx, Dockerfile, Properties, INI
+  - **模板引擎**: Jinja2, Django, Handlebars, Pug, Smarty
+  - **其他**: Diff, Git, HTTP, Verilog, VHDL等
+- **无缝编辑**：直接在预览区域编辑，点击"编辑文件"按钮即可切换
+- **专业功能**：行号显示、代码折叠、括号自动匹配、查找替换
+- **快捷键支持**：Ctrl+S保存、Ctrl+F查找、Ctrl+H替换、ESC取消
+- **智能保存**：保存、保存并关闭、取消三种操作，未保存会提示
+- **Monokai主题**：暗色护眼主题，专业美观
+- **编码支持**：自动检测UTF-8和GBK编码
 
 #### 🔍 智能搜索与过滤
 - **实时搜索**：输入关键词即时过滤文件列表
@@ -79,23 +104,26 @@ Yobboy 文件服务器是一个集成了文件浏览、Markdown 预览、Draw.io
 - **视频播放**：HTML5视频播放器，支持进度控制
 
 #### 🗂️ 文件浏览器
-- **多格式支持**：
+- **多格式预览**：
   - 📷 图片格式：`.jpg`、`.jpeg`、`.png`、`.gif`、`.bmp`、`.svg`、`.webp`
-  - 📝 文档格式：`.md`、`.markdown` (Markdown 文件)
-  - 📊 Draw.io 图表：`.drawio`、`.diagram`、`.dio`、`.xml`
-  - 📄 PDF 文件：`.pdf`
-  - 🎬 视频文件：`.mp4`、`.avi`、`.mov`、`.wmv`
-  - 📋 Office 文件：`.docx`、`.xlsx`、`.pptx` (仅下载，不预览)
-- **实时预览**：支持 Markdown 文件的实时渲染，包括表格、任务列表、脚注、代码高亮等
-- **文件操作**：上传、下载、删除、重命名等完整的文件管理功能
+  - 📝 Markdown文档：`.md`、`.markdown` - 实时渲染预览
+  - 📊 Draw.io图表：`.drawio`、`.diagram`、`.dio`、`.xml`
+  - 📄 PDF文件：`.pdf`
+  - 🎬 视频文件：`.mp4`、`.avi`、`.mov`、`.wmv`、`.webm`
+  - 🎵 音频文件：`.mp3`、`.wav`、`.flac`、`.ogg`、`.m4a`、`.aac`、`.wma`
+  - 📋 Office文件：`.docx`、`.xlsx`、`.pptx` (仅下载)
+  - 💻 代码文件：100+种语言支持在线编辑
+- **在线编辑**：文本和代码文件可直接在预览区域编辑，支持100+种语言的语法高亮
+- **文件操作**：下载、删除、分享等文件管理功能
 - **目录管理**：创建、删除文件夹，支持多级目录结构
+- **分享链接**：为任意文件生成带密码和过期时间的分享链接
 
 #### 🎨 Draw.io 集成
 - **完整编辑器**：内置完整的 Draw.io 离线编辑器（中文界面）
 - **服务器保存**：编辑图表后直接保存到服务器，无需每次下载
 - **快捷键支持**：支持 Ctrl+S 快速保存
 - **实时预览**：在文件浏览器中实时预览 `.drawio` 文件
-- **本地文件上传**：可以上传本地 Draw.io 文件到服务器进行编辑
+- **新建图表**：可以创建新的Draw.io图表并保存
 
 #### 📝 Markdown 渲染
 - **丰富语法**：支持表格、任务列表、脚注、定义列表等
@@ -231,7 +259,7 @@ Copyright © 2025 Yobboy. All rights reserved.
 
 ### 📖 Introduction
 
-Yobboy File Server is a local web server application that integrates file browsing, Markdown preview, and Draw.io diagram editing. With a modern GUI interface, you can easily start the server and manage/edit files in your browser.
+Yobboy File Server is a powerful local web server application that integrates file browsing, online code editing, Markdown previewing, and Draw.io diagram editing. With a modern GUI interface and professional CodeMirror editor, you can easily start the server and manage/edit files in your browser.
 
 ### 🎬 Use Cases
 
@@ -241,18 +269,24 @@ Still struggling with weekly meetings, project presentations, or advisor group m
 
 This project was born to save your back and your dignity!
 
-- 🏢 **Meeting Lifesaver**: One-click start, browser access, instantly preview code, images, PDFs, and videos - your boss won't have to wait for you to unplug your laptop anymore
-- 🎓 **Graduate Student Savior**: Projector mounted on the ceiling in professor's office? No problem! Scan QR code, open webpage, display paper diagrams, experimental data, and flowcharts directly
-- 📊 **Instant File Sharing Hub**: Colleague needs your code, designs, or documents? Throw them a LAN address, let them download themselves - 100x faster than WeChat without compression
-- 🎨 **Live Diagram Editor**: Client suddenly wants flowchart changes? Pull out your phone browser, edit in Draw.io, save on the spot - professionalism maxed out
-- 📁 **Markdown Showcase**: Want your team to see technical docs or project plans? Open in browser, beautifully rendered with tables, code highlighting, and task lists
+- 🏢 **Meeting Lifesaver**: One-click start, browser access, instantly preview and edit code, images, PDFs, and videos - your boss won't have to wait for you to unplug your laptop anymore
+- 🎓 **Graduate Student Savior**: Projector mounted on the ceiling in professor's office? No problem! Scan QR code, open webpage, display and edit paper diagrams, experimental data, code files directly
+- 📊 **Instant File Sharing Hub**: Colleague needs your code, designs, or documents? Throw them a LAN address or QRCode, preview online, download if needed - 100x faster than WeChat without compression
+- 🎨 **Live Code Editor**: Client suddenly wants config file changes? Pull out your phone browser, edit with CodeMirror, syntax highlighted, save on the spot - professionalism maxed out
+- 📁 **Document Online Editor**: Want to edit Markdown notes, Python scripts, config files in real-time? Open in browser, syntax highlighting, code folding, find & replace all available
 
 **10x simpler than FileZilla, 100x more elegant than FTP, 1000x lighter than carrying your laptop around!**
 
 No complex configuration needed, no weird commands to memorize. Double-click exe, hit start, scan/type URL, done!
 Mom will never worry about me not knowing how to set up a server again 😎
 
-### 🌟 v2.0 New Features
+### 🌟 v2.1 Latest Features
+
+- ✏️ **Online Code Editor**: Integrated CodeMirror with syntax highlighting for 30+ languages, edit directly in preview area
+- 💾 **Real-time Save**: Ctrl+S quick save, save and close, auto-refresh preview
+- 🎨 **Professional Editing**: Line numbers, code folding, bracket matching, find & replace
+
+### 🌟 v2.0 Core Features
 
 - 🔍 **Smart Search**: Real-time file search with type filtering
 - 🔗 **Share Links**: One-click share with password, expiration, and access limits
@@ -263,6 +297,25 @@ Mom will never worry about me not knowing how to set up a server again 😎
 - 🌐 **Smart Network**: Auto-detect real IP, exclude virtual networks
 
 ### ✨ Key Features
+
+#### ✏️ Online Code Editor (v2.1)
+- **CodeMirror Integration**: Professional code editing experience with 100+ programming languages
+- **Full Syntax Highlighting Support**:
+  - **Web Development**: HTML, CSS, SCSS, Less, JavaScript, TypeScript, JSX, Vue, PHP
+  - **Programming Languages**: Python, Java, C/C++, C#, Go, Rust, Ruby, Swift, Kotlin, Perl, Lua, Haskell, Erlang, Elixir
+  - **Scripting**: Shell, PowerShell, Bash, Batch
+  - **Data Formats**: JSON, XML, YAML, TOML, Protobuf
+  - **Markup Languages**: Markdown, reStructuredText, LaTeX, Textile
+  - **Databases**: SQL, MySQL, PostgreSQL, Cypher
+  - **Config Files**: Nginx, Dockerfile, Properties, INI
+  - **Template Engines**: Jinja2, Django, Handlebars, Pug, Smarty
+  - **Others**: Diff, Git, HTTP, Verilog, VHDL, and more
+- **Seamless Editing**: Edit directly in preview area, click "Edit File" button to switch
+- **Professional Features**: Line numbers, code folding, auto-bracket matching, find & replace
+- **Keyboard Shortcuts**: Ctrl+S save, Ctrl+F find, Ctrl+H replace, ESC cancel
+- **Smart Save**: Save, Save & Close, Cancel options with unsaved change warnings
+- **Monokai Theme**: Dark professional theme, easy on the eyes
+- **Encoding Support**: Auto-detect UTF-8 and GBK encoding
 
 #### 🔍 Smart Search & Filter
 - **Real-time Search**: Instantly filter files as you type
@@ -294,7 +347,8 @@ Mom will never worry about me not knowing how to set up a server again 😎
   - 🎬 Videos: `.mp4`, `.avi`, `.mov`, `.wmv`
   - 📋 Office files: `.docx`, `.xlsx`, `.pptx` (download only, no preview)
 - **Real-time Preview**: Real-time rendering of Markdown files with tables, task lists, footnotes, code highlighting, etc.
-- **File Operations**: Complete file management with upload, download, delete, and rename
+- **Online Editing**: Text and code files can be edited directly in preview area with syntax highlighting for 100+ languages
+- **File Operations**: Download, delete, and share files
 - **Directory Management**: Create and delete folders with multi-level directory support
 
 #### 🎨 Draw.io Integration
@@ -302,7 +356,7 @@ Mom will never worry about me not knowing how to set up a server again 😎
 - **Server-side Save**: Save diagrams directly to the server without downloading
 - **Keyboard Shortcuts**: Support Ctrl+S for quick save
 - **Real-time Preview**: Preview `.drawio` files in the file browser
-- **Local File Upload**: Upload local Draw.io files to the server for editing
+- **Create New Diagrams**: Create new Draw.io diagrams and save them
 
 #### 📝 Markdown Rendering
 - **Rich Syntax**: Support tables, task lists, footnotes, definition lists, and more

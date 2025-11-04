@@ -76,6 +76,12 @@
    ```bash
    pip install -r requirements.txt
    ```
+   
+   **依赖说明**：
+   - Flask：Web框架
+   - PyQt5：GUI界面
+   - markdown-it-py：Markdown渲染
+   - CodeMirror/Vditor：前端编辑器（已包含在static/libs/中）
 
 5. **配置程序（首次运行会自动创建）**
    ```bash
@@ -165,6 +171,17 @@ pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
 - 确保文件路径有写入权限
 - 尝试使用 Ctrl+S 而不是右下角按钮
 - 检查文件名是否包含特殊字符
+
+#### 6. 代码编辑器不显示语法高亮
+**解决**：
+- 确保CodeMirror文件完整（static/libs/codemirror/）
+- 清除浏览器缓存后重试
+- 检查浏览器控制台是否有错误
+
+#### 7. 编辑器无法滚动
+**解决**：
+- 已在v2.1中使用CodeMirror解决此问题
+- 如仍有问题，请清除浏览器缓存
 
 ---
 

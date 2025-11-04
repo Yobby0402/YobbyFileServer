@@ -1391,6 +1391,74 @@ def init_app(app):
         return render_template('share_stats.html', 
                              share_code=share_code,
                              stats=stats)
+    
+    @app.route('/get_file_content/<path:filepath>')
+    def get_file_content(filepath):
+        """获取文件内容用于编辑"""
+        if not is_logged_in():
+            return jsonify({'success': False, 'error': '未登录'}), 401
+        
+        root_path = current_app.config['ROOT_DIR']
+        full_path = os.path.join(root_path, filepath)
+        
+        # 安全检查
+        if not os.path.abspath(full_path).startswith(os.path.abspath(root_path)):
+            abort(403)
+        
+        if not os.path.exists(full_path) or not os.path.isfile(full_path):
+            abort(404)
+        
+        try:
+            # 尝试以UTF-8读取
+            with open(full_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            return content, 200, {'Content-Type': 'text/plain; charset=utf-8'}
+        except UnicodeDecodeError:
+            # 尝试GBK
+            try:
+                with open(full_path, 'r', encoding='gbk') as f:
+                    content = f.read()
+                return content, 200, {'Content-Type': 'text/plain; charset=utf-8'}
+            except:
+                return '无法读取文件：编码不支持', 400
+        except Exception as e:
+            return f'读取文件失败: {str(e)}', 500
+    
+    @app.route('/save_file', methods=['POST'])
+    def save_file():
+        """保存文件内容"""
+        if not is_logged_in():
+            return jsonify({'success': False, 'error': '未登录'}), 401
+        
+        try:
+            data = request.json
+            filepath = data.get('filepath')
+            content = data.get('content')
+            
+            if not filepath:
+                return jsonify({'success': False, 'error': '缺少文件路径'}), 400
+            
+            if content is None:
+                return jsonify({'success': False, 'error': '缺少文件内容'}), 400
+            
+            root_path = current_app.config['ROOT_DIR']
+            full_path = os.path.join(root_path, filepath)
+            
+            # 安全检查：确保路径在允许的目录内
+            if not os.path.abspath(full_path).startswith(os.path.abspath(root_path)):
+                return jsonify({'success': False, 'error': '无权访问该路径'}), 403
+            
+            # 确保目录存在
+            os.makedirs(os.path.dirname(full_path), exist_ok=True)
+            
+            # 保存文件
+            with open(full_path, 'w', encoding='utf-8') as f:
+                f.write(content)
+            
+            return jsonify({'success': True, 'message': '保存成功'})
+            
+        except Exception as e:
+            return jsonify({'success': False, 'error': f'保存失败: {str(e)}'}), 500
 
 
 
