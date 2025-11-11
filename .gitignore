@@ -27,6 +27,9 @@ config.ini
 *.sqlite
 *.sqlite3
 
+# 数据目录
+data/
+
 # 日志文件
 logs/
 *.log
