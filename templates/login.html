@@ -6,74 +6,66 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="stylesheet" href="/static/css/bootstrap.min.css">
     <link rel="stylesheet" href="/static/css/font-awesome.min.css">
+    <link rel="stylesheet" href="/static/css/jasmine_base.css">
     <style>
         body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            font-family: "Source Han Sans CN", "Microsoft YaHei", "PingFang SC", Arial, sans-serif;
             display: flex;
             justify-content: center;
             align-items: center;
-            height: 100vh;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            background: var(--jasmine-gradient-main);
             margin: 0;
         }
         .login-card {
-            background-color: #fff;
-            padding: 40px;
-            border-radius: 12px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.15);
+            background: var(--jasmine-panel-gradient);
+            padding: 44px 40px;
+            border-radius: 20px;
+            box-shadow: var(--jasmine-shadow-lg);
             text-align: center;
             width: 100%;
-            max-width: 400px;
-            transition: transform 0.3s ease;
+            max-width: 420px;
+            border: 1px solid rgba(95, 191, 174, 0.18);
+            backdrop-filter: blur(8px);
+            transition: transform 0.25s ease, box-shadow 0.25s ease;
         }
         .login-card:hover {
-            transform: translateY(-5px);
+            transform: translateY(-4px);
+            box-shadow: 0 22px 48px rgba(30, 114, 96, 0.22);
         }
         .login-icon {
             font-size: 48px;
-            color: #667eea;
+            color: var(--jasmine-green-600);
             margin-bottom: 20px;
         }
         h1 {
-            color: #2c3e50;
-            margin-bottom: 30px;
-            font-weight: 600;
+            color: var(--jasmine-green-700);
+            margin-bottom: 28px;
+            font-weight: 700;
         }
         .form-group {
             margin-bottom: 20px;
             text-align: left;
         }
         .form-label {
-            font-weight: 500;
-            color: #555;
-            margin-bottom: 5px;
+            font-weight: 600;
+            color: var(--jasmine-muted);
+            margin-bottom: 6px;
         }
         .form-control {
-            border-radius: 8px;
-            border: 1px solid #ddd;
-            padding: 12px 15px;
-            transition: border-color 0.3s;
+            border-radius: 14px;
+            padding: 12px 16px;
             font-size: 16px;
-        }
-        .form-control:focus {
-            border-color: #667eea;
-            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.25);
-            outline: none;
         }
         .btn-primary {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            border: none;
-            padding: 12px 25px;
-            border-radius: 8px;
-            font-size: 16px;
-            font-weight: 500;
-            transition: all 0.3s;
             width: 100%;
+            border-radius: 14px;
+            padding: 13px 0;
+            font-size: 16px;
+            font-weight: 600;
         }
-        .btn-primary:hover {
-            background: linear-gradient(135deg, #5a67d8 0%, #6b46c1 100%);
-            transform: translateY(-2px);
-            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.3);
+        .btn-primary i {
+            margin-right: 6px;
         }
         .alert {
             margin-top: 20px;
@@ -81,13 +73,13 @@
             padding: 12px;
         }
         .alert-danger {
-            background-color: #fee;
-            border-color: #fcc;
-            color: #c00;
+            background-color: rgba(240, 124, 130, 0.1);
+            border-color: rgba(240, 124, 130, 0.25);
+            color: #b3393f;
         }
         @media (max-width: 576px) {
             .login-card {
-                padding: 30px 20px;
+                padding: 34px 24px;
                 margin: 0 15px;
             }
         }

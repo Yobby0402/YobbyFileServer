@@ -6,33 +6,38 @@
     <title>管理分享链接 - Yobboy 文件服务器</title>
     <link href="{{ url_for('static', filename='css/bootstrap.min.css') }}" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/font-awesome.min.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/jasmine_base.css') }}">
     <style>
         body {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: var(--jasmine-gradient-main);
             background-attachment: fixed;
             padding: 20px 0;
+            color: var(--jasmine-ink);
+            font-family: "Source Han Sans CN", "Microsoft YaHei", "PingFang SC", Arial, sans-serif;
         }
         .container-main {
-            background: white;
-            border-radius: 15px;
-            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
-            padding: 30px;
-            margin: 20px auto;
+            background: var(--jasmine-panel-gradient);
+            border-radius: 22px;
+            box-shadow: var(--jasmine-shadow-lg);
+            padding: 34px;
+            margin: 25px auto;
             max-width: 1200px;
+            border: 1px solid rgba(95, 191, 174, 0.2);
+            backdrop-filter: blur(8px);
         }
         .page-header {
             margin-bottom: 30px;
             padding-bottom: 20px;
-            border-bottom: 2px solid #e9ecef;
+            border-bottom: 1px solid rgba(95, 191, 174, 0.2);
         }
         .page-header h1 {
-            color: #2c3e50;
+            color: var(--jasmine-green-700);
             font-size: 1.8rem;
             font-weight: 700;
             margin-bottom: 10px;
         }
         .page-header p {
-            color: #6c757d;
+            color: var(--jasmine-muted);
             font-size: 1rem;
         }
         .share-table {
@@ -40,16 +45,18 @@
             margin-bottom: 1rem;
         }
         .share-card {
-            background: #f8f9fa;
-            border-radius: 10px;
-            padding: 20px;
-            margin-bottom: 15px;
-            border: 2px solid #dee2e6;
+            background: rgba(255, 255, 255, 0.9);
+            border-radius: 16px;
+            padding: 22px;
+            margin-bottom: 18px;
+            border: 1px solid rgba(95, 191, 174, 0.22);
             transition: all 0.3s ease;
+            box-shadow: 0 10px 26px rgba(30, 114, 96, 0.12);
         }
         .share-card:hover {
-            border-color: #667eea;
-            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.2);
+            border-color: var(--jasmine-green-500);
+            box-shadow: 0 16px 36px rgba(54, 170, 151, 0.18);
+            transform: translateY(-2px);
         }
         .share-card-header {
             display: flex;
@@ -60,14 +67,14 @@
         .share-file-name {
             font-size: 1.15rem;
             font-weight: 600;
-            color: #2c3e50;
+            color: var(--jasmine-green-700);
             margin-bottom: 5px;
         }
         .share-file-name i {
             margin-right: 8px;
         }
         .share-card small {
-            color: #6c757d;
+            color: var(--jasmine-muted);
             font-size: 0.9rem;
         }
         .share-info {
@@ -83,31 +90,33 @@
             font-size: 0.95rem;
         }
         .info-item i {
-            color: #667eea;
+            color: var(--jasmine-green-500);
             font-size: 1.05rem;
         }
         .info-item span {
-            color: #495057;
+            color: var(--jasmine-muted);
         }
         .info-item strong {
-            color: #2c3e50;
+            color: var(--jasmine-green-700);
         }
         .share-url {
-            background: white;
-            padding: 10px 15px;
-            border-radius: 5px;
-            border: 1px solid #dee2e6;
+            background: rgba(244, 249, 244, 0.92);
+            padding: 12px 18px;
+            border-radius: 12px;
+            border: 1px solid rgba(95, 191, 174, 0.22);
             display: flex;
             align-items: center;
             gap: 10px;
             margin: 15px 0;
+            box-shadow: 0 6px 18px rgba(30, 114, 96, 0.12);
         }
         .share-url input {
             flex: 1;
             border: none;
             outline: none;
             font-family: monospace;
-            color: #495057;
+            color: var(--jasmine-ink);
+            background: transparent;
         }
         .btn-group-actions {
             display: flex;

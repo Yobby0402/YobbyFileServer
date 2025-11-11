@@ -6,6 +6,7 @@
     <title>访问失败</title>
     <link href="{{ url_for('static', filename='css/bootstrap.min.css') }}" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/font-awesome.min.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/jasmine_base.css') }}">
     <style>
         * {
             margin: 0;
@@ -13,7 +14,7 @@
             box-sizing: border-box;
         }
         body {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, var(--jasmine-green-600) 0%, var(--jasmine-green-400) 100%);
             min-height: 100vh;
             display: flex;
             align-items: center;
@@ -22,13 +23,15 @@
             font-family: 'Microsoft YaHei', 'Segoe UI', Arial, sans-serif;
         }
         .error-container {
-            background: white;
-            border-radius: 16px;
-            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+            background: var(--jasmine-panel-gradient);
+            border-radius: 20px;
+            box-shadow: var(--jasmine-shadow-lg);
             padding: 45px;
             max-width: 550px;
             width: 100%;
             text-align: center;
+            border: 1px solid rgba(95, 191, 174, 0.18);
+            backdrop-filter: blur(6px);
         }
         .error-icon {
             font-size: 5rem;
@@ -74,11 +77,11 @@
             margin-bottom: 8px;
             background: #f8f9fa;
             border-radius: 6px;
-            border-left: 3px solid #667eea;
+            border-left: 3px solid var(--jasmine-green-600);
         }
         .error-container ul li::before {
             content: "•";
-            color: #667eea;
+            color: var(--jasmine-green-600);
             font-weight: bold;
             margin-right: 10px;
         }

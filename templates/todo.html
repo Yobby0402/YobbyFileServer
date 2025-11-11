@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ToDo 时间轴 - Yobboy 文件服务器</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap.min.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/font-awesome.min.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/jasmine_base.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/todo.css') }}">
+</head>
+<body class="jasmine-body" data-direct-access="{{ 'true' if direct_access else 'false' }}">
+    <div class="todo-page container-fluid">
+        <header class="todo-header">
+            <h1 class="page-title">ToDo 时间轴中心</h1>
+            <div class="header-controls">
+                <div class="search-filter">
+                    <div class="input-group search-input">
+                        <span class="input-group-text">搜索</span>
+                        <input type="text" class="form-control" id="searchInput" placeholder="项目 / 类别 / 说明 / 标签">
+                    </div>
+                    <div class="input-group filter-select">
+                        <span class="input-group-text">项目</span>
+                        <select class="form-select" id="projectFilter">
+                            <option value="all">全部项目</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="header-actions">
+                    <button type="button" class="btn btn-primary" id="newTodoButton">
+                        新建 ToDo
+                    </button>
+                    <button type="button" class="btn btn-outline-light" id="orientationToggle">
+                        切换为横向时间轴
+                    </button>
+                    <button type="button" class="btn btn-outline-emerald" onclick="window.location.href='/'">
+                        返回选择界面
+                    </button>
+                    <button type="button" class="btn btn-outline-secondary" onclick="window.open('/todo/direct', '_blank')">
+                        打开后门链接
+                    </button>
+                    {% if direct_access %}
+                    <span class="badge bg-warning text-dark">后门模式</span>
+                    {% endif %}
+                </div>
+            </div>
+        </header>
+
+        <div id="alertContainer"></div>
+
+        <div class="todo-layout">
+            <main class="todo-main" id="timelineSection">
+                <section class="panel timeline-panel" id="timelinePanel">
+                    <div class="panel-header">
+                        <div class="panel-title-group">
+                            <h2 class="panel-title">时间轴</h2>
+                            <span class="badge bg-light text-dark">共 <span id="timelineCount">0</span> 条动态</span>
+                        </div>
+                        <div class="panel-header-actions">
+                            <button type="button" class="btn btn-primary btn-sm" id="timelineNewButton">
+                                新建 ToDo
+                            </button>
+                        </div>
+                    </div>
+                    <div class="timeline-container">
+                        <div id="timelineContainer" class="timeline vertical"></div>
+                    </div>
+                </section>
+            </main>
+
+            <section class="panel pending-panel" id="pendingSection">
+                <div class="panel-header">
+                    <h2 class="panel-title">待完成概览</h2>
+                    <div class="pending-meta">
+                        <span class="badge bg-warning text-dark">今日目标 <span id="todayCount">0</span></span>
+                        <span class="badge bg-danger">逾期 <span id="overdueCount">0</span></span>
+                        <span class="badge bg-success">进行中 <span id="pendingCount">0</span></span>
+                    </div>
+                </div>
+                <div class="pending-content">
+                    <div class="pending-column">
+                        <h3>今日必须完成</h3>
+                        <ul id="todayList" class="pending-list"></ul>
+                    </div>
+                    <div class="pending-column">
+                        <h3>剩余时间排序</h3>
+                        <ul id="upcomingList" class="pending-list"></ul>
+                    </div>
+                </div>
+            </section>
+        </div>
+    </div>
+
+    <div class="floating-scroll">
+        <button type="button" class="scroll-btn" data-target="timelineSection">
+            <i class="fas fa-arrow-up"></i>
+        </button>
+        <button type="button" class="scroll-btn" data-target="pendingSection">
+            <i class="fas fa-arrow-down"></i>
+        </button>
+    </div>
+
+    <!-- 新建模态框 -->
+    <div class="modal fade" id="createModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">新建 ToDo</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <form id="createTodoForm" class="needs-validation" novalidate>
+                    <div class="modal-body">
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label">所属项目</label>
+                                <input type="text" class="form-control" name="project" list="projectOptions" placeholder="例如：文件服务器迭代" required>
+                                <div class="invalid-feedback">请输入或选择所属项目</div>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">类别</label>
+                                <input type="text" class="form-control" name="category" placeholder="例如：软件设计 / 硬件设计" required>
+                                <div class="invalid-feedback">请输入类别</div>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">完成进度 (%)</label>
+                                <input type="number" class="form-control" name="progress" min="0" max="100" value="0">
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">预计完成</label>
+                                <input type="date" class="form-control" name="due_date">
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">颜色</label>
+                                <div class="color-picker-group">
+                                    <input type="color" class="form-control form-control-color flex-shrink-0" name="color" value="#4facfe" title="选择主题色">
+                                    <button type="button" class="btn btn-outline-secondary" data-action="random-color">随机颜色</button>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">快速标签</label>
+                                <input type="text" class="form-control" name="tag" placeholder="例如：迭代 Sprint / 负责人">
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label">说明</label>
+                                <textarea class="form-control" rows="4" name="description" placeholder="描述需要完成的内容、验收标准或注意事项"></textarea>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                        <button type="submit" class="btn btn-primary">创建 ToDo</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <datalist id="projectOptions"></datalist>
+
+    <!-- 评论模态框 -->
+    <div class="modal fade" id="commentModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">添加评论</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <form id="commentForm">
+                    <div class="modal-body">
+                        <div class="mb-3">
+                            <label class="form-label">评论内容</label>
+                            <textarea class="form-control" name="content" rows="4" placeholder="记录最新进展或补充说明" required></textarea>
+                            <div class="invalid-feedback">请输入评论内容</div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                        <button type="submit" class="btn btn-primary">提交评论</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- 编辑模态框 -->
+    <div class="modal fade" id="editModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">编辑 ToDo</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <form id="editTodoForm">
+                    <div class="modal-body">
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label">所属项目</label>
+                                <input type="text" class="form-control" name="project" list="projectOptions" required>
+                                <div class="invalid-feedback">请输入所属项目</div>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">类别</label>
+                                <input type="text" class="form-control" name="category" required>
+                                <div class="invalid-feedback">请输入类别</div>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">完成进度 (%)</label>
+                                <input type="number" class="form-control" name="progress" min="0" max="100">
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">颜色</label>
+                                <div class="color-picker-group">
+                                    <input type="color" class="form-control form-control-color flex-shrink-0" name="color">
+                                    <button type="button" class="btn btn-outline-secondary" data-action="random-color">随机颜色</button>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">预计完成</label>
+                                <input type="date" class="form-control" name="due_date">
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">快速标签</label>
+                                <input type="text" class="form-control" name="tag">
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label">说明</label>
+                                <textarea class="form-control" rows="4" name="description"></textarea>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                        <button type="submit" class="btn btn-primary">保存修改</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/bootstrap.bundle.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/todo.js') }}"></script>
+</body>
+</html>
+

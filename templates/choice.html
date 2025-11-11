@@ -65,6 +65,14 @@
             background: linear-gradient(135deg, #fa709a 0%, #fee140 100%);
         }
         
+        .serial-tool {
+            background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);
+        }
+
+        .todo-board {
+            background: linear-gradient(135deg, #fbc2eb 0%, #a6c1ee 100%);
+        }
+        
         .choice-content {
             text-align: center;
             color: white;
@@ -191,6 +199,20 @@
         </div>
         
         <div class="divider"></div>
+
+        <div class="choice-section todo-board" onclick="window.location.href='/todo'">
+            <div class="choice-content">
+                <span class="choice-icon">📝</span>
+                <h2 class="choice-title">ToDo 时间轴</h2>
+                <p class="choice-description">
+                    追踪项目任务进度与更新历史<br>
+                    支持评论记录最新动态<br>
+                    时间轴视图可横向 / 纵向切换
+                </p>
+            </div>
+        </div>
+        
+        <div class="divider"></div>
         
         <div class="choice-section drawio-editor" onclick="window.location.href='/drawio_main'">
             <div class="choice-content">
@@ -200,6 +222,20 @@
                     创建和编辑流程图、架构图<br>
                     支持本地文件上传和服务器保存<br>
                     全离线模式，不依赖第三方服务，本地存储，安全可靠
+                </p>
+            </div>
+        </div>
+        
+        <div class="divider"></div>
+        
+        <div class="choice-section serial-tool" onclick="window.location.href='/serial_tool'">
+            <div class="choice-content">
+                <span class="choice-icon">🔌</span>
+                <h2 class="choice-title">串口调试助手</h2>
+                <p class="choice-description">
+                    连接本地或远程串口设备<br>
+                    实时数据收发与监控<br>
+                    支持数据记录、十六进制显示等功能
                 </p>
             </div>
         </div>

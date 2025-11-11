@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>串口调试助手 - Yobboy文件服务器</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap.min.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/font-awesome.min.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/jasmine_base.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/serial_tool.css') }}">
+</head>
+<body>
+    <!-- 顶部导航栏 -->
+    <nav class="navbar navbar-dark bg-dark">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="/">
+                <i class="fas fa-arrow-left"></i> 返回主页
+            </a>
+            <span class="navbar-text">
+                🔌 串口调试助手
+            </span>
+            <div>
+                <a href="/serial_diagnostic" class="btn btn-sm btn-outline-warning me-2">
+                    <i class="fas fa-stethoscope"></i> 诊断
+                </a>
+                <button class="btn btn-sm btn-outline-light" id="helpBtn">
+                    <i class="fas fa-question-circle"></i> 帮助
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container-fluid main-container">
+        <div class="row h-100">
+            <!-- 左侧：串口列表和配置 -->
+            <div class="col-md-3 left-panel">
+                <!-- 模式切换 -->
+                <div class="card mb-3">
+                    <div class="card-header">
+                        <strong>连接模式</strong>
+                    </div>
+                    <div class="card-body">
+                        <div class="btn-group w-100" role="group">
+                            <input type="radio" class="btn-check" name="connectionMode" id="modeLocal" value="local" checked>
+                            <label class="btn btn-outline-primary" for="modeLocal">
+                                <i class="fas fa-desktop"></i> 本地串口
+                            </label>
+                            
+                            <input type="radio" class="btn-check" name="connectionMode" id="modeRemote" value="remote">
+                            <label class="btn btn-outline-success" for="modeRemote">
+                                <i class="fas fa-cloud"></i> 远程串口
+                            </label>
+                        </div>
+                        <small class="text-muted d-block mt-2" id="modeHint">
+                            连接本地计算机的串口设备
+                        </small>
+                    </div>
+                </div>
+
+                <!-- 串口列表 -->
+                <div class="card mb-3">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <strong>串口列表</strong>
+                        <button class="btn btn-sm btn-primary" id="addPortBtn">
+                            <i class="fas fa-plus"></i> 添加
+                        </button>
+                    </div>
+                    <div class="card-body p-0">
+                        <div id="portList" class="port-list">
+                            <div class="text-center text-muted p-3">
+                                <i class="fas fa-plug"></i>
+                                <p class="mb-0 mt-2">暂无连接的串口</p>
+                                <small>点击"添加"按钮连接串口</small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 串口配置 -->
+                <div class="card" id="portConfigCard" style="display: none;">
+                    <div class="card-header">
+                        <strong>串口配置</strong>
+                        <span class="badge bg-success float-end" id="currentPortName">-</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="mb-3">
+                            <label class="form-label">波特率</label>
+                            <select class="form-select form-select-sm" id="baudRate">
+                                <option value="300">300</option>
+                                <option value="1200">1200</option>
+                                <option value="2400">2400</option>
+                                <option value="4800">4800</option>
+                                <option value="9600" selected>9600</option>
+                                <option value="14400">14400</option>
+                                <option value="19200">19200</option>
+                                <option value="38400">38400</option>
+                                <option value="57600">57600</option>
+                                <option value="115200">115200</option>
+                                <option value="230400">230400</option>
+                                <option value="460800">460800</option>
+                                <option value="921600">921600</option>
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">数据位</label>
+                            <select class="form-select form-select-sm" id="dataBits">
+                                <option value="7">7</option>
+                                <option value="8" selected>8</option>
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">停止位</label>
+                            <select class="form-select form-select-sm" id="stopBits">
+                                <option value="1" selected>1</option>
+                                <option value="2">2</option>
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">校验位</label>
+                            <select class="form-select form-select-sm" id="parity">
+                                <option value="none" selected>无</option>
+                                <option value="even">偶校验</option>
+                                <option value="odd">奇校验</option>
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">流控制</label>
+                            <select class="form-select form-select-sm" id="flowControl">
+                                <option value="none" selected>无</option>
+                                <option value="hardware">硬件流控</option>
+                            </select>
+                        </div>
+                        <button class="btn btn-sm btn-success w-100" id="applyConfigBtn">
+                            <i class="fas fa-check"></i> 应用配置
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 持续日志管理 -->
+                <div class="card mt-3">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <strong>持续日志</strong>
+                        <div class="btn-group btn-group-sm">
+                            <button class="btn btn-outline-light" id="refreshCapturePortsBtn" title="刷新串口列表">
+                                <i class="fas fa-sync-alt"></i>
+                            </button>
+                            <button class="btn btn-outline-light" id="refreshCaptureStatusBtn" title="刷新日志状态">
+                                <i class="fas fa-redo"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <div class="mb-2">
+                            <label class="form-label">串口设备</label>
+                            <select class="form-select form-select-sm" id="capturePortSelect">
+                                <option value="">请选择服务器串口</option>
+                            </select>
+                        </div>
+                        <div class="row g-2">
+                            <div class="col-6">
+                                <label class="form-label">波特率</label>
+                                <input type="number" class="form-control form-control-sm" id="captureBaudRate" value="9600" min="110" step="10">
+                            </div>
+                            <div class="col-6">
+                                <label class="form-label">数据位</label>
+                                <select class="form-select form-select-sm" id="captureDataBits">
+                                    <option value="7">7</option>
+                                    <option value="8" selected>8</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="row g-2 mt-2">
+                            <div class="col-6">
+                                <label class="form-label">校验位</label>
+                                <select class="form-select form-select-sm" id="captureParity">
+                                    <option value="none" selected>无</option>
+                                    <option value="even">偶校验</option>
+                                    <option value="odd">奇校验</option>
+                                </select>
+                            </div>
+                            <div class="col-6">
+                                <label class="form-label">停止位</label>
+                                <select class="form-select form-select-sm" id="captureStopBits">
+                                    <option value="1" selected>1</option>
+                                    <option value="2">2</option>
+                                </select>
+                            </div>
+                        </div>
+                        <button class="btn btn-sm btn-success w-100 mt-3" id="startCaptureBtn">
+                            <i class="fas fa-play-circle"></i> 开启持续日志
+                        </button>
+                    </div>
+                    <div class="list-group list-group-flush capture-session-list" id="captureSessionList">
+                        <div class="list-group-item text-muted small text-center py-2">
+                            暂无持续日志任务
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 中间：数据显示区 -->
+            <div class="col-md-6 middle-panel">
+                <div class="card h-100">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <strong>数据监控</strong>
+                        <div class="btn-group btn-group-sm">
+                            <button class="btn btn-outline-secondary" id="clearDataBtn" title="清空数据">
+                                <i class="fas fa-eraser"></i>
+                            </button>
+                            <button class="btn btn-outline-secondary" id="pauseBtn" title="暂停/继续">
+                                <i class="fas fa-pause"></i>
+                            </button>
+                            <button class="btn btn-outline-secondary" id="autoScrollBtn" title="自动滚动" data-active="true">
+                                <i class="fas fa-arrow-down"></i>
+                            </button>
+                            <button class="btn btn-outline-success" id="saveLogBtn" title="保存日志">
+                                <i class="fas fa-download"></i> 保存
+                            </button>
+                        </div>
+                    </div>
+                    <div class="card-body p-0 position-relative">
+                        <!-- 显示模式切换 -->
+                        <div class="data-format-tabs">
+                            <div class="btn-group btn-group-sm mb-2" role="group">
+                                <input type="radio" class="btn-check" name="displayMode" id="modeBubble" value="bubble" checked>
+                                <label class="btn btn-outline-success" for="modeBubble">
+                                    <i class="fas fa-comments"></i> 气泡
+                                </label>
+                                
+                                <input type="radio" class="btn-check" name="displayMode" id="modeTerminal" value="terminal">
+                                <label class="btn btn-outline-success" for="modeTerminal">
+                                    <i class="fas fa-terminal"></i> 终端
+                                </label>
+                            </div>
+                            <div class="btn-group btn-group-sm" role="group">
+                                <input type="radio" class="btn-check" name="dataFormat" id="formatText" value="text" checked>
+                                <label class="btn btn-outline-primary" for="formatText">文本</label>
+                                
+                                <input type="radio" class="btn-check" name="dataFormat" id="formatHex" value="hex">
+                                <label class="btn btn-outline-primary" for="formatHex">HEX</label>
+                                
+                                <input type="radio" class="btn-check" name="dataFormat" id="formatDec" value="dec">
+                                <label class="btn btn-outline-primary" for="formatDec">十进制</label>
+                                
+                                <input type="radio" class="btn-check" name="dataFormat" id="formatBin" value="bin">
+                                <label class="btn btn-outline-primary" for="formatBin">二进制</label>
+                            </div>
+                        </div>
+                        
+                        <!-- 数据显示区域 - 气泡模式 -->
+                        <div id="dataDisplay" class="data-display"></div>
+                        
+                        <!-- 终端模式容器 -->
+                        <div id="terminalContainer" class="terminal-container" style="display: none;">
+                            <!-- 终端快捷键工具栏 -->
+                            <div class="terminal-shortcuts">
+                                <button class="btn btn-sm btn-outline-light" id="termCtrlC" title="发送 Ctrl+C (中断)">
+                                    <i class="fas fa-stop-circle"></i> Ctrl+C
+                                </button>
+                                <button class="btn btn-sm btn-outline-light" id="termCtrlD" title="发送 Ctrl+D (EOF)">
+                                    <i class="fas fa-door-open"></i> Ctrl+D
+                                </button>
+                                <button class="btn btn-sm btn-outline-light" id="termCtrlZ" title="发送 Ctrl+Z (挂起)">
+                                    <i class="fas fa-pause-circle"></i> Ctrl+Z
+                                </button>
+                                <button class="btn btn-sm btn-outline-light" id="termTab" title="发送 Tab">
+                                    <i class="fas fa-arrow-right"></i> Tab
+                                </button>
+                                <button class="btn btn-sm btn-outline-light" id="termEsc" title="发送 ESC">
+                                    <i class="fas fa-times-circle"></i> ESC
+                                </button>
+                                <button class="btn btn-sm btn-outline-light" id="termClearScreen" title="清空终端屏幕">
+                                    <i class="fas fa-broom"></i> 清屏
+                                </button>
+                                <div class="form-check form-switch d-inline-block ms-3">
+                                    <input class="form-check-input" type="checkbox" id="localEcho" checked>
+                                    <label class="form-check-label text-light" for="localEcho" title="关闭后只显示设备回显，适用于有回显的设备（如MicroPython）">
+                                        本地回显
+                                    </label>
+                                </div>
+                            </div>
+                            
+                            <!-- 真实终端 - 显示区域 + 隐藏输入 -->
+                            <div class="terminal-wrapper">
+                                <div id="terminalDisplay" class="terminal-display"></div>
+                                <input type="text" id="terminalInput" class="terminal-hidden-input" autocomplete="off" spellcheck="false">
+                            </div>
+                        </div>
+                        
+                        <!-- 统计信息 -->
+                        <div class="stats-bar">
+                            <span><i class="fas fa-download text-success"></i> RX: <strong id="rxBytes">0</strong> 字节</span>
+                            <span><i class="fas fa-upload text-primary"></i> TX: <strong id="txBytes">0</strong> 字节</span>
+                            <span><i class="fas fa-clock"></i> <span id="uptime">00:00:00</span></span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 右侧：发送区和快捷指令 -->
+            <div class="col-md-3 right-panel">
+                <!-- 发送区域 -->
+                <div class="card mb-3">
+                    <div class="card-header">
+                        <strong>数据发送</strong>
+                    </div>
+                    <div class="card-body">
+                        <div class="mb-2">
+                            <label class="form-label">发送内容</label>
+                            <textarea class="form-control" id="sendInput" rows="4" placeholder="输入要发送的数据..."></textarea>
+                        </div>
+                        <div class="mb-2">
+                            <div class="form-check form-check-inline">
+                                <input class="form-check-input" type="radio" name="sendFormat" id="sendText" value="text" checked>
+                                <label class="form-check-label" for="sendText">文本</label>
+                            </div>
+                            <div class="form-check form-check-inline">
+                                <input class="form-check-input" type="radio" name="sendFormat" id="sendHex" value="hex">
+                                <label class="form-check-label" for="sendHex">HEX</label>
+                            </div>
+                        </div>
+                        <div class="mb-2">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="appendCRLF">
+                                <label class="form-check-label" for="appendCRLF">
+                                    追加换行符 (\\r\\n)
+                                </label>
+                            </div>
+                        </div>
+                        <div class="d-grid gap-2">
+                            <button class="btn btn-primary" id="sendBtn" disabled>
+                                <i class="fas fa-paper-plane"></i> 发送
+                            </button>
+                            <button class="btn btn-outline-secondary btn-sm" id="clearSendBtn">
+                                <i class="fas fa-times"></i> 清空
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 快捷指令 -->
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <strong>快捷指令</strong>
+                        <div>
+                            <button class="btn btn-sm btn-outline-primary" id="viewHistoryBtn" title="查看历史记录">
+                                <i class="fas fa-history"></i>
+                            </button>
+                            <button class="btn btn-sm btn-success" id="addCommandBtn">
+                                <i class="fas fa-plus"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="card-body p-2">
+                        <div id="commandList" class="command-list">
+                            <div class="text-center text-muted p-2">
+                                <small>正在加载...</small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 定时发送 -->
+                <div class="card mt-3">
+                    <div class="card-header">
+                        <strong>定时发送</strong>
+                    </div>
+                    <div class="card-body">
+                        <div class="mb-2">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="enableTimer">
+                                <label class="form-check-label" for="enableTimer">
+                                    启用定时发送
+                                </label>
+                            </div>
+                        </div>
+                        <div class="mb-2">
+                            <label class="form-label">间隔时间 (毫秒)</label>
+                            <input type="number" class="form-control form-control-sm" id="timerInterval" value="1000" min="100" max="60000">
+                        </div>
+                        <small class="text-muted">定时发送上方输入框的内容</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 添加快捷指令模态框 -->
+    <div class="modal fade" id="addCommandModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">添加快捷指令</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">指令名称</label>
+                        <input type="text" class="form-control" id="commandName" placeholder="例如：查询状态">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">指令内容</label>
+                        <textarea class="form-control" id="commandContent" rows="3" placeholder="例如：AT+STATUS"></textarea>
+                    </div>
+                    <div class="mb-3">
+                        <div class="form-check form-check-inline">
+                            <input class="form-check-input" type="radio" name="commandFormat" id="commandText" value="text" checked>
+                            <label class="form-check-label" for="commandText">文本</label>
+                        </div>
+                        <div class="form-check form-check-inline">
+                            <input class="form-check-input" type="radio" name="commandFormat" id="commandHex" value="hex">
+                            <label class="form-check-label" for="commandHex">HEX</label>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="button" class="btn btn-primary" id="saveCommandBtn">保存</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 历史记录模态框 -->
+    <div class="modal fade" id="historyModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">串口历史记录</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div id="historyList" style="max-height: 400px; overflow-y: auto;">
+                        <div class="text-center text-muted p-3">
+                            <div class="spinner-border" role="status">
+                                <span class="visually-hidden">加载中...</span>
+                            </div>
+                            <p class="mt-2">正在加载历史记录...</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 帮助模态框 -->
+    <div class="modal fade" id="helpModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">串口调试助手 - 使用帮助</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <h6><i class="fas fa-info-circle text-primary"></i> 浏览器兼容性</h6>
+                    <p>本地串口模式仅支持 <strong>Chrome</strong>、<strong>Edge</strong>、<strong>Opera</strong> 等 Chromium 内核浏览器。</p>
+                    
+                    <h6 class="mt-3"><i class="fas fa-plug text-success"></i> 本地串口模式</h6>
+                    <ul>
+                        <li>点击"添加"按钮，浏览器会弹出串口选择框</li>
+                        <li>选择要连接的串口设备（需要用户授权）</li>
+                        <li>配置波特率等参数后即可收发数据</li>
+                        <li>数据实时显示，支持多种格式（文本/HEX/十进制/二进制）</li>
+                    </ul>
+                    
+                    <h6 class="mt-3"><i class="fas fa-cloud text-info"></i> 远程串口模式</h6>
+                    <ul>
+                        <li>切换到"远程串口"模式</li>
+                        <li>连接到服务器的 WebSocket</li>
+                        <li>可以监控其他客户端的串口数据</li>
+                        <li>也可以远程发送命令到设备</li>
+                    </ul>
+                    
+                    <h6 class="mt-3"><i class="fas fa-terminal text-warning"></i> 常用功能</h6>
+                    <ul>
+                        <li><strong>数据格式切换</strong>：支持文本、HEX、十进制、二进制显示</li>
+                        <li><strong>保存日志</strong>：将接收到的所有数据保存为文本文件</li>
+                        <li><strong>快捷指令</strong>：预设常用命令，一键发送</li>
+                        <li><strong>定时发送</strong>：按设定间隔自动发送数据</li>
+                        <li><strong>暂停/继续</strong>：暂停数据显示（数据仍在接收）</li>
+                        <li><strong>自动滚动</strong>：自动滚动到最新数据</li>
+                    </ul>
+                    
+                    <h6 class="mt-3"><i class="fas fa-keyboard text-secondary"></i> 快捷键</h6>
+                    <ul>
+                        <li><kbd>Ctrl</kbd> + <kbd>Enter</kbd>：发送数据</li>
+                        <li><kbd>Ctrl</kbd> + <kbd>L</kbd>：清空数据显示</li>
+                        <li><kbd>Ctrl</kbd> + <kbd>S</kbd>：保存日志</li>
+                    </ul>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-primary" data-bs-dismiss="modal">知道了</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/bootstrap.bundle.min.js') }}"></script>
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <script src="{{ url_for('static', filename='js/serial_tool.js') }}?v={{ range(1, 99999) | random }}"></script>
+</body>
+</html>
+

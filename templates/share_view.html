@@ -6,6 +6,7 @@
     <title>分享文件 - {{ filename }}</title>
     <link href="{{ url_for('static', filename='css/bootstrap.min.css') }}" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/font-awesome.min.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/jasmine_base.css') }}">
     <style>
         * {
             margin: 0;
@@ -13,7 +14,7 @@
             box-sizing: border-box;
         }
         body {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, var(--jasmine-green-600) 0%, var(--jasmine-green-400) 100%);
             min-height: 100vh;
             display: flex;
             align-items: center;
@@ -37,7 +38,7 @@
         }
         .share-header .file-icon {
             font-size: 4.5rem;
-            color: #667eea;
+            color: var(--jasmine-green-600);
             margin-bottom: 20px;
             display: block;
         }
@@ -78,7 +79,7 @@
             gap: 8px;
         }
         .info-label i {
-            color: #667eea;
+            color: var(--jasmine-green-600);
             font-size: 1.1rem;
         }
         .info-value {

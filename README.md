@@ -16,7 +16,8 @@
 
 </div>
 
-> **🚀 新手？** 查看 [快速开始指南](快速开始.md) 3分钟快速上手！
+> **🚀 新手？** 查看 [快速开始指南](快速开始.md) 3分钟快速上手！  
+> **当前版本：v3.0 · 发布日期 2025-11-11**
 
 ---
 
@@ -39,11 +40,22 @@ Yobboy 文件服务器是一个集成了文件浏览、Markdown 预览、Draw.io
 - 📊 **临时文件分享站**：同事要你的代码、设计图、文档？甩个局域网地址或者二维码，在线预览，需要的话自己下载，比微信传文件快100倍还不压缩
 - 🎨 **代码现场修改**：客户突然要改配置文件？掏出手机浏览器，CodeMirror在线编辑，语法高亮，当场保存，专业度拉满
 - 📁 **文档在线编辑**：Markdown笔记、Python脚本、配置文件想实时编辑？浏览器一开，语法高亮、代码折叠、查找替换全都有
+- 🧭 **团队任务中控**：ToDo 时间轴中心按项目、类别串起所有进展，现场点评、评论、历史记录一页掌握
+- 🔌 **硬件调试实验室**：串口助手实时读取与下发指令，无需额外工具即可调试嵌入式设备
 
 **比 FileZilla 简单 10 倍，比 FTP 优雅 100 倍，比抱着电脑跑轻松 1000 倍！**
 
 不需要复杂配置，不需要记住奇怪的命令，双击 exe，点击启动，扫码/输网址，搞定！
 妈妈再也不用担心我不会搭建服务器了 😎
+
+### 🌟 v3.0 最新功能
+
+- 🍃 **茉莉奶白主题焕新**：全站（除选择页）统一采用 Jasmine Green × Snow White 渐变风格，按钮、卡片、表单等组件全面适配
+- 🗂️ **ToDo 时间轴中心**：新增独立 ToDo 工作台，支持后门直达、搜索、项目筛选、颜色继承/随机、预计完成时间等字段
+- 📆 **双向时间轴**：时间轴支持纵向与横向视图切换，滚动自动匹配方向，并配备上下浮动跳转按钮
+- 🧷 **事件操作增强**：时间轴卡片提供评论、修改、单条记录删除操作，历史追踪与评论同步更新
+- ⏱️ **待完成概览**：今日目标、逾期与剩余时间排序板块固定一屏显示，智能分组并与时间轴联动高亮
+- 🔌 **串口调试助手**：后端基于 PySerial + Socket.IO，实现串口实时读写、回显与参数配置，支持浏览器端在线调试，并可为指定端口持续写入日志、随时载入历史数据
 
 ### 🌟 v2.2 最新功能
 
@@ -164,6 +176,14 @@ Yobboy 文件服务器是一个集成了文件浏览、Markdown 预览、Draw.io
 #### 📝 Markdown 渲染
 - **丰富语法**：支持表格、任务列表、脚注、定义列表等
 - **图片路径处理**：自动处理相对路径图片
+
+#### 🔌 串口调试助手（v3.0）
+- **PySerial 驱动**：后端使用 PySerial 读取/写入串口，支持常见串口参数配置
+- **持续日志捕获**：为选定串口开启后台 JSONL 日志，可在页面一键载入或持续监控
+- **实时回显**：Socket.IO 推送串口数据到浏览器，毫秒级刷新，支持下载日志
+- **命令发送**：Web 端发送指令、换行模式、自动补齐尾字符
+- **多端协作**：浏览器即可调试嵌入式设备，无需安装额外串口工具
+- **安全可控**：支持关闭端口、查看统计、阻止重复打开
 
 #### 💻 桌面 GUI
 - **现代界面**：基于 PyQt5 的现代化图形界面
@@ -340,11 +360,22 @@ This project was born to save your back and your dignity!
 - 📊 **Instant File Sharing Hub**: Colleague needs your code, designs, or documents? Throw them a LAN address or QRCode, preview online, download if needed - 100x faster than WeChat without compression
 - 🎨 **Live Code Editor**: Client suddenly wants config file changes? Pull out your phone browser, edit with CodeMirror, syntax highlighted, save on the spot - professionalism maxed out
 - 📁 **Document Online Editor**: Want to edit Markdown notes, Python scripts, config files in real-time? Open in browser, syntax highlighting, code folding, find & replace all available
+- 🧭 **Team Task Command Center**: ToDo Timeline Center keeps every project and category aligned, perfect for standups and on-site reviews
+- 🔌 **Hardware Lab Debugging**: Built-in serial assistant streams logs, issues commands, and tunes parameters without any extra tooling
 
 **10x simpler than FileZilla, 100x more elegant than FTP, 1000x lighter than carrying your laptop around!**
 
 No complex configuration needed, no weird commands to memorize. Double-click exe, hit start, scan/type URL, done!
 Mom will never worry about me not knowing how to set up a server again 😎
+
+### 🌟 v3.0 Latest Features
+
+- 🍃 **Jasmine Snow Theme Refresh**: Unified cyan-green × snow-white gradient styling across every page (except the choice hub), with buttons, cards, and forms redesigned
+- 🗂️ **ToDo Timeline Center**: Dedicated workspace with backdoor access, search & project filters, inherited/random project colors, and estimated completion tracking
+- 📆 **Bidirectional Timeline**: Switch seamlessly between vertical and horizontal views; scroll automatically matches orientation with floating jump buttons for quick navigation
+- 🧷 **Event Operations Upgrade**: Each timeline card now supports comment, edit, and single-event delete actions with history/comment sync
+- ⏱️ **Pending Overview Board**: Fullscreen summary panel highlighting today’s targets, overdue tasks, and remaining-time ranking, kept in sync with the timeline selection
+- 🔌 **Serial Diagnostics Assistant**: PySerial + Socket.IO powered console for real-time serial monitoring, parameter tuning, browser-side command sending, plus continuous logging and history replay for paired ports
 
 ### 🌟 v2.2 Latest Features
 
@@ -444,6 +475,14 @@ Mom will never worry about me not knowing how to set up a server again 😎
 - **Code Highlighting**: Syntax highlighting with Pygments
 - **Image Path Processing**: Automatic handling of relative image paths
 - **GitHub Style**: GitHub Markdown styling
+
+#### 🔌 Serial Diagnostics Assistant (v3.0)
+- **PySerial Backend**: Configure baud rate, data bits, parity, stop bits, and timeouts directly from the server
+- **Continuous Logging**: Pair a port for always-on JSONL logging and reload the history from the browser at any time
+- **Real-time Streaming**: Socket.IO pushes live serial logs to the browser with millisecond-level updates
+- **Command Console**: Send commands, auto-append newline characters, and manage quick presets without extra tools
+- **Multi-device Ready**: Debug embedded boards from any device with a browser—no need for vendor-specific utilities
+- **Safe Controls**: Close ports, monitor statistics, and prevent duplicate access with built-in guards
 
 #### 💻 Desktop GUI
 - **Modern Interface**: Modern graphical interface based on PyQt5

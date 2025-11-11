@@ -7,6 +7,7 @@
     <!-- 本地 CSS 资源 -->
     <link href="{{ url_for('static', filename='css/bootstrap.min.css') }}" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/font-awesome.min.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/jasmine_base.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/github-markdown-light.min.css') }}">
     
     <!-- CodeMirror 编辑器 -->
@@ -19,7 +20,7 @@
             height: 100%;
             margin: 0;
             padding: 0;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, var(--jasmine-green-600) 0%, var(--jasmine-green-400) 100%);
             background-attachment: fixed;
             scroll-behavior: smooth; /* 启用平滑滚动 */
         }
@@ -29,24 +30,27 @@
         }
         /* 主容器 */
         .container-main {
-            background-color: white;
-            border-radius: 12px;
-            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+            background: var(--jasmine-panel-glass);
+            border-radius: 18px;
+            box-shadow: var(--jasmine-shadow-lg);
             min-height: calc(100vh - 40px);
             display: flex;
             flex-direction: column;
             overflow: hidden;
-            transition: box-shadow 0.3s ease;
+            transition: box-shadow 0.3s ease, transform 0.3s ease;
+            border: 1px solid rgba(95, 191, 174, 0.18);
+            backdrop-filter: blur(8px);
         }
         .container-main:hover {
-            box-shadow: 0 15px 35px rgba(0, 0, 0, 0.15);
+            box-shadow: 0 22px 48px rgba(30, 114, 96, 0.2);
+            transform: translateY(-2px);
         }
 
         /* 标题和登出按钮区域 */
         .header-row {
             padding: 20px 25px;
-            background: linear-gradient(90deg, #f8f9fa, #e9ecef);
-            border-bottom: 1px solid #dee2e6;
+            background: var(--jasmine-gradient-soft);
+            border-bottom: 1px solid rgba(95, 191, 174, 0.2);
         }
         .header-row .col {
             display: flex;
@@ -452,7 +456,7 @@
             height: 60px;
             border-radius: 50%;
             border: none;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, var(--jasmine-green-600) 0%, var(--jasmine-green-400) 100%);
             color: white;
             font-size: 24px;
             cursor: pointer;
@@ -710,9 +714,9 @@
             transition: all 0.3s ease;
         }
         .filter-btn.active {
-            background-color: #667eea !important;
+            background-color: var(--jasmine-green-600) !important;
             color: white !important;
-            border-color: #667eea !important;
+            border-color: var(--jasmine-green-600) !important;
         }
         
         /* 全屏样式 */
@@ -826,7 +830,7 @@
         
         /* 音频播放器样式 */
         .audio-player-container {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, var(--jasmine-green-600) 0%, var(--jasmine-green-400) 100%);
             border-radius: 15px;
             padding: 30px;
             text-align: center;

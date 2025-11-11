@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>串口诊断工具</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap.min.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/jasmine_base.css') }}">
+    <style>
+        body {
+            padding: 20px;
+            background: #f5f7fa;
+        }
+        .card {
+            margin-bottom: 20px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        .result-item {
+            padding: 10px;
+            margin: 5px 0;
+            border-radius: 4px;
+            font-family: 'Consolas', monospace;
+        }
+        .result-ok {
+            background: #d4edda;
+            color: #155724;
+        }
+        .result-error {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        .result-warning {
+            background: #fff3cd;
+            color: #856404;
+        }
+        .result-info {
+            background: #d1ecf1;
+            color: #0c5460;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔍 串口功能诊断工具</h1>
+        <p class="text-muted">检测浏览器对 Web Serial API 的支持情况</p>
+        
+        <div class="card">
+            <div class="card-header bg-primary text-white">
+                <strong>诊断结果</strong>
+            </div>
+            <div class="card-body" id="diagnosticResults">
+                <p>正在检测...</p>
+            </div>
+        </div>
+        
+        <div class="card">
+            <div class="card-header bg-info text-white">
+                <strong>浏览器信息</strong>
+            </div>
+            <div class="card-body">
+                <div id="browserInfo"></div>
+            </div>
+        </div>
+        
+        <div class="card">
+            <div class="card-header bg-success text-white">
+                <strong>测试串口连接</strong>
+            </div>
+            <div class="card-body">
+                <button class="btn btn-primary" id="testSerialBtn">测试连接串口</button>
+                <div id="testResult" class="mt-3"></div>
+            </div>
+        </div>
+        
+        <div class="card">
+            <div class="card-header bg-warning text-dark">
+                <strong>解决方案</strong>
+            </div>
+            <div class="card-body">
+                <div id="solutions"></div>
+            </div>
+        </div>
+        
+        <div class="text-center mt-4">
+            <a href="/serial_tool" class="btn btn-primary">返回串口工具</a>
+            <a href="/" class="btn btn-secondary">返回主页</a>
+        </div>
+    </div>
+    
+    <script>
+        // 诊断功能
+        function runDiagnostic() {
+            const results = document.getElementById('diagnosticResults');
+            const browserInfo = document.getElementById('browserInfo');
+            const solutions = document.getElementById('solutions');
+            
+            let resultsHtml = '';
+            let solutionsHtml = '';
+            let allPassed = true;
+            
+            // 1. 检查 User Agent
+            const ua = navigator.userAgent;
+            browserInfo.innerHTML = `
+                <p><strong>User Agent:</strong><br><code style="word-break: break-all;">${ua}</code></p>
+            `;
+            
+            // 2. 检查浏览器类型
+            let browserName = '未知浏览器';
+            let browserVersion = 0;
+            
+            if (ua.includes('Edg/')) {
+                const match = ua.match(/Edg\/([\d.]+)/);
+                browserVersion = match ? parseFloat(match[1]) : 0;
+                browserName = `Microsoft Edge ${match ? match[1] : ''}`;
+                
+                if (browserVersion >= 89) {
+                    resultsHtml += `<div class="result-item result-ok">✅ 浏览器: ${browserName} (支持)</div>`;
+                } else {
+                    resultsHtml += `<div class="result-item result-error">❌ 浏览器: ${browserName} (版本过旧，需要 89+)</div>`;
+                    allPassed = false;
+                    solutionsHtml += `<p>⚠️ 您的 Edge 版本是 ${browserVersion}，需要升级到 89 或更高版本</p>`;
+                    solutionsHtml += `<p><strong>升级方法：</strong></p>`;
+                    solutionsHtml += `<ol>
+                        <li>点击 Edge 右上角的 "..." 菜单</li>
+                        <li>选择"帮助和反馈" → "关于 Microsoft Edge"</li>
+                        <li>浏览器会自动检查并下载更新</li>
+                    </ol>`;
+                }
+            } else if (ua.includes('Chrome/')) {
+                const match = ua.match(/Chrome\/([\d.]+)/);
+                browserVersion = match ? parseFloat(match[1]) : 0;
+                browserName = `Google Chrome ${match ? match[1] : ''}`;
+                
+                if (browserVersion >= 89) {
+                    resultsHtml += `<div class="result-item result-ok">✅ 浏览器: ${browserName} (支持)</div>`;
+                } else {
+                    resultsHtml += `<div class="result-item result-error">❌ 浏览器: ${browserName} (版本过旧，需要 89+)</div>`;
+                    allPassed = false;
+                }
+            } else if (ua.includes('OPR/')) {
+                const match = ua.match(/OPR\/([\d.]+)/);
+                browserVersion = match ? parseFloat(match[1]) : 0;
+                browserName = `Opera ${match ? match[1] : ''}`;
+                
+                if (browserVersion >= 76) {
+                    resultsHtml += `<div class="result-item result-ok">✅ 浏览器: ${browserName} (支持)</div>`;
+                } else {
+                    resultsHtml += `<div class="result-item result-error">❌ 浏览器: ${browserName} (版本过旧，需要 76+)</div>`;
+                    allPassed = false;
+                }
+            } else if (ua.includes('Firefox')) {
+                browserName = 'Mozilla Firefox';
+                resultsHtml += `<div class="result-item result-error">❌ 浏览器: ${browserName} (不支持 Web Serial API)</div>`;
+                allPassed = false;
+                solutionsHtml += `<p>⚠️ Firefox 浏览器目前不支持 Web Serial API</p>`;
+                solutionsHtml += `<p><strong>请改用以下浏览器：</strong></p>`;
+                solutionsHtml += `<ul>
+                    <li>Google Chrome 89+</li>
+                    <li>Microsoft Edge 89+</li>
+                    <li>Opera 76+</li>
+                </ul>`;
+            } else if (ua.includes('Safari') && !ua.includes('Chrome')) {
+                browserName = 'Safari';
+                resultsHtml += `<div class="result-item result-error">❌ 浏览器: ${browserName} (不支持 Web Serial API)</div>`;
+                allPassed = false;
+                solutionsHtml += `<p>⚠️ Safari 浏览器目前不支持 Web Serial API</p>`;
+            } else {
+                resultsHtml += `<div class="result-item result-warning">⚠️ 浏览器: ${browserName} (未知浏览器)</div>`;
+                allPassed = false;
+            }
+            
+            // 3. 检查协议
+            const protocol = window.location.protocol;
+            if (protocol === 'https:' || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+                resultsHtml += `<div class="result-item result-ok">✅ 协议: ${protocol} (${window.location.host})</div>`;
+            } else {
+                resultsHtml += `<div class="result-item result-warning">⚠️ 协议: ${protocol} (建议使用 HTTPS 或 localhost)</div>`;
+                solutionsHtml += `<p>⚠️ 您正在使用 HTTP 协议访问非本地地址</p>`;
+                solutionsHtml += `<p><strong>建议：</strong></p>`;
+                solutionsHtml += `<ul>
+                    <li>使用 <code>http://localhost:5000</code> 访问</li>
+                    <li>或配置 HTTPS 证书</li>
+                </ul>`;
+            }
+            
+            // 4. 检查 Web Serial API
+            if ('serial' in navigator) {
+                resultsHtml += `<div class="result-item result-ok">✅ Web Serial API: 可用</div>`;
+                
+                // 检查是否已授权串口
+                if (navigator.serial.getPorts) {
+                    navigator.serial.getPorts().then(ports => {
+                        if (ports.length > 0) {
+                            resultsHtml += `<div class="result-item result-info">ℹ️ 已授权串口数量: ${ports.length}</div>`;
+                            results.innerHTML = resultsHtml;
+                        }
+                    }).catch(err => {
+                        console.error('获取串口列表失败:', err);
+                    });
+                }
+            } else {
+                resultsHtml += `<div class="result-item result-error">❌ Web Serial API: 不可用</div>`;
+                allPassed = false;
+                
+                if (!solutionsHtml.includes('请改用以下浏览器')) {
+                    solutionsHtml += `<p>⚠️ 您的浏览器不支持 Web Serial API</p>`;
+                    solutionsHtml += `<p><strong>可能的原因：</strong></p>`;
+                    solutionsHtml += `<ul>
+                        <li>浏览器版本过旧</li>
+                        <li>浏览器类型不支持</li>
+                        <li>实验性功能未启用</li>
+                    </ul>`;
+                    solutionsHtml += `<p><strong>启用实验性功能（Edge）：</strong></p>`;
+                    solutionsHtml += `<ol>
+                        <li>在地址栏输入: <code>edge://flags</code></li>
+                        <li>搜索: <code>Experimental Web Platform features</code></li>
+                        <li>将其设置为 <strong>Enabled</strong></li>
+                        <li>重启浏览器</li>
+                    </ol>`;
+                }
+            }
+            
+            // 5. 检查安全上下文
+            if (window.isSecureContext) {
+                resultsHtml += `<div class="result-item result-ok">✅ 安全上下文: 是</div>`;
+            } else {
+                resultsHtml += `<div class="result-item result-warning">⚠️ 安全上下文: 否 (某些功能可能受限)</div>`;
+            }
+            
+            // 显示结果
+            results.innerHTML = resultsHtml;
+            
+            if (!solutionsHtml) {
+                if (allPassed) {
+                    solutions.innerHTML = `
+                        <div class="alert alert-success">
+                            <strong>✅ 所有检查通过！</strong><br>
+                            您的浏览器完全支持 Web Serial API，可以正常使用串口功能。<br>
+                            点击左侧"添加"按钮即可连接串口设备。
+                        </div>
+                    `;
+                } else {
+                    solutions.innerHTML = `
+                        <div class="alert alert-warning">
+                            <strong>⚠️ 检测到一些警告</strong><br>
+                            虽然您的浏览器支持 Web Serial API，但建议改善访问环境以获得最佳体验。
+                        </div>
+                    `;
+                }
+            } else {
+                solutions.innerHTML = solutionsHtml;
+            }
+        }
+        
+        // 测试串口连接
+        document.getElementById('testSerialBtn').addEventListener('click', async () => {
+            const testResult = document.getElementById('testResult');
+            
+            if (!('serial' in navigator)) {
+                testResult.innerHTML = `<div class="alert alert-danger">❌ 无法测试：浏览器不支持 Web Serial API</div>`;
+                return;
+            }
+            
+            try {
+                testResult.innerHTML = `<div class="alert alert-info">正在请求串口访问权限...</div>`;
+                
+                const port = await navigator.serial.requestPort();
+                
+                testResult.innerHTML = `
+                    <div class="alert alert-success">
+                        ✅ 成功！浏览器弹出了串口选择对话框<br>
+                        <small>如果您选择了串口，说明功能正常</small>
+                    </div>
+                `;
+                
+                // 获取串口信息
+                const info = port.getInfo();
+                testResult.innerHTML += `
+                    <div class="alert alert-info">
+                        <strong>串口信息：</strong><br>
+                        USB Vendor ID: ${info.usbVendorId || '未知'}<br>
+                        USB Product ID: ${info.usbProductId || '未知'}
+                    </div>
+                `;
+                
+            } catch (error) {
+                console.error('测试失败:', error);
+                testResult.innerHTML = `
+                    <div class="alert alert-warning">
+                        ⚠️ 测试结果：<br>
+                        ${error.name}: ${error.message}<br>
+                        <small>如果您点击了"取消"，这是正常的</small>
+                    </div>
+                `;
+            }
+        });
+        
+        // 页面加载完成后运行诊断
+        window.addEventListener('DOMContentLoaded', runDiagnostic);
+    </script>
+</body>
+</html>
+
+
+

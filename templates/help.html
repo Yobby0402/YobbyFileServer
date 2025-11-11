@@ -3,13 +3,707 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>使用帮助 - Yobboy 文件服务器 v3.0</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap.min.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/font-awesome.min.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/jasmine_base.css') }}">
+    <style>
+        body {
+            background: linear-gradient(135deg, rgba(214, 242, 234, 0.55), rgba(240, 249, 244, 0.95));
+            color: #0f172a;
+            font-family: "Microsoft YaHei", "Segoe UI", Arial, sans-serif;
+            min-height: 100vh;
+        }
+
+        .hero {
+            background: linear-gradient(135deg, var(--jasmine-green-700), var(--jasmine-green-400));
+            color: #fff;
+            padding: 64px 24px;
+            border-radius: 0 0 42px 42px;
+            margin-bottom: 32px;
+            box-shadow: 0 18px 40px rgba(13, 116, 100, 0.22);
+        }
+
+        .hero h1 {
+            font-size: 2.6rem;
+            font-weight: 800;
+            letter-spacing: 0.6px;
+        }
+
+        .hero p {
+            font-size: 1.08rem;
+            opacity: 0.92;
+            max-width: 760px;
+        }
+
+        .content-wrapper {
+            display: grid;
+            grid-template-columns: 300px 1fr;
+            gap: 28px;
+            padding: 0 32px 64px;
+        }
+
+        .toc {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 20px;
+            padding: 24px;
+            box-shadow: var(--jasmine-shadow-md);
+            border: 1px solid rgba(95, 191, 174, 0.22);
+            position: sticky;
+            top: 120px;
+            height: fit-content;
+        }
+
+        .toc h5 {
+            font-weight: 700;
+            margin-bottom: 16px;
+            color: var(--jasmine-green-700);
+        }
+
+        .toc ul {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .toc a {
+            text-decoration: none;
+            color: #0f172a;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 0.95rem;
+            border-radius: 12px;
+            padding: 8px 12px;
+            transition: background 0.2s ease, transform 0.2s ease;
+        }
+
+        .toc a:hover {
+            background: rgba(95, 191, 174, 0.12);
+            transform: translateX(4px);
+            color: var(--jasmine-green-700);
+        }
+
+        .help-main {
+            display: flex;
+            flex-direction: column;
+            gap: 32px;
+        }
+
+        .help-section {
+            background: rgba(255, 255, 255, 0.96);
+            border-radius: 22px;
+            padding: 32px;
+            box-shadow: var(--jasmine-shadow-lg);
+            border: 1px solid rgba(95, 191, 174, 0.18);
+        }
+
+        .help-section h2 {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            color: var(--jasmine-green-700);
+            font-size: 1.55rem;
+            font-weight: 800;
+            margin-bottom: 20px;
+        }
+
+        .help-section h2 span {
+            font-size: 1rem;
+            font-weight: 600;
+            color: rgba(15, 67, 59, 0.72);
+        }
+
+        .divider {
+            height: 1px;
+            background: linear-gradient(90deg, rgba(95, 191, 174, 0.35), rgba(244, 249, 244, 0));
+            margin: 16px 0 24px;
+        }
+
+        .section-grid {
+            display: grid;
+            gap: 18px;
+        }
+
+        .sub-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+            gap: 18px;
+        }
+
+        .feature-card {
+            border-radius: 18px;
+            padding: 20px 22px;
+            border: 1px solid rgba(95, 191, 174, 0.22);
+            background: linear-gradient(135deg, rgba(255, 255, 255, 0.95), rgba(222, 247, 238, 0.68));
+            box-shadow: 0 12px 28px rgba(13, 116, 100, 0.08);
+        }
+
+        .feature-card.header {
+            background: linear-gradient(135deg, rgba(95, 191, 174, 0.18), rgba(95, 191, 174, 0.35));
+        }
+
+        .feature-card h3 {
+            font-size: 1.15rem;
+            color: var(--jasmine-green-700);
+            font-weight: 700;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .feature-card ul, .feature-card p {
+            font-size: 0.95rem;
+            line-height: 1.72;
+            color: #1f2937;
+            margin-bottom: 0;
+        }
+
+        .feature-card ul {
+            padding-left: 20px;
+        }
+
+        .badge-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            border-radius: 999px;
+            padding: 6px 14px;
+            font-size: 0.82rem;
+            font-weight: 600;
+            color: #0f433b;
+            background: rgba(232, 246, 240, 0.9);
+            border: 1px solid rgba(95, 191, 174, 0.25);
+        }
+
+        .tip-box, .warn-box {
+            border-radius: 16px;
+            padding: 18px 22px;
+            margin: 20px 0;
+            display: flex;
+            gap: 14px;
+            align-items: flex-start;
+        }
+
+        .tip-box {
+            background: rgba(214, 242, 234, 0.62);
+            border-left: 5px solid var(--jasmine-green-500);
+            color: #0f433b;
+        }
+
+        .warn-box {
+            background: rgba(255, 244, 224, 0.96);
+            border-left: 5px solid #f59e0b;
+            color: #92400e;
+        }
+
+        .code-block {
+            background: rgb(15, 23, 42);
+            color: rgb(241, 245, 249);
+            border-radius: 14px;
+            padding: 16px;
+            font-family: "Cascadia Code", "Fira Code", Consolas, monospace;
+            font-size: 0.92rem;
+            line-height: 1.65;
+            border: 1px solid rgba(96, 165, 250, 0.25);
+            overflow-x: auto;
+            margin: 16px 0;
+        }
+
+        .cta-area {
+            text-align: center;
+            padding: 36px 24px 12px;
+            display: flex;
+            justify-content: center;
+            flex-wrap: wrap;
+            gap: 16px;
+        }
+
+        .btn-soft {
+            border-radius: 999px;
+            padding: 12px 28px;
+            border: none;
+            font-weight: 600;
+            letter-spacing: 0.2px;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+            box-shadow: 0 16px 32px rgba(13, 116, 100, 0.16);
+        }
+
+        .btn-soft:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 20px 36px rgba(13, 116, 100, 0.21);
+        }
+
+        .btn-outline-soft {
+            border: 1px solid rgba(95, 191, 174, 0.55);
+            background: rgba(255, 255, 255, 0.9);
+            color: var(--jasmine-green-700);
+            padding: 12px 26px;
+            border-radius: 999px;
+            font-weight: 600;
+            transition: background 0.2s ease, transform 0.2s ease;
+            box-shadow: 0 12px 24px rgba(95, 191, 174, 0.18);
+        }
+
+        .btn-outline-soft:hover {
+            background: rgba(95, 191, 174, 0.12);
+            transform: translateY(-2px);
+        }
+
+        @media (max-width: 1200px) {
+            .content-wrapper {
+                grid-template-columns: 1fr;
+                padding: 0 20px 48px;
+            }
+            .toc {
+                position: relative;
+                top: 0;
+                order: -1;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header class="hero">
+        <div class="container-lg">
+            <div class="d-flex flex-column flex-lg-row align-items-lg-center justify-content-between gap-4">
+                <div>
+                    <h1 class="mb-3">
+                        <i class="fas fa-compass"></i> Yobboy 文件服务器 · 使用帮助中心
+                    </h1>
+                    <p class="mb-3">
+                        欢迎体验 v3.0 —— 全新的茉莉奶白主题、任务时间轴中心、串口持续日志、3D 可视化与离线编辑齐聚一体的局域网文件服务平台。
+                        本页汇总了快速上手、核心功能、管理配置、安全提示与常见问题，帮助你和团队高效协作。
+                    </p>
+                    <span class="badge-pill"><i class="fas fa-history"></i> 最后更新：2025-11-11 · 版本 3.0</span>
+                </div>
+                <div class="d-flex flex-column flex-sm-row gap-3">
+                    <a class="btn btn-soft btn-success" href="{{ url_for('serial_tool') }}">
+                        <i class="fas fa-bolt"></i> 打开串口调试助手
+                    </a>
+                    <a class="btn btn-outline-soft" href="{{ url_for('todo_page') }}">
+                        <i class="fas fa-stream"></i> 前往 ToDo 时间轴中心
+                    </a>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <div class="content-wrapper">
+        <nav class="toc">
+            <h5><i class="fas fa-list"></i> 快速导航</h5>
+            <ul>
+                <li><a href="#quick-start"><i class="fas fa-rocket"></i> 快速上手</a></li>
+                <li><a href="#core-features"><i class="fas fa-gem"></i> 核心功能速览</a></li>
+                <li><a href="#file-explorer"><i class="fas fa-folder-open"></i> 文件浏览器</a></li>
+                <li><a href="#todo-center"><i class="fas fa-tasks"></i> ToDo 时间轴中心</a></li>
+                <li><a href="#serial-tool"><i class="fas fa-microchip"></i> 串口调试与日志</a></li>
+                <li><a href="#drawio-markdown"><i class="fas fa-pencil-ruler"></i> 编辑与预览</a></li>
+                <li><a href="#share-3d"><i class="fas fa-share-alt"></i> 分享 & 3D 功能</a></li>
+                <li><a href="#desktop-app"><i class="fas fa-desktop"></i> 桌面端 GUI</a></li>
+                <li><a href="#config"><i class="fas fa-sliders-h"></i> 配置与部署</a></li>
+                <li><a href="#security"><i class="fas fa-shield-alt"></i> 安全与隐私</a></li>
+                <li><a href="#faq"><i class="fas fa-question-circle"></i> 常见问题</a></li>
+            </ul>
+        </nav>
+
+        <main class="help-main">
+            <section class="help-section" id="quick-start">
+                <h2><i class="fas fa-rocket"></i> 快速上手 <span>3 步完成部署与访问</span></h2>
+                <div class="section-grid">
+                    <div class="feature-card header">
+                        <h3><i class="fas fa-bolt"></i> 步骤 1 · 启动服务</h3>
+                        <ul>
+                            <li><strong>图形界面（推荐）：</strong> 双击 <code>YobboyFileServer.exe</code> → 点击“启动服务器” → 复制或扫码界面上方地址。</li>
+                            <li><strong>命令行：</strong> <code>python main.py</code> 即可启动（确保安装依赖）。</li>
+                            <li>界面显示绿色状态代表服务已启动；支持最小化到托盘后台运行。</li>
+                        </ul>
+                    </div>
+                    <div class="feature-card header">
+                        <h3><i class="fas fa-user-lock"></i> 步骤 2 · 登录系统</h3>
+                        <ul>
+                            <li>首次访问会自动跳转至登录页面，默认密码：<code>ats123</code>。</li>
+                            <li>建议立即通过 <strong>文件 → 设置</strong> 或编辑 <code>config.ini</code> 更改密码。</li>
+                        </ul>
+                        <div class="warn-box">
+                            <i class="fas fa-exclamation-circle mt-1"></i>
+                            <div>
+                                <strong>安全提示：</strong> 团队内共享部署时，建议为不同环境设置不同密码并记录访问日志。
+                            </div>
+                        </div>
+                    </div>
+                    <div class="feature-card header">
+                        <h3><i class="fas fa-th-large"></i> 步骤 3 · 选择功能</h3>
+                        <p>登录成功后进入选择界面，可一键打开：</p>
+                        <ul>
+                            <li>文件浏览器、Draw.io 编辑器、Markdown 预览</li>
+                            <li>ToDo 时间轴中心、串口调试助手、3D 模型查看、分享管理等</li>
+                        </ul>
+                    </div>
+                </div>
+            </section>
+
+            <section class="help-section" id="core-features">
+                <h2><i class="fas fa-gem"></i> 核心功能速览 <span>v3.0 全面焕新</span></h2>
+                <div class="divider"></div>
+                <div class="sub-grid">
+                    <div class="feature-card">
+                        <h3><i class="fas fa-stream"></i> ToDo 时间轴中心</h3>
+                        <ul>
+                            <li>双视图时间轴（纵向/横向），配合浮动跳转按钮快速定位。</li>
+                            <li>项目颜色自动继承、随机配色、预计完成时间、分类进度独立。</li>
+                            <li>时间轴卡片支持评论、修改、删除单条记录，历史与评论同步保留。</li>
+                            <li>底部待办概览按“今日/逾期/剩余时间”分组排序，高亮同步。</li>
+                        </ul>
+                    </div>
+                    <div class="feature-card">
+                        <h3><i class="fas fa-microchip"></i> 串口助手 & 持续日志</h3>
+                        <ul>
+                            <li>Web Serial + 远程串口双模式；参数配置、快捷键、终端模式一应俱全。</li>
+                            <li>可为服务器串口开启持续日志，日志 JSON Lines 写入，可随时载入回放。</li>
+                            <li>历史日志与实时调试互不干扰，可随时“接管”串口继续调试。</li>
+                        </ul>
+                    </div>
+                    <div class="feature-card">
+                        <h3><i class="fas fa-folder-open"></i> 全能文件浏览器</h3>
+                        <ul>
+                            <li>目录树浏览、实时搜索、类型过滤、面包屑导航。</li>
+                            <li>在线预览 Markdown、PDF、视频音频、3D GLTF/OBJ/STL、Draw.io 等。</li>
+                            <li>内置 CodeMirror，支持 100+ 语言语法高亮与快捷键编辑。</li>
+                        </ul>
+                    </div>
+                    <div class="feature-card">
+                        <h3><i class="fas fa-share-alt"></i> 分享 & 协作工具</h3>
+                        <ul>
+                            <li>一键生成分享链接，支持密码、访问次数、有效期控制，并提供访问统计。</li>
+                            <li>3D Viewer、Draw.io、Markdown 等均可嵌入分享页离线预览。</li>
+                        </ul>
+                    </div>
+                </div>
+            </section>
+
+            <section class="help-section" id="file-explorer">
+                <h2><i class="fas fa-folder-open"></i> 文件浏览器 <span>预览 + 编辑 + 上传</span></h2>
+                <div class="divider"></div>
+                <div class="section-grid">
+                    <div class="feature-card">
+                        <h3><i class="fas fa-eye"></i> 支持的预览类型</h3>
+                        <ul>
+                            <li><strong>图片：</strong>JPG/PNG/GIF/SVG/WebP 等，可全屏灯箱。</li>
+                            <li><strong>Markdown：</strong>支持表格、任务列表、脚注，图片相对路径自动修正。</li>
+                            <li><strong>文档：</strong>PDF 在线预览；Office 文件可下载。</li>
+                            <li><strong>多媒体：</strong>MP3/WAV/FLAC、MP4/AVI/WEBM 直接播放。</li>
+                            <li><strong>代码：</strong>100+ 语言语法高亮，支持 Ctrl+S 保存。</li>
+                            <li><strong>3D 模型：</strong>GLTF/GLB/OBJ/STL，Three.js 离线渲染。</li>
+                        </ul>
+                    </div>
+                    <div class="feature-card">
+                        <h3><i class="fas fa-tools"></i> 常用操作</h3>
+                        <ul>
+                            <li>上传/新建文件夹/新建文件或 Draw.io 图表。</li>
+                            <li>批量选择后下载或删除；支持键盘快捷键。</li>
+                            <li>支持按类型过滤（图片/代码/文档等）。</li>
+                            <li>面包屑导航快速回到上级目录。</li>
+                        </ul>
+                    </div>
+                    <div class="feature-card">
+                        <h3><i class="fas fa-sliders-h"></i> 服务器根目录设置</h3>
+                        <ul>
+                            <li><strong>GUI：</strong>文件 → 设置 → 选择根目录 → 保存。</li>
+                            <li><strong>Web：</strong>访问 <code>/set_root</code>（需管理员密码）。</li>
+                            <li><strong>配置文件：</strong>编辑 <code>config.ini</code> 中的 <code>root_dir</code> 并重启。</li>
+                        </ul>
+                        <div class="code-block">
+[settings]
+root_dir = C:\your\workspace
+password = ats123
+admin_password = admin123
+close_to_tray = true
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <section class="help-section" id="todo-center">
+                <h2><i class="fas fa-tasks"></i> ToDo 时间轴中心 <span>项目进度可视化</span></h2>
+                <div class="divider"></div>
+                <div class="section-grid">
+                    <div class="feature-card">
+                        <h3><i class="fas fa-search"></i> 搜索与筛选</h3>
+                        <ul>
+                            <li>支持标题、项目、标签、分类等关键词模糊搜索。</li>
+                            <li>项目筛选下拉框自动列出历史项目，颜色随项目继承。</li>
+                            <li>新建 ToDo 时可随机生成茉莉配色，或沿用当前项目颜色。</li>
+                        </ul>
+                    </div>
+                    <div class="feature-card">
+                        <h3><i class="fas fa-comments"></i> 时间轴操作</h3>
+                        <ul>
+                            <li>每条记录支持 <strong>评论 / 修改 / 单条删除</strong>。</li>
+                            <li>评论历史与进度变更会追加到同一 ToDo 的时间轴。</li>
+                            <li>横向模式带有中心线，滚轮自动切换为横向滚动。</li>
+                            <li>右下角浮动按钮可一键跳转到时间轴顶部或待办概览。</li>
+                        </ul>
+                    </div>
+                    <div class="feature-card">
+                        <h3><i class="fas fa-chart-line"></i> 待办概览</h3>
+                        <ul>
+                            <li>按“今日目标 / 逾期 / 剩余时间排序 / 无截止”自动分组。</li>
+                            <li>点击任意待办条目，同步高亮时间轴对应卡片。</li>
+                            <li>面板固定一屏高度，可独立滚动查看全部任务。</li>
+                        </ul>
+                    </div>
+                </div>
+            </section>
+
+            <section class="help-section" id="serial-tool">
+                <h2><i class="fas fa-microchip"></i> 串口调试助手 <span>本地 + 远程 + 持续日志</span></h2>
+                <div class="divider"></div>
+                <div class="section-grid">
+                    <div class="feature-card">
+                        <h3><i class="fas fa-desktop"></i> 本地串口模式</h3>
+                        <ul>
+                            <li>基于 Web Serial API，需要 Chrome / Edge / Opera 等 Chromium 浏览器。</li>
+                            <li>首次授权后可直接选择串口，支持气泡模式与终端模式切换。</li>
+                            <li>内置快捷键（Ctrl+C / Ctrl+D / Tab 等）与定时发送。</li>
+                        </ul>
+                        <div class="warn-box">
+                            <i class="fas fa-shield-alt mt-1"></i>
+                            <div>
+                                <strong>浏览器限制：</strong>必须在 HTTPS 或 <code>localhost</code> 下使用 Web Serial 功能；非安全上下文请切换到远程模式。
+                            </div>
+                        </div>
+                    </div>
+                    <div class="feature-card">
+                        <h3><i class="fas fa-cloud"></i> 远程串口模式</h3>
+                        <ul>
+                            <li>通过 Socket.IO 连接服务器串口，可远程监控与发送命令。</li>
+                            <li>支持多监听器，调试过程不会影响后台日志记录。</li>
+                            <li>断开连接前自动保存当前会话日志，便于追踪历史。</li>
+                        </ul>
+                    </div>
+                    <div class="feature-card">
+                        <h3><i class="fas fa-clipboard-list"></i> 持续日志捕获</h3>
+                        <ul>
+                            <li>在“持续日志”面板选择串口和参数，点击“开启持续日志”即可后台写入 JSONL。</li>
+                            <li>日志可以随时载入到当前界面，与实时数据一起查看，支持增量加载。</li>
+                            <li>可随时停止日志捕获；日志保存在 <code>logs/serial_capture/&lt;port&gt;/YYYY-MM-DD.jsonl</code>。</li>
+                            <li>API：<code>POST /api/serial/capture/start</code>、<code>/stop</code>、<code>/status</code>、<code>/log/&lt;port&gt;</code>。</li>
+                        </ul>
+                    </div>
+                </div>
+            </section>
+
+            <section class="help-section" id="drawio-markdown">
+                <h2><i class="fas fa-pencil-ruler"></i> 编辑与预览 <span>Draw.io / Markdown / Code</span></h2>
+                <div class="divider"></div>
+                <div class="section-grid">
+                    <div class="feature-card">
+                        <h3><i class="fas fa-project-diagram"></i> Draw.io 编辑器</h3>
+                        <ul>
+                            <li>完全离线，内置中文界面与完整版图库。</li>
+                            <li>支持 Ctrl+S 保存到服务器，Ctrl+Shift+S 另存为本地。</li>
+                            <li>导出 PNG / SVG / PDF；支持导入外部 draw.io 文件。</li>
+                        </ul>
+                    </div>
+                    <div class="feature-card">
+                        <h3><i class="fas fa-file-code"></i> Markdown & 代码编辑</h3>
+                        <ul>
+                            <li>Markdown-it 渲染引擎，支持表格/脚注/任务列表。</li>
+                            <li>CodeMirror 编辑器：行号、折叠、查找替换、快捷键齐全。</li>
+                            <li>自动识别 UTF-8 / GBK 编码，保存前提醒未保存修改。</li>
+                        </ul>
+                    </div>
+                </div>
+            </section>
+
+            <section class="help-section" id="share-3d">
+                <h2><i class="fas fa-share-alt"></i> 分享与 3D 功能 <span>演示更轻松</span></h2>
+                <div class="divider"></div>
+                <div class="section-grid">
+                    <div class="feature-card">
+                        <h3><i class="fas fa-qrcode"></i> 分享链接系统</h3>
+                        <ul>
+                            <li>支持密码、访问次数、过期时间、访问统计。</li>
+                            <li>Draw.io / Markdown / 3D 模型 / 视频可嵌入分享页在线预览。</li>
+                            <li>二维码分享，让移动端访问更便捷。</li>
+                        </ul>
+                    </div>
+                    <div class="feature-card">
+                        <h3><i class="fas fa-cube"></i> 3D 模型查看器</h3>
+                        <ul>
+                            <li>Three.js 离线渲染，支持 GLTF/GLB/OBJ/STL。</li>
+                            <li>交互控制：旋转 / 平移 / 缩放 / 线框 / 网格 / 坐标轴。</li>
+                            <li>实时显示顶点数、面数、尺寸等统计信息。</li>
+                        </ul>
+                    </div>
+                </div>
+            </section>
+
+            <section class="help-section" id="desktop-app">
+                <h2><i class="fas fa-desktop"></i> 桌面端 GUI <span>服务管控中心</span></h2>
+                <div class="divider"></div>
+                <div class="section-grid">
+                    <div class="feature-card">
+                        <h3><i class="fas fa-window-restore"></i> 主窗口</h3>
+                        <ul>
+                            <li>实时显示服务器日志、访问记录、监听地址。</li>
+                            <li>支持一键启动/停止、最小化到托盘、设置根目录与密码。</li>
+                            <li>关闭按钮行为可配置（退出或最小化到托盘）。</li>
+                        </ul>
+                    </div>
+                    <div class="feature-card">
+                        <h3><i class="fas fa-cog"></i> 设置对话框</h3>
+                        <ul>
+                            <li>修改根目录、登录密码、管理员密码、关闭行为。</li>
+                            <li>保存后自动应用，必要时自动重启服务器。</li>
+                        </ul>
+                    </div>
+                </div>
+            </section>
+
+            <section class="help-section" id="config">
+                <h2><i class="fas fa-sliders-h"></i> 配置与部署 <span>多种方式可选</span></h2>
+                <div class="divider"></div>
+                <div class="section-grid">
+                    <div class="feature-card">
+                        <h3><i class="fas fa-download"></i> 安装方式</h3>
+                        <ul>
+                            <li><strong>Windows 便携版：</strong>下载最新 exe，一键运行，无需额外依赖。</li>
+                            <li><strong>源码部署：</strong><code>git clone</code> → <code>pip install -r requirements.txt</code> → <code>python main.py</code>。</li>
+                            <li><strong>手动打包：</strong>运行 <code>pyinstaller YobboyFileServer.spec</code> 生成独立 exe。</li>
+                        </ul>
+                    </div>
+                    <div class="feature-card">
+                        <h3><i class="fas fa-database"></i> 配置文件优先级</h3>
+                        <ul>
+                            <li>程序运行目录下的 <code>config.ini</code>。</li>
+                            <li>用户主目录：<code>~/.yobboy_file_server/config.ini</code>。</li>
+                            <li>GUI 设置将同步写入配置文件。</li>
+                        </ul>
+                    </div>
+                </div>
+            </section>
+
+            <section class="help-section" id="security">
+                <h2><i class="fas fa-shield-alt"></i> 安全与隐私 <span>离线部署最佳实践</span></h2>
+                <div class="divider"></div>
+                <div class="section-grid">
+                    <div class="feature-card">
+                        <h3><i class="fas fa-network-wired"></i> 部署建议</h3>
+                        <ul>
+                            <li>推荐放置在内网/团队局域网环境；避免暴露公网上。</li>
+                            <li>首启后立即修改默认密码，必要时开启双重密码。</li>
+                            <li>定期检查 <code>logs</code> 目录，记录访问行为。</li>
+                        </ul>
+                    </div>
+                    <div class="feature-card">
+                        <h3><i class="fas fa-user-shield"></i> 权限控制</h3>
+                        <ul>
+                            <li>所有 Web 功能均需登录才能访问。</li>
+                            <li>管理员密码用于修改根目录、访问帮助等敏感操作。</li>
+                            <li>内置路径安全检查，防止目录遍历。</li>
+                        </ul>
+                    </div>
+                </div>
+            </section>
+
+            <section class="help-section" id="faq">
+                <h2><i class="fas fa-question-circle"></i> 常见问题 <span>FAQ</span></h2>
+                <div class="divider"></div>
+                <div class="section-grid">
+                    <div class="feature-card">
+                        <h3><i class="fas fa-server"></i> 服务器无法启动？</h3>
+                        <ul>
+                            <li>端口 5000 是否被占用？可修改 <code>config.ini</code> 中的 <code>port</code>。</li>
+                            <li>检查日志窗口或 <code>logs</code> 目录获取错误栈。</li>
+                            <li>Windows 上请确保未被防火墙阻止。</li>
+                        </ul>
+                    </div>
+                    <div class="feature-card">
+                        <h3><i class="fas fa-exclamation-circle"></i> 浏览器无法访问？</h3>
+                        <ul>
+                            <li>确认服务器已启动并显示访问地址。</li>
+                            <li>客户端与服务器需在同一网段。</li>
+                            <li>防火墙需允许 5000 端口，或使用 <code>localhost</code> 访问。</li>
+                        </ul>
+                    </div>
+                    <div class="feature-card">
+                        <h3><i class="fas fa-file-video"></i> 文件预览异常？</h3>
+                        <ul>
+                            <li>视频/音频需浏览器支持对应编码（推荐 MP4/H.264, MP3）。</li>
+                            <li>PDF 预览需要浏览器内置阅读器（Chromium/Firefox 默认支持）。</li>
+                            <li>Markdown 图片需位于与文档同一根目录。</li>
+                        </ul>
+                    </div>
+                    <div class="feature-card">
+                        <h3><i class="fas fa-question"></i> 还有其他问题？</h3>
+                        <p>欢迎在 GitHub Issues 或团队内部文档提出反馈，也可以在界面右上角使用“反馈”入口联系我们。</p>
+                    </div>
+                </div>
+            </section>
+
+            <section class="help-section">
+                <h2><i class="fas fa-hands-helping"></i> 联系与反馈</h2>
+                <div class="divider"></div>
+                <div class="section-grid">
+                    <div class="feature-card">
+                        <h3><i class="fas fa-life-ring"></i> 获取帮助</h3>
+                        <ul>
+                            <li>打开 GUI → 帮助 → 使用帮助（会自动启动服务器并打开本页）。</li>
+                            <li>选择页底部点击“使用帮助”链接（路径：<code>/help</code>）。</li>
+                            <li>常见错误可在日志窗口或 <code>logs</code> 目录中定位。</li>
+                        </ul>
+                    </div>
+                    <div class="feature-card">
+                        <h3><i class="fas fa-lightbulb"></i> 功能建议</h3>
+                        <p>我们乐于听取任何改进想法。欢迎通过 Issue / PR / 邮件等方式联系，将你的想法加入下一个版本。</p>
+                    </div>
+                </div>
+            </section>
+
+            <div class="cta-area">
+                <a class="btn btn-soft btn-success" href="/" title="返回选择界面">
+                    <i class="fas fa-home"></i> 返回首页
+                </a>
+                <a class="btn btn-outline-soft" href="javascript:history.back()" title="返回上一页">
+                    <i class="fas fa-arrow-left"></i> 返回上一页
+                </a>
+            </div>
+        </main>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/bootstrap.bundle.min.js') }}"></script>
+    <script>
+        document.querySelectorAll('.toc a').forEach((anchor) => {
+            anchor.addEventListener('click', (event) => {
+                event.preventDefault();
+                const target = document.querySelector(anchor.getAttribute('href'));
+                if (target) {
+                    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+            });
+        });
+    </script>
+</body>
+</html>
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>使用帮助 - Yobboy文件服务器</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap.min.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/jasmine_base.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/font-awesome.min.css') }}">
     <style>
         body {
             font-family: 'Microsoft YaHei', Arial, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, var(--jasmine-green-600) 0%, var(--jasmine-green-400) 100%);
             min-height: 100vh;
             padding: 20px;
         }
@@ -26,12 +720,12 @@
         .help-header {
             text-align: center;
             margin-bottom: 40px;
-            border-bottom: 3px solid #667eea;
+            border-bottom: 3px solid var(--jasmine-green-600);
             padding-bottom: 20px;
         }
         
         .help-header h1 {
-            color: #667eea;
+            color: var(--jasmine-green-600);
             font-size: 2.5rem;
             font-weight: bold;
             margin-bottom: 10px;
@@ -47,7 +741,7 @@
         }
         
         .help-section h2 {
-            color: #667eea;
+            color: var(--jasmine-green-600);
             font-size: 1.8rem;
             font-weight: bold;
             margin-bottom: 20px;
@@ -61,7 +755,7 @@
         }
         
         .help-section h3 {
-            color: #764ba2;
+            color: var(--jasmine-green-400);
             font-size: 1.3rem;
             font-weight: bold;
             margin-top: 25px;
@@ -92,7 +786,7 @@
         }
         
         .feature-card h4 {
-            color: #667eea;
+            color: var(--jasmine-green-600);
             font-weight: bold;
             margin-bottom: 10px;
         }
@@ -110,7 +804,7 @@
         .back-button a {
             display: inline-block;
             padding: 12px 30px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, var(--jasmine-green-600) 0%, var(--jasmine-green-400) 100%);
             color: white;
             text-decoration: none;
             border-radius: 25px;

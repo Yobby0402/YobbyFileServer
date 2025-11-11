@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>主题预览 - 茉莉奶白</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap.min.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/theme_preview.css') }}">
+</head>
+<body>
+    <div class="preview-page">
+        <header class="preview-header">
+            <div class="brand">
+                <span class="brand-logo">茉莉飘雪</span>
+                <div class="brand-subtitle">青绿与奶白交织的柔和主题示例</div>
+            </div>
+            <nav class="preview-nav">
+                <button class="ghost-btn">概览</button>
+                <button class="ghost-btn">组件</button>
+                <button class="ghost-btn">排版</button>
+                <button class="ghost-btn">联系</button>
+            </nav>
+            <div class="preview-actions">
+                <button class="ghost-btn">登录</button>
+                <button class="solid-btn">立即体验</button>
+            </div>
+        </header>
+
+        <main class="preview-main">
+            <section class="hero-section">
+                <div class="hero-text">
+                    <h1>轻盈 · 柔和 · 清新</h1>
+                    <p>
+                        灵感来自茉莉的淡雅香气，将青绿色的生机与奶白色的温润相融合，
+                        打造舒适、易读、低噪的视觉体验。
+                    </p>
+                    <div class="hero-actions">
+                        <button class="solid-btn">主操作按钮</button>
+                        <button class="ghost-btn">次要操作</button>
+                    </div>
+                </div>
+                <div class="hero-card">
+                    <h2>面板示例</h2>
+                    <p>在这样的面板中呈现关键指标或导航条目，柔和渐变暗示层次。</p>
+                    <div class="hero-stats">
+                        <div class="stat-item">
+                            <span class="stat-title">进行中</span>
+                            <span class="stat-value">12</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-title">待确认</span>
+                            <span class="stat-value">5</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-title">已完成</span>
+                            <span class="stat-value">27</span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <section class="component-section">
+                <h2>表单与输入</h2>
+                <div class="component-grid">
+                    <form class="preview-form">
+                        <label class="form-label">项目名称</label>
+                        <input type="text" class="preview-input" placeholder="请输入名称">
+
+                        <label class="form-label">所属类别</label>
+                        <select class="preview-select">
+                            <option>软件开发</option>
+                            <option>硬件调试</option>
+                            <option>需求规划</option>
+                        </select>
+
+                        <label class="form-label">进度（滑块）</label>
+                        <input type="range" class="preview-range" value="45">
+
+                        <label class="form-label checkbox-label">
+                            <input type="checkbox" checked>
+                            <span>同步提醒</span>
+                        </label>
+
+                        <div class="form-actions">
+                            <button type="button" class="solid-btn">保存设置</button>
+                            <button type="button" class="ghost-btn">取消</button>
+                        </div>
+                    </form>
+
+                    <div class="card-sample">
+                        <h3>信息卡片</h3>
+                        <p>
+                            卡片背景使用浅渐变，顶部描绘一条青绿色高光线条，
+                            配合柔和阴影让内容轻盈漂浮，适合展示概要信息或快捷入口。
+                        </p>
+                        <ul class="card-list">
+                            <li>
+                                <span class="dot dot-success"></span>
+                                茉莉项目 · 软件设计 · 35%
+                            </li>
+                            <li>
+                                <span class="dot dot-warning"></span>
+                                星河计划 · 原型评审 · 80%
+                            </li>
+                            <li>
+                                <span class="dot dot-info"></span>
+                                春芽攻关 · 风险追踪 · 12%
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+            </section>
+
+            <section class="table-section">
+                <h2>数据展示</h2>
+                <div class="table-card">
+                    <table class="preview-table">
+                        <thead>
+                            <tr>
+                                <th>任务</th>
+                                <th>负责人</th>
+                                <th>截止日期</th>
+                                <th>状态</th>
+                                <th>进度</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>接口联调</td>
+                                <td>Lin</td>
+                                <td>2025-11-18</td>
+                                <td><span class="status-tag status-progress">进行中</span></td>
+                                <td>
+                                    <div class="progress-bar">
+                                        <div class="progress-fill" style="width: 65%;"></div>
+                                    </div>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td>巡检脚本</td>
+                                <td>Chen</td>
+                                <td>2025-11-12</td>
+                                <td><span class="status-tag status-warning">待确认</span></td>
+                                <td>
+                                    <div class="progress-bar">
+                                        <div class="progress-fill" style="width: 35%;"></div>
+                                    </div>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td>UI 适配</td>
+                                <td>Xu</td>
+                                <td>2025-11-20</td>
+                                <td><span class="status-tag status-success">已完成</span></td>
+                                <td>
+                                    <div class="progress-bar">
+                                        <div class="progress-fill" style="width: 100%;"></div>
+                                    </div>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        </main>
+
+        <footer class="preview-footer">
+            <div class="footer-links">
+                <a href="#">产品手册</a>
+                <a href="#">设计规范</a>
+                <a href="#">更新日志</a>
+            </div>
+            <div class="footer-copy">© 2025 茉莉主题预览 · 所有演示内容仅供参考</div>
+        </footer>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/bootstrap.bundle.min.js') }}"></script>
+</body>
+</html>
+
+

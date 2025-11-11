@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Draw.io 编辑器</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap.min.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/jasmine_base.css') }}">
     <style>
         body, html {
             height: 100%;
@@ -30,7 +31,7 @@
             height: 60px;
             border-radius: 50%;
             border: none;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, var(--jasmine-green-600) 0%, var(--jasmine-green-400) 100%);
             color: white;
             font-size: 24px;
             cursor: pointer;
@@ -107,7 +108,7 @@
             left: 50%;
             transform: translateX(-50%);
             z-index: 10001;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, var(--jasmine-green-600) 0%, var(--jasmine-green-400) 100%);
             color: white;
             padding: 15px 30px;
             border-radius: 30px;
@@ -216,7 +217,7 @@
         
         .modal-content input:focus {
             outline: none;
-            border-color: #667eea;
+            border-color: var(--jasmine-green-600);
         }
         
         .modal-buttons {
@@ -235,7 +236,7 @@
         }
         
         .modal-buttons .btn-primary {
-            background: #667eea;
+            background: var(--jasmine-green-600);
             color: white;
         }
         

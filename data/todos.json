@@ -1,0 +1,191 @@
+{
+  "todos": [
+    {
+      "id": "307dcf56-8ce6-455e-83fe-e82b60ab4888",
+      "project": "1811",
+      "category": "硬件遗留问题",
+      "description": "1811硬件遗留问题已提交工单\n包括内存大小问题与外部触发唤醒失败问题",
+      "tag": "ES1阶段硬件功能验证",
+      "progress": 80,
+      "color": "#66f22f",
+      "due_date": "2025-11-11",
+      "created_at": "2025-11-11T01:02:34Z",
+      "updated_at": "2025-11-11T06:27:41Z",
+      "history": [
+        {
+          "event_id": "d1a21677-6f22-4de5-8ec7-5df5b60adf9f",
+          "todo_id": "307dcf56-8ce6-455e-83fe-e82b60ab4888",
+          "type": "create",
+          "summary": "创建 ToDo · 1811",
+          "timestamp": "2025-11-11T01:02:34Z",
+          "payload": {
+            "project": "1811",
+            "category": "硬件遗留问题",
+            "progress": 0,
+            "color": "#66f22f",
+            "tag": "ES1阶段硬件功能验证",
+            "description": "1811硬件遗留问题已提交工单\n包括内存大小问题与外部触发唤醒失败问题",
+            "due_date": "2025-11-11"
+          }
+        },
+        {
+          "event_id": "0c0b3b50-0a32-4634-8204-625c5b79d55c",
+          "todo_id": "307dcf56-8ce6-455e-83fe-e82b60ab4888",
+          "type": "comment",
+          "summary": "评论 · 已催促回复",
+          "timestamp": "2025-11-11T06:27:12Z",
+          "payload": {
+            "comment_id": "32734afc-7849-4df8-bcd7-7690ae1b32bd",
+            "content": "已催促回复"
+          }
+        },
+        {
+          "event_id": "2ab57051-af63-4651-a526-1ee9cf6edd8e",
+          "todo_id": "307dcf56-8ce6-455e-83fe-e82b60ab4888",
+          "type": "update",
+          "summary": "更新 ToDo · progress",
+          "timestamp": "2025-11-11T06:27:34Z",
+          "payload": {
+            "changes": {
+              "progress": {
+                "old": 100,
+                "new": 80
+              }
+            }
+          }
+        }
+      ],
+      "comments": [
+        {
+          "comment_id": "32734afc-7849-4df8-bcd7-7690ae1b32bd",
+          "todo_id": "307dcf56-8ce6-455e-83fe-e82b60ab4888",
+          "content": "已催促回复",
+          "timestamp": "2025-11-11T06:27:12Z"
+        }
+      ]
+    },
+    {
+      "id": "b332eea5-ae43-4802-9671-08663f152e44",
+      "project": "1901",
+      "category": "样机制作",
+      "description": "需要交给生产进行测试",
+      "tag": "ES1样机制作",
+      "progress": 50,
+      "color": "#d8873c",
+      "due_date": "2025-11-12",
+      "created_at": "2025-11-11T06:28:30Z",
+      "updated_at": "2025-11-11T06:28:54Z",
+      "history": [
+        {
+          "event_id": "cf534d44-3b7e-4291-8b0d-83a5a83304e0",
+          "todo_id": "b332eea5-ae43-4802-9671-08663f152e44",
+          "type": "create",
+          "summary": "创建 ToDo · 1901",
+          "timestamp": "2025-11-11T06:28:30Z",
+          "payload": {
+            "project": "1901",
+            "category": "样机制作",
+            "progress": 50,
+            "color": "#d8873c",
+            "tag": "ES1样机制作",
+            "description": "需要交给生产进行测试",
+            "due_date": "2025-11-12"
+          }
+        },
+        {
+          "event_id": "612f7c6b-a199-4972-b406-8c44d60bb66d",
+          "todo_id": "b332eea5-ae43-4802-9671-08663f152e44",
+          "type": "comment",
+          "summary": "评论 · 烧录出现问题，需要重新安装keil5",
+          "timestamp": "2025-11-11T06:28:54Z",
+          "payload": {
+            "comment_id": "5cca65a6-f119-4fdf-8045-7d467499be68",
+            "content": "烧录出现问题，需要重新安装keil5"
+          }
+        }
+      ],
+      "comments": [
+        {
+          "comment_id": "5cca65a6-f119-4fdf-8045-7d467499be68",
+          "todo_id": "b332eea5-ae43-4802-9671-08663f152e44",
+          "content": "烧录出现问题，需要重新安装keil5",
+          "timestamp": "2025-11-11T06:28:54Z"
+        }
+      ]
+    },
+    {
+      "id": "5b905e44-43b5-4791-865a-fd6332324ac5",
+      "project": "1901",
+      "category": "电池管理芯片",
+      "description": "使用评估套件测试电池电量芯片",
+      "tag": "BQ27220",
+      "progress": 10,
+      "color": "#d8873c",
+      "due_date": "2025-11-13",
+      "created_at": "2025-11-11T06:38:05Z",
+      "updated_at": "2025-11-11T06:39:08Z",
+      "history": [],
+      "comments": []
+    },
+    {
+      "id": "be64dca4-cd1d-454b-894f-2ee6eaa31049",
+      "project": "1901",
+      "category": "电池管理芯片",
+      "description": "使用评估套件测试电池充放管理芯片",
+      "tag": "BQ27220",
+      "progress": 10,
+      "color": "#d8873c",
+      "due_date": "2025-11-13",
+      "created_at": "2025-11-11T06:40:02Z",
+      "updated_at": "2025-11-11T06:41:14Z",
+      "history": [
+        {
+          "event_id": "8c244d89-803f-4e58-a2dc-6922cf59b2c8",
+          "todo_id": "be64dca4-cd1d-454b-894f-2ee6eaa31049",
+          "type": "create",
+          "summary": "创建 ToDo · 1901",
+          "timestamp": "2025-11-11T06:40:02Z",
+          "payload": {
+            "project": "1901",
+            "category": "电池管理芯片",
+            "progress": 10,
+            "color": "#d8873c",
+            "tag": "BQ27220",
+            "description": "使用评估套件测试电池充放管理芯片",
+            "due_date": "2025-11-13"
+          }
+        },
+        {
+          "event_id": "4ba270d6-62f1-4214-9780-15d737d4a8c6",
+          "todo_id": "be64dca4-cd1d-454b-894f-2ee6eaa31049",
+          "type": "comment",
+          "summary": "评论 · 目前跑完整个充放周期，电池电量参数尚未配",
+          "timestamp": "2025-11-11T06:41:14Z",
+          "payload": {
+            "comment_id": "c6ad9912-5ecd-49ec-a000-c84fb7cf22f4",
+            "content": "目前跑完整个充放周期，电池电量参数尚未配置，但是电压与剩余电量百分比读取正常"
+          }
+        }
+      ],
+      "comments": [
+        {
+          "comment_id": "c6ad9912-5ecd-49ec-a000-c84fb7cf22f4",
+          "todo_id": "be64dca4-cd1d-454b-894f-2ee6eaa31049",
+          "content": "目前跑完整个充放周期，电池电量参数尚未配置，但是电压与剩余电量百分比读取正常",
+          "timestamp": "2025-11-11T06:41:14Z"
+        }
+      ]
+    }
+  ],
+  "projects": {
+    "1811": {
+      "color": "#66f22f"
+    },
+    "a": {
+      "color": "#4facfe"
+    },
+    "1901": {
+      "color": "#d8873c"
+    }
+  }
+}

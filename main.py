@@ -8,7 +8,9 @@ from datetime import datetime
 import ctypes
 import socket
 from flask import Flask, request
+from flask_socketio import SocketIO, emit, join_room, leave_room
 import routes
+from serial_manager import serial_manager
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                                 QPushButton, QTextEdit, QLabel, QGroupBox, QMessageBox, 
                                 QSystemTrayIcon, QMenu, QAction, QDialog, QLineEdit, 
@@ -263,7 +265,199 @@ def create_app():
         log_connection_info()
 
     routes.init_app(app)
+    
+    # 初始化 SocketIO（不指定 async_mode，让其自动选择）
+    socketio = SocketIO(app, 
+                      cors_allowed_origins="*", 
+                      logger=False,
+                      engineio_logger=False,
+                      ping_timeout=60,
+                      ping_interval=25)
+    init_serial_socketio(socketio)
+    app.socketio = socketio
+    
     return app
+
+
+def init_serial_socketio(socketio):
+    """初始化串口 WebSocket 事件"""
+    
+    # 存储客户端会话
+    serial_sessions = {}
+    
+    @socketio.on('connect', namespace='/serial')
+    def handle_connect():
+        """客户端连接"""
+        print(f'[Serial WebSocket] 客户端连接: {request.sid}')
+        emit('connected', {'client_id': request.sid})
+    
+    @socketio.on('disconnect', namespace='/serial')
+    def handle_disconnect():
+        """客户端断开"""
+        print(f'[Serial WebSocket] 客户端断开: {request.sid}')
+        
+        # 清理会话
+        session_ports = serial_sessions.pop(request.sid, {})
+        for port_id, listener_id in session_ports.items():
+            try:
+                serial_manager.release_port(port_id, listener_id)
+            except Exception:
+                pass
+    
+    @socketio.on('list_ports', namespace='/serial')
+    def handle_list_ports():
+        """列出可用串口"""
+        try:
+            ports = serial_manager.list_available_ports()
+            emit('ports_list', {'success': True, 'ports': ports})
+        except Exception as e:
+            emit('ports_list', {'success': False, 'error': str(e)})
+    
+    @socketio.on('open_port', namespace='/serial')
+    def handle_open_port(data):
+        """打开串口"""
+        try:
+            port_id = data.get('port_id')
+            device = data.get('device')
+            baudrate = int(data.get('baudrate', 9600))
+            bytesize = int(data.get('bytesize', 8))
+            parity = data.get('parity', 'N')
+            stopbits = int(data.get('stopbits', 1))
+            
+            listener_id = f"{request.sid}:{port_id}"
+
+            def on_data_received(pid, data_bytes):
+                """数据接收回调"""
+                # 广播数据给所有监听此端口的客户端
+                socketio.emit('serial_data', {
+                    'port_id': pid,
+                    'data': list(data_bytes),  # 转换为列表以便 JSON 序列化
+                    'timestamp': datetime.now().isoformat()
+                }, namespace='/serial', room=f'port_{pid}')
+            
+            # 打开串口
+            success = serial_manager.open_port(
+                port_id=port_id,
+                device=device,
+                baudrate=baudrate,
+                bytesize=bytesize,
+                parity=parity,
+                stopbits=stopbits,
+                listener_id=listener_id,
+                callback=on_data_received
+            )
+            
+            if success:
+                # 记录会话
+                serial_sessions.setdefault(request.sid, {})[port_id] = listener_id
+                
+                # 加入房间
+                join_room(f'port_{port_id}')
+                
+                # 获取端口信息
+                port_info = serial_manager.get_port_info(port_id)
+                
+                emit('port_opened', {
+                    'success': True,
+                    'port_id': port_id,
+                    'port_info': port_info
+                })
+            else:
+                emit('port_opened', {
+                    'success': False,
+                    'port_id': port_id,
+                    'error': '打开串口失败'
+                })
+        
+        except Exception as e:
+            print(f'[错误] 打开串口失败: {e}')
+            emit('port_opened', {
+                'success': False,
+                'error': str(e)
+            })
+    
+    @socketio.on('close_port', namespace='/serial')
+    def handle_close_port(data):
+        """关闭串口"""
+        try:
+            port_id = data.get('port_id')
+            
+            session_ports = serial_sessions.get(request.sid, {})
+            listener_id = session_ports.pop(port_id, None)
+
+            # 释放监听器（若没有其他监听器与日志，则会关闭串口）
+            serial_manager.release_port(port_id, listener_id)
+            
+            # 离开房间
+            leave_room(f'port_{port_id}')
+            
+            emit('port_closed', {
+                'success': True,
+                'port_id': port_id
+            })
+        
+        except Exception as e:
+            print(f'[错误] 关闭串口失败: {e}')
+            emit('port_closed', {
+                'success': False,
+                'error': str(e)
+            })
+    
+    @socketio.on('write_data', namespace='/serial')
+    def handle_write_data(data):
+        """写入数据到串口"""
+        try:
+            port_id = data.get('port_id')
+            data_bytes = bytes(data.get('data', []))
+            
+            # 写入数据
+            bytes_written = serial_manager.write_data(port_id, data_bytes)
+            
+            if bytes_written >= 0:
+                emit('data_written', {
+                    'success': True,
+                    'port_id': port_id,
+                    'bytes_written': bytes_written
+                })
+            else:
+                emit('data_written', {
+                    'success': False,
+                    'port_id': port_id,
+                    'error': '写入数据失败'
+                })
+        
+        except Exception as e:
+            print(f'[错误] 写入数据失败: {e}')
+            emit('data_written', {
+                'success': False,
+                'error': str(e)
+            })
+    
+    @socketio.on('get_port_info', namespace='/serial')
+    def handle_get_port_info(data):
+        """获取串口信息"""
+        try:
+            port_id = data.get('port_id')
+            port_info = serial_manager.get_port_info(port_id)
+            
+            if port_info:
+                emit('port_info', {
+                    'success': True,
+                    'port_id': port_id,
+                    'port_info': port_info
+                })
+            else:
+                emit('port_info', {
+                    'success': False,
+                    'port_id': port_id,
+                    'error': '串口不存在'
+                })
+        
+        except Exception as e:
+            emit('port_info', {
+                'success': False,
+                'error': str(e)
+            })
 
 
 def load_or_create_config(app):
@@ -1483,10 +1677,17 @@ def run_flask_app(info_file_path=None):
     for ip in local_ips:
         if ip != '0.0.0.0':
             print(f" * Running on http://{ip}:{port}")
+    print(f" * WebSocket endpoint: /serial")
     sys.stdout.flush()
     # 当从GUI启动时（有info_file_path参数），将debug设为False以避免冲突
     debug = False if info_file_path else True
-    application.run(host=host, port=port, debug=debug)
+    # 使用 socketio.run 而不是 app.run
+    application.socketio.run(application, 
+                            host=host, 
+                            port=port, 
+                            debug=debug, 
+                            allow_unsafe_werkzeug=True,
+                            log_output=False)
 
 
 if __name__ == '__main__':

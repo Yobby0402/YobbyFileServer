@@ -11,6 +11,8 @@ from mdit_py_plugins import tasklists, deflist, footnote
 from urllib.parse import quote # 导入 quote 用于编码文件名
 import posixpath # 用于处理 URL 路径
 from share_links import ShareLinkManager  # 导入分享链接管理器
+from todo_manager import todo_manager
+from serial_manager import serial_manager
 
 # 检查用户是否已登录的函数
 def is_logged_in():
@@ -105,10 +107,16 @@ def init_app(app):
     # 初始化分享链接管理器
     share_manager = ShareLinkManager()
     app.config['SHARE_MANAGER'] = share_manager
-    
+
+    # 初始化 ToDo 管理器
+    app.config['TODO_MANAGER'] = todo_manager
+
     # 初始化Draw.io静态文件目录（静默检查，不影响运行）
     # Draw.io是可选功能，不存在也不影响文件浏览器功能
     
+    def has_todo_access():
+        return is_logged_in() or session.get('todo_direct_access')
+
     @app.route('/')
     def index():
         """首页，显示操作选择界面"""
@@ -117,7 +125,150 @@ def init_app(app):
             return redirect(url_for('login'))
         
         return render_template('choice.html')
+
+    @app.route('/todo')
+    def todo_page():
+        """ToDo 主界面（需登录）"""
+        if not is_logged_in():
+            return redirect(url_for('login'))
+
+        session.pop('todo_direct_access', None)
+        return render_template('todo.html', direct_access=False)
+
+    @app.route('/todo/direct')
+    def todo_direct():
+        """ToDo 后门入口（免登录）"""
+        session['todo_direct_access'] = True
+        return render_template('todo.html', direct_access=True)
+
+    @app.route('/api/todo/items', methods=['GET', 'POST'])
+    def todo_collection():
+        """ToDo 列表查询与创建"""
+        if not has_todo_access():
+            return jsonify({'success': False, 'error': '未授权'}), 401
+
+        manager = current_app.config['TODO_MANAGER']
+
+        if request.method == 'GET':
+            state = manager.list_todos()
+            timeline = manager.get_timeline()
+            return jsonify({
+                'success': True,
+                'todos': state['todos'],
+                'projects': state.get('projects', {}),
+                'timeline': timeline
+            })
+
+        payload = request.json or {}
+        try:
+            todo, event = manager.create_todo(payload)
+        except Exception as exc:
+            return jsonify({'success': False, 'error': str(exc)}), 400
+
+        timeline = manager.get_timeline()
+        return jsonify({
+            'success': True,
+            'todo': todo,
+            'event': event,
+            'timeline': timeline,
+            'projects': manager.get_projects()
+        })
+
+    @app.route('/api/todo/items/<todo_id>', methods=['GET', 'PUT', 'DELETE'])
+    def todo_item(todo_id):
+        """ToDo 单项查询、更新与删除"""
+        if not has_todo_access():
+            return jsonify({'success': False, 'error': '未授权'}), 401
+
+        manager = current_app.config['TODO_MANAGER']
+
+        if request.method == 'GET':
+            try:
+                todo = manager.get_todo(todo_id)
+            except ValueError:
+                return jsonify({'success': False, 'error': '未找到 ToDo'}), 404
+            return jsonify({'success': True, 'todo': todo})
+
+        if request.method == 'PUT':
+            payload = request.json or {}
+            try:
+                todo, event = manager.update_todo(todo_id, payload)
+            except ValueError as exc:
+                return jsonify({'success': False, 'error': str(exc)}), 404
+            except Exception as exc:
+                return jsonify({'success': False, 'error': str(exc)}), 400
+
+            timeline = manager.get_timeline()
+            response = {
+                'success': True,
+                'todo': todo,
+                'event': event,
+                'timeline': timeline,
+                'projects': manager.get_projects()
+            }
+            return jsonify(response)
+
+        # DELETE
+        try:
+            manager.delete_todo(todo_id)
+        except ValueError:
+            return jsonify({'success': False, 'error': '未找到 ToDo'}), 404
+        timeline = manager.get_timeline()
+        return jsonify({
+            'success': True,
+            'todo_id': todo_id,
+            'timeline': timeline,
+            'projects': manager.get_projects()
+        })
+
+    @app.route('/api/todo/items/<todo_id>/comments', methods=['POST'])
+    def todo_comment(todo_id):
+        """为 ToDo 添加评论"""
+        if not has_todo_access():
+            return jsonify({'success': False, 'error': '未授权'}), 401
+
+        manager = current_app.config['TODO_MANAGER']
+        data = request.json or {}
+        comment_text = data.get('content')
+
+        try:
+            todo, event = manager.add_comment(todo_id, comment_text)
+        except ValueError as exc:
+            return jsonify({'success': False, 'error': str(exc)}), 400
+        except Exception as exc:
+            return jsonify({'success': False, 'error': str(exc)}), 500
+
+        timeline = manager.get_timeline()
+        return jsonify({
+            'success': True,
+            'todo': todo,
+            'event': event,
+            'timeline': timeline,
+            'projects': manager.get_projects()
+        })
     
+    @app.route('/api/todo/events/<event_id>', methods=['DELETE'])
+    def todo_event(event_id):
+        """删除单个时间轴事件"""
+        if not has_todo_access():
+            return jsonify({'success': False, 'error': '未授权'}), 401
+
+        manager = current_app.config['TODO_MANAGER']
+        try:
+            result = manager.delete_event(event_id)
+        except ValueError as exc:
+            return jsonify({'success': False, 'error': str(exc)}), 404
+
+        timeline = manager.get_timeline()
+        return jsonify({
+            'success': True,
+            'event_id': event_id,
+            'event_type': result.get('event_type'),
+            'todo': result.get('todo'),
+            'timeline': timeline,
+            'projects': manager.get_projects()
+        })
+
     @app.route('/file_browser')
     def file_browser():
         """文件浏览器页面，显示文件列表"""
@@ -790,6 +941,341 @@ def init_app(app):
         """帮助页面"""
         # 帮助页面不需要登录也可以查看
         return render_template('help.html')
+    
+    @app.route('/theme_preview')
+    def theme_preview():
+        """主题预览页面，展示新配色与控件示例"""
+        return render_template('theme_preview.html')
+    
+    # 串口调试助手
+    @app.route('/serial_tool')
+    def serial_tool():
+        """串口调试助手页面"""
+        if not is_logged_in():
+            return redirect(url_for('login'))
+        return render_template('serial_tool.html')
+
+    def _normalize_parity(value: str) -> str:
+        mapping = {
+            'none': 'N',
+            'n': 'N',
+            'even': 'E',
+            'e': 'E',
+            'odd': 'O',
+            'o': 'O',
+            'mark': 'M',
+            'm': 'M',
+            'space': 'S',
+            's': 'S',
+        }
+        if not value:
+            return 'N'
+        value = value.strip()
+        return mapping.get(value.lower(), 'N')
+
+    def _is_safe_port_id(value: str) -> bool:
+        return bool(value) and re.fullmatch(r'[A-Za-z0-9_]+', value) is not None
+
+    @app.route('/api/serial/ports', methods=['GET'])
+    def api_serial_ports():
+        """列出服务器可用串口"""
+        if not is_logged_in():
+            return jsonify({'success': False, 'error': '未登录'}), 401
+        try:
+            ports = serial_manager.list_available_ports()
+            for port in ports:
+                device = port.get('device')
+                if device:
+                    port['recommended_id'] = serial_manager.generate_port_id(device, 9600)
+            return jsonify({'success': True, 'ports': ports})
+        except Exception as exc:  # pylint: disable=broad-except
+            return jsonify({'success': False, 'error': str(exc)}), 500
+
+    @app.route('/api/serial/capture/start', methods=['POST'])
+    def api_serial_capture_start():
+        """开启指定串口的持续日志"""
+        if not is_logged_in():
+            return jsonify({'success': False, 'error': '未登录'}), 401
+
+        payload = request.json or {}
+        device = (payload.get('device') or '').strip()
+        if not device:
+            return jsonify({'success': False, 'error': '缺少 device 参数'}), 400
+
+        try:
+            baudrate = int(payload.get('baudrate', 9600))
+            bytesize = int(payload.get('bytesize', 8))
+            stopbits = int(payload.get('stopbits', 1))
+        except (TypeError, ValueError):
+            return jsonify({'success': False, 'error': '串口参数格式错误'}), 400
+
+        parity = _normalize_parity(payload.get('parity', 'N'))
+        port_id = payload.get('port_id')
+        try:
+            session = serial_manager.start_logging(
+                device=device,
+                baudrate=baudrate,
+                bytesize=bytesize,
+                parity=parity,
+                stopbits=stopbits,
+                port_id=port_id,
+            )
+            port_info = serial_manager.get_port_info(session['port_id'])
+            session['port_info'] = port_info
+            session['log_files'] = serial_manager.list_log_files(session['port_id'])
+            return jsonify({'success': True, 'session': session})
+        except ValueError as exc:
+            return jsonify({'success': False, 'error': str(exc)}), 400
+        except Exception as exc:  # pylint: disable=broad-except
+            return jsonify({'success': False, 'error': str(exc)}), 500
+
+    @app.route('/api/serial/capture/stop', methods=['POST'])
+    def api_serial_capture_stop():
+        """停止串口持续日志"""
+        if not is_logged_in():
+            return jsonify({'success': False, 'error': '未登录'}), 401
+
+        payload = request.json or {}
+        port_id = payload.get('port_id')
+        if not _is_safe_port_id(port_id or ''):
+            return jsonify({'success': False, 'error': '端口标识不合法'}), 400
+        try:
+            success = serial_manager.stop_logging(port_id)
+            if not success:
+                return jsonify({'success': False, 'error': '未找到对应日志会话'}), 404
+            return jsonify({'success': True})
+        except Exception as exc:  # pylint: disable=broad-except
+            return jsonify({'success': False, 'error': str(exc)}), 500
+
+    @app.route('/api/serial/capture/status', methods=['GET'])
+    def api_serial_capture_status():
+        """查询当前持续日志会话"""
+        if not is_logged_in():
+            return jsonify({'success': False, 'error': '未登录'}), 401
+        try:
+            sessions = serial_manager.get_logging_status()
+            for session in sessions:
+                port_id = session.get('port_id')
+                if not port_id:
+                    continue
+                session['log_files'] = serial_manager.list_log_files(port_id)
+                session['port_info'] = serial_manager.get_port_info(port_id)
+            return jsonify({'success': True, 'sessions': sessions})
+        except Exception as exc:  # pylint: disable=broad-except
+            return jsonify({'success': False, 'error': str(exc)}), 500
+
+    @app.route('/api/serial/capture/log/<port_id>', methods=['GET'])
+    def api_serial_capture_log(port_id):
+        """读取指定串口的日志条目"""
+        if not is_logged_in():
+            return jsonify({'success': False, 'error': '未登录'}), 401
+        if not _is_safe_port_id(port_id):
+            return jsonify({'success': False, 'error': '端口标识不合法'}), 400
+
+        try:
+            limit = int(request.args.get('limit', 500))
+        except ValueError:
+            return jsonify({'success': False, 'error': 'limit 参数错误'}), 400
+
+        since = request.args.get('since')
+        try:
+            entries = serial_manager.read_log_entries(
+                port_id=port_id,
+                limit=max(0, limit),
+                since=since,
+            )
+            return jsonify({'success': True, 'entries': entries})
+        except Exception as exc:  # pylint: disable=broad-except
+            return jsonify({'success': False, 'error': str(exc)}), 500
+    
+    # 保存串口日志
+    @app.route('/save_serial_log', methods=['POST'])
+    def save_serial_log():
+        """保存串口日志到服务器"""
+        if not is_logged_in():
+            return jsonify({'success': False, 'error': '未登录'}), 401
+        
+        try:
+            data = request.json
+            log_content = data.get('log_content', '')
+            port_name = data.get('port_name', 'unknown')
+            
+            # 创建 serial_logs 目录
+            import os
+            from datetime import datetime
+            
+            if getattr(sys, 'frozen', False):
+                base_dir = os.path.dirname(sys.executable)
+            else:
+                base_dir = os.path.dirname(os.path.abspath(__file__))
+            
+            log_dir = os.path.join(base_dir, 'logs', 'serial_logs')
+            os.makedirs(log_dir, exist_ok=True)
+            
+            # 生成日志文件名
+            timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+            filename = f"{port_name}_{timestamp}.log"
+            filepath = os.path.join(log_dir, filename)
+            
+            # 保存日志
+            with open(filepath, 'w', encoding='utf-8') as f:
+                f.write(log_content)
+            
+            return jsonify({
+                'success': True,
+                'filepath': filepath,
+                'filename': filename
+            })
+        
+        except Exception as e:
+            return jsonify({'success': False, 'error': str(e)}), 500
+    
+    # 获取串口历史记录列表
+    @app.route('/get_serial_logs', methods=['GET'])
+    def get_serial_logs():
+        """获取串口历史记录列表"""
+        if not is_logged_in():
+            return jsonify({'success': False, 'error': '未登录'}), 401
+        
+        try:
+            import os
+            
+            if getattr(sys, 'frozen', False):
+                base_dir = os.path.dirname(sys.executable)
+            else:
+                base_dir = os.path.dirname(os.path.abspath(__file__))
+            
+            log_dir = os.path.join(base_dir, 'logs', 'serial_logs')
+            
+            if not os.path.exists(log_dir):
+                return jsonify({'success': True, 'logs': []})
+            
+            # 获取所有日志文件
+            logs = []
+            for filename in os.listdir(log_dir):
+                if filename.endswith('.log'):
+                    filepath = os.path.join(log_dir, filename)
+                    stat = os.stat(filepath)
+                    logs.append({
+                        'filename': filename,
+                        'size': stat.st_size,
+                        'modified': stat.st_mtime
+                    })
+            
+            # 按修改时间倒序排序
+            logs.sort(key=lambda x: x['modified'], reverse=True)
+            
+            return jsonify({'success': True, 'logs': logs})
+        
+        except Exception as e:
+            return jsonify({'success': False, 'error': str(e)}), 500
+    
+    # 读取串口历史记录
+    @app.route('/read_serial_log/<filename>')
+    def read_serial_log(filename):
+        """读取串口历史记录"""
+        if not is_logged_in():
+            return jsonify({'success': False, 'error': '未登录'}), 401
+        
+        try:
+            import os
+            
+            if getattr(sys, 'frozen', False):
+                base_dir = os.path.dirname(sys.executable)
+            else:
+                base_dir = os.path.dirname(os.path.abspath(__file__))
+            
+            log_dir = os.path.join(base_dir, 'logs', 'serial_logs')
+            filepath = os.path.join(log_dir, filename)
+            
+            # 安全检查
+            if not os.path.abspath(filepath).startswith(os.path.abspath(log_dir)):
+                return jsonify({'success': False, 'error': '非法路径'}), 403
+            
+            if not os.path.exists(filepath):
+                return jsonify({'success': False, 'error': '文件不存在'}), 404
+            
+            # 读取日志
+            with open(filepath, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            return jsonify({
+                'success': True,
+                'filename': filename,
+                'content': content
+            })
+        
+        except Exception as e:
+            return jsonify({'success': False, 'error': str(e)}), 500
+    
+    # 保存快捷指令
+    @app.route('/save_serial_commands', methods=['POST'])
+    def save_serial_commands():
+        """保存快捷指令到服务器"""
+        if not is_logged_in():
+            return jsonify({'success': False, 'error': '未登录'}), 401
+        
+        try:
+            import json
+            import os
+            
+            data = request.json
+            commands = data.get('commands', [])
+            
+            if getattr(sys, 'frozen', False):
+                base_dir = os.path.dirname(sys.executable)
+            else:
+                base_dir = os.path.dirname(os.path.abspath(__file__))
+            
+            config_dir = os.path.join(base_dir, 'logs')
+            os.makedirs(config_dir, exist_ok=True)
+            
+            filepath = os.path.join(config_dir, 'serial_commands.json')
+            
+            with open(filepath, 'w', encoding='utf-8') as f:
+                json.dump(commands, f, ensure_ascii=False, indent=2)
+            
+            return jsonify({'success': True})
+        
+        except Exception as e:
+            return jsonify({'success': False, 'error': str(e)}), 500
+    
+    # 加载快捷指令
+    @app.route('/load_serial_commands', methods=['GET'])
+    def load_serial_commands():
+        """从服务器加载快捷指令"""
+        if not is_logged_in():
+            return jsonify({'success': False, 'error': '未登录'}), 401
+        
+        try:
+            import json
+            import os
+            
+            if getattr(sys, 'frozen', False):
+                base_dir = os.path.dirname(sys.executable)
+            else:
+                base_dir = os.path.dirname(os.path.abspath(__file__))
+            
+            filepath = os.path.join(base_dir, 'logs', 'serial_commands.json')
+            
+            if not os.path.exists(filepath):
+                return jsonify({'success': True, 'commands': []})
+            
+            with open(filepath, 'r', encoding='utf-8') as f:
+                commands = json.load(f)
+            
+            return jsonify({'success': True, 'commands': commands})
+        
+        except Exception as e:
+            return jsonify({'success': False, 'error': str(e)}), 500
+    
+    # 串口诊断工具
+    @app.route('/serial_diagnostic')
+    def serial_diagnostic():
+        """串口诊断工具页面"""
+        if not is_logged_in():
+            return redirect(url_for('login'))
+        return render_template('serial_diagnostic.html')
     
     # Draw.io主编辑器页面（带保存功能）
     @app.route('/drawio_main')

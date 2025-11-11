@@ -6,9 +6,10 @@
     <title>分享统计 - {{ share_code }}</title>
     <link href="{{ url_for('static', filename='css/bootstrap.min.css') }}" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/font-awesome.min.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/jasmine_base.css') }}">
     <style>
         body {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, var(--jasmine-green-600) 0%, var(--jasmine-green-400) 100%);
             background-attachment: fixed;
             padding: 20px 0;
         }
@@ -41,7 +42,7 @@
             margin-bottom: 30px;
         }
         .stat-card {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, var(--jasmine-green-600) 0%, var(--jasmine-green-400) 100%);
             color: white;
             border-radius: 10px;
             padding: 20px;
@@ -83,7 +84,7 @@
         }
         .visit-table h3 i {
             margin-right: 10px;
-            color: #667eea;
+            color: var(--jasmine-green-600);
         }
         .table {
             background: white;
@@ -91,7 +92,7 @@
             overflow: hidden;
         }
         .table thead {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, var(--jasmine-green-600) 0%, var(--jasmine-green-400) 100%);
             color: white;
         }
         .info-section {
@@ -109,7 +110,7 @@
         }
         .info-section h4 i {
             margin-right: 10px;
-            color: #667eea;
+            color: var(--jasmine-green-600);
         }
         .info-row {
             display: flex;
@@ -128,7 +129,7 @@
         }
         .info-row span:first-child i {
             margin-right: 8px;
-            color: #667eea;
+            color: var(--jasmine-green-600);
         }
         .info-row strong {
             color: #2c3e50;
