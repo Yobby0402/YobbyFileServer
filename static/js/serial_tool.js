@@ -640,7 +640,13 @@ class SerialToolApp {
             
             this.dataLog.forEach(data => {
                 if (data.portId === this.currentPort) {
-                    const timestamp = data.timestamp.toLocaleTimeString('zh-CN', { hour12: false });
+                    // 格式化时间戳，包含毫秒
+                    const date = data.timestamp instanceof Date ? data.timestamp : new Date(data.timestamp);
+                    const hours = date.getHours().toString().padStart(2, '0');
+                    const minutes = date.getMinutes().toString().padStart(2, '0');
+                    const seconds = date.getSeconds().toString().padStart(2, '0');
+                    const milliseconds = date.getMilliseconds().toString().padStart(3, '0');
+                    const timestamp = `${hours}:${minutes}:${seconds}.${milliseconds}`;
                     const direction = data.direction === 'rx' ? 'RX' : 'TX';
                     const content = new TextDecoder().decode(data.data);
                     logContent += `[${timestamp}] ${direction}: ${content}\n`;
@@ -916,10 +922,7 @@ class SerialToolApp {
                 flowControl: config.flowControl
             });
             
-            // 获取 writer
-            const writer = port.writable.getWriter();
-            
-            // 保存串口信息
+            // 保存串口信息（不保存 writer，每次使用时临时获取）
             const portInfo = {
                 id: portId,
                 name: portName,
@@ -927,7 +930,6 @@ class SerialToolApp {
                 port: port,
                 config: config,
                 reader: null,
-                writer: writer,  // 保存 writer
                 connected: true
             };
             
@@ -1319,6 +1321,9 @@ class SerialToolApp {
         const portId = data.port_id;
         const dataBytes = new Uint8Array(data.data);
         
+        // 使用服务器发送的时间戳（ISO格式，包含毫秒）
+        const timestamp = data.timestamp ? new Date(data.timestamp) : new Date();
+        
         // 更新接收字节数
         this.rxBytes += dataBytes.length;
         this.updateStats();
@@ -1330,7 +1335,7 @@ class SerialToolApp {
                 portName: this.ports.get(portId)?.name || portId,
                 direction: 'rx',
                 data: dataBytes,
-                timestamp: new Date(),
+                timestamp: timestamp,
                 format: this.dataFormat
             });
             this.historyMarkers.set(portId, new Date(Date.now() - 500).toISOString());
@@ -1344,7 +1349,7 @@ class SerialToolApp {
                 portName: this.ports.get(portId)?.name || portId,
                 direction: 'rx',
                 data: dataBytes,
-                timestamp: new Date(),
+                timestamp: timestamp,
                 format: this.dataFormat
             };
         } else {
@@ -1931,16 +1936,14 @@ class SerialToolApp {
             console.log('Sending bytes:', Array.from(data), 'to port type:', portInfo.type);
             
             if (portInfo.type === 'local') {
-                const writer = portInfo.writer;
-                console.log('Writer object:', writer);
-                
-                if (!writer) {
-                    console.error('Writer is null! Port info:', portInfo);
-                    throw new Error('Writer 未初始化');
+                // 每次使用时临时获取 writer，使用后立即释放
+                const writer = portInfo.port.writable.getWriter();
+                try {
+                    await writer.write(data);
+                    console.log('Data written to local port successfully');
+                } finally {
+                    writer.releaseLock();
                 }
-                
-                await writer.write(data);
-                console.log('Data written to local port successfully');
             } else if (portInfo.type === 'remote') {
                 if (this.websocket && this.websocket.connected) {
                     this.websocket.emit('write_data', {
@@ -2037,12 +2040,13 @@ class SerialToolApp {
         const wrapper = document.createElement('div');
         wrapper.className = `message-wrapper ${data.direction}`;
         
-        const timestamp = data.timestamp.toLocaleTimeString('zh-CN', { 
-            hour: '2-digit', 
-            minute: '2-digit', 
-            second: '2-digit',
-            hour12: false 
-        });
+        // 格式化时间戳，包含毫秒
+        const date = data.timestamp instanceof Date ? data.timestamp : new Date(data.timestamp);
+        const hours = date.getHours().toString().padStart(2, '0');
+        const minutes = date.getMinutes().toString().padStart(2, '0');
+        const seconds = date.getSeconds().toString().padStart(2, '0');
+        const milliseconds = date.getMilliseconds().toString().padStart(3, '0');
+        const timestamp = `${hours}:${minutes}:${seconds}.${milliseconds}`;
         
         const badge = data.direction === 'rx' ? 'RX' : 'TX';
         
@@ -2543,8 +2547,17 @@ class SerialToolApp {
         const line = document.createElement('div');
         line.className = 'data-line';
         line.style.color = type === 'error' ? '#e74c3c' : '#95a5a6';
+        
+        // 格式化时间戳，包含毫秒
+        const date = new Date();
+        const hours = date.getHours().toString().padStart(2, '0');
+        const minutes = date.getMinutes().toString().padStart(2, '0');
+        const seconds = date.getSeconds().toString().padStart(2, '0');
+        const milliseconds = date.getMilliseconds().toString().padStart(3, '0');
+        const timestamp = `${hours}:${minutes}:${seconds}.${milliseconds}`;
+        
         line.innerHTML = `
-            <span class="timestamp">[${new Date().toLocaleTimeString('zh-CN', { hour12: false })}]</span>
+            <span class="timestamp">[${timestamp}]</span>
             <span class="content">[系统] ${this.escapeHtml(message)}</span>
         `;
         display.appendChild(line);

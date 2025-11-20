@@ -1,0 +1,529 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>产品对比 - Yobboy 文件服务器</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap.min.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/font-awesome.min.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/jasmine_base.css') }}">
+    <script src="{{ url_for('static', filename='libs/chart.js/chart.umd.min.js') }}"></script>
+    <style>
+        body {
+            background: var(--jasmine-gradient-main);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .product-compare-container {
+            max-width: 1600px;
+            margin: 0 auto;
+            background: var(--jasmine-panel-glass);
+            border-radius: 18px;
+            box-shadow: var(--jasmine-shadow-lg);
+            overflow: hidden;
+        }
+
+        .header-bar {
+            background: var(--jasmine-gradient-soft);
+            padding: 15px 25px;
+            border-bottom: 1px solid rgba(95, 191, 174, 0.2);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .header-title {
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: var(--jasmine-green-700);
+            margin: 0;
+        }
+
+        .header-actions {
+            display: flex;
+            gap: 10px;
+        }
+
+        .main-layout {
+            display: flex;
+            height: calc(100vh - 180px);
+            min-height: 600px;
+        }
+
+        .left-panel {
+            width: 300px;
+            border-right: 1px solid rgba(95, 191, 174, 0.2);
+            display: flex;
+            flex-direction: column;
+            background: rgba(255, 255, 255, 0.5);
+        }
+
+        .right-panel {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .panel-header {
+            padding: 15px 20px;
+            background: var(--jasmine-gradient-soft);
+            border-bottom: 1px solid rgba(95, 191, 174, 0.2);
+            font-weight: bold;
+            color: var(--jasmine-green-700);
+        }
+
+        .product-list {
+            flex: 1;
+            overflow-y: auto;
+            padding: 10px;
+        }
+
+        .product-item {
+            display: flex;
+            align-items: center;
+            padding: 12px;
+            margin-bottom: 8px;
+            background: white;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: 2px solid transparent;
+            border-left-width: 8px; /* 左侧书签区域宽度 */
+        }
+
+        .product-item:hover {
+            background: var(--jasmine-green-100);
+            transform: translateX(3px);
+        }
+
+        .product-item.selected {
+            border-color: var(--jasmine-green-500);
+            background: var(--jasmine-green-100);
+        }
+
+        .product-checkbox {
+            margin-right: 10px;
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+        }
+
+        .product-name {
+            flex: 1;
+            font-weight: 500;
+            color: var(--jasmine-ink);
+        }
+
+        .content-area {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+        }
+
+        .attribute-panel, .product-detail-panel, .compare-panel {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: var(--jasmine-shadow-sm);
+        }
+
+        .attribute-list {
+            display: grid;
+            gap: 10px;
+        }
+
+        .attribute-item {
+            display: flex;
+            align-items: center;
+            padding: 10px;
+            background: var(--jasmine-green-100);
+            border-radius: 8px;
+            cursor: move;
+        }
+        
+        .attribute-item.dragging {
+            opacity: 0.5;
+        }
+        
+        .attribute-item.drag-over {
+            border-top: 3px solid var(--jasmine-green-500);
+        }
+        
+        .attribute-item.drag-over-bottom {
+            border-bottom: 3px solid var(--jasmine-green-500);
+        }
+        
+        .sortable-column {
+            user-select: none;
+        }
+        
+        .sortable-column:hover {
+            background-color: var(--jasmine-green-100);
+        }
+        
+        #sortTable {
+            width: 100%;
+            table-layout: auto;
+        }
+        
+        #sortTable th,
+        #sortTable td {
+            padding: 8px 12px;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+        }
+        
+        #sortTable th {
+            white-space: nowrap;
+        }
+        
+        #sortTable td {
+            white-space: normal;
+        }
+
+        .attribute-item input[type="text"] {
+            flex: 1;
+            margin: 0 10px;
+        }
+
+        .attribute-item input[type="checkbox"] {
+            margin-right: 10px;
+        }
+
+        .product-form {
+            display: grid;
+            gap: 15px;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .form-group label {
+            margin-bottom: 5px;
+            font-weight: 500;
+            color: var(--jasmine-green-700);
+        }
+
+        .form-group.required label::after {
+            content: " *";
+            color: var(--bs-danger);
+        }
+
+        .chart-container {
+            position: relative;
+            height: 500px;
+            margin-top: 20px;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: var(--jasmine-muted);
+        }
+
+        .empty-state-icon {
+            font-size: 4rem;
+            margin-bottom: 20px;
+            opacity: 0.5;
+        }
+
+        .btn-group-compact {
+            display: flex;
+            gap: 8px;
+        }
+
+        .btn-group-compact .btn {
+            padding: 5px 12px;
+            font-size: 0.875rem;
+        }
+
+        .badge-common {
+            background: linear-gradient(120deg, var(--jasmine-green-600), var(--jasmine-green-400));
+            color: white;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            margin-left: 8px;
+        }
+
+        .file-selector {
+            padding: 15px;
+            border-bottom: 1px solid rgba(95, 191, 174, 0.2);
+        }
+
+        .file-selector select {
+            width: 100%;
+        }
+
+        .sortable-item {
+            cursor: move;
+        }
+
+        .sortable-item:hover {
+            background: var(--jasmine-green-200);
+        }
+
+        .tab-navigation {
+            margin: 0;
+        }
+
+        .tab-navigation .nav-tabs {
+            border-bottom: 2px solid rgba(95, 191, 174, 0.2);
+        }
+
+        .tab-navigation .nav-link {
+            color: var(--jasmine-muted);
+            border: none;
+            border-bottom: 3px solid transparent;
+            padding: 12px 20px;
+            transition: all 0.3s;
+        }
+
+        .tab-navigation .nav-link:hover {
+            color: var(--jasmine-green-600);
+            background: rgba(95, 191, 174, 0.1);
+        }
+
+        .tab-navigation .nav-link.active {
+            color: var(--jasmine-green-700);
+            background: transparent;
+            border-bottom-color: var(--jasmine-green-500);
+            font-weight: bold;
+        }
+
+        .tab-content {
+            padding: 20px;
+            min-height: 400px;
+        }
+    </style>
+</head>
+<body class="jasmine-body">
+    <div class="product-compare-container">
+        <!-- 顶部工具栏 -->
+        <div class="header-bar">
+            <h1 class="header-title">📊 产品对比</h1>
+            <div class="header-actions">
+                <button type="button" class="btn btn-primary" id="newFileBtn">
+                    <i class="fas fa-plus"></i> 新建对比
+                </button>
+                <button type="button" class="btn btn-outline-primary" id="openFileBtn">
+                    <i class="fas fa-folder-open"></i> 打开对比
+                </button>
+                <button type="button" class="btn btn-success" id="saveFileBtn" style="display: none;">
+                    <i class="fas fa-save"></i> 保存
+                </button>
+                <button type="button" class="btn btn-outline-secondary" onclick="window.location.href='/'">
+                    <i class="fas fa-home"></i> 返回
+                </button>
+            </div>
+        </div>
+
+        <!-- 主布局 -->
+        <div class="main-layout">
+            <!-- 左侧：产品列表 -->
+            <div class="left-panel">
+                <div class="file-selector" style="padding: 10px; border-bottom: 1px solid rgba(95, 191, 174, 0.2);">
+                    <div style="display: flex; gap: 5px;">
+                        <select class="form-select" id="fileSelector" style="flex: 1;">
+                            <option value="">-- 选择对比文件 --</option>
+                        </select>
+                        <button type="button" class="btn btn-sm btn-danger" id="deleteFileBtn" style="display: none;" title="删除当前对比文件">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </div>
+                </div>
+                <div class="panel-header">
+                    <span>产品列表</span>
+                    <button type="button" class="btn btn-sm btn-primary float-end" id="addProductBtn" style="display: none;">
+                        <i class="fas fa-plus"></i> 添加产品
+                    </button>
+                </div>
+                <div class="product-list" id="productList">
+                    <div class="empty-state">
+                        <div class="empty-state-icon">📦</div>
+                        <p>请先创建或打开一个产品对比文件</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 右侧：内容区域 -->
+            <div class="right-panel">
+                <div class="panel-header">
+                    <span id="rightPanelTitle">请选择操作</span>
+                </div>
+                
+                <!-- Tab 导航 -->
+                <div class="tab-navigation" id="tabNavigation" style="display: none; padding: 0 20px; background: rgba(255, 255, 255, 0.5); border-bottom: 1px solid rgba(95, 191, 174, 0.2);">
+                    <ul class="nav nav-tabs" style="border-bottom: none;">
+                        <li class="nav-item">
+                            <a class="nav-link active" data-tab="attributes" onclick="switchTab('attributes')">
+                                <i class="fas fa-list"></i> 属性管理
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" data-tab="productDetail" onclick="switchTab('productDetail')">
+                                <i class="fas fa-info-circle"></i> 产品详情
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" data-tab="radar" onclick="switchTab('radar')">
+                                <i class="fas fa-chart-area"></i> 雷达图
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" data-tab="sort" onclick="switchTab('sort')">
+                                <i class="fas fa-sort"></i> 参数排序
+                            </a>
+                        </li>
+                    </ul>
+                </div>
+                
+                <!-- Tab 内容区域 -->
+                <div class="content-area" id="contentArea">
+                    <!-- 属性管理 Tab -->
+                    <div class="tab-content" id="tabAttributes">
+                        <div class="empty-state">
+                            <div class="empty-state-icon">📋</div>
+                            <p>请先创建属性列表，然后添加产品</p>
+                        </div>
+                    </div>
+                    
+                    <!-- 产品详情 Tab -->
+                    <div class="tab-content" id="tabProductDetail" style="display: none;">
+                        <div class="empty-state" id="productDetailEmptyState">
+                            <div class="empty-state-icon">📦</div>
+                            <p>请点击左侧产品列表中的产品查看详情</p>
+                        </div>
+                        <div id="productDetailContent" style="display: none;"></div>
+                    </div>
+                    
+                    <!-- 雷达图 Tab -->
+                    <div class="tab-content" id="tabRadar" style="display: none;">
+                        <div class="empty-state" id="radarEmptyState">
+                            <div class="empty-state-icon">📊</div>
+                            <p>请至少选择1个产品进行展示</p>
+                            <p style="font-size: 0.9rem; color: var(--jasmine-muted); margin-top: 10px;">
+                                在左侧产品列表中勾选1个或更多产品，雷达图将自动显示
+                            </p>
+                        </div>
+                        <div id="radarChartContainer" style="display: none;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                                <h5>产品对比雷达图</h5>
+                                <button type="button" class="btn btn-sm btn-success" onclick="exportRadarChart()">
+                                    <i class="fas fa-download"></i> 导出图表
+                                </button>
+                            </div>
+                            <div class="chart-container">
+                                <canvas id="radarChart"></canvas>
+                            </div>
+                            <div id="radarAnalysisPanel" style="margin-top: 20px;"></div>
+                        </div>
+                    </div>
+                    
+                    <!-- 参数排序 Tab -->
+                    <div class="tab-content" id="tabSort" style="display: none;">
+                        <div id="sortContent"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 模态框：新建/打开文件 -->
+    <div class="modal fade" id="fileModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="fileModalTitle">新建产品对比</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">对比名称</label>
+                        <input type="text" class="form-control" id="fileNameInput" placeholder="请输入对比名称">
+                    </div>
+                    <div id="fileListContainer" style="display: none;">
+                        <label class="form-label">或选择已有文件</label>
+                        <select class="form-select" id="existingFileSelect">
+                            <option value="">-- 选择文件 --</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="button" class="btn btn-primary" id="fileModalConfirmBtn">确定</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 模态框：添加/编辑属性 -->
+    <div class="modal fade" id="attributeModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="attributeModalTitle">添加属性</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">属性名称</label>
+                        <input type="text" class="form-control" id="attributeNameInput" placeholder="请输入属性名称">
+                    </div>
+                    <div class="mb-3">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="attributeIsCommonCheck">
+                            <label class="form-check-label" for="attributeIsCommonCheck">
+                                通用参数（用于对比，必须为数值类型）
+                            </label>
+                        </div>
+                    </div>
+                    <div class="mb-3" id="attributeUnitGroup" style="display: none;">
+                        <label class="form-label">单位（可选）</label>
+                        <input type="text" class="form-control" id="attributeUnitInput" placeholder="如：元、kg、小时等">
+                    </div>
+                    <div class="mb-3" id="attributeDirectionGroup" style="display: none;">
+                        <label class="form-label">数值方向</label>
+                        <select class="form-select" id="attributeDirectionSelect">
+                            <option value="higher">更大更好（如：性能、速度）</option>
+                            <option value="lower">更小更好（如：价格、延迟）</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="button" class="btn btn-primary" id="attributeModalConfirmBtn">确定</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 模态框：添加/编辑产品 -->
+    <div class="modal fade" id="productModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="productModalTitle">添加产品</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body" id="productModalBody">
+                    <!-- 动态生成表单 -->
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="button" class="btn btn-primary" id="productModalConfirmBtn">确定</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/bootstrap.bundle.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/product_compare.js') }}"></script>
+</body>
+</html>
+

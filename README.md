@@ -17,7 +17,7 @@
 </div>
 
 > **🚀 新手？** 查看 [快速开始指南](快速开始.md) 3分钟快速上手！  
-> **当前版本：v3.0 · 发布日期 2025-11-11**
+> **当前版本：v4.0 · 发布日期 2025-11-19**
 
 ---
 
@@ -42,13 +42,26 @@ Yobboy 文件服务器是一个集成了文件浏览、Markdown 预览、Draw.io
 - 📁 **文档在线编辑**：Markdown笔记、Python脚本、配置文件想实时编辑？浏览器一开，语法高亮、代码折叠、查找替换全都有
 - 🧭 **团队任务中控**：ToDo 时间轴中心按项目、类别串起所有进展，现场点评、评论、历史记录一页掌握
 - 🔌 **硬件调试实验室**：串口助手实时读取与下发指令，无需额外工具即可调试嵌入式设备
+- 📊 **产品选型助手**：产品对比工具帮助快速对比不同产品的参数，雷达图可视化展示优劣，智能分析最优选择
 
 **比 FileZilla 简单 10 倍，比 FTP 优雅 100 倍，比抱着电脑跑轻松 1000 倍！**
 
 不需要复杂配置，不需要记住奇怪的命令，双击 exe，点击启动，扫码/输网址，搞定！
 妈妈再也不用担心我不会搭建服务器了 😎
 
-### 🌟 v3.0 最新功能
+### 🌟 v4.0 最新功能
+
+- 📊 **产品对比工具**：全新的产品参数对比功能，支持多产品参数管理和可视化对比
+  - **属性管理**：自定义产品属性列表，支持通用参数（数值型）和普通属性（文本型）
+  - **通用参数配置**：为每个通用参数设置单位、方向（越大越好/越小越好），用于智能对比分析
+  - **归属分类**：产品归属自动分类，每个归属可自定义颜色，产品列表左侧书签显示归属颜色
+  - **雷达图对比**：基于 Chart.js 的雷达图可视化，支持多产品叠加对比，每个参数独立归一化
+  - **智能分析**：自动识别每个参数的最优产品，统计各产品的最优项数量
+  - **参数排序**：按任意通用参数对产品进行排序，支持升序/降序
+  - **数据持久化**：所有对比数据保存在本地 JSON 文件，支持多文件管理
+  - **茉莉飘雪主题**：产品对比页面采用统一的茉莉飘雪主题风格
+
+### 🌟 v3.0 功能
 
 - 🍃 **茉莉奶白主题焕新**：全站（除选择页）统一采用 Jasmine Green × Snow White 渐变风格，按钮、卡片、表单等组件全面适配
 - 🗂️ **ToDo 时间轴中心**：新增独立 ToDo 工作台，支持后门直达、搜索、项目筛选、颜色继承/随机、预计完成时间等字段
@@ -176,6 +189,22 @@ Yobboy 文件服务器是一个集成了文件浏览、Markdown 预览、Draw.io
 #### 📝 Markdown 渲染
 - **丰富语法**：支持表格、任务列表、脚注、定义列表等
 - **图片路径处理**：自动处理相对路径图片
+
+#### 📊 产品对比工具（v4.0）
+- **属性管理**：灵活定义产品属性，支持默认属性（品名、归属）和自定义属性
+- **通用参数**：标记为通用参数的属性支持数值输入，可设置单位和方向（越大越好/越小越好）
+- **归属分类**：产品按归属自动分类，每个归属可自定义颜色，便于视觉区分
+- **雷达图可视化**：基于 Chart.js 的雷达图，支持多产品叠加对比
+  - 每个参数独立归一化，基于选中产品的最大最小值动态缩放
+  - 支持单产品或多产品对比，不同产品用不同颜色区分
+  - 多边形叠加显示，确保所有产品都可见
+- **智能分析**：
+  - 自动识别每个参数的最优产品（根据方向判断）
+  - 统计各产品的最优项数量
+  - 生成详细的对比分析报告
+- **参数排序**：按任意通用参数对产品进行排序，支持升序/降序切换
+- **数据管理**：支持创建多个对比文件，每个文件独立管理产品和属性
+- **数据持久化**：所有数据保存在本地 JSON 文件，支持导入导出
 
 #### 🔌 串口调试助手（v3.0）
 - **PySerial 驱动**：后端使用 PySerial 读取/写入串口，支持常见串口参数配置
@@ -368,13 +397,30 @@ This project was born to save your back and your dignity!
 No complex configuration needed, no weird commands to memorize. Double-click exe, hit start, scan/type URL, done!
 Mom will never worry about me not knowing how to set up a server again 😎
 
-### 🌟 v3.0 Latest Features
+### 🌟 v4.0 Latest Features
+
+- 📊 **Product Comparison Tool**: Brand new product parameter comparison feature with multi-product management and visual comparison
+  - **Attribute Management**: Customize product attributes with drag-and-drop sorting, support common parameters (numeric) and regular attributes (text)
+  - **Common Parameter Configuration**: Set unit and direction (higher/lower is better) for each common parameter
+  - **Belonging Classification**: Automatic product classification by belonging, each belonging with customizable color displayed in product list bookmark area
+  - **Product Links**: Add external URLs, local file paths, or shared links to products for quick access to datasheets and documentation
+  - **Radar Chart Comparison**: Chart.js-based radar chart visualization with multi-product overlay comparison
+    - Independent normalization for each parameter based on all products' min/max values
+    - Support single or multiple product comparison with distinct colors
+    - Overlay display ensures all products are visible
+  - **Smart Analysis**: Automatically identify optimal products for each parameter, count optimal items per product
+  - **Parameter Sorting**: Sort products by any common parameter with column drag-and-drop reordering, support ascending/descending order
+  - **Multi-select Comparison**: Select multiple parameters to compare relationships
+  - **Data Persistence**: All comparison data saved in local JSON files with multi-file management and automatic format repair
+  - **Jasmine Snow Theme**: Product comparison page uses unified Jasmine Snow theme
+
+### 🌟 v3.0 Features
 
 - 🍃 **Jasmine Snow Theme Refresh**: Unified cyan-green × snow-white gradient styling across every page (except the choice hub), with buttons, cards, and forms redesigned
 - 🗂️ **ToDo Timeline Center**: Dedicated workspace with backdoor access, search & project filters, inherited/random project colors, and estimated completion tracking
 - 📆 **Bidirectional Timeline**: Switch seamlessly between vertical and horizontal views; scroll automatically matches orientation with floating jump buttons for quick navigation
 - 🧷 **Event Operations Upgrade**: Each timeline card now supports comment, edit, and single-event delete actions with history/comment sync
-- ⏱️ **Pending Overview Board**: Fullscreen summary panel highlighting today’s targets, overdue tasks, and remaining-time ranking, kept in sync with the timeline selection
+- ⏱️ **Pending Overview Board**: Fullscreen summary panel highlighting today's targets, overdue tasks, and remaining-time ranking, kept in sync with the timeline selection
 - 🔌 **Serial Diagnostics Assistant**: PySerial + Socket.IO powered console for real-time serial monitoring, parameter tuning, browser-side command sending, plus continuous logging and history replay for paired ports
 
 ### 🌟 v2.2 Latest Features
@@ -475,6 +521,24 @@ Mom will never worry about me not knowing how to set up a server again 😎
 - **Code Highlighting**: Syntax highlighting with Pygments
 - **Image Path Processing**: Automatic handling of relative image paths
 - **GitHub Style**: GitHub Markdown styling
+
+#### 📊 Product Comparison Tool (v4.0)
+- **Attribute Management**: Flexible product attribute definition with drag-and-drop sorting, support default attributes (name, belonging) and custom attributes
+- **Common Parameters**: Attributes marked as common parameters support numeric input with unit and direction configuration (higher/lower is better)
+- **Belonging Classification**: Automatic product classification by belonging, each belonging with customizable color displayed in the left bookmark area of product list
+- **Product Links**: Add external URLs, local file paths, or shared links to products for quick access to datasheets and documentation
+- **Radar Chart Visualization**: Chart.js-based radar chart with multi-product overlay comparison
+  - Independent normalization for each parameter based on all products' min/max values
+  - Support single or multiple product comparison with distinct colors
+  - Overlay display ensures all products are visible
+- **Smart Analysis**:
+  - Automatically identify optimal products for each parameter (based on direction)
+  - Count optimal items per product
+  - Generate detailed comparison analysis reports
+- **Parameter Sorting**: Sort products by any common parameter with column drag-and-drop reordering, support ascending/descending toggle
+- **Multi-select Comparison**: Select multiple parameters to compare relationships
+- **Data Management**: Support creating multiple comparison files, each file independently manages products and attributes
+- **Data Persistence**: All data saved in local JSON files with automatic format repair and backward compatibility
 
 #### 🔌 Serial Diagnostics Assistant (v3.0)
 - **PySerial Backend**: Configure baud rate, data bits, parity, stop bits, and timeouts directly from the server

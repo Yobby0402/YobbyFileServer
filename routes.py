@@ -13,6 +13,7 @@ import posixpath # 用于处理 URL 路径
 from share_links import ShareLinkManager  # 导入分享链接管理器
 from todo_manager import todo_manager
 from serial_manager import serial_manager
+from product_compare_manager import product_compare_manager
 
 # 检查用户是否已登录的函数
 def is_logged_in():
@@ -110,6 +111,9 @@ def init_app(app):
 
     # 初始化 ToDo 管理器
     app.config['TODO_MANAGER'] = todo_manager
+    
+    # 初始化产品对比管理器
+    app.config['PRODUCT_COMPARE_MANAGER'] = product_compare_manager
 
     # 初始化Draw.io静态文件目录（静默检查，不影响运行）
     # Draw.io是可选功能，不存在也不影响文件浏览器功能
@@ -268,6 +272,287 @@ def init_app(app):
             'timeline': timeline,
             'projects': manager.get_projects()
         })
+
+    # ===== 产品对比路由 =====
+    
+    @app.route('/product_compare')
+    def product_compare_page():
+        """产品对比主页面"""
+        if not is_logged_in():
+            return redirect(url_for('login'))
+        return render_template('product_compare.html')
+
+    @app.route('/api/product_compare/files', methods=['GET'])
+    def product_compare_files():
+        """获取所有产品对比文件列表"""
+        if not is_logged_in():
+            return jsonify({'success': False, 'error': '未授权'}), 401
+        
+        manager = current_app.config['PRODUCT_COMPARE_MANAGER']
+        try:
+            files = manager.list_files()
+            return jsonify({'success': True, 'files': files})
+        except Exception as exc:
+            return jsonify({'success': False, 'error': str(exc)}), 500
+
+    @app.route('/api/product_compare/files', methods=['POST'])
+    def product_compare_create_file():
+        """创建新的产品对比文件"""
+        if not is_logged_in():
+            return jsonify({'success': False, 'error': '未授权'}), 401
+        
+        manager = current_app.config['PRODUCT_COMPARE_MANAGER']
+        payload = request.json or {}
+        name = payload.get('name', '未命名对比')
+        
+        try:
+            file_data = manager.create_file(name)
+            return jsonify({'success': True, 'file': file_data})
+        except Exception as exc:
+            return jsonify({'success': False, 'error': str(exc)}), 400
+
+    @app.route('/api/product_compare/files/<file_id>', methods=['GET', 'PUT', 'DELETE'])
+    def product_compare_file(file_id):
+        """获取、更新或删除产品对比文件"""
+        if not is_logged_in():
+            return jsonify({'success': False, 'error': '未授权'}), 401
+        
+        manager = current_app.config['PRODUCT_COMPARE_MANAGER']
+        
+        if request.method == 'GET':
+            try:
+                file_data = manager.get_file(file_id)
+                return jsonify({'success': True, 'file': file_data})
+            except FileNotFoundError:
+                return jsonify({'success': False, 'error': '文件不存在'}), 404
+            except Exception as exc:
+                return jsonify({'success': False, 'error': str(exc)}), 500
+        
+        if request.method == 'PUT':
+            payload = request.json or {}
+            try:
+                file_data = manager.update_file(file_id, name=payload.get('name'))
+                return jsonify({'success': True, 'file': file_data})
+            except FileNotFoundError:
+                return jsonify({'success': False, 'error': '文件不存在'}), 404
+            except Exception as exc:
+                return jsonify({'success': False, 'error': str(exc)}), 400
+        
+        # DELETE
+        try:
+            manager.delete_file(file_id)
+            return jsonify({'success': True, 'file_id': file_id})
+        except Exception as exc:
+            return jsonify({'success': False, 'error': str(exc)}), 500
+
+    @app.route('/api/product_compare/files/<file_id>/attributes', methods=['POST'])
+    def product_compare_add_attribute(file_id):
+        """添加属性"""
+        if not is_logged_in():
+            return jsonify({'success': False, 'error': '未授权'}), 401
+        
+        manager = current_app.config['PRODUCT_COMPARE_MANAGER']
+        payload = request.json or {}
+        
+        try:
+            attr = manager.add_attribute(
+                file_id,
+                name=payload.get('name'),
+                is_common=payload.get('is_common', False),
+                attr_type=payload.get('type', 'text')
+            )
+            # 如果添加成功，更新单位和方向
+            if attr and payload.get('unit') is not None or payload.get('direction') is not None:
+                attr = manager.update_attribute(
+                    file_id,
+                    attr['id'],
+                    unit=payload.get('unit', ''),
+                    direction=payload.get('direction', 'higher')
+                )
+            file_data = manager.get_file(file_id)
+            return jsonify({'success': True, 'attribute': attr, 'file': file_data})
+        except FileNotFoundError:
+            return jsonify({'success': False, 'error': '文件不存在'}), 404
+        except Exception as exc:
+            return jsonify({'success': False, 'error': str(exc)}), 400
+
+    @app.route('/api/product_compare/files/<file_id>/attributes/<attr_id>', methods=['PUT', 'DELETE'])
+    def product_compare_attribute(file_id, attr_id):
+        """更新或删除属性"""
+        if not is_logged_in():
+            return jsonify({'success': False, 'error': '未授权'}), 401
+        
+        manager = current_app.config['PRODUCT_COMPARE_MANAGER']
+        
+        if request.method == 'PUT':
+            payload = request.json or {}
+            try:
+                attr = manager.update_attribute(
+                    file_id,
+                    attr_id,
+                    name=payload.get('name'),
+                    is_common=payload.get('is_common'),
+                    attr_type=payload.get('type'),
+                    order=payload.get('order'),
+                    unit=payload.get('unit'),
+                    direction=payload.get('direction')
+                )
+                file_data = manager.get_file(file_id)
+                return jsonify({'success': True, 'attribute': attr, 'file': file_data})
+            except FileNotFoundError:
+                return jsonify({'success': False, 'error': '文件不存在'}), 404
+            except Exception as exc:
+                return jsonify({'success': False, 'error': str(exc)}), 400
+        
+        # DELETE
+        try:
+            manager.delete_attribute(file_id, attr_id)
+            file_data = manager.get_file(file_id)
+            return jsonify({'success': True, 'attribute_id': attr_id, 'file': file_data})
+        except FileNotFoundError:
+            return jsonify({'success': False, 'error': '文件不存在'}), 404
+        except Exception as exc:
+            return jsonify({'success': False, 'error': str(exc)}), 400
+
+    @app.route('/api/product_compare/files/<file_id>/attributes/reorder', methods=['POST'])
+    def product_compare_reorder_attributes(file_id):
+        """重新排序属性"""
+        if not is_logged_in():
+            return jsonify({'success': False, 'error': '未授权'}), 401
+        
+        manager = current_app.config['PRODUCT_COMPARE_MANAGER']
+        payload = request.json or {}
+        attr_orders = payload.get('orders', [])
+        
+        try:
+            manager.reorder_attributes(file_id, attr_orders)
+            file_data = manager.get_file(file_id)
+            return jsonify({'success': True, 'file': file_data})
+        except FileNotFoundError:
+            return jsonify({'success': False, 'error': '文件不存在'}), 404
+        except Exception as exc:
+            return jsonify({'success': False, 'error': str(exc)}), 400
+
+    @app.route('/api/product_compare/files/<file_id>/products', methods=['POST'])
+    def product_compare_add_product(file_id):
+        """添加产品"""
+        if not is_logged_in():
+            return jsonify({'success': False, 'error': '未授权'}), 401
+        
+        manager = current_app.config['PRODUCT_COMPARE_MANAGER']
+        payload = request.json or {}
+        
+        try:
+            product = manager.add_product(
+                file_id,
+                name=payload.get('name'),
+                belonging=payload.get('belonging'),
+                attributes=payload.get('attributes', {}),
+                link=payload.get('link')
+            )
+            file_data = manager.get_file(file_id)
+            return jsonify({'success': True, 'product': product, 'file': file_data})
+        except FileNotFoundError:
+            return jsonify({'success': False, 'error': '文件不存在'}), 404
+        except Exception as exc:
+            return jsonify({'success': False, 'error': str(exc)}), 400
+
+    @app.route('/api/product_compare/files/<file_id>/products/<product_id>', methods=['PUT', 'DELETE'])
+    def product_compare_product(file_id, product_id):
+        """更新或删除产品"""
+        if not is_logged_in():
+            return jsonify({'success': False, 'error': '未授权'}), 401
+        
+        manager = current_app.config['PRODUCT_COMPARE_MANAGER']
+        
+        if request.method == 'PUT':
+            payload = request.json or {}
+            try:
+                product = manager.update_product(
+                    file_id,
+                    product_id,
+                    name=payload.get('name'),
+                    belonging=payload.get('belonging'),
+                    attributes=payload.get('attributes'),
+                    link=payload.get('link')
+                )
+                file_data = manager.get_file(file_id)
+                return jsonify({'success': True, 'product': product, 'file': file_data})
+            except FileNotFoundError:
+                return jsonify({'success': False, 'error': '文件不存在'}), 404
+            except Exception as exc:
+                return jsonify({'success': False, 'error': str(exc)}), 400
+        
+        # DELETE
+        try:
+            manager.delete_product(file_id, product_id)
+            file_data = manager.get_file(file_id)
+            return jsonify({'success': True, 'product_id': product_id, 'file': file_data})
+        except FileNotFoundError:
+            return jsonify({'success': False, 'error': '文件不存在'}), 404
+        except Exception as exc:
+            return jsonify({'success': False, 'error': str(exc)}), 400
+
+    @app.route('/api/product_compare/files/<file_id>/products/reorder', methods=['POST'])
+    def product_compare_reorder_products(file_id):
+        """重新排序产品"""
+        if not is_logged_in():
+            return jsonify({'success': False, 'error': '未授权'}), 401
+        
+        manager = current_app.config['PRODUCT_COMPARE_MANAGER']
+        payload = request.json or {}
+        product_orders = payload.get('orders', [])
+        
+        try:
+            manager.reorder_products(file_id, product_orders)
+            file_data = manager.get_file(file_id)
+            return jsonify({'success': True, 'file': file_data})
+        except FileNotFoundError:
+            return jsonify({'success': False, 'error': '文件不存在'}), 404
+        except Exception as exc:
+            return jsonify({'success': False, 'error': str(exc)}), 400
+
+    @app.route('/api/product_compare/files/<file_id>/belongings', methods=['GET'])
+    def product_compare_belongings(file_id):
+        """获取文件中所有已使用的归属列表（包含颜色）"""
+        if not is_logged_in():
+            return jsonify({'success': False, 'error': '未授权'}), 401
+        
+        manager = current_app.config['PRODUCT_COMPARE_MANAGER']
+        try:
+            belongings = manager.get_belongings(file_id)
+            return jsonify({'success': True, 'belongings': belongings})
+        except FileNotFoundError:
+            return jsonify({'success': False, 'error': '文件不存在'}), 404
+        except Exception as exc:
+            return jsonify({'success': False, 'error': str(exc)}), 500
+    
+    @app.route('/api/product_compare/files/<file_id>/belongings/<belonging>/color', methods=['PUT'])
+    def product_compare_set_belonging_color(file_id, belonging):
+        """设置归属的颜色"""
+        if not is_logged_in():
+            return jsonify({'success': False, 'error': '未授权'}), 401
+        
+        manager = current_app.config['PRODUCT_COMPARE_MANAGER']
+        payload = request.json or {}
+        color = payload.get('color', '').strip()
+        
+        if not color or not color.startswith('#'):
+            return jsonify({'success': False, 'error': '颜色格式无效'}), 400
+        
+        try:
+            manager._set_belonging_color(file_id, belonging, color)
+            # 更新所有使用该归属的产品的颜色
+            data = manager._load_file(file_id)
+            for product in data.get('products', []):
+                if product.get('belonging', '').strip() == belonging:
+                    product['color'] = color
+            manager._save_file(file_id, data)
+            return jsonify({'success': True, 'file': data})
+        except FileNotFoundError:
+            return jsonify({'success': False, 'error': '文件不存在'}), 404
+        except Exception as exc:
+            return jsonify({'success': False, 'error': str(exc)}), 500
 
     @app.route('/file_browser')
     def file_browser():
@@ -1112,8 +1397,10 @@ def init_app(app):
             log_dir = os.path.join(base_dir, 'logs', 'serial_logs')
             os.makedirs(log_dir, exist_ok=True)
             
-            # 生成日志文件名
-            timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+            # 生成日志文件名（精确到毫秒）
+            now = datetime.now()
+            milliseconds = now.microsecond // 1000
+            timestamp = now.strftime(f'%Y-%m-%d_%H-%M-%S.{milliseconds:03d}')
             filename = f"{port_name}_{timestamp}.log"
             filepath = os.path.join(log_dir, filename)
             

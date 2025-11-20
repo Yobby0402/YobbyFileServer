@@ -6,6 +6,8 @@ import json
 import os
 import serial
 import serial.tools.list_ports
+import serial.serialutil
+from serial.serialutil import SerialException
 import sys
 import threading
 import time
@@ -82,7 +84,7 @@ class SerialPortManager:
                     stopbits=stopbits,
                     timeout=timeout,
                 )
-            except serial.SerialException as exc:
+            except SerialException as exc:
                 print(f"[错误] 打开串口失败 {device}: {exc}")
                 return False
 
@@ -222,7 +224,8 @@ class SerialPortManager:
                 raise ValueError("串口已以不同配置运行，无法开启日志")
 
             log_dir = self._ensure_log_dir(target_port_id, device)
-            filename = datetime.utcnow().strftime("%Y-%m-%d") + ".jsonl"
+            # 按日期组织日志文件（每天一个文件）
+            filename = datetime.now().strftime("%Y-%m-%d") + ".jsonl"
             filepath = os.path.join(log_dir, filename)
 
             file_handle = open(filepath, "a", encoding="utf-8")  # noqa: SIM115
@@ -239,13 +242,16 @@ class SerialPortManager:
                 "directory": log_dir,
                 "file_path": filepath,
                 "file_handle": file_handle,
-                "started_at": datetime.utcnow().isoformat() + "Z",
+                "started_at": (now := datetime.now()).strftime(f"%Y-%m-%dT%H:%M:%S.{now.microsecond // 1000:03d}Z"),
                 "last_write": None,
                 "bytes_logged": 0,
             }
             self.log_sessions[target_port_id] = session
             print(f"[日志] 启动串口 {device} 持续日志 -> {filepath}")
-            return session.copy()
+            # 返回时移除 file_handle（无法 JSON 序列化）
+            session_copy = session.copy()
+            session_copy.pop("file_handle", None)
+            return session_copy
 
     def stop_logging(self, port_id: str) -> bool:
         with self._lock:
@@ -280,7 +286,7 @@ class SerialPortManager:
         """读取指定端口当前日志（按时间顺序）。"""
         directory = self._ensure_log_dir(port_id)
         # 默认为当日文件
-        filename = datetime.utcnow().strftime("%Y-%m-%d") + ".jsonl"
+        filename = datetime.now().strftime("%Y-%m-%d") + ".jsonl"
         filepath = os.path.join(directory, filename)
 
         if not os.path.exists(filepath):
@@ -324,7 +330,7 @@ class SerialPortManager:
                 files.append(
                     {
                         "filename": filename,
-                        "modified": datetime.utcfromtimestamp(stat.st_mtime).isoformat()
+                        "modified": datetime.fromtimestamp(stat.st_mtime).isoformat()
                         + "Z",
                         "size": stat.st_size,
                     }
@@ -381,8 +387,12 @@ class SerialPortManager:
         session = self.log_sessions.get(port_id)
         if not session:
             return
+        # 获取当前时间（只调用一次，确保时间一致性）
+        now = datetime.now()
+        milliseconds = now.microsecond // 1000
+        timestamp = now.strftime(f"%Y-%m-%d_%H-%M-%S.{milliseconds:03d}")
         entry = {
-            "ts": datetime.utcnow().isoformat() + "Z",
+            "ts": timestamp,
             "dir": direction,
             "hex": data.hex(),
             "text": data.decode("utf-8", errors="replace"),
