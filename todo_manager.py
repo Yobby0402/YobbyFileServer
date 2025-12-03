@@ -28,15 +28,16 @@ def _utc_now() -> str:
 
 
 class TodoManager:
-    """管理 ToDo 数据的线程安全工具"""
+    """管理 ToDo 数据的线程安全工具 - 新版基于项目和任务的层级结构"""
 
     DEFAULT_COLOR = "#4facfe"
+    DEFAULT_PRIORITY = 3  # 1-5，3为中等优先级
 
     def __init__(self, storage_path: Optional[str] = None):
         data_dir = _ensure_data_dir()
-        self.storage_path = storage_path or os.path.join(data_dir, "todos.json")
+        self.storage_path = storage_path or os.path.join(data_dir, "todos_v2.json")
         self._lock = threading.RLock()
-        self._data: Dict[str, Any] = {"todos": [], "projects": {}}
+        self._data: Dict[str, Any] = {"projects": []}
         self._load()
 
     # ===== 基础 I/O =====
@@ -50,23 +51,19 @@ class TodoManager:
         try:
             with open(self.storage_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
-                if isinstance(data, dict):
+                if isinstance(data, dict) and "projects" in data:
                     self._data = data
-                elif isinstance(data, list):
-                    # 兼容旧格式：仅包含 todos 列表
-                    self._data = {"todos": data, "projects": {}}
                 else:
-                    raise ValueError("无效的 ToDo 数据格式")
+                    # 兼容旧格式或其他格式，初始化为空
+                    self._data = {"projects": []}
         except Exception:
             # 如果加载失败，保留当前内存数据并重新写入
-            self._data = {"todos": [], "projects": {}}
+            self._data = {"projects": []}
             self._persist()
             return
         finally:
-            if "todos" not in self._data or not isinstance(self._data["todos"], list):
-                self._data["todos"] = []
-            if "projects" not in self._data or not isinstance(self._data["projects"], dict):
-                self._data["projects"] = {}
+            if "projects" not in self._data or not isinstance(self._data["projects"], list):
+                self._data["projects"] = []
 
     def _persist(self) -> None:
         """将数据持久化到磁盘（写入到临时文件后原子替换）"""
@@ -77,11 +74,20 @@ class TodoManager:
 
     # ===== 工具方法 =====
 
-    def _find_todo_index(self, todo_id: str) -> int:
-        for idx, todo in enumerate(self._data["todos"]):
-            if todo.get("id") == todo_id:
+    def _find_project_index(self, project_id: str) -> int:
+        for idx, project in enumerate(self._data["projects"]):
+            if project.get("id") == project_id:
                 return idx
-        raise ValueError("ToDo 不存在")
+        raise ValueError("项目不存在")
+
+    def _find_task_index(self, project_id: str, task_id: str) -> int:
+        project_idx = self._find_project_index(project_id)
+        project = self._data["projects"][project_idx]
+        tasks = project.get("tasks", [])
+        for idx, task in enumerate(tasks):
+            if task.get("id") == task_id:
+                return idx
+        raise ValueError("任务不存在")
 
     @staticmethod
     def _sanitize_progress(progress: Optional[int]) -> int:
@@ -117,263 +123,347 @@ class TodoManager:
         except ValueError:
             return None
 
-    def _get_project_color(self, project: str) -> Optional[str]:
-        project = (project or "").strip()
-        if not project:
-            return None
-        info = self._data.get("projects", {}).get(project)
-        if isinstance(info, dict):
-            return info.get("color")
-        if isinstance(info, str):
-            return info
-        return None
+    @staticmethod
+    def _sanitize_priority(priority: Optional[int]) -> int:
+        if priority is None:
+            return TodoManager.DEFAULT_PRIORITY
+        try:
+            value = int(priority)
+        except (TypeError, ValueError):
+            return TodoManager.DEFAULT_PRIORITY
+        return max(1, min(5, value))
 
-    def _set_project_color(self, project: str, color: str) -> None:
-        project = (project or "").strip()
-        if not project:
-            return
-        self._data.setdefault("projects", {})
-        self._data["projects"][project] = {"color": color}
+    def _calculate_project_progress(self, tasks: List[Dict]) -> int:
+        """计算项目整体进度"""
+        if not tasks:
+            return 0
+        total_progress = sum(self._sanitize_progress(task.get("progress", 0)) for task in tasks)
+        return int(total_progress / len(tasks))
 
-    def _build_event(
-        self,
-        todo_id: str,
-        event_type: str,
-        summary: str,
-        payload: Optional[Dict] = None,
-    ) -> Dict:
+    def _build_update_record(self, field: str, old_value: Any, new_value: Any) -> Dict:
+        """构建更新记录"""
         return {
-            "event_id": str(uuid4()),
-            "todo_id": todo_id,
-            "type": event_type,
-            "summary": summary,
+            "field": field,
+            "old_value": old_value,
+            "new_value": new_value,
             "timestamp": _utc_now(),
-            "payload": payload or {},
         }
 
     # ===== 对外接口 =====
 
-    def list_todos(self) -> Dict[str, Any]:
+    def list_all(self) -> Dict[str, Any]:
+        """获取所有项目和任务"""
         with self._lock:
-            return {
-                "todos": deepcopy(self._data["todos"]),
-                "projects": deepcopy(self._data.get("projects", {})),
-            }
+            return deepcopy(self._data)
 
-    def get_projects(self) -> Dict[str, Any]:
+    def get_project(self, project_id: str) -> Dict:
+        """获取单个项目"""
         with self._lock:
-            return deepcopy(self._data.get("projects", {}))
+            idx = self._find_project_index(project_id)
+            return deepcopy(self._data["projects"][idx])
 
-    def get_timeline(self) -> List[Dict]:
+    def create_project(self, payload: Dict) -> Dict:
+        """创建新项目"""
         with self._lock:
-            events: List[Dict] = []
-            for todo in self._data["todos"]:
-                base_meta = {
-                    "project": todo.get("project"),
-                    "category": todo.get("category"),
-                    "description": todo.get("description"),
-                    "progress": todo.get("progress"),
-                    "color": todo.get("color"),
-                    "tag": todo.get("tag"),
-                    "due_date": todo.get("due_date"),
-                }
-                for entry in todo.get("history", []):
-                    event = deepcopy(entry)
-                    event.update(base_meta)
-                    events.append(event)
-            events.sort(key=lambda item: item.get("timestamp", ""))
-            return events
-
-    def create_todo(self, payload: Dict) -> Tuple[Dict, Dict]:
-        with self._lock:
-            todo_id = str(uuid4())
+            project_id = str(uuid4())
             now = _utc_now()
-            todo = {
-                "id": todo_id,
-                "project": payload.get("project") or "未命名项目",
-                "category": payload.get("category") or "默认",
-                "description": payload.get("description") or "",
-                "tag": payload.get("tag") or "",
-                "progress": self._sanitize_progress(payload.get("progress")),
+            project = {
+                "id": project_id,
+                "name": payload.get("name") or "未命名项目",
                 "color": self._normalize_color(payload.get("color")),
-                "due_date": self._normalize_due_date(payload.get("due_date")),
                 "created_at": now,
                 "updated_at": now,
-                "history": [],
-                "comments": [],
+                "tasks": [],
             }
-
-            project_color = self._get_project_color(todo["project"])
-            if project_color:
-                todo["color"] = project_color
-            else:
-                self._set_project_color(todo["project"], todo["color"])
-
-            summary = f"创建 ToDo · {todo['project']}"
-            event_payload = {
-                "project": todo["project"],
-                "category": todo["category"],
-                "progress": todo["progress"],
-                "color": todo["color"],
-                "tag": todo["tag"],
-                "description": todo["description"],
-                "due_date": todo["due_date"],
-            }
-            event = self._build_event(todo_id, "create", summary, event_payload)
-            todo["history"].append(event)
-
-            self._data["todos"].append(todo)
+            self._data["projects"].append(project)
             self._persist()
-            return deepcopy(todo), deepcopy(event)
+            return deepcopy(project)
 
-    def update_todo(self, todo_id: str, payload: Dict) -> Tuple[Dict, Optional[Dict]]:
+    def update_project(self, project_id: str, payload: Dict) -> Dict:
+        """更新项目"""
         with self._lock:
-            idx = self._find_todo_index(todo_id)
-            todo = self._data["todos"][idx]
+            idx = self._find_project_index(project_id)
+            project = self._data["projects"][idx]
 
-            changes = {}
+            if "name" in payload:
+                project["name"] = payload.get("name") or "未命名项目"
+            if "color" in payload:
+                project["color"] = self._normalize_color(payload.get("color"))
 
-            if "project" in payload:
-                new_project = (payload.get("project") or todo.get("project") or "").strip()
-                if new_project != todo.get("project"):
-                    changes["project"] = {"old": todo.get("project"), "new": new_project}
-                    todo["project"] = new_project
-
-            if "category" in payload:
-                new_category = payload.get("category") or todo.get("category") or ""
-                if new_category != todo.get("category"):
-                    changes["category"] = {"old": todo.get("category"), "new": new_category}
-                    todo["category"] = new_category
-
-            if "description" in payload:
-                new_description = payload.get("description") or ""
-                if new_description != todo.get("description"):
-                    changes["description"] = {
-                        "old": todo.get("description"),
-                        "new": new_description,
-                    }
-                    todo["description"] = new_description
-
-            if "progress" in payload:
-                new_progress = self._sanitize_progress(payload.get("progress"))
-                if new_progress != todo.get("progress"):
-                    changes["progress"] = {
-                        "old": todo.get("progress"),
-                        "new": new_progress,
-                    }
-                    todo["progress"] = new_progress
-
-            explicit_color_update = "color" in payload
-
-            if explicit_color_update:
-                new_color = self._normalize_color(payload.get("color"))
-                if new_color != todo.get("color"):
-                    changes["color"] = {"old": todo.get("color"), "new": new_color}
-                    todo["color"] = new_color
-
-            if "tag" in payload:
-                new_tag = payload.get("tag") or ""
-                if new_tag != todo.get("tag"):
-                    changes["tag"] = {"old": todo.get("tag"), "new": new_tag}
-                    todo["tag"] = new_tag
-
-            if "due_date" in payload:
-                new_due = self._normalize_due_date(payload.get("due_date"))
-                if new_due != todo.get("due_date"):
-                    changes["due_date"] = {"old": todo.get("due_date"), "new": new_due}
-                    todo["due_date"] = new_due
-
-            # 项目颜色保持最新
-            project_color = self._get_project_color(todo.get("project", ""))
-            if not explicit_color_update and project_color and project_color != todo.get("color"):
-                old_color = todo.get("color")
-                todo["color"] = project_color
-                changes.setdefault("color", {"old": old_color, "new": project_color})
-
-            self._set_project_color(todo.get("project", ""), todo.get("color", self.DEFAULT_COLOR))
-
-            event = None
-            if changes:
-                todo["updated_at"] = _utc_now()
-                fields = ", ".join(changes.keys())
-                summary = f"更新 ToDo · {fields}"
-                event = self._build_event(todo_id, "update", summary, {"changes": changes})
-                todo.setdefault("history", []).append(event)
-                self._persist()
-
-            return deepcopy(todo), deepcopy(event) if event else None
-
-    def add_comment(self, todo_id: str, comment_text: str) -> Tuple[Dict, Dict]:
-        if not comment_text:
-            raise ValueError("评论内容不能为空")
-
-        with self._lock:
-            idx = self._find_todo_index(todo_id)
-            todo = self._data["todos"][idx]
-            now = _utc_now()
-            comment = {
-                "comment_id": str(uuid4()),
-                "todo_id": todo_id,
-                "content": comment_text,
-                "timestamp": now,
-            }
-            todo.setdefault("comments", []).append(comment)
-            todo["updated_at"] = now
-
-            summary = "评论 · " + comment_text[:20]
-            event = self._build_event(
-                todo_id,
-                "comment",
-                summary,
-                {"comment_id": comment["comment_id"], "content": comment_text},
-            )
-            todo.setdefault("history", []).append(event)
+            project["updated_at"] = _utc_now()
             self._persist()
-            return deepcopy(todo), deepcopy(event)
+            return deepcopy(project)
 
-    def get_todo(self, todo_id: str) -> Dict:
+    def delete_project(self, project_id: str) -> Dict:
+        """删除项目"""
         with self._lock:
-            idx = self._find_todo_index(todo_id)
-            return deepcopy(self._data["todos"][idx])
-
-    def delete_todo(self, todo_id: str) -> Dict:
-        with self._lock:
-            idx = self._find_todo_index(todo_id)
-            removed = deepcopy(self._data["todos"][idx])
-            del self._data["todos"][idx]
+            idx = self._find_project_index(project_id)
+            removed = deepcopy(self._data["projects"][idx])
+            del self._data["projects"][idx]
             self._persist()
             return removed
 
-    def delete_event(self, event_id: str) -> Dict:
-        """删除单个时间轴事件（评论 / 更新）"""
+    def create_task(self, project_id: str, payload: Dict) -> Tuple[Dict, Dict]:
+        """在项目中创建新任务"""
         with self._lock:
-            for todo in self._data["todos"]:
-                history = todo.get("history", [])
-                for idx, entry in enumerate(history):
-                    if entry.get("event_id") == event_id:
-                        event_type = entry.get("type")
-                        # 清理关联数据
-                        if event_type == "comment":
-                            comment_id = entry.get("payload", {}).get("comment_id")
-                            if comment_id:
-                                todo["comments"] = [
-                                    item for item in todo.get("comments", []) if item.get("comment_id") != comment_id
-                                ]
-                        # 删除历史事件
-                        del history[idx]
-                        todo["updated_at"] = _utc_now()
-                        todo["history"] = history
-                        self._persist()
-                        updated = deepcopy(todo)
-                        return {
-                            "todo": updated,
-                            "event_id": event_id,
-                            "event_type": event_type,
-                        }
-            raise ValueError("未找到指定的时间轴事件")
+            task_id = str(uuid4())
+            now = _utc_now()
+            task = {
+                "id": task_id,
+                "summary": payload.get("summary") or "未命名任务",
+                "description": payload.get("description") or "",
+                "priority": self._sanitize_priority(payload.get("priority")),
+                "progress": self._sanitize_progress(payload.get("progress")),
+                "due_date": self._normalize_due_date(payload.get("due_date")),
+                "created_at": now,
+                "updated_at": now,
+                "update_history": [],
+                "comments": [],
+            }
+
+            project_idx = self._find_project_index(project_id)
+            project = self._data["projects"][project_idx]
+            project["tasks"].append(task)
+            project["updated_at"] = now
+
+            # 记录创建历史
+            update_record = self._build_update_record("create", None, "任务已创建")
+            task["update_history"].append(update_record)
+
+            self._persist()
+            return deepcopy(task), deepcopy(update_record)
+
+    def update_task(self, project_id: str, task_id: str, payload: Dict) -> Tuple[Dict, List[Dict]]:
+        """更新任务"""
+        with self._lock:
+            project_idx = self._find_project_index(project_id)
+            project = self._data["projects"][project_idx]
+            task_idx = self._find_task_index(project_id, task_id)
+            task = project["tasks"][task_idx]
+
+            update_records = []
+
+            if "summary" in payload:
+                old_value = task.get("summary")
+                new_value = payload.get("summary") or "未命名任务"
+                if old_value != new_value:
+                    task["summary"] = new_value
+                    update_records.append(self._build_update_record("summary", old_value, new_value))
+
+            if "description" in payload:
+                old_value = task.get("description")
+                new_value = payload.get("description") or ""
+                if old_value != new_value:
+                    task["description"] = new_value
+                    update_records.append(self._build_update_record("description", old_value, new_value))
+
+            if "priority" in payload:
+                old_value = task.get("priority")
+                new_value = self._sanitize_priority(payload.get("priority"))
+                if old_value != new_value:
+                    task["priority"] = new_value
+                    update_records.append(self._build_update_record("priority", old_value, new_value))
+
+            if "progress" in payload:
+                old_value = task.get("progress")
+                new_value = self._sanitize_progress(payload.get("progress"))
+                if old_value != new_value:
+                    task["progress"] = new_value
+                    update_records.append(self._build_update_record("progress", old_value, new_value))
+
+            if "due_date" in payload:
+                old_value = task.get("due_date")
+                new_value = self._normalize_due_date(payload.get("due_date"))
+                if old_value != new_value:
+                    task["due_date"] = new_value
+                    update_records.append(self._build_update_record("due_date", old_value, new_value))
+
+            if update_records:
+                task.setdefault("update_history", []).extend(update_records)
+                task["updated_at"] = _utc_now()
+                project["updated_at"] = _utc_now()
+                self._persist()
+
+            return deepcopy(task), deepcopy(update_records)
+
+    def delete_task(self, project_id: str, task_id: str) -> Dict:
+        """删除任务"""
+        with self._lock:
+            project_idx = self._find_project_index(project_id)
+            project = self._data["projects"][project_idx]
+            task_idx = self._find_task_index(project_id, task_id)
+            removed = deepcopy(project["tasks"][task_idx])
+            del project["tasks"][task_idx]
+            project["updated_at"] = _utc_now()
+            self._persist()
+            return removed
+
+    def reorder_tasks(self, project_id: str, task_ids: List[str]) -> Dict:
+        """重新排序任务"""
+        with self._lock:
+            project_idx = self._find_project_index(project_id)
+            project = self._data["projects"][project_idx]
+            tasks = project.get("tasks", [])
+
+            # 创建任务ID到任务的映射
+            task_map = {task["id"]: task for task in tasks}
+
+            # 按照新的顺序重新排列
+            new_tasks = []
+            for task_id in task_ids:
+                if task_id in task_map:
+                    new_tasks.append(task_map[task_id])
+
+            # 添加未在列表中的任务（防止数据不一致）
+            existing_ids = set(task_ids)
+            for task in tasks:
+                if task["id"] not in existing_ids:
+                    new_tasks.append(task)
+
+            project["tasks"] = new_tasks
+            project["updated_at"] = _utc_now()
+            self._persist()
+            return deepcopy(project)
+
+    def add_comment(self, project_id: str, task_id: str, comment_text: str) -> Tuple[Dict, Dict]:
+        """为任务添加评论"""
+        if not comment_text or not comment_text.strip():
+            raise ValueError("评论内容不能为空")
+
+        with self._lock:
+            project_idx = self._find_project_index(project_id)
+            project = self._data["projects"][project_idx]
+            task_idx = self._find_task_index(project_id, task_id)
+            task = project["tasks"][task_idx]
+
+            now = _utc_now()
+            comment = {
+                "comment_id": str(uuid4()),
+                "content": comment_text.strip(),
+                "timestamp": now,
+            }
+            task.setdefault("comments", []).append(comment)
+            task["updated_at"] = now
+            project["updated_at"] = now
+
+            # 记录评论历史
+            update_record = self._build_update_record("comment", None, comment_text[:50])
+            task.setdefault("update_history", []).append(update_record)
+
+            self._persist()
+            return deepcopy(task), deepcopy(update_record)
+
+    def delete_comment(self, project_id: str, task_id: str, comment_id: str) -> Dict:
+        """删除评论"""
+        with self._lock:
+            project_idx = self._find_project_index(project_id)
+            project = self._data["projects"][project_idx]
+            task_idx = self._find_task_index(project_id, task_id)
+            task = project["tasks"][task_idx]
+
+            comments = task.get("comments", [])
+            task["comments"] = [c for c in comments if c.get("comment_id") != comment_id]
+            task["updated_at"] = _utc_now()
+            project["updated_at"] = _utc_now()
+            self._persist()
+            return deepcopy(task)
+
+    def get_pending_overview(self) -> Dict[str, Any]:
+        """获取待完成概览数据"""
+        with self._lock:
+            all_tasks = []
+            for project in self._data["projects"]:
+                for task in project.get("tasks", []):
+                    task_with_project = deepcopy(task)
+                    task_with_project["project_id"] = project["id"]
+                    task_with_project["project_name"] = project["name"]
+                    task_with_project["project_color"] = project.get("color", self.DEFAULT_COLOR)
+                    all_tasks.append(task_with_project)
+
+            # 过滤未完成的任务
+            pending_tasks = [t for t in all_tasks if self._sanitize_progress(t.get("progress", 0)) < 100]
+
+            # 计算今日截止和逾期
+            today = datetime.utcnow().date()
+            today_str = today.isoformat()
+
+            overdue = []
+            today_due = []
+            upcoming = []
+            undated = []
+
+            for task in pending_tasks:
+                due_date = task.get("due_date")
+                if not due_date:
+                    undated.append(task)
+                    continue
+
+                try:
+                    due = datetime.strptime(due_date, "%Y-%m-%d").date()
+                    if due < today:
+                        overdue.append(task)
+                    elif due == today:
+                        today_due.append(task)
+                    else:
+                        upcoming.append(task)
+                except ValueError:
+                    undated.append(task)
+
+            # 按剩余天数排序
+            upcoming.sort(key=lambda t: t.get("due_date", ""))
+
+            return {
+                "overdue": overdue,
+                "today_due": today_due,
+                "upcoming": upcoming,
+                "undated": undated,
+                "total_pending": len(pending_tasks),
+            }
+
+    # ===== 兼容旧版ToDo API的方法 =====
+
+    def list_todos(self) -> Dict[str, Any]:
+        """兼容旧版：返回空的todos列表和projects字典"""
+        with self._lock:
+            return {
+                "todos": [],
+                "projects": {},
+            }
+
+    def get_timeline(self) -> List[Dict]:
+        """兼容旧版：返回空的时间轴"""
+        with self._lock:
+            return []
+
+    def get_projects(self) -> Dict[str, Any]:
+        """兼容旧版：返回空的projects字典"""
+        with self._lock:
+            return {}
+
+    def create_todo(self, payload: Dict) -> Tuple[Dict, Dict]:
+        """兼容旧版：返回空数据，提示使用新版"""
+        raise ValueError("旧版ToDo API已废弃，请使用新版界面 /todo/v2")
+
+    def update_todo(self, todo_id: str, payload: Dict) -> Tuple[Dict, Optional[Dict]]:
+        """兼容旧版：返回空数据，提示使用新版"""
+        raise ValueError("旧版ToDo API已废弃，请使用新版界面 /todo/v2")
+
+    def delete_todo(self, todo_id: str) -> Dict:
+        """兼容旧版：返回空数据，提示使用新版"""
+        raise ValueError("旧版ToDo API已废弃，请使用新版界面 /todo/v2")
+
+    def get_todo(self, todo_id: str) -> Dict:
+        """兼容旧版：返回空数据，提示使用新版"""
+        raise ValueError("旧版ToDo API已废弃，请使用新版界面 /todo/v2")
+
+    def add_comment_legacy(self, todo_id: str, comment_text: str) -> Tuple[Dict, Dict]:
+        """兼容旧版：返回空数据，提示使用新版（已重命名避免方法冲突）"""
+        raise ValueError("旧版ToDo API已废弃，请使用新版界面 /todo/v2")
+
+    def delete_event(self, event_id: str) -> Dict:
+        """兼容旧版：返回空数据，提示使用新版"""
+        raise ValueError("旧版ToDo API已废弃，请使用新版界面 /todo/v2")
 
 
 # 单例管理：为 routes.init_app 提供方便的实例化方式
 todo_manager = TodoManager()
-
-

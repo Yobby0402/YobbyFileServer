@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ToDo 任务管理 - Yobboy 文件服务器</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap.min.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/font-awesome.min.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/jasmine_base.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/todo_v2.css') }}">
+</head>
+<body class="jasmine-body" data-direct-access="{{ 'true' if direct_access else 'false' }}">
+    <div class="todo-v2-page container-fluid">
+        <header class="todo-header">
+            <h1 class="page-title">ToDo 任务管理</h1>
+            <div class="header-controls">
+                <div class="search-filter-row">
+                    <div class="input-group search-input">
+                        <span class="input-group-text">搜索</span>
+                        <input type="text" class="form-control" id="searchInput" placeholder="项目名称 / 任务简述 / 描述">
+                    </div>
+                    <div class="input-group filter-select">
+                        <span class="input-group-text">项目</span>
+                        <select class="form-select" id="projectFilter">
+                            <option value="all">全部项目</option>
+                        </select>
+                    </div>
+                    <div class="header-actions">
+                        <div class="font-size-controls">
+                            <button type="button" class="btn btn-sm btn-outline-secondary" id="fontSizeSmall" title="小字体">
+                                <i class="fas fa-font"></i> 小
+                            </button>
+                            <button type="button" class="btn btn-sm btn-outline-secondary active" id="fontSizeMedium" title="中字体">
+                                <i class="fas fa-font"></i> 中
+                            </button>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" id="fontSizeLarge" title="大字体">
+                                <i class="fas fa-font"></i> 大
+                            </button>
+                        </div>
+                        <button type="button" class="btn btn-primary" id="newProjectButton">
+                            <i class="fas fa-plus"></i> 新建项目
+                        </button>
+                        <button type="button" class="btn btn-outline-emerald" onclick="window.location.href='/'">
+                            <i class="fas fa-home"></i> 返回选择界面
+                        </button>
+                        <button type="button" class="btn btn-outline-secondary" onclick="window.open('/todo', '_blank')">
+                            <i class="fas fa-history"></i> 旧版ToDo
+                        </button>
+                        {% if direct_access %}
+                        <span class="badge bg-warning text-dark">后门模式</span>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <div id="alertContainer"></div>
+
+        <main class="todo-main">
+            <div id="projectsContainer" class="projects-container">
+                <!-- 项目表格将在这里动态生成 -->
+            </div>
+        </main>
+
+        <section class="pending-overview-section">
+            <div class="panel">
+                <div class="panel-header">
+                    <h2 class="panel-title">待完成概览</h2>
+                    <div class="pending-meta">
+                        <span class="badge bg-danger">逾期 <span id="overdueCount">0</span></span>
+                        <span class="badge bg-warning text-dark">今日截止 <span id="todayCount">0</span></span>
+                        <span class="badge bg-info">即将到期 <span id="upcomingCount">0</span></span>
+                        <span class="badge bg-secondary">未设置截止 <span id="undatedCount">0</span></span>
+                    </div>
+                </div>
+                <div id="pendingOverview" class="pending-cards">
+                    <!-- 待完成卡片将在这里动态生成 -->
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <!-- 新建项目模态框 -->
+    <div class="modal fade" id="createProjectModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">新建项目</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <form id="createProjectForm" class="needs-validation" novalidate>
+                    <div class="modal-body">
+                        <div class="mb-3">
+                            <label class="form-label">项目名称</label>
+                            <input type="text" class="form-control" name="name" placeholder="例如：文件服务器迭代" required>
+                            <div class="invalid-feedback">请输入项目名称</div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">主题色</label>
+                            <div class="color-picker-group">
+                                <input type="color" class="form-control form-control-color" name="color" value="#4facfe" title="选择主题色">
+                                <button type="button" class="btn btn-outline-secondary" data-action="random-color">随机颜色</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                        <button type="submit" class="btn btn-primary">创建项目</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- 编辑项目模态框 -->
+    <div class="modal fade" id="editProjectModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">编辑项目</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <form id="editProjectForm" class="needs-validation" novalidate>
+                    <div class="modal-body">
+                        <div class="mb-3">
+                            <label class="form-label">项目名称</label>
+                            <input type="text" class="form-control" name="name" required>
+                            <div class="invalid-feedback">请输入项目名称</div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">主题色</label>
+                            <div class="color-picker-group">
+                                <input type="color" class="form-control form-control-color" name="color" title="选择主题色">
+                                <button type="button" class="btn btn-outline-secondary" data-action="random-color">随机颜色</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                        <button type="submit" class="btn btn-primary">保存修改</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- 新建任务模态框 -->
+    <div class="modal fade" id="createTaskModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">新建任务</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <form id="createTaskForm" class="needs-validation" novalidate>
+                    <div class="modal-body">
+                        <div class="row g-3">
+                            <div class="col-md-12">
+                                <label class="form-label">任务简述</label>
+                                <input type="text" class="form-control" name="summary" placeholder="简要描述任务内容" required>
+                                <div class="invalid-feedback">请输入任务简述</div>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">优先级</label>
+                                <select class="form-select" name="priority" required>
+                                    <option value="1">1 - 最低</option>
+                                    <option value="2">2 - 较低</option>
+                                    <option value="3" selected>3 - 中等</option>
+                                    <option value="4">4 - 较高</option>
+                                    <option value="5">5 - 最高</option>
+                                </select>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">预计完成时间</label>
+                                <input type="date" class="form-control" name="due_date">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">完成进度 (%)</label>
+                                <input type="number" class="form-control" name="progress" min="0" max="100" value="0">
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label">详细描述</label>
+                                <textarea class="form-control" rows="4" name="description" placeholder="详细描述任务内容、验收标准或注意事项"></textarea>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                        <button type="submit" class="btn btn-primary">创建任务</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- 编辑任务模态框 -->
+    <div class="modal fade" id="editTaskModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">编辑任务</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <form id="editTaskForm" class="needs-validation" novalidate>
+                    <div class="modal-body">
+                        <div class="row g-3">
+                            <div class="col-md-12">
+                                <label class="form-label">任务简述</label>
+                                <input type="text" class="form-control" name="summary" required>
+                                <div class="invalid-feedback">请输入任务简述</div>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">优先级</label>
+                                <select class="form-select" name="priority" required>
+                                    <option value="1">1 - 最低</option>
+                                    <option value="2">2 - 较低</option>
+                                    <option value="3">3 - 中等</option>
+                                    <option value="4">4 - 较高</option>
+                                    <option value="5">5 - 最高</option>
+                                </select>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">预计完成时间</label>
+                                <input type="date" class="form-control" name="due_date">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">完成进度 (%)</label>
+                                <input type="number" class="form-control" name="progress" min="0" max="100">
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label">详细描述</label>
+                                <textarea class="form-control" rows="4" name="description"></textarea>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                        <button type="submit" class="btn btn-primary">保存修改</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- 评论模态框 -->
+    <div class="modal fade" id="commentModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">添加评论</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <form id="commentForm">
+                    <div class="modal-body">
+                        <div class="mb-3">
+                            <label class="form-label">评论内容</label>
+                            <textarea class="form-control" name="content" rows="4" placeholder="记录最新进展或补充说明" required></textarea>
+                            <div class="invalid-feedback">请输入评论内容</div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                        <button type="submit" class="btn btn-primary">提交评论</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/bootstrap.bundle.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/todo_v2.js') }}"></script>
+</body>
+</html>
+

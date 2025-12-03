@@ -357,6 +357,17 @@
                     onProgress,
                     onError
                 );
+            } else if (fileExt === '.step' || fileExt === '.stp') {
+                // STEP 文件是 CAD 格式，Three.js 不直接支持
+                // 显示友好的提示信息
+                document.getElementById('loading').style.display = 'none';
+                showError(
+                    'STEP 文件格式暂不支持直接预览。<br><br>' +
+                    '<strong>建议解决方案：</strong><br>' +
+                    '1. 使用 CAD 软件（如 FreeCAD、Blender）将 STEP 文件转换为 STL 或 OBJ 格式<br>' +
+                    '2. 或使用在线转换工具进行格式转换<br><br>' +
+                    '<small>当前支持的格式：GLTF/GLB、OBJ、STL、FBX</small>'
+                );
             } else {
                 showError('不支持的文件格式: ' + fileExt);
             }

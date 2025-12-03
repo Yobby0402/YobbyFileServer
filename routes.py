@@ -96,7 +96,7 @@ PDF_EXTENSIONS = ['.pdf']
 VIDEO_EXTENSIONS = ['.mp4', '.avi', '.mov', '.wmv']
 AUDIO_EXTENSIONS = ['.mp3', '.wav', '.flac', '.ogg', '.wma', '.m4a', '.aac']  # 音频文件格式
 DRAWIO_EXTENSIONS = ['.drawio', '.diagram', '.dio', '.xml']  # 添加.xml作为draw.io格式
-MODEL_3D_EXTENSIONS = ['.gltf', '.glb', '.obj', '.stl', '.fbx']  # 3D模型文件格式
+MODEL_3D_EXTENSIONS = ['.gltf', '.glb', '.obj', '.stl', '.fbx', '.step', '.stp']  # 3D模型文件格式
 
 # 修复init_app函数内部的Draw.io路由
 
@@ -144,6 +144,20 @@ def init_app(app):
         """ToDo 后门入口（免登录）"""
         session['todo_direct_access'] = True
         return render_template('todo.html', direct_access=True)
+
+    @app.route('/todo/v2')
+    def todo_v2_page():
+        """新版ToDo界面（需登录）"""
+        if not is_logged_in():
+            return redirect(url_for('login'))
+        session.pop('todo_direct_access', None)
+        return render_template('todo_v2.html', direct_access=False)
+
+    @app.route('/todo/v2/direct')
+    def todo_v2_direct():
+        """新版ToDo后门入口（免登录）"""
+        session['todo_direct_access'] = True
+        return render_template('todo_v2.html', direct_access=True)
 
     @app.route('/api/todo/items', methods=['GET', 'POST'])
     def todo_collection():
@@ -236,7 +250,7 @@ def init_app(app):
         comment_text = data.get('content')
 
         try:
-            todo, event = manager.add_comment(todo_id, comment_text)
+            todo, event = manager.add_comment_legacy(todo_id, comment_text)
         except ValueError as exc:
             return jsonify({'success': False, 'error': str(exc)}), 400
         except Exception as exc:
@@ -272,6 +286,186 @@ def init_app(app):
             'timeline': timeline,
             'projects': manager.get_projects()
         })
+
+    # ===== 新版ToDo API（基于项目和任务的层级结构） =====
+
+    @app.route('/api/todo/v2/data', methods=['GET'])
+    def todo_v2_data():
+        """获取所有项目和任务数据"""
+        if not has_todo_access():
+            return jsonify({'success': False, 'error': '未授权'}), 401
+
+        manager = current_app.config['TODO_MANAGER']
+        try:
+            data = manager.list_all()
+            overview = manager.get_pending_overview()
+            return jsonify({
+                'success': True,
+                'data': data,
+                'overview': overview
+            })
+        except Exception as exc:
+            return jsonify({'success': False, 'error': str(exc)}), 500
+
+    @app.route('/api/todo/v2/projects', methods=['POST'])
+    def todo_v2_create_project():
+        """创建新项目"""
+        if not has_todo_access():
+            return jsonify({'success': False, 'error': '未授权'}), 401
+
+        manager = current_app.config['TODO_MANAGER']
+        payload = request.json or {}
+        try:
+            project = manager.create_project(payload)
+            return jsonify({'success': True, 'project': project})
+        except Exception as exc:
+            return jsonify({'success': False, 'error': str(exc)}), 400
+
+    @app.route('/api/todo/v2/projects/<project_id>', methods=['GET', 'PUT', 'DELETE'])
+    def todo_v2_project(project_id):
+        """项目操作：查询、更新、删除"""
+        if not has_todo_access():
+            return jsonify({'success': False, 'error': '未授权'}), 401
+
+        manager = current_app.config['TODO_MANAGER']
+
+        if request.method == 'GET':
+            try:
+                project = manager.get_project(project_id)
+                return jsonify({'success': True, 'project': project})
+            except ValueError:
+                return jsonify({'success': False, 'error': '项目不存在'}), 404
+
+        if request.method == 'PUT':
+            payload = request.json or {}
+            try:
+                project = manager.update_project(project_id, payload)
+                return jsonify({'success': True, 'project': project})
+            except ValueError:
+                return jsonify({'success': False, 'error': '项目不存在'}), 404
+            except Exception as exc:
+                return jsonify({'success': False, 'error': str(exc)}), 400
+
+        # DELETE
+        try:
+            project = manager.delete_project(project_id)
+            return jsonify({'success': True, 'project': project})
+        except ValueError:
+            return jsonify({'success': False, 'error': '项目不存在'}), 404
+
+    @app.route('/api/todo/v2/projects/<project_id>/tasks', methods=['POST'])
+    def todo_v2_create_task(project_id):
+        """在项目中创建新任务"""
+        if not has_todo_access():
+            return jsonify({'success': False, 'error': '未授权'}), 401
+
+        manager = current_app.config['TODO_MANAGER']
+        payload = request.json or {}
+        try:
+            task, update_record = manager.create_task(project_id, payload)
+            return jsonify({'success': True, 'task': task, 'update_record': update_record})
+        except ValueError as exc:
+            return jsonify({'success': False, 'error': str(exc)}), 404
+        except Exception as exc:
+            return jsonify({'success': False, 'error': str(exc)}), 400
+
+    @app.route('/api/todo/v2/projects/<project_id>/tasks/<task_id>', methods=['GET', 'PUT', 'DELETE'])
+    def todo_v2_task(project_id, task_id):
+        """任务操作：查询、更新、删除"""
+        if not has_todo_access():
+            return jsonify({'success': False, 'error': '未授权'}), 401
+
+        manager = current_app.config['TODO_MANAGER']
+
+        if request.method == 'GET':
+            try:
+                project = manager.get_project(project_id)
+                task = next((t for t in project.get('tasks', []) if t.get('id') == task_id), None)
+                if not task:
+                    return jsonify({'success': False, 'error': '任务不存在'}), 404
+                return jsonify({'success': True, 'task': task})
+            except ValueError:
+                return jsonify({'success': False, 'error': '项目不存在'}), 404
+
+        if request.method == 'PUT':
+            payload = request.json or {}
+            try:
+                task, update_records = manager.update_task(project_id, task_id, payload)
+                return jsonify({'success': True, 'task': task, 'update_records': update_records})
+            except ValueError as exc:
+                return jsonify({'success': False, 'error': str(exc)}), 404
+            except Exception as exc:
+                return jsonify({'success': False, 'error': str(exc)}), 400
+
+        # DELETE
+        try:
+            task = manager.delete_task(project_id, task_id)
+            return jsonify({'success': True, 'task': task})
+        except ValueError as exc:
+            return jsonify({'success': False, 'error': str(exc)}), 404
+
+    @app.route('/api/todo/v2/projects/<project_id>/tasks/reorder', methods=['POST'])
+    def todo_v2_reorder_tasks(project_id):
+        """重新排序任务"""
+        if not has_todo_access():
+            return jsonify({'success': False, 'error': '未授权'}), 401
+
+        manager = current_app.config['TODO_MANAGER']
+        payload = request.json or {}
+        task_ids = payload.get('task_ids', [])
+
+        if not isinstance(task_ids, list):
+            return jsonify({'success': False, 'error': 'task_ids必须是数组'}), 400
+
+        try:
+            project = manager.reorder_tasks(project_id, task_ids)
+            return jsonify({'success': True, 'project': project})
+        except ValueError as exc:
+            return jsonify({'success': False, 'error': str(exc)}), 404
+
+    @app.route('/api/todo/v2/projects/<project_id>/tasks/<task_id>/comments', methods=['POST'])
+    def todo_v2_add_comment(project_id, task_id):
+        """为任务添加评论"""
+        if not has_todo_access():
+            return jsonify({'success': False, 'error': '未授权'}), 401
+
+        manager = current_app.config['TODO_MANAGER']
+        payload = request.json or {}
+        comment_text = payload.get('content', '')
+
+        try:
+            task, update_record = manager.add_comment(project_id, task_id, comment_text)
+            return jsonify({'success': True, 'task': task, 'update_record': update_record})
+        except ValueError as exc:
+            return jsonify({'success': False, 'error': str(exc)}), 400
+        except Exception as exc:
+            return jsonify({'success': False, 'error': str(exc)}), 500
+
+    @app.route('/api/todo/v2/projects/<project_id>/tasks/<task_id>/comments/<comment_id>', methods=['DELETE'])
+    def todo_v2_delete_comment(project_id, task_id, comment_id):
+        """删除评论"""
+        if not has_todo_access():
+            return jsonify({'success': False, 'error': '未授权'}), 401
+
+        manager = current_app.config['TODO_MANAGER']
+        try:
+            task = manager.delete_comment(project_id, task_id, comment_id)
+            return jsonify({'success': True, 'task': task})
+        except ValueError as exc:
+            return jsonify({'success': False, 'error': str(exc)}), 404
+
+    @app.route('/api/todo/v2/overview', methods=['GET'])
+    def todo_v2_overview():
+        """获取待完成概览"""
+        if not has_todo_access():
+            return jsonify({'success': False, 'error': '未授权'}), 401
+
+        manager = current_app.config['TODO_MANAGER']
+        try:
+            overview = manager.get_pending_overview()
+            return jsonify({'success': True, 'overview': overview})
+        except Exception as exc:
+            return jsonify({'success': False, 'error': str(exc)}), 500
 
     # ===== 产品对比路由 =====
     
