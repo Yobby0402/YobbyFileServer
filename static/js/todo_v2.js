@@ -1,6 +1,19 @@
 (() => {
     'use strict';
 
+    // 表格列定义
+    const COLUMN_DEFINITIONS = {
+        'project_name': { key: 'project_name', label: '项目名称', default: true, order: 0 },
+        'index': { key: 'index', label: '序号', default: true, order: 1 },
+        'summary': { key: 'summary', label: '任务简述', default: true, order: 2 },
+        'description': { key: 'description', label: '详细描述', default: true, order: 3 },
+        'priority': { key: 'priority', label: '优先级', default: true, order: 4 },
+        'progress': { key: 'progress', label: '进度', default: true, order: 5 },
+        'due_date': { key: 'due_date', label: '预计完成时间', default: true, order: 6 },
+        'created_at': { key: 'created_at', label: '创建时间', default: true, order: 7 },
+        'updated_at': { key: 'updated_at', label: '最后更新时间', default: true, order: 8 },
+    };
+
     const state = {
         projects: [],
         overview: {
@@ -12,19 +25,41 @@
         },
         filters: {
             text: '',
-            project: 'all',
         },
         expandedProjects: new Set(), // 存储展开的项目ID
         directAccess: document.body.dataset.directAccess === 'true',
+        currentStyle: localStorage.getItem('todoStyle') || 'scroll', // 'scroll' 或 'table'
+        pendingCollapsed: localStorage.getItem('pendingCollapsed') === 'true', // 待完成任务列表是否折叠
+        // 表格风格相关状态
+        flatTasks: [], // 扁平化的任务列表
+        filteredTasks: [],
+        columns: [],
+        timeFilter: {
+            type: 'none',
+            start: null,
+            end: null,
+        },
+        fontSize: parseInt(localStorage.getItem('todoFontSize') || '14'),
+        tableFilter: {
+            column: null,
+            value: null,
+            startDate: null,
+            endDate: null,
+        },
+        tableSort: {
+            column: null,
+            direction: 'asc',
+        },
     };
 
     const refs = {
         projectsContainer: document.getElementById('projectsContainer'),
         searchInput: document.getElementById('searchInput'),
-        projectFilter: document.getElementById('projectFilter'),
         newProjectButton: document.getElementById('newProjectButton'),
+        exportButton: document.getElementById('exportButton'),
         alertContainer: document.getElementById('alertContainer'),
         pendingOverview: document.getElementById('pendingOverview'),
+        pendingHeader: document.getElementById('pendingHeader'),
         overdueCount: document.getElementById('overdueCount'),
         todayCount: document.getElementById('todayCount'),
         upcomingCount: document.getElementById('upcomingCount'),
@@ -34,6 +69,13 @@
         createTaskForm: document.getElementById('createTaskForm'),
         editTaskForm: document.getElementById('editTaskForm'),
         commentForm: document.getElementById('commentForm'),
+        styleSwitch: document.getElementById('styleSwitch'),
+        scrollStyleContainer: document.getElementById('scrollStyleContainer'),
+        tableStyleContainer: document.getElementById('tableStyleContainer'),
+        tableHead: document.getElementById('tableHead'),
+        tableBody: document.getElementById('tableBody'),
+        tableEmptyMessage: document.getElementById('tableEmptyMessage'),
+        fontSizeInput: document.getElementById('fontSizeInput'),
     };
 
     const modals = {
@@ -188,14 +230,9 @@
     }
 
     function getFilteredProjects() {
-        const projectFilter = state.filters.project;
         const searchKeyword = (state.filters.text || '').trim().toLowerCase();
 
         return state.projects.filter(project => {
-            if (projectFilter !== 'all' && project.id !== projectFilter) {
-                return false;
-            }
-
             if (!searchKeyword) return true;
 
             // 检查项目名称
@@ -233,7 +270,6 @@
         });
 
         // 刷新项目筛选器选项
-        refreshProjectFilter();
     }
 
     function createProjectElement(project) {
@@ -334,66 +370,6 @@
             });
         });
 
-        // 绑定历史记录展开/折叠事件
-        wrapper.querySelectorAll('.task-history-toggle').forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                e.stopPropagation();
-                const targetId = btn.dataset.target;
-                const taskId = btn.dataset.taskId;
-                const content = document.getElementById(targetId);
-                const isExpanded = btn.dataset.expanded === 'true';
-
-                if (content) {
-                    if (isExpanded) {
-                        content.classList.add('collapsed');
-                        btn.querySelector('i').className = 'fas fa-history';
-                        btn.dataset.expanded = 'false';
-                    } else {
-                        content.classList.remove('collapsed');
-                        btn.querySelector('i').className = 'fas fa-history';
-                        btn.classList.add('active');
-                        btn.dataset.expanded = 'true';
-                        // 滚动到历史记录区域
-                        const historyRow = wrapper.querySelector(`.task-history-row[data-task-id="${taskId}"]`);
-                        if (historyRow) {
-                            setTimeout(() => {
-                                historyRow.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-                            }, 100);
-                        }
-                    }
-                }
-            });
-        });
-
-        // 绑定历史记录筛选事件
-        wrapper.querySelectorAll('.filter-btn').forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                e.stopPropagation();
-                const filter = btn.dataset.filter;
-                const taskId = btn.dataset.taskId;
-                const historyRow = wrapper.querySelector(`.task-history-row[data-task-id="${taskId}"]`);
-                if (!historyRow) return;
-
-                // 更新按钮状态
-                historyRow.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
-                btn.classList.add('active');
-
-                // 筛选记录
-                const allItems = historyRow.querySelectorAll('.history-item');
-                allItems.forEach(item => {
-                    const itemType = item.dataset.type;
-                    if (filter === 'all') {
-                        item.style.display = '';
-                    } else if (filter === 'update' && itemType === 'update') {
-                        item.style.display = '';
-                    } else if (filter === 'comment' && itemType === 'comment') {
-                        item.style.display = '';
-                    } else {
-                        item.style.display = 'none';
-                    }
-                });
-            });
-        });
 
         // 绑定拖拽事件
         if (isExpanded) {
@@ -546,32 +522,13 @@
                             <i class="fas fa-trash"></i>
                         </button>
                         ${hasHistory ? `
-                        <button type="button" class="btn btn-sm btn-outline-info task-history-toggle" data-target="${historyId}" data-expanded="false" data-task-id="${task.id}" title="展开记录">
-                            <i class="fas fa-history"></i>
+                        <button type="button" class="btn btn-sm btn-outline-info" data-action="view-history" data-project-id="${projectId}" data-task-id="${task.id}" title="查看改动和评论">
+                            <i class="fas fa-list"></i>
                         </button>
                         ` : ''}
                     </div>
                 </td>
             </tr>
-            ${hasHistory ? `
-            <tr class="task-history-row" data-task-id="${task.id}">
-                <td colspan="9">
-                    <div class="task-history-section">
-                        <div class="task-history-header">
-                            <span class="history-count">共 ${updateHistory.length} 条修改, ${comments.length} 条评论</span>
-                            <div class="task-history-filters">
-                                <button type="button" class="btn btn-sm btn-outline-secondary filter-btn active" data-filter="all" data-task-id="${task.id}">全部</button>
-                                <button type="button" class="btn btn-sm btn-outline-secondary filter-btn" data-filter="update" data-task-id="${task.id}">仅修改</button>
-                                <button type="button" class="btn btn-sm btn-outline-secondary filter-btn" data-filter="comment" data-task-id="${task.id}">仅评论</button>
-                            </div>
-                        </div>
-                        <div class="task-history-content collapsed" id="${historyId}">
-                            ${createHistoryContent(task, updateHistory, comments)}
-                        </div>
-                    </div>
-                </td>
-            </tr>
-            ` : ''}
         `;
     }
 
@@ -706,23 +663,6 @@
         `;
     }
 
-    function refreshProjectFilter() {
-        if (!refs.projectFilter) return;
-
-        const options = ['<option value="all">全部项目</option>'];
-        state.projects.forEach(project => {
-            options.push(`<option value="${project.id}">${escapeHtml(project.name || '未命名项目')}</option>`);
-        });
-
-        const currentValue = refs.projectFilter.value;
-        refs.projectFilter.innerHTML = options.join('');
-        if (currentValue && state.projects.some(p => p.id === currentValue)) {
-            refs.projectFilter.value = currentValue;
-        } else {
-            refs.projectFilter.value = 'all';
-            state.filters.project = 'all';
-        }
-    }
 
     // ===== 交互函数 =====
 
@@ -752,8 +692,19 @@
                 total_pending: 0,
             };
 
+            // 初始化表格数据
+            flattenTasks();
+            applyTableFilters();
+
             renderProjects();
             renderPendingOverview();
+            
+            // 如果当前是表格风格，初始化并渲染表格
+            if (state.currentStyle === 'table') {
+                loadTableColumnOrder();
+                applyTableFilters();
+                renderTable();
+            }
         } catch (error) {
             showAlert('danger', error.message || String(error));
         }
@@ -1026,17 +977,98 @@
             case 'comment-task':
                 openCommentModal(projectId, taskId);
                 break;
+            case 'view-history':
+                showHistoryModal(taskId);
+                break;
         }
     }
 
     function handleSearchInput(e) {
         state.filters.text = e.target.value || '';
         renderProjects();
+        
+        // 同时更新表格筛选
+        if (state.currentStyle === 'table') {
+            applyTableFilters();
+            renderTable();
+        }
     }
 
-    function handleProjectFilter(e) {
-        state.filters.project = e.target.value || 'all';
-        renderProjects();
+
+    function handleFontSizeChange(e) {
+        const size = parseInt(e.target.value);
+        if (isNaN(size) || size < 10 || size > 48) {
+            e.target.value = state.fontSize;
+            return;
+        }
+        state.fontSize = size;
+        localStorage.setItem('todoFontSize', size);
+        
+        // 更新显示的值
+        const fontSizeValue = document.getElementById('fontSizeValue');
+        if (fontSizeValue) {
+            fontSizeValue.textContent = size;
+        }
+        
+        applyFontSize();
+    }
+
+    function applyFontSize() {
+        const fontSize = state.fontSize;
+        const boldFontSize = fontSize + 2;
+        
+        // 应用到显示区域
+        const style = document.createElement('style');
+        style.id = 'todoFontSizeStyle';
+        const existingStyle = document.getElementById('todoFontSizeStyle');
+        if (existingStyle) {
+            existingStyle.remove();
+        }
+        
+        style.textContent = `
+            .todo-main,
+            .table-style,
+            .scroll-style,
+            .projects-container,
+            .preview-table,
+            .preview-table th,
+            .preview-table td {
+                font-size: ${fontSize}px !important;
+            }
+            
+            .todo-main b,
+            .todo-main strong,
+            .table-style b,
+            .table-style strong,
+            .scroll-style b,
+            .scroll-style strong,
+            .preview-table th,
+            .project-table th,
+            .panel-title,
+            .task-summary,
+            .pending-card-title {
+                font-size: ${boldFontSize}px !important;
+            }
+            
+            .pending-cards,
+            .pending-card,
+            .pending-card-content,
+            .pending-card-meta,
+            .pending-card-due {
+                font-size: ${fontSize}px !important;
+            }
+            
+            .pending-card-project {
+                font-size: ${fontSize}px !important;
+            }
+            
+            .pending-card-summary,
+            .pending-card-title {
+                font-size: ${boldFontSize}px !important;
+            }
+        `;
+        
+        document.head.appendChild(style);
     }
 
     // ===== 表单提交 =====
@@ -1178,12 +1210,42 @@
             refs.newProjectButton.addEventListener('click', openCreateProjectModal);
         }
 
+        if (refs.exportButton) {
+            refs.exportButton.addEventListener('click', () => {
+                if (typeof openExportModal === 'function') {
+                    openExportModal(state);
+                } else {
+                    showAlert('warning', '导出功能正在加载中...');
+                }
+            });
+        }
+
         if (refs.searchInput) {
             refs.searchInput.addEventListener('input', handleSearchInput);
         }
 
         if (refs.projectFilter) {
             refs.projectFilter.addEventListener('change', handleProjectFilter);
+        }
+
+        // 待完成任务列表折叠
+        if (refs.pendingHeader) {
+            refs.pendingHeader.addEventListener('click', togglePendingList);
+        }
+
+        // 字体大小设置
+        if (refs.fontSizeInput) {
+            refs.fontSizeInput.value = state.fontSize;
+            refs.fontSizeInput.addEventListener('change', handleFontSizeChange);
+            refs.fontSizeInput.addEventListener('input', handleFontSizeChange);
+            
+            // 初始化显示的值
+            const fontSizeValue = document.getElementById('fontSizeValue');
+            if (fontSizeValue) {
+                fontSizeValue.textContent = state.fontSize;
+            }
+            
+            applyFontSize();
         }
 
         if (refs.createProjectForm) {
@@ -1286,10 +1348,749 @@
         }
     }
 
+    // ===== 表格风格相关函数 =====
+
+    function flattenTasks() {
+        state.flatTasks = [];
+        state.projects.forEach((project) => {
+            (project.tasks || []).forEach((task, taskIndex) => {
+                const updateHistory = task.update_history || [];
+                const comments = task.comments || [];
+                // 计算改动数量（排除comment类型的记录，因为评论单独计算）
+                const updateCount = updateHistory.filter(r => r.field !== 'comment').length;
+                const commentCount = comments.length;
+                
+                state.flatTasks.push({
+                    ...task,
+                    project_id: project.id,
+                    project_name: project.name,
+                    project_color: project.color || '#4facfe',
+                    index: taskIndex + 1,
+                    change_count: updateCount + commentCount,
+                    update_count: updateCount,
+                    comment_count: commentCount,
+                });
+            });
+        });
+    }
+
+    function applyTableFilters() {
+        let filtered = [...state.flatTasks];
+
+        // 搜索筛选
+        if (state.filters.text && state.filters.text.trim()) {
+            const searchLower = state.filters.text.trim().toLowerCase();
+            filtered = filtered.filter(task => {
+                const fields = [
+                    task.project_name,
+                    task.summary,
+                    task.description,
+                ];
+                return fields.some(field => field && String(field).toLowerCase().includes(searchLower));
+            });
+        }
+
+        // 列筛选
+        if (state.tableFilter.column) {
+            filtered = filtered.filter(task => {
+                if (state.tableFilter.column === 'project_name') {
+                    if (state.tableFilter.value === null) return true;
+                    return task.project_id === state.tableFilter.value;
+                } else if (state.tableFilter.column === 'created_at') {
+                    if (!task.created_at) return false;
+                    const taskDate = new Date(task.created_at);
+                    taskDate.setHours(0, 0, 0, 0);
+                    
+                    if (state.tableFilter.startDate) {
+                        const startDate = new Date(state.tableFilter.startDate);
+                        startDate.setHours(0, 0, 0, 0);
+                        if (taskDate < startDate) return false;
+                    }
+                    
+                    if (state.tableFilter.endDate) {
+                        const endDate = new Date(state.tableFilter.endDate);
+                        endDate.setHours(23, 59, 59, 999);
+                        if (taskDate > endDate) return false;
+                    }
+                    
+                    return true;
+                } else if (state.tableFilter.column === 'due_date') {
+                    if (!task.due_date) return false;
+                    const taskDate = new Date(task.due_date);
+                    taskDate.setHours(0, 0, 0, 0);
+                    
+                    if (state.tableFilter.startDate) {
+                        const startDate = new Date(state.tableFilter.startDate);
+                        startDate.setHours(0, 0, 0, 0);
+                        if (taskDate < startDate) return false;
+                    }
+                    
+                    if (state.tableFilter.endDate) {
+                        const endDate = new Date(state.tableFilter.endDate);
+                        endDate.setHours(23, 59, 59, 999);
+                        if (taskDate > endDate) return false;
+                    }
+                    
+                    return true;
+                } else if (state.tableFilter.column === 'updated_at') {
+                    if (!task.updated_at) return false;
+                    const taskDate = new Date(task.updated_at);
+                    taskDate.setHours(0, 0, 0, 0);
+                    
+                    if (state.tableFilter.startDate) {
+                        const startDate = new Date(state.tableFilter.startDate);
+                        startDate.setHours(0, 0, 0, 0);
+                        if (taskDate < startDate) return false;
+                    }
+                    
+                    if (state.tableFilter.endDate) {
+                        const endDate = new Date(state.tableFilter.endDate);
+                        endDate.setHours(23, 59, 59, 999);
+                        if (taskDate > endDate) return false;
+                    }
+                    
+                    return true;
+                } else if (state.tableFilter.column === 'priority') {
+                    if (state.tableFilter.value === null) return true;
+                    return (task.priority || 3) === parseInt(state.tableFilter.value);
+                }
+                return true;
+            });
+        }
+
+        // 排序
+        if (state.tableSort.column) {
+            filtered.sort((a, b) => {
+                let aVal, bVal;
+                
+                if (state.tableSort.column === 'project_name') {
+                    aVal = a.project_name || '';
+                    bVal = b.project_name || '';
+                } else if (state.tableSort.column === 'created_at') {
+                    aVal = a.created_at ? new Date(a.created_at).getTime() : 0;
+                    bVal = b.created_at ? new Date(b.created_at).getTime() : 0;
+                } else if (state.tableSort.column === 'updated_at') {
+                    aVal = a.updated_at ? new Date(a.updated_at).getTime() : 0;
+                    bVal = b.updated_at ? new Date(b.updated_at).getTime() : 0;
+                } else if (state.tableSort.column === 'due_date') {
+                    aVal = a.due_date ? new Date(a.due_date).getTime() : 0;
+                    bVal = b.due_date ? new Date(b.due_date).getTime() : 0;
+                } else if (state.tableSort.column === 'progress') {
+                    aVal = a.progress || 0;
+                    bVal = b.progress || 0;
+                } else if (state.tableSort.column === 'priority') {
+                    aVal = a.priority || 3;
+                    bVal = b.priority || 3;
+                } else {
+                    return 0;
+                }
+
+                if (aVal < bVal) return state.tableSort.direction === 'asc' ? -1 : 1;
+                if (aVal > bVal) return state.tableSort.direction === 'asc' ? 1 : -1;
+                return 0;
+            });
+        }
+
+        state.filteredTasks = filtered;
+    }
+
+    function loadTableColumnOrder() {
+        const saved = localStorage.getItem('todoTableColumnOrder');
+        if (saved) {
+            try {
+                const savedOrder = JSON.parse(saved);
+                state.columns = savedOrder.filter(key => COLUMN_DEFINITIONS[key]);
+                Object.keys(COLUMN_DEFINITIONS).forEach(key => {
+                    if (!state.columns.includes(key)) {
+                        state.columns.push(key);
+                    }
+                });
+            } catch (e) {
+                initDefaultTableColumns();
+            }
+        } else {
+            initDefaultTableColumns();
+        }
+    }
+
+    function initDefaultTableColumns() {
+        state.columns = Object.keys(COLUMN_DEFINITIONS).sort((a, b) => {
+            return COLUMN_DEFINITIONS[a].order - COLUMN_DEFINITIONS[b].order;
+        });
+    }
+
+    function saveTableColumnOrder() {
+        localStorage.setItem('todoTableColumnOrder', JSON.stringify(state.columns));
+    }
+
+    function renderTable() {
+        renderTableHead();
+        renderTableBody();
+    }
+
+    let draggedTableColumn = null;
+
+    function renderTableHead() {
+        if (!refs.tableHead) return;
+
+        const thead = refs.tableHead;
+        thead.innerHTML = '';
+
+        const tr = document.createElement('tr');
+        state.columns.forEach((colKey) => {
+            const colDef = COLUMN_DEFINITIONS[colKey];
+            if (!colDef) return;
+
+            const th = document.createElement('th');
+            th.dataset.columnKey = colKey;
+            th.draggable = true;
+            
+            const canFilter = ['project_name', 'created_at', 'due_date', 'updated_at', 'priority'].includes(colKey);
+            const canSort = ['project_name', 'created_at', 'progress', 'priority', 'due_date', 'updated_at'].includes(colKey);
+            
+            let filterSortIcons = '';
+            if (canFilter || canSort) {
+                let icons = [];
+                if (canFilter) {
+                    const isFiltered = state.tableFilter.column === colKey;
+                    icons.push(`<i class="fas fa-filter filter-icon ${isFiltered ? 'active' : ''}" data-action="filter" title="筛选"></i>`);
+                }
+                if (canSort) {
+                    let sortIcon = 'fa-sort';
+                    if (state.tableSort.column === colKey) {
+                        sortIcon = state.tableSort.direction === 'asc' ? 'fa-sort-up' : 'fa-sort-down';
+                    }
+                    icons.push(`<i class="fas ${sortIcon} sort-icon ${state.tableSort.column === colKey ? 'active' : ''}" data-action="sort" title="排序"></i>`);
+                }
+                filterSortIcons = `<span class="filter-sort-icons">${icons.join('')}</span>`;
+            }
+            
+            th.innerHTML = `
+                <i class="fas fa-grip-vertical drag-handle"></i>
+                <span class="column-label">${escapeHtml(colDef.label)}</span>
+                ${filterSortIcons}
+            `;
+
+            th.addEventListener('dragstart', (e) => {
+                draggedTableColumn = colKey;
+                th.classList.add('dragging');
+                e.dataTransfer.effectAllowed = 'move';
+            });
+
+            th.addEventListener('dragend', () => {
+                th.classList.remove('dragging');
+                document.querySelectorAll('#tableHead th').forEach(h => h.classList.remove('drag-over'));
+            });
+
+            th.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'move';
+                if (draggedTableColumn && draggedTableColumn !== colKey) {
+                    document.querySelectorAll('#tableHead th').forEach(h => h.classList.remove('drag-over'));
+                    th.classList.add('drag-over');
+                }
+            });
+
+            th.addEventListener('drop', (e) => {
+                e.preventDefault();
+                if (draggedTableColumn && draggedTableColumn !== colKey) {
+                    const oldIndex = state.columns.indexOf(draggedTableColumn);
+                    const newIndex = state.columns.indexOf(colKey);
+                    state.columns.splice(oldIndex, 1);
+                    state.columns.splice(newIndex, 0, draggedTableColumn);
+                    saveTableColumnOrder();
+                    renderTable();
+                }
+                document.querySelectorAll('#tableHead th').forEach(h => h.classList.remove('drag-over'));
+            });
+
+            th.addEventListener('click', (e) => {
+                const target = e.target.closest('[data-action]');
+                if (!target) return;
+                
+                const action = target.dataset.action;
+                if (action === 'filter') {
+                    handleTableFilterClick(colKey);
+                } else if (action === 'sort') {
+                    handleTableSortClick(colKey);
+                }
+            });
+
+            tr.appendChild(th);
+        });
+        
+        // 添加操作列表头
+        const actionsTh = document.createElement('th');
+        actionsTh.textContent = '操作';
+        actionsTh.style.width = '150px';
+        actionsTh.style.textAlign = 'center';
+        tr.appendChild(actionsTh);
+
+        thead.appendChild(tr);
+    }
+
+    function renderTableBody() {
+        if (!refs.tableBody) return;
+
+        const tbody = refs.tableBody;
+        tbody.innerHTML = '';
+
+        if (state.filteredTasks.length === 0) {
+            if (refs.tableEmptyMessage) refs.tableEmptyMessage.style.display = 'block';
+            return;
+        }
+
+        if (refs.tableEmptyMessage) refs.tableEmptyMessage.style.display = 'none';
+
+        state.filteredTasks.forEach((task, rowIndex) => {
+            const tr = document.createElement('tr');
+            tr.dataset.taskId = task.id;
+            tr.dataset.projectId = task.project_id;
+
+            state.columns.forEach(colKey => {
+                const td = document.createElement('td');
+                td.innerHTML = getTableCellContent(task, colKey);
+                tr.appendChild(td);
+            });
+            
+            // 添加操作列
+            const actionsTd = document.createElement('td');
+            actionsTd.className = 'task-actions-cell';
+            const updateHistory = task.update_history || [];
+            const comments = task.comments || [];
+            const hasHistory = updateHistory.length > 0 || comments.length > 0;
+            actionsTd.innerHTML = `
+                <div class="task-actions">
+                    <button type="button" class="btn btn-sm btn-outline-primary" data-action="comment-task" data-project-id="${task.project_id}" data-task-id="${task.id}" title="添加评论">
+                        <i class="fas fa-comment"></i>
+                    </button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" data-action="edit-task" data-project-id="${task.project_id}" data-task-id="${task.id}" title="编辑任务">
+                        <i class="fas fa-pen"></i>
+                    </button>
+                    <button type="button" class="btn btn-sm btn-outline-danger" data-action="delete-task" data-project-id="${task.project_id}" data-task-id="${task.id}" title="删除任务">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                    ${hasHistory ? `
+                    <button type="button" class="btn btn-sm btn-outline-info" data-action="view-history" data-project-id="${task.project_id}" data-task-id="${task.id}" title="查看改动和评论">
+                        <i class="fas fa-list"></i>
+                    </button>
+                    ` : ''}
+                </div>
+            `;
+            tr.appendChild(actionsTd);
+
+            tbody.appendChild(tr);
+        });
+        
+        // 绑定操作按钮事件
+        tbody.querySelectorAll('[data-action]').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const action = btn.dataset.action;
+                const projectId = btn.dataset.projectId;
+                const taskId = btn.dataset.taskId;
+                
+                if (action === 'comment-task') {
+                    openCommentModal(projectId, taskId);
+                } else if (action === 'edit-task') {
+                    openEditTaskModal(projectId, taskId);
+                } else if (action === 'delete-task') {
+                    deleteTask(projectId, taskId);
+                } else if (action === 'view-history') {
+                    showHistoryModal(taskId);
+                }
+            });
+        });
+    }
+
+    function getTableCellContent(task, colKey) {
+        switch (colKey) {
+            case 'project_name':
+                return `<span style="color: ${task.project_color}">${escapeHtml(task.project_name || '--')}</span>`;
+            case 'index':
+                return String(task.index || '--');
+            case 'summary':
+                return escapeHtml(task.summary || '--');
+            case 'description':
+                const desc = task.description || '';
+                return desc.length > 100 
+                    ? `<span title="${escapeHtml(desc)}">${escapeHtml(desc.substring(0, 100))}...</span>`
+                    : escapeHtml(desc || '--');
+            case 'priority':
+                return `<span class="priority-${task.priority || 3}">${task.priority || 3}</span>`;
+            case 'progress':
+                const progress = task.progress || 0;
+                return `
+                    <div class="progress-cell">
+                        <div class="progress-bar-inline">
+                            <div class="progress-fill-inline" style="width: ${progress}%"></div>
+                        </div>
+                        <span>${progress}%</span>
+                    </div>
+                `;
+            case 'due_date':
+                if (!task.due_date) return '<span class="due-date-none">--</span>';
+                const dueStatus = getDueDateStatus(task.due_date);
+                return `<span class="${dueStatus.class}">${formatDate(task.due_date)}</span>`;
+            case 'created_at':
+                return formatDateTime(task.created_at);
+            case 'updated_at':
+                return formatDateTime(task.updated_at);
+            default:
+                return '--';
+        }
+    }
+
+    function handleTableFilterClick(colKey) {
+        if (state.tableFilter.column === colKey) {
+            state.tableFilter.column = null;
+            state.tableFilter.value = null;
+            state.tableFilter.startDate = null;
+            state.tableFilter.endDate = null;
+            applyTableFilters();
+            renderTable();
+            return;
+        }
+
+        state.tableFilter.column = colKey;
+        state.tableFilter.value = null;
+        state.tableFilter.startDate = null;
+        state.tableFilter.endDate = null;
+
+        const filterPanel = document.getElementById('filterPanel');
+        const filterBody = document.getElementById('filterBody');
+        
+        if (colKey === 'project_name') {
+            const projects = [...new Map(state.flatTasks.map(t => [t.project_id, { id: t.project_id, name: t.project_name }])).values()];
+            let options = '<option value="">全部项目</option>';
+            projects.forEach(project => {
+                options += `<option value="${project.id}">${escapeHtml(project.name)}</option>`;
+            });
+            
+            filterBody.innerHTML = `
+                <label class="form-label">选择项目：</label>
+                <select class="form-select" id="filterProjectSelect">
+                    ${options}
+                </select>
+            `;
+        } else if (colKey === 'created_at' || colKey === 'due_date' || colKey === 'updated_at') {
+            const labelMap = {
+                'created_at': '创建时间',
+                'due_date': '预计完成时间',
+                'updated_at': '最后更新时间',
+            };
+            const label = labelMap[colKey] || '时间';
+            
+            filterBody.innerHTML = `
+                <label class="form-label">${label}范围：</label>
+                <div class="mb-2">
+                    <label class="form-label small">开始时间：</label>
+                    <input type="date" class="form-control" id="filterStartDateInput" value="${state.tableFilter.startDate || ''}">
+                </div>
+                <div>
+                    <label class="form-label small">结束时间：</label>
+                    <input type="date" class="form-control" id="filterEndDateInput" value="${state.tableFilter.endDate || ''}">
+                </div>
+                <p class="text-muted small mt-2 mb-0">留空表示不限制该边界</p>
+            `;
+        } else if (colKey === 'priority') {
+            filterBody.innerHTML = `
+                <label class="form-label">输入优先级 (1-5)：</label>
+                <input type="number" class="form-control" id="filterPriorityInput" min="1" max="5" value="${state.tableFilter.value || ''}">
+            `;
+        }
+        
+        const filterOverlay = document.getElementById('filterOverlay');
+        filterPanel.style.display = 'block';
+        if (filterOverlay) filterOverlay.classList.add('show');
+        
+        const applyBtn = document.getElementById('applyFilter');
+        const clearBtn = document.getElementById('clearFilter');
+        const closeBtn = document.getElementById('closeFilterPanel');
+        
+        const closePanel = () => {
+            filterPanel.style.display = 'none';
+            if (filterOverlay) filterOverlay.classList.remove('show');
+        };
+        
+        const applyFilter = () => {
+            let value = null;
+            let startDate = null;
+            let endDate = null;
+            
+            if (colKey === 'project_name') {
+                const select = document.getElementById('filterProjectSelect');
+                value = select ? select.value : null;
+                if (value === '') value = null;
+            } else if (colKey === 'created_at' || colKey === 'due_date' || colKey === 'updated_at') {
+                const startInput = document.getElementById('filterStartDateInput');
+                const endInput = document.getElementById('filterEndDateInput');
+                startDate = startInput && startInput.value ? startInput.value : null;
+                endDate = endInput && endInput.value ? endInput.value : null;
+                
+                // 如果开始时间晚于结束时间，提示错误
+                if (startDate && endDate && new Date(startDate) > new Date(endDate)) {
+                    alert('开始时间不能晚于结束时间');
+                    return;
+                }
+            } else if (colKey === 'priority') {
+                const input = document.getElementById('filterPriorityInput');
+                const val = input ? parseInt(input.value) : null;
+                if (!isNaN(val) && val >= 1 && val <= 5) {
+                    value = val;
+                } else if (input && input.value === '') {
+                    value = null;
+                } else {
+                    alert('请输入1-5之间的数字');
+                    return;
+                }
+            }
+            
+            state.tableFilter.column = (value !== null || startDate !== null || endDate !== null) ? colKey : null;
+            state.tableFilter.value = value;
+            state.tableFilter.startDate = startDate;
+            state.tableFilter.endDate = endDate;
+            closePanel();
+            applyTableFilters();
+            renderTable();
+        };
+        
+        const clearFilter = () => {
+            state.tableFilter.column = null;
+            state.tableFilter.value = null;
+            state.tableFilter.startDate = null;
+            state.tableFilter.endDate = null;
+            closePanel();
+            applyTableFilters();
+            renderTable();
+        };
+        
+        applyBtn.onclick = applyFilter;
+        clearBtn.onclick = clearFilter;
+        closeBtn.onclick = closePanel;
+        if (filterOverlay) {
+            filterOverlay.onclick = closePanel;
+        }
+    }
+
+    function handleTableSortClick(colKey) {
+        if (state.tableSort.column === colKey) {
+            state.tableSort.direction = state.tableSort.direction === 'asc' ? 'desc' : 'asc';
+        } else {
+            state.tableSort.column = colKey;
+            state.tableSort.direction = 'asc';
+        }
+        
+        applyTableFilters();
+        renderTable();
+    }
+
+    function showHistoryModal(taskId) {
+        const task = state.flatTasks.find(t => t.id === taskId);
+        if (!task) return;
+
+        const updateHistory = (task.update_history || []).filter(r => r.field !== 'comment');
+        const comments = task.comments || [];
+        
+        document.getElementById('historyTaskSummary').textContent = task.summary || '--';
+        document.getElementById('historyProjectName').textContent = task.project_name || '--';
+
+        const tbody = document.getElementById('historyTableBody');
+        tbody.innerHTML = '';
+
+        const allRecords = [];
+        updateHistory.forEach(record => {
+            allRecords.push({
+                type: 'update',
+                field: record.field,
+                old_value: record.old_value,
+                new_value: record.new_value,
+                timestamp: record.timestamp,
+            });
+        });
+        comments.forEach(comment => {
+            allRecords.push({
+                type: 'comment',
+                content: comment.content,
+                timestamp: comment.timestamp,
+            });
+        });
+
+        allRecords.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
+
+        if (allRecords.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted">暂无记录</td></tr>';
+        } else {
+            allRecords.forEach((record, index) => {
+                const tr = document.createElement('tr');
+                tr.dataset.type = record.type;
+                const timestamp = record.timestamp || '';
+                let formattedTime = '--';
+                if (timestamp) {
+                    try {
+                        formattedTime = formatDateTime(timestamp);
+                    } catch (e) {
+                        formattedTime = timestamp;
+                    }
+                }
+
+                if (record.type === 'comment') {
+                    tr.innerHTML = `
+                        <td>${index + 1}</td>
+                        <td><span class="badge bg-primary">评论</span></td>
+                        <td>${escapeHtml(formattedTime)}</td>
+                        <td>${escapeHtml(record.content || '--')}</td>
+                    `;
+                } else {
+                    const fieldNames = {
+                        'summary': '简述',
+                        'description': '详细描述',
+                        'priority': '优先级',
+                        'progress': '进度',
+                        'due_date': '预计完成时间',
+                        'create': '创建',
+                    };
+                    const fieldName = fieldNames[record.field] || record.field;
+                    const oldVal = record.old_value !== null && record.old_value !== undefined ? escapeHtml(String(record.old_value)) : '--';
+                    const newVal = record.new_value !== null && record.new_value !== undefined ? escapeHtml(String(record.new_value)) : '--';
+                    
+                    tr.innerHTML = `
+                        <td>${index + 1}</td>
+                        <td><span class="badge bg-secondary">修改</span></td>
+                        <td>${escapeHtml(formattedTime)}</td>
+                        <td><strong>${fieldName}</strong>: <span class="text-muted">${oldVal}</span> → <span class="text-primary">${newVal}</span></td>
+                    `;
+                }
+                tbody.appendChild(tr);
+            });
+        }
+
+        // 绑定筛选按钮
+        const filterRadios = document.querySelectorAll('input[name="historyFilter"]');
+        filterRadios.forEach(radio => {
+            radio.addEventListener('change', () => {
+                const filter = radio.value;
+                const rows = tbody.querySelectorAll('tr');
+                rows.forEach(row => {
+                    if (filter === 'all') {
+                        row.style.display = '';
+                    } else if (filter === 'update' && row.dataset.type === 'update') {
+                        row.style.display = '';
+                    } else if (filter === 'comment' && row.dataset.type === 'comment') {
+                        row.style.display = '';
+                    } else {
+                        row.style.display = 'none';
+                    }
+                });
+            });
+        });
+
+        const modal = new bootstrap.Modal(document.getElementById('historyModal'));
+        modal.show();
+    }
+
+    // ===== 风格切换 =====
+
+    function switchStyle(style) {
+        state.currentStyle = style;
+        localStorage.setItem('todoStyle', style);
+
+        if (style === 'scroll') {
+            if (refs.scrollStyleContainer) {
+                refs.scrollStyleContainer.style.display = 'block';
+                refs.scrollStyleContainer.classList.add('active');
+            }
+            if (refs.tableStyleContainer) {
+                refs.tableStyleContainer.style.display = 'none';
+                refs.tableStyleContainer.classList.remove('active');
+            }
+            if (refs.styleSwitch) refs.styleSwitch.checked = false;
+        } else {
+            if (refs.scrollStyleContainer) {
+                refs.scrollStyleContainer.style.display = 'none';
+                refs.scrollStyleContainer.classList.remove('active');
+            }
+            if (refs.tableStyleContainer) {
+                refs.tableStyleContainer.style.display = 'block';
+                refs.tableStyleContainer.classList.add('active');
+            }
+            if (refs.styleSwitch) refs.styleSwitch.checked = true;
+            
+            // 只有在数据已加载时才初始化表格
+            if (state.projects && state.projects.length >= 0) {
+                flattenTasks();
+                loadTableColumnOrder();
+                applyTableFilters();
+                renderTable();
+            }
+        }
+    }
+
+    // ===== 待完成任务列表折叠 =====
+
+    function togglePendingList() {
+        state.pendingCollapsed = !state.pendingCollapsed;
+        localStorage.setItem('pendingCollapsed', state.pendingCollapsed);
+        
+        const section = document.querySelector('.pending-overview-section');
+        const icon = refs.pendingHeader?.querySelector('.collapse-icon');
+        
+        if (state.pendingCollapsed) {
+            section?.classList.add('collapsed');
+            if (icon) icon.style.transform = 'rotate(-90deg)';
+        } else {
+            section?.classList.remove('collapsed');
+            if (icon) icon.style.transform = 'rotate(0deg)';
+        }
+    }
+
     function init() {
         attachEventListeners();
+        
+        // 初始化风格切换
+        if (refs.styleSwitch) {
+            refs.styleSwitch.addEventListener('change', (e) => {
+                switchStyle(e.target.checked ? 'table' : 'scroll');
+            });
+        }
+        
+        // 初始化待完成任务列表折叠状态
+        if (state.pendingCollapsed) {
+            togglePendingList();
+        }
+        
+        // 初始化字体大小
+        applyFontSize();
+        
+        // 先设置风格显示状态（不渲染内容）
+        if (state.currentStyle === 'scroll') {
+            if (refs.scrollStyleContainer) {
+                refs.scrollStyleContainer.style.display = 'block';
+                refs.scrollStyleContainer.classList.add('active');
+            }
+            if (refs.tableStyleContainer) {
+                refs.tableStyleContainer.style.display = 'none';
+                refs.tableStyleContainer.classList.remove('active');
+            }
+            if (refs.styleSwitch) refs.styleSwitch.checked = false;
+        } else {
+            if (refs.scrollStyleContainer) {
+                refs.scrollStyleContainer.style.display = 'none';
+                refs.scrollStyleContainer.classList.remove('active');
+            }
+            if (refs.tableStyleContainer) {
+                refs.tableStyleContainer.style.display = 'block';
+                refs.tableStyleContainer.classList.add('active');
+            }
+            if (refs.styleSwitch) refs.styleSwitch.checked = true;
+        }
+        
+        // 加载数据（数据加载完成后会自动渲染）
         loadData();
     }
+
+    // 导出状态供导出功能使用
+    window.getTodoState = () => state;
 
     document.addEventListener('DOMContentLoaded', init);
 })();

@@ -159,6 +159,20 @@ def init_app(app):
         session['todo_direct_access'] = True
         return render_template('todo_v2.html', direct_access=True)
 
+    @app.route('/todo/v2/preview')
+    def todo_v2_preview():
+        """ToDo表格预览界面（需登录）"""
+        if not is_logged_in():
+            return redirect(url_for('login'))
+        session.pop('todo_direct_access', None)
+        return render_template('todo_v2_preview.html', direct_access=False)
+
+    @app.route('/todo/v2/preview/direct')
+    def todo_v2_preview_direct():
+        """ToDo表格预览界面后门入口（免登录）"""
+        session['todo_direct_access'] = True
+        return render_template('todo_v2_preview.html', direct_access=True)
+
     @app.route('/api/todo/items', methods=['GET', 'POST'])
     def todo_collection():
         """ToDo 列表查询与创建"""
@@ -465,6 +479,627 @@ def init_app(app):
             overview = manager.get_pending_overview()
             return jsonify({'success': True, 'overview': overview})
         except Exception as exc:
+            return jsonify({'success': False, 'error': str(exc)}), 500
+
+    @app.route('/api/todo/v2/export/excel', methods=['POST'])
+    def todo_v2_export_excel():
+        """导出TODO数据为Excel文件"""
+        if not has_todo_access():
+            return jsonify({'success': False, 'error': '未授权'}), 401
+
+        try:
+            from flask import send_file
+            from io import BytesIO
+            from datetime import datetime
+            import openpyxl
+            from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+            from openpyxl.utils import get_column_letter
+
+            config = request.json or {}
+            manager = current_app.config['TODO_MANAGER']
+            
+            # 获取自定义文件名
+            custom_file_name = config.get('fileName')
+            
+            # 检查是否是预览模式
+            time_range = config.get('timeRange', 'all')
+            if time_range == 'preview':
+                # 预览模式：直接使用传入的预览数据
+                preview_data = config.get('previewData', [])
+                if not preview_data:
+                    return jsonify({'success': False, 'error': '预览数据为空'}), 400
+                all_tasks = preview_data
+            else:
+                # 正常模式：从数据库获取数据
+                data = manager.list_all()
+                
+                # 获取所有任务并扁平化
+                all_tasks = []
+                for project in data.get('projects', []):
+                    for task in project.get('tasks', []):
+                        task_with_project = {
+                            **task,
+                            'project_id': project['id'],
+                            'project_name': project['name'],
+                            'project_color': project.get('color', '#4facfe'),
+                        }
+                        all_tasks.append(task_with_project)
+
+                # 应用时间范围筛选
+            if time_range == 'completed':
+                all_tasks = [t for t in all_tasks if (t.get('progress') or 0) >= 100]
+            elif time_range == 'pending':
+                all_tasks = [t for t in all_tasks if (t.get('progress') or 0) < 100]
+            elif time_range == 'custom':
+                custom_range = config.get('customTimeRange')
+                if custom_range:
+                    start_date = datetime.strptime(custom_range['start'], '%Y-%m-%d')
+                    end_date = datetime.strptime(custom_range['end'], '%Y-%m-%d')
+                    field = custom_range.get('field', 'created')
+                    
+                    filtered_tasks = []
+                    for task in all_tasks:
+                        date_str = None
+                        if field == 'created':
+                            date_str = task.get('created_at')
+                        elif field == 'updated':
+                            date_str = task.get('updated_at')
+                        elif field == 'due':
+                            date_str = task.get('due_date')
+                        
+                        if date_str:
+                            try:
+                                task_date = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
+                                if start_date <= task_date <= end_date:
+                                    filtered_tasks.append(task)
+                            except:
+                                pass
+                    all_tasks = filtered_tasks
+
+            # 获取列配置
+            columns = config.get('columns', [])
+            column_order = config.get('columnOrder', columns)
+            project_mode = config.get('projectMode', 'single')
+            comment_mode = config.get('commentMode', 'inline')
+
+            # 列定义映射
+            column_definitions = {
+                'project_name': '项目名称',
+                'index': '序号',
+                'summary': '任务简述',
+                'description': '详细描述',
+                'priority': '优先级',
+                'progress': '进度',
+                'due_date': '预计完成时间',
+                'created_at': '创建时间',
+                'updated_at': '最后更新时间',
+                'change_count': '改动数量',
+            }
+
+            # 创建Excel工作簿
+            wb = openpyxl.Workbook()
+            
+            # 删除默认sheet
+            if 'Sheet' in wb.sheetnames:
+                wb.remove(wb['Sheet'])
+
+            if project_mode == 'single':
+                # 方式一：同一Sheet
+                ws = wb.create_sheet('任务列表', 0)
+                
+                # 设置表头
+                headers = []
+                header_col_map = {}  # 记录表头列索引到column_order的映射
+                col_idx = 0
+                
+                if 'project_name' in column_order:
+                    headers.append('项目名称')
+                    header_col_map[col_idx] = 'project_name'
+                    col_idx += 1
+                
+                for col in column_order:
+                    if col == 'project_name':
+                        continue
+                    if col in column_definitions:
+                        # 如果是评论数且使用内联模式，表头显示"评论"而不是"评论数"
+                        if col == 'change_count' and comment_mode == 'inline':
+                            headers.append('评论')
+                        else:
+                            headers.append(column_definitions[col])
+                        header_col_map[col_idx] = col
+                        col_idx += 1
+                
+                # 如果使用sheet模式且没有change_count列，添加评论列用于超链接
+                if comment_mode == 'sheet' and 'change_count' not in column_order:
+                    headers.append('评论')
+                    header_col_map[col_idx] = 'comment'
+                    col_idx += 1
+                elif comment_mode == 'inline' and 'change_count' not in column_order:
+                    headers.append('评论')
+                    header_col_map[col_idx] = 'comment'
+                    col_idx += 1
+                
+                ws.append(headers)
+                
+                # 设置表头样式
+                header_fill = PatternFill(start_color='D6F2EA', end_color='C8ECE0', fill_type='solid')
+                header_font = Font(bold=True, color='1E5F4F', size=11)
+                border = Border(
+                    left=Side(style='thin'),
+                    right=Side(style='thin'),
+                    top=Side(style='thin'),
+                    bottom=Side(style='thin')
+                )
+                
+                for cell in ws[1]:
+                    cell.fill = header_fill
+                    cell.font = header_font
+                    cell.alignment = Alignment(horizontal='center', vertical='center')
+                    cell.border = border
+
+                # 添加数据行
+                row_num = 2
+                comment_sheet_rows = []  # 用于方式二的评论数据
+                comment_row_counter = 2  # 评论Sheet的行号计数器（从2开始，因为第1行是表头）
+                
+                # 定义交替行颜色
+                even_row_fill = PatternFill(start_color='F8F9FA', end_color='F8F9FA', fill_type='solid')
+                odd_row_fill = PatternFill(start_color='FFFFFF', end_color='FFFFFF', fill_type='solid')
+                cell_border = Border(
+                    left=Side(style='thin', color='E0E0E0'),
+                    right=Side(style='thin', color='E0E0E0'),
+                    top=Side(style='thin', color='E0E0E0'),
+                    bottom=Side(style='thin', color='E0E0E0')
+                )
+                
+                for idx, task in enumerate(all_tasks, 1):
+                    row_data = []
+                    comments = task.get('comments', [])
+                    is_even = (row_num % 2 == 0)
+                    row_fill = even_row_fill if is_even else odd_row_fill
+                    
+                    # 按照表头顺序构建数据行
+                    for header_idx in range(len(headers)):
+                        col_key = header_col_map.get(header_idx)
+                        
+                        if col_key == 'project_name':
+                            row_data.append(task.get('project_name', '--'))
+                        elif col_key == 'index':
+                            row_data.append(idx)
+                        elif col_key == 'summary':
+                            row_data.append(task.get('summary', '--'))
+                        elif col_key == 'description':
+                            row_data.append(task.get('description', '--'))
+                        elif col_key == 'priority':
+                            row_data.append(task.get('priority', 3))
+                        elif col_key == 'progress':
+                            row_data.append(f"{task.get('progress', 0)}%")
+                        elif col_key == 'due_date':
+                            due_date = task.get('due_date')
+                            row_data.append(due_date if due_date else '--')
+                        elif col_key == 'created_at':
+                            created = task.get('created_at', '')
+                            if created:
+                                try:
+                                    dt = datetime.fromisoformat(created.replace('Z', '+00:00'))
+                                    row_data.append(dt.strftime('%Y-%m-%d %H:%M'))
+                                except:
+                                    row_data.append(created)
+                            else:
+                                row_data.append('--')
+                        elif col_key == 'updated_at':
+                            updated = task.get('updated_at', '')
+                            if updated:
+                                try:
+                                    dt = datetime.fromisoformat(updated.replace('Z', '+00:00'))
+                                    row_data.append(dt.strftime('%Y-%m-%d %H:%M'))
+                                except:
+                                    row_data.append(updated)
+                            else:
+                                row_data.append('--')
+                        elif col_key == 'change_count':
+                            # 改动数量：显示修改次数和评论数
+                            update_history = task.get('update_history', [])
+                            update_count = len([r for r in update_history if r.get('field') != 'comment'])
+                            comment_count = len(comments)
+                            row_data.append(f"{update_count}次修改 {comment_count}条评论")
+                        elif col_key == 'comment':
+                            # 额外的评论列
+                            if comment_mode == 'inline':
+                                # 内联模式：显示评论内容
+                                if comments:
+                                    comment_text = '\n'.join([
+                                        f"[{datetime.fromisoformat(c.get('timestamp', '').replace('Z', '+00:00')).strftime('%Y-%m-%d %H:%M')}] {c.get('content', '')}"
+                                        for c in comments
+                                    ])
+                                    row_data.append(comment_text)
+                                else:
+                                    row_data.append('--')
+                            else:
+                                # sheet模式：显示超链接文本（超链接会在后面添加）
+                                if comments:
+                                    row_data.append(f"查看评论({len(comments)})")
+                                else:
+                                    row_data.append('--')
+                        else:
+                            row_data.append('--')
+                    
+                    # 收集评论数据（方式二）
+                    if comment_mode == 'sheet':
+                        for comment in comments:
+                            comment_sheet_rows.append({
+                                'project_name': task.get('project_name', '--'),
+                                'task_summary': task.get('summary', '--'),
+                                'timestamp': comment.get('timestamp', ''),
+                                'content': comment.get('content', ''),
+                                'task_id': task.get('id', ''),
+                                'row_num': comment_row_counter,
+                            })
+                            comment_row_counter += 1
+                    
+                    ws.append(row_data)
+                    
+                    # 设置行样式（交替行颜色和边框）
+                    for col_idx in range(1, len(headers) + 1):
+                        cell = ws.cell(row=row_num, column=col_idx)
+                        cell.fill = row_fill
+                        cell.border = cell_border
+                    
+                    # 设置评论列自动换行（方式一）
+                    if comment_mode == 'inline' and comments:
+                        # 找到评论列的索引
+                        comment_col_idx = None
+                        for header_idx, col_key in header_col_map.items():
+                            if col_key == 'change_count' or col_key == 'comment':
+                                comment_col_idx = header_idx + 1
+                                break
+                        if not comment_col_idx and 'change_count' not in column_order:
+                            comment_col_idx = len(headers)  # 评论列在最后
+                        if comment_col_idx:
+                            comment_cell = ws.cell(row=row_num, column=comment_col_idx)
+                            comment_cell.alignment = Alignment(wrap_text=True, vertical='top')
+                    
+                    # 添加超链接（方式二）
+                    if comment_mode == 'sheet' and comments:
+                        # 找到评论列的索引（可能是change_count列或comment列）
+                        comment_col_idx = None
+                        for header_idx, col_key in header_col_map.items():
+                            if col_key == 'change_count' or col_key == 'comment':
+                                comment_col_idx = header_idx + 1
+                                break
+                        if comment_col_idx:
+                            comment_cell = ws.cell(row=row_num, column=comment_col_idx)
+                            # 计算评论Sheet中第一条评论的行号（表头占第1行，所以从第2行开始）
+                            first_comment_row = comment_row_counter - len(comments)
+                            if first_comment_row < 2:
+                                first_comment_row = 2
+                            comment_cell.hyperlink = f"#评论!A{first_comment_row}"
+                            comment_cell.font = Font(color='0000FF', underline='single')
+                            # 如果单元格已经有值（从row_data添加的），就不需要再设置value
+                            if not comment_cell.value:
+                                comment_cell.value = f"查看评论({len(comments)})"
+                    
+                    row_num += 1
+
+                # 调整列宽
+                for col_idx, header in enumerate(headers, 1):
+                    col_letter = get_column_letter(col_idx)
+                    if header in ['项目名称', '任务简述']:
+                        ws.column_dimensions[col_letter].width = 20
+                    elif header == '详细描述':
+                        ws.column_dimensions[col_letter].width = 40
+                    elif header == '评论':
+                        ws.column_dimensions[col_letter].width = 50
+                    else:
+                        ws.column_dimensions[col_letter].width = 15
+
+                # 创建评论Sheet（方式二）
+                if comment_mode == 'sheet' and comment_sheet_rows:
+                    comment_ws = wb.create_sheet('评论', 1)
+                    comment_ws.append(['项目名称', '任务简述', '时间', '评论内容'])
+                    
+                    # 设置评论表头样式
+                    for cell in comment_ws[1]:
+                        cell.fill = header_fill
+                        cell.font = header_font
+                        cell.alignment = Alignment(horizontal='center', vertical='center')
+                        cell.border = border
+                    
+                    for row_data in comment_sheet_rows:
+                        timestamp = row_data['timestamp']
+                        if timestamp:
+                            try:
+                                dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+                                timestamp = dt.strftime('%Y-%m-%d %H:%M')
+                            except:
+                                pass
+                        comment_ws.append([
+                            row_data['project_name'],
+                            row_data['task_summary'],
+                            timestamp,
+                            row_data['content'],
+                        ])
+                    
+                    # 调整评论Sheet列宽
+                    comment_ws.column_dimensions['A'].width = 20
+                    comment_ws.column_dimensions['B'].width = 30
+                    comment_ws.column_dimensions['C'].width = 18
+                    comment_ws.column_dimensions['D'].width = 50
+                    comment_ws.column_dimensions['D'].alignment = Alignment(wrap_text=True)
+
+            else:
+                # 方式二：不同项目不同Sheet
+                projects_dict = {}
+                for task in all_tasks:
+                    project_id = task['project_id']
+                    if project_id not in projects_dict:
+                        projects_dict[project_id] = {
+                            'name': task['project_name'],
+                            'tasks': []
+                        }
+                    projects_dict[project_id]['tasks'].append(task)
+
+                comment_sheet_rows = []
+                comment_row_counter = 2  # 评论Sheet的行号计数器
+                
+                for project_id, project_data in projects_dict.items():
+                    project_name = project_data['name']
+                    # Excel sheet名称不能超过31个字符，且不能包含某些特殊字符
+                    sheet_name = project_name[:31].replace('/', '_').replace('\\', '_').replace('?', '_').replace('*', '_').replace('[', '_').replace(']', '_').replace(':', '_')
+                    
+                    ws = wb.create_sheet(sheet_name, len(wb.sheetnames))
+                    
+                    # 设置表头
+                    headers = []
+                    header_col_map = {}  # 记录表头列索引到column_order的映射
+                    col_idx = 0
+                    
+                    for col in column_order:
+                        if col in column_definitions:
+                            # 如果是评论数且使用内联模式，表头显示"评论"而不是"评论数"
+                            if col == 'comment_count' and comment_mode == 'inline':
+                                headers.append('评论')
+                            else:
+                                headers.append(column_definitions[col])
+                            header_col_map[col_idx] = col
+                            col_idx += 1
+                    
+                    # 如果使用sheet模式且没有change_count列，添加评论列用于超链接
+                    if comment_mode == 'sheet' and 'change_count' not in column_order:
+                        headers.append('评论')
+                        header_col_map[col_idx] = 'comment'
+                        col_idx += 1
+                    elif comment_mode == 'inline' and 'change_count' not in column_order:
+                        headers.append('评论')
+                        header_col_map[col_idx] = 'comment'
+                        col_idx += 1
+                    
+                    ws.append(headers)
+                    
+                    # 设置表头样式
+                    header_fill = PatternFill(start_color='D6F2EA', end_color='C8ECE0', fill_type='solid')
+                    header_font = Font(bold=True, color='1E5F4F', size=11)
+                    border = Border(
+                        left=Side(style='thin'),
+                        right=Side(style='thin'),
+                        top=Side(style='thin'),
+                        bottom=Side(style='thin')
+                    )
+                    
+                    for cell in ws[1]:
+                        cell.fill = header_fill
+                        cell.font = header_font
+                        cell.alignment = Alignment(horizontal='center', vertical='center')
+                        cell.border = border
+
+                    # 添加数据行
+                    row_num = 2
+                    even_row_fill = PatternFill(start_color='F8F9FA', end_color='F8F9FA', fill_type='solid')
+                    odd_row_fill = PatternFill(start_color='FFFFFF', end_color='FFFFFF', fill_type='solid')
+                    cell_border = Border(
+                        left=Side(style='thin', color='E0E0E0'),
+                        right=Side(style='thin', color='E0E0E0'),
+                        top=Side(style='thin', color='E0E0E0'),
+                        bottom=Side(style='thin', color='E0E0E0')
+                    )
+                    
+                    for idx, task in enumerate(project_data['tasks'], 1):
+                        row_data = []
+                        comments = task.get('comments', [])
+                        is_even = (row_num % 2 == 0)
+                        row_fill = even_row_fill if is_even else odd_row_fill
+                        
+                        # 按照表头顺序构建数据行
+                        for header_idx in range(len(headers)):
+                            col_key = header_col_map.get(header_idx)
+                            
+                            if col_key == 'index':
+                                row_data.append(idx)
+                            elif col_key == 'summary':
+                                row_data.append(task.get('summary', '--'))
+                            elif col_key == 'description':
+                                row_data.append(task.get('description', '--'))
+                            elif col_key == 'priority':
+                                row_data.append(task.get('priority', 3))
+                            elif col_key == 'progress':
+                                row_data.append(f"{task.get('progress', 0)}%")
+                            elif col_key == 'due_date':
+                                due_date = task.get('due_date')
+                                row_data.append(due_date if due_date else '--')
+                            elif col_key == 'created_at':
+                                created = task.get('created_at', '')
+                                if created:
+                                    try:
+                                        dt = datetime.fromisoformat(created.replace('Z', '+00:00'))
+                                        row_data.append(dt.strftime('%Y-%m-%d %H:%M'))
+                                    except:
+                                        row_data.append(created)
+                                else:
+                                    row_data.append('--')
+                            elif col_key == 'updated_at':
+                                updated = task.get('updated_at', '')
+                                if updated:
+                                    try:
+                                        dt = datetime.fromisoformat(updated.replace('Z', '+00:00'))
+                                        row_data.append(dt.strftime('%Y-%m-%d %H:%M'))
+                                    except:
+                                        row_data.append(updated)
+                                else:
+                                    row_data.append('--')
+                            elif col_key == 'change_count':
+                                # 改动数量：显示修改次数和评论数
+                                update_history = task.get('update_history', [])
+                                update_count = len([r for r in update_history if r.get('field') != 'comment'])
+                                comment_count = len(comments)
+                                row_data.append(f"{update_count}次修改 {comment_count}条评论")
+                            elif col_key == 'comment':
+                                # 额外的评论列（当comment_count不在column_order中时）
+                                if comments:
+                                    comment_text = '\n'.join([
+                                        f"[{datetime.fromisoformat(c.get('timestamp', '').replace('Z', '+00:00')).strftime('%Y-%m-%d %H:%M')}] {c.get('content', '')}"
+                                        for c in comments
+                                    ])
+                                    row_data.append(comment_text)
+                                else:
+                                    row_data.append('--')
+                            else:
+                                row_data.append('--')
+                        
+                        # 收集评论数据（方式二）
+                        if comment_mode == 'sheet':
+                            for comment in comments:
+                                comment_sheet_rows.append({
+                                    'project_name': project_name,
+                                    'task_summary': task.get('summary', '--'),
+                                    'timestamp': comment.get('timestamp', ''),
+                                    'content': comment.get('content', ''),
+                                    'task_id': task.get('id', ''),
+                                    'row_num': comment_row_counter,
+                                })
+                                comment_row_counter += 1
+                        
+                        ws.append(row_data)
+                        
+                        # 设置行样式（交替行颜色和边框）
+                        for col_idx in range(1, len(headers) + 1):
+                            cell = ws.cell(row=row_num, column=col_idx)
+                            cell.fill = row_fill
+                            cell.border = cell_border
+                        
+                        # 设置评论列自动换行（方式一）
+                        if comment_mode == 'inline' and comments:
+                            # 找到评论列的索引
+                            comment_col_idx = None
+                            for header_idx, col_key in header_col_map.items():
+                                if col_key == 'change_count' or col_key == 'comment':
+                                    comment_col_idx = header_idx + 1
+                                    break
+                            if comment_col_idx:
+                                comment_cell = ws.cell(row=row_num, column=comment_col_idx)
+                                comment_cell.alignment = Alignment(wrap_text=True, vertical='top')
+                        
+                        # 添加超链接（方式二）
+                        if comment_mode == 'sheet' and comments:
+                            # 找到评论列的索引（可能是change_count列或comment列）
+                            comment_col_idx = None
+                            for header_idx, col_key in header_col_map.items():
+                                if col_key == 'change_count' or col_key == 'comment':
+                                    comment_col_idx = header_idx + 1
+                                    break
+                            if comment_col_idx:
+                                comment_cell = ws.cell(row=row_num, column=comment_col_idx)
+                                # 计算评论Sheet中第一条评论的行号（表头占第1行，所以从第2行开始）
+                                first_comment_row = comment_row_counter - len(comments)
+                                if first_comment_row < 2:
+                                    first_comment_row = 2
+                                comment_cell.hyperlink = f"#评论!A{first_comment_row}"
+                                comment_cell.font = Font(color='0000FF', underline='single')
+                                # 如果单元格已经有值（从row_data添加的），就不需要再设置value
+                                if not comment_cell.value:
+                                    comment_cell.value = f"查看评论({len(comments)})"
+                        
+                        row_num += 1
+                    
+                    # 调整列宽
+                    for col_idx, header in enumerate(headers, 1):
+                        col_letter = get_column_letter(col_idx)
+                        if header in ['任务简述']:
+                            ws.column_dimensions[col_letter].width = 20
+                        elif header == '详细描述':
+                            ws.column_dimensions[col_letter].width = 40
+                        elif header == '评论':
+                            ws.column_dimensions[col_letter].width = 50
+                        else:
+                            ws.column_dimensions[col_letter].width = 15
+
+                # 创建评论Sheet（方式二）
+                if comment_mode == 'sheet' and comment_sheet_rows:
+                    comment_ws = wb.create_sheet('评论', len(wb.sheetnames))
+                    comment_ws.append(['项目名称', '任务简述', '时间', '评论内容'])
+                    
+                    # 设置评论表头样式
+                    header_fill = PatternFill(start_color='D6F2EA', end_color='C8ECE0', fill_type='solid')
+                    header_font = Font(bold=True, color='1E5F4F', size=11)
+                    border = Border(
+                        left=Side(style='thin'),
+                        right=Side(style='thin'),
+                        top=Side(style='thin'),
+                        bottom=Side(style='thin')
+                    )
+                    
+                    for cell in comment_ws[1]:
+                        cell.fill = header_fill
+                        cell.font = header_font
+                        cell.alignment = Alignment(horizontal='center', vertical='center')
+                        cell.border = border
+                    
+                    for row_data in comment_sheet_rows:
+                        timestamp = row_data['timestamp']
+                        if timestamp:
+                            try:
+                                dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+                                timestamp = dt.strftime('%Y-%m-%d %H:%M')
+                            except:
+                                pass
+                        comment_ws.append([
+                            row_data['project_name'],
+                            row_data['task_summary'],
+                            timestamp,
+                            row_data['content'],
+                        ])
+                    
+                    # 调整评论Sheet列宽
+                    comment_ws.column_dimensions['A'].width = 20
+                    comment_ws.column_dimensions['B'].width = 30
+                    comment_ws.column_dimensions['C'].width = 18
+                    comment_ws.column_dimensions['D'].width = 50
+                    comment_ws.column_dimensions['D'].alignment = Alignment(wrap_text=True)
+
+            # 保存到内存
+            output = BytesIO()
+            wb.save(output)
+            output.seek(0)
+
+            # 生成文件名
+            if custom_file_name:
+                filename = custom_file_name
+                if not filename.endswith('.xlsx'):
+                    filename += '.xlsx'
+            else:
+                filename = f"todo_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+
+            return send_file(
+                output,
+                mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                as_attachment=True,
+                download_name=filename
+            )
+
+        except ImportError:
+            return jsonify({'success': False, 'error': 'openpyxl库未安装，请运行: pip install openpyxl'}), 500
+        except Exception as exc:
+            import traceback
+            traceback.print_exc()
             return jsonify({'success': False, 'error': str(exc)}), 500
 
     # ===== 产品对比路由 =====
