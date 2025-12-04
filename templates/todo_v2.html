@@ -14,6 +14,23 @@
         <header class="todo-header">
             <h1 class="page-title">ToDo 任务管理</h1>
             <div class="header-controls">
+                <!-- 文件选择 -->
+                <div class="file-selector-row">
+                    <div class="input-group">
+                        <label class="input-group-text" for="fileSelector">
+                            <i class="fas fa-file"></i> 数据文件
+                        </label>
+                        <input type="file" class="form-control" id="fileSelector" accept=".json" style="display: none;">
+                        <input type="text" class="form-control" id="fileSelectorDisplay" placeholder="默认使用todo_v2文件" readonly>
+                        <button class="btn btn-outline-secondary" type="button" id="fileSelectorBtn">
+                            <i class="fas fa-folder-open"></i> 选择文件
+                        </button>
+                        <button class="btn btn-outline-primary" type="button" id="resetFileBtn" title="重置为默认文件">
+                            <i class="fas fa-undo"></i> 重置
+                        </button>
+                    </div>
+                    <span id="fileStatus" class="badge ms-2 file-status-badge"></span>
+                </div>
                 <div class="search-filter-row">
                     <div class="input-group search-input">
                         <span class="input-group-text">搜索</span>
@@ -435,6 +452,25 @@
                                 <input class="form-check-input" type="radio" name="commentMode" id="commentModeSheet" value="sheet">
                                 <label class="form-check-label" for="commentModeSheet">
                                     方式二：单独Sheet保存评论，任务行添加超链接跳转
+                                </label>
+                            </div>
+                        </div>
+
+                        <!-- 导出选项 -->
+                        <div class="config-section">
+                            <h6 class="section-title">
+                                <i class="fas fa-cog"></i> 导出选项
+                            </h6>
+                            <div class="form-check mb-2">
+                                <input class="form-check-input" type="checkbox" id="mergeProjectName" checked>
+                                <label class="form-check-label" for="mergeProjectName">
+                                    合并项目名称行（如果多个项目名称格导出是相邻的，将这些格合并并居中）
+                                </label>
+                            </div>
+                            <div class="form-check mb-2">
+                                <input class="form-check-input" type="checkbox" id="addGlobalIndex">
+                                <label class="form-check-label" for="addGlobalIndex">
+                                    添加总序号（在第一列添加总序号，用来计数一共有多少任务）
                                 </label>
                             </div>
                         </div>
