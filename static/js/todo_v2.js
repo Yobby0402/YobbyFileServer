@@ -200,6 +200,80 @@
         }
     }
 
+    // 计算待完成概览
+    function calculatePendingOverview(projects) {
+        const allTasks = [];
+        
+        // 收集所有任务并添加项目信息
+        for (const project of projects) {
+            for (const task of project.tasks || []) {
+                const taskWithProject = {
+                    ...task,
+                    project_id: project.id,
+                    project_name: project.name,
+                    project_color: project.color || '#4facfe',
+                };
+                allTasks.push(taskWithProject);
+            }
+        }
+        
+        // 过滤未完成的任务（进度 < 100%）
+        const pendingTasks = allTasks.filter(task => (task.progress || 0) < 100);
+        
+        // 计算今日日期
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const todayStr = today.toISOString().split('T')[0]; // YYYY-MM-DD格式
+        
+        const overdue = [];
+        const today_due = [];
+        const upcoming = [];
+        const undated = [];
+        
+        for (const task of pendingTasks) {
+            const dueDate = task.due_date;
+            if (!dueDate) {
+                undated.push(task);
+                continue;
+            }
+            
+            try {
+                // 解析日期（格式：YYYY-MM-DD）
+                const due = new Date(dueDate + 'T00:00:00');
+                due.setHours(0, 0, 0, 0);
+                
+                const diffTime = due - today;
+                const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+                
+                if (diffDays < 0) {
+                    overdue.push(task);
+                } else if (diffDays === 0) {
+                    today_due.push(task);
+                } else {
+                    upcoming.push(task);
+                }
+            } catch (e) {
+                // 日期解析失败，归类为未设置日期
+                undated.push(task);
+            }
+        }
+        
+        // 对即将到期的任务按日期排序
+        upcoming.sort((a, b) => {
+            const dateA = a.due_date || '';
+            const dateB = b.due_date || '';
+            return dateA.localeCompare(dateB);
+        });
+        
+        return {
+            overdue,
+            today_due,
+            upcoming,
+            undated,
+            total_pending: pendingTasks.length,
+        };
+    }
+
     function calculateProjectProgress(tasks) {
         if (!tasks || tasks.length === 0) return 0;
         const total = tasks.reduce((sum, task) => sum + (task.progress || 0), 0);
@@ -466,15 +540,15 @@
         const dueStatus = getDueDateStatus(task.due_date);
         const progress = task.progress || 0;
         const hasDescription = task.description && task.description.trim().length > 0;
-        // 去除描述前后的空白字符，但保留内容内部的换行
-        // 先去除每行开头的空白，然后去除首尾空白
+        // 保留描述中的换行格式
+        // 去除每行开头的空白，但保留换行符
         const descriptionText = hasDescription ? task.description
             .split('\n')
             .map(line => line.trim())
-            .filter(line => line.length > 0)
             .join('\n')
             .trim() : '';
-        const descriptionPreview = descriptionText ? escapeHtml(descriptionText) : '';
+        // 将换行符转换为<br>标签以在HTML中正确显示
+        const descriptionPreview = descriptionText ? escapeHtml(descriptionText).replace(/\n/g, '<br>') : '';
         const descriptionId = `desc-${task.id}`;
         // 如果描述超过150字符或包含换行符，则视为长描述，需要展开/折叠
         const isLongDescription = descriptionText && (descriptionText.length > 150 || descriptionText.includes('\n'));
@@ -1649,6 +1723,7 @@
 
             state.columns.forEach(colKey => {
                 const td = document.createElement('td');
+                td.setAttribute('data-column', colKey);
                 td.innerHTML = getTableCellContent(task, colKey);
                 tr.appendChild(td);
             });
@@ -1713,9 +1788,13 @@
                 return escapeHtml(task.summary || '--');
             case 'description':
                 const desc = task.description || '';
+                if (!desc) return '--';
+                // 保留换行格式：将换行符转换为<br>标签
+                const descWithBreaks = escapeHtml(desc).replace(/\n/g, '<br>');
+                // 对于长文本，显示完整内容（换行会自动处理），但添加title提示
                 return desc.length > 100 
-                    ? `<span title="${escapeHtml(desc)}">${escapeHtml(desc.substring(0, 100))}...</span>`
-                    : escapeHtml(desc || '--');
+                    ? `<span title="${escapeHtml(desc)}">${descWithBreaks}</span>`
+                    : descWithBreaks;
             case 'priority':
                 return `<span class="priority-${task.priority || 3}">${task.priority || 3}</span>`;
             case 'progress':
@@ -2087,6 +2166,96 @@
         
         // 加载数据（数据加载完成后会自动渲染）
         loadData();
+        
+        // 初始化文件选择器
+        initFileSelector();
+    }
+
+    // 初始化文件选择器
+    function initFileSelector() {
+        const fileSelector = document.getElementById('fileSelector');
+        const fileSelectorBtn = document.getElementById('fileSelectorBtn');
+        const fileSelectorDisplay = document.getElementById('fileSelectorDisplay');
+        const resetFileBtn = document.getElementById('resetFileBtn');
+        const fileStatus = document.getElementById('fileStatus');
+        
+        if (!fileSelector || !fileSelectorBtn || !fileSelectorDisplay) return;
+        
+        // 点击按钮触发文件选择
+        fileSelectorBtn.addEventListener('click', () => {
+            fileSelector.click();
+        });
+        
+        // 文件选择变化
+        fileSelector.addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            
+            if (!file.name.endsWith('.json')) {
+                showAlert('danger', '请选择JSON文件');
+                return;
+            }
+            
+            try {
+                const text = await file.text();
+                const data = JSON.parse(text);
+                
+                // 验证数据结构
+                if (!data || typeof data !== 'object') {
+                    throw new Error('无效的JSON格式');
+                }
+                
+                // 检查是否包含projects字段
+                if (!data.projects || !Array.isArray(data.projects)) {
+                    throw new Error('JSON文件格式不正确：缺少projects数组');
+                }
+                
+                // 更新显示
+                fileSelectorDisplay.value = file.name;
+                fileStatus.textContent = `已加载: ${file.name} (${data.projects.length}个项目)`;
+                fileStatus.style.display = 'inline-block';
+                fileStatus.className = 'badge bg-success ms-2';
+                
+                // 更新state并重新渲染
+                state.projects = data.projects || [];
+                
+                // 计算待完成概览（如果JSON中没有overview或需要重新计算）
+                state.overview = calculatePendingOverview(state.projects);
+                
+                // 初始化表格数据
+                flattenTasks();
+                applyTableFilters();
+                
+                renderProjects();
+                renderPendingOverview();
+                
+                // 如果当前是表格风格，重新渲染表格
+                if (state.currentStyle === 'table') {
+                    loadTableColumnOrder();
+                    applyTableFilters();
+                    renderTable();
+                }
+                
+                showAlert('success', `成功加载文件: ${file.name}`);
+            } catch (error) {
+                fileStatus.textContent = `加载失败: ${error.message}`;
+                fileStatus.style.display = 'inline-block';
+                fileStatus.className = 'badge bg-danger ms-2';
+                showAlert('danger', `文件解析失败: ${error.message}`);
+            }
+        });
+        
+        // 重置按钮
+        if (resetFileBtn) {
+            resetFileBtn.addEventListener('click', () => {
+                fileSelector.value = '';
+                fileSelectorDisplay.value = '';
+                fileStatus.style.display = 'none';
+                // 重新加载默认数据
+                loadData();
+                showAlert('info', '已重置为默认数据文件');
+            });
+        }
     }
 
     // 导出状态供导出功能使用

@@ -35,7 +35,16 @@ body {
 
 .header-controls {
     display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    width: 100%;
+    gap: 12px;
+}
+
+.file-selector-row {
+    display: flex;
     align-items: center;
+    gap: 12px;
     width: 100%;
 }
 
@@ -49,41 +58,146 @@ body {
 
 .header-actions {
     display: flex;
-    gap: 12px;
+    gap: 10px;
     flex-wrap: wrap;
     align-items: center;
     flex-shrink: 0;
 }
 
+/* 统一所有控件的高度为38px */
+.todo-header .input-group {
+    height: 38px;
+    display: flex;
+    align-items: stretch;
+}
+
+.todo-header .input-group-text,
+.todo-header .form-control,
+.todo-header .btn,
+.todo-header .font-size-controls,
+.todo-header .style-switch {
+    height: 38px;
+    min-height: 38px;
+    line-height: 1.5;
+    display: flex;
+    align-items: center;
+}
+
+.todo-header .input-group .form-control {
+    flex: 1;
+}
+
+/* 统一输入框和按钮的样式 */
+.todo-header .form-control {
+    padding: 8px 16px;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    background: rgba(255, 255, 255, 0.15);
+    color: #0f172a;
+    font-size: 14px;
+    transition: all 0.2s ease;
+}
+
+.todo-header .form-control:focus {
+    background: rgba(255, 255, 255, 0.25);
+    border-color: rgba(255, 255, 255, 0.4);
+    box-shadow: 0 0 0 0.2rem rgba(255, 255, 255, 0.25);
+    outline: none;
+}
+
+.todo-header .input-group-text {
+    padding: 8px 16px;
+    border-radius: 8px 0 0 8px;
+    background: rgba(255, 255, 255, 0.2);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-right: none;
+    color: #f1f5ff;
+    font-weight: 600;
+    font-size: 14px;
+    display: flex;
+    align-items: center;
+    white-space: nowrap;
+}
+
+.todo-header .input-group .form-control:not(:first-child):not(:last-child) {
+    border-radius: 0;
+    border-left: none;
+    border-right: none;
+}
+
+.todo-header .input-group .form-control:first-child:not(:last-child) {
+    border-radius: 0 8px 8px 0;
+    border-left: none;
+}
+
+.todo-header .input-group .form-control:only-child {
+    border-radius: 8px;
+}
+
+.todo-header .input-group .btn:not(:first-child) {
+    border-radius: 0 8px 8px 0;
+    border-left: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.todo-header .input-group .btn:first-child:not(:last-child) {
+    border-radius: 0;
+    border-right: none;
+}
+
+.todo-header .input-group .btn:only-child {
+    border-radius: 8px;
+}
+
+/* 统一按钮样式 */
+.todo-header .btn {
+    padding: 8px 16px;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 500;
+    border: 1px solid transparent;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+}
+
+.todo-header .btn i {
+    font-size: 14px;
+}
+
+/* 字体大小控件统一高度 */
 .font-size-controls {
     display: flex;
-    gap: 4px;
+    gap: 8px;
     align-items: center;
-    margin-right: 8px;
-}
-
-.font-size-controls .btn {
-    padding: 4px 10px;
-    font-size: 11px;
-    min-width: 40px;
-}
-
-.font-size-controls .btn.active {
-    background-color: #6366f1;
-    color: white;
-    border-color: #6366f1;
+    margin-right: 0;
+    padding: 0 12px;
+    background: rgba(255, 255, 255, 0.15);
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    height: 38px;
 }
 
 .font-size-label {
-    font-size: 12px;
-    margin-right: 8px;
-    color: #2c3e50;
+    font-size: 14px;
+    margin-right: 0;
+    color: #f1f5ff;
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+.font-size-controls .form-range {
+    margin: 0;
+    width: 120px;
+    height: 6px;
 }
 
 .font-size-value {
-    font-size: 12px;
-    margin: 0 8px;
-    color: #2c3e50;
+    font-size: 14px;
+    margin: 0;
+    color: #f1f5ff;
     font-weight: 600;
     min-width: 30px;
     display: inline-block;
@@ -91,32 +205,48 @@ body {
 }
 
 .font-size-unit {
-    font-size: 12px;
-    margin-left: 4px;
-    color: #64748b;
+    font-size: 14px;
+    margin-left: 0;
+    color: rgba(241, 245, 255, 0.8);
 }
 
-.font-size-controls .form-range {
-    margin: 0 8px;
-}
-
-/* 风格切换开关 */
+/* 风格切换开关统一高度 */
 .style-switch {
     display: flex;
     align-items: center;
     gap: 10px;
-    margin-right: 8px;
-    padding: 4px 12px;
-    background: rgba(255, 255, 255, 0.3);
-    border-radius: 20px;
+    margin-right: 0;
+    padding: 0 12px;
+    background: rgba(255, 255, 255, 0.15);
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    height: 38px;
 }
 
 .switch-label {
-    font-size: 12px;
+    font-size: 14px;
     font-weight: 500;
-    color: #2c3e50;
+    color: #f1f5ff;
     margin: 0;
+    white-space: nowrap;
 }
+
+/* 文件状态badge统一高度 */
+.file-status-badge {
+    height: 38px;
+    line-height: 38px;
+    padding: 0 12px;
+    display: inline-flex;
+    align-items: center;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 500;
+}
+
+.file-status-badge:not([style*="display: none"]) {
+    display: inline-flex !important;
+}
+
 
 .switch {
     position: relative;
@@ -326,6 +456,14 @@ input:checked + .slider:before {
     padding: 10px 16px;
     color: #475569;
     vertical-align: top;
+}
+
+/* 确保表格中的详细描述列能正确显示换行 */
+.preview-table td[data-column="description"] {
+    white-space: normal;
+    word-wrap: break-word;
+    word-break: break-word;
+    line-height: 1.6;
 }
 
 .preview-table td:first-child {
@@ -575,37 +713,6 @@ input:checked + .slider:before {
     --font-size-task: 16px;
 }
 
-.search-filter-row .input-group-text {
-    background: rgba(255, 255, 255, 0.2);
-    border: none;
-    color: #f1f5ff;
-    font-weight: 600;
-}
-
-.search-filter-row .form-control,
-.search-filter-row .form-select {
-    border: none;
-    border-radius: 12px;
-    padding: 12px 16px;
-    background: rgba(255, 255, 255, 0.15);
-    color: #0f172a;
-}
-
-.search-filter-row .form-control::placeholder {
-    color: rgba(248, 250, 255, 0.7);
-}
-
-.search-filter-row .form-control:focus,
-.search-filter-row .form-select:focus {
-    box-shadow: 0 0 0 0.2rem rgba(255, 255, 255, 0.25);
-}
-
-.search-filter-row .input-group {
-    flex: 0 0 auto;
-    display: flex;
-    width: auto;
-    margin: 0;
-}
 
 .search-filter-row .search-input {
     min-width: 200px;

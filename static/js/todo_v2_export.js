@@ -161,8 +161,10 @@
             return;
         }
 
-        // 只读取评论处理方式，其他参数不应用
+        // 读取三个设置：评论处理方式、是否合并项目名称行、是否添加总序号
         const commentMode = document.querySelector('input[name="commentMode"]:checked')?.value || 'inline';
+        const mergeProjectName = document.getElementById('mergeProjectName')?.checked || false;
+        const addGlobalIndex = document.getElementById('addGlobalIndex')?.checked || false;
 
         // 构建导出配置（使用当前预览的列顺序和筛选结果）
         const config = {
@@ -171,7 +173,9 @@
             columns: columns.filter(col => col !== 'actions'), // 排除操作列，使用当前表格的所有列
             columnOrder: columns.filter(col => col !== 'actions'), // 使用当前表格的列顺序
             projectMode: 'single', // 预览模式固定使用单sheet
-            commentMode: commentMode, // 只应用评论处理方式
+            commentMode: commentMode, // 评论处理方式
+            mergeProjectName: mergeProjectName, // 是否合并项目名称行
+            addGlobalIndex: addGlobalIndex, // 是否添加总序号
             fileName: document.getElementById('exportFileName')?.value || null,
         };
 
@@ -252,6 +256,8 @@
             columnOrder: [],
             projectMode: document.querySelector('input[name="projectMode"]:checked').value,
             commentMode: document.querySelector('input[name="commentMode"]:checked').value,
+            mergeProjectName: document.getElementById('mergeProjectName')?.checked || false,
+            addGlobalIndex: document.getElementById('addGlobalIndex')?.checked || false,
             fileName: document.getElementById('exportFileName')?.value || null,
         };
 

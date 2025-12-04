@@ -561,6 +561,8 @@ def init_app(app):
             column_order = config.get('columnOrder', columns)
             project_mode = config.get('projectMode', 'single')
             comment_mode = config.get('commentMode', 'inline')
+            merge_project_name = config.get('mergeProjectName', False)
+            add_global_index = config.get('addGlobalIndex', False)
 
             # 列定义映射
             column_definitions = {
@@ -591,6 +593,12 @@ def init_app(app):
                 headers = []
                 header_col_map = {}  # 记录表头列索引到column_order的映射
                 col_idx = 0
+                
+                # 如果启用总序号，在第一列添加总序号
+                if add_global_index:
+                    headers.append('总序号')
+                    header_col_map[col_idx] = 'global_index'
+                    col_idx += 1
                 
                 if 'project_name' in column_order:
                     headers.append('项目名称')
@@ -652,20 +660,57 @@ def init_app(app):
                     bottom=Side(style='thin', color='E0E0E0')
                 )
                 
-                for idx, task in enumerate(all_tasks, 1):
+                # 用于记录项目名称合并信息
+                project_name_merge_ranges = []  # 存储需要合并的范围 [(start_row, end_row, col_idx)]
+                current_project_name = None
+                project_name_start_row = None
+                project_name_col_idx = None
+                
+                # 找到项目名称列的索引
+                if 'project_name' in column_order:
+                    for header_idx, col_key in header_col_map.items():
+                        if col_key == 'project_name':
+                            project_name_col_idx = header_idx + 1  # Excel列索引从1开始
+                            break
+                
+                # 计算每个任务在其项目中的序号
+                project_task_counters = {}  # {project_id: counter}
+                
+                for global_idx, task in enumerate(all_tasks, 1):
                     row_data = []
                     comments = task.get('comments', [])
                     is_even = (row_num % 2 == 0)
                     row_fill = even_row_fill if is_even else odd_row_fill
                     
+                    task_project_name = task.get('project_name', '--')
+                    
+                    # 处理项目名称合并逻辑
+                    if merge_project_name and project_name_col_idx:
+                        if task_project_name != current_project_name:
+                            # 项目名称变化，如果之前有连续的项目名称，记录合并范围
+                            if current_project_name is not None and project_name_start_row is not None:
+                                if row_num - 1 > project_name_start_row:
+                                    # 有多个连续行，需要合并
+                                    project_name_merge_ranges.append((project_name_start_row, row_num - 1, project_name_col_idx))
+                                # 重置
+                            current_project_name = task_project_name
+                            project_name_start_row = row_num
+                    
                     # 按照表头顺序构建数据行
                     for header_idx in range(len(headers)):
                         col_key = header_col_map.get(header_idx)
                         
-                        if col_key == 'project_name':
-                            row_data.append(task.get('project_name', '--'))
+                        if col_key == 'global_index':
+                            row_data.append(global_idx)
+                        elif col_key == 'project_name':
+                            row_data.append(task_project_name)
                         elif col_key == 'index':
-                            row_data.append(idx)
+                            # 使用任务在其项目中的序号
+                            project_id = task.get('project_id', '')
+                            if project_id not in project_task_counters:
+                                project_task_counters[project_id] = 0
+                            project_task_counters[project_id] += 1
+                            row_data.append(project_task_counters[project_id])
                         elif col_key == 'summary':
                             row_data.append(task.get('summary', '--'))
                         elif col_key == 'description':
@@ -744,6 +789,18 @@ def init_app(app):
                         cell = ws.cell(row=row_num, column=col_idx)
                         cell.fill = row_fill
                         cell.border = cell_border
+                        
+                        # 设置对齐方式
+                        col_key = header_col_map.get(col_idx - 1)
+                        if col_key == 'description' or col_key == 'summary':
+                            # 任务描述和任务简述：左对齐，上下居中，自动换行
+                            cell.alignment = Alignment(horizontal='left', vertical='center', wrap_text=True)
+                        elif col_key == 'comment' or col_key == 'change_count':
+                            # 评论列：左对齐，上下居中
+                            cell.alignment = Alignment(horizontal='left', vertical='center')
+                        else:
+                            # 其他列：居中，上下居中
+                            cell.alignment = Alignment(horizontal='center', vertical='center')
                     
                     # 设置评论列自动换行（方式一）
                     if comment_mode == 'inline' and comments:
@@ -757,7 +814,8 @@ def init_app(app):
                             comment_col_idx = len(headers)  # 评论列在最后
                         if comment_col_idx:
                             comment_cell = ws.cell(row=row_num, column=comment_col_idx)
-                            comment_cell.alignment = Alignment(wrap_text=True, vertical='top')
+                            # 评论列：左对齐，上下居中，自动换行
+                            comment_cell.alignment = Alignment(horizontal='left', vertical='center', wrap_text=True)
                     
                     # 添加超链接（方式二）
                     if comment_mode == 'sheet' and comments:
@@ -780,18 +838,69 @@ def init_app(app):
                                 comment_cell.value = f"查看评论({len(comments)})"
                     
                     row_num += 1
+                
+                # 处理最后一个项目名称的合并
+                if merge_project_name and project_name_col_idx and current_project_name is not None and project_name_start_row is not None:
+                    if row_num - 1 > project_name_start_row:
+                        # 有多个连续行，需要合并
+                        project_name_merge_ranges.append((project_name_start_row, row_num - 1, project_name_col_idx))
+                
+                # 执行项目名称合并
+                if merge_project_name and project_name_merge_ranges:
+                    for start_row, end_row, col_idx in project_name_merge_ranges:
+                        if end_row > start_row:
+                            # 合并单元格
+                            col_letter = get_column_letter(col_idx)
+                            ws.merge_cells(f'{col_letter}{start_row}:{col_letter}{end_row}')
+                            # 设置合并后的单元格对齐方式为居中
+                            merged_cell = ws[f'{col_letter}{start_row}']
+                            merged_cell.alignment = Alignment(horizontal='center', vertical='center')
 
+                # 根据内容自动调整列宽
+                def calculate_column_width(ws, col_idx, min_width=10, max_width=80):
+                    """根据列内容计算合适的列宽"""
+                    col_letter = get_column_letter(col_idx)
+                    max_length = 0
+                    
+                    # 检查表头
+                    header_cell = ws.cell(row=1, column=col_idx)
+                    if header_cell.value:
+                        max_length = max(max_length, len(str(header_cell.value)))
+                    
+                    # 检查所有数据行
+                    for row in ws.iter_rows(min_row=2, max_row=ws.max_row, min_col=col_idx, max_col=col_idx):
+                        for cell in row:
+                            if cell.value:
+                                # 对于可能换行的列，计算单行最大长度
+                                cell_value = str(cell.value)
+                                # 如果包含换行符，取最长的一行
+                                if '\n' in cell_value:
+                                    lines = cell_value.split('\n')
+                                    max_line_length = max(len(line) for line in lines)
+                                    max_length = max(max_length, max_line_length)
+                                else:
+                                    max_length = max(max_length, len(cell_value))
+                    
+                    # 设置列宽，添加一些边距
+                    width = min(max(max_length + 2, min_width), max_width)
+                    return width
+                
                 # 调整列宽
                 for col_idx, header in enumerate(headers, 1):
                     col_letter = get_column_letter(col_idx)
-                    if header in ['项目名称', '任务简述']:
-                        ws.column_dimensions[col_letter].width = 20
-                    elif header == '详细描述':
-                        ws.column_dimensions[col_letter].width = 40
-                    elif header == '评论':
-                        ws.column_dimensions[col_letter].width = 50
+                    col_key = header_col_map.get(col_idx - 1)
+                    
+                    # 对于需要换行的列（任务简述、详细描述、评论），设置固定宽度
+                    if col_key == 'summary':
+                        ws.column_dimensions[col_letter].width = 30  # 任务简述
+                    elif col_key == 'description':
+                        ws.column_dimensions[col_letter].width = 50  # 详细描述
+                    elif col_key == 'comment' or (col_key == 'change_count' and comment_mode == 'inline'):
+                        ws.column_dimensions[col_letter].width = 50  # 评论
                     else:
-                        ws.column_dimensions[col_letter].width = 15
+                        # 其他列根据内容自动调整
+                        width = calculate_column_width(ws, col_idx, min_width=10, max_width=30)
+                        ws.column_dimensions[col_letter].width = width
 
                 # 创建评论Sheet（方式二）
                 if comment_mode == 'sheet' and comment_sheet_rows:
@@ -805,6 +914,7 @@ def init_app(app):
                         cell.alignment = Alignment(horizontal='center', vertical='center')
                         cell.border = border
                     
+                    # 添加评论数据行并设置对齐方式
                     for row_data in comment_sheet_rows:
                         timestamp = row_data['timestamp']
                         if timestamp:
@@ -813,19 +923,25 @@ def init_app(app):
                                 timestamp = dt.strftime('%Y-%m-%d %H:%M')
                             except:
                                 pass
+                        row_num = comment_ws.max_row + 1
                         comment_ws.append([
                             row_data['project_name'],
                             row_data['task_summary'],
                             timestamp,
                             row_data['content'],
                         ])
+                        
+                        # 设置对齐方式：项目名称和时间居中，任务简述和评论内容左对齐
+                        comment_ws.cell(row=row_num, column=1).alignment = Alignment(horizontal='center', vertical='center')  # 项目名称
+                        comment_ws.cell(row=row_num, column=2).alignment = Alignment(horizontal='left', vertical='center', wrap_text=True)  # 任务简述
+                        comment_ws.cell(row=row_num, column=3).alignment = Alignment(horizontal='center', vertical='center')  # 时间
+                        comment_ws.cell(row=row_num, column=4).alignment = Alignment(horizontal='left', vertical='center', wrap_text=True)  # 评论内容
                     
                     # 调整评论Sheet列宽
                     comment_ws.column_dimensions['A'].width = 20
                     comment_ws.column_dimensions['B'].width = 30
                     comment_ws.column_dimensions['C'].width = 18
                     comment_ws.column_dimensions['D'].width = 50
-                    comment_ws.column_dimensions['D'].alignment = Alignment(wrap_text=True)
 
             else:
                 # 方式二：不同项目不同Sheet
@@ -841,6 +957,7 @@ def init_app(app):
 
                 comment_sheet_rows = []
                 comment_row_counter = 2  # 评论Sheet的行号计数器
+                global_task_counter = 1  # 全局任务计数器（用于总序号）
                 
                 for project_id, project_data in projects_dict.items():
                     project_name = project_data['name']
@@ -853,6 +970,12 @@ def init_app(app):
                     headers = []
                     header_col_map = {}  # 记录表头列索引到column_order的映射
                     col_idx = 0
+                    
+                    # 如果启用总序号，在第一列添加总序号
+                    if add_global_index:
+                        headers.append('总序号')
+                        header_col_map[col_idx] = 'global_index'
+                        col_idx += 1
                     
                     for col in column_order:
                         if col in column_definitions:
@@ -913,7 +1036,10 @@ def init_app(app):
                         for header_idx in range(len(headers)):
                             col_key = header_col_map.get(header_idx)
                             
-                            if col_key == 'index':
+                            if col_key == 'global_index':
+                                row_data.append(global_task_counter)
+                                global_task_counter += 1
+                            elif col_key == 'index':
                                 row_data.append(idx)
                             elif col_key == 'summary':
                                 row_data.append(task.get('summary', '--'))
@@ -985,6 +1111,18 @@ def init_app(app):
                             cell = ws.cell(row=row_num, column=col_idx)
                             cell.fill = row_fill
                             cell.border = cell_border
+                            
+                            # 设置对齐方式
+                            col_key = header_col_map.get(col_idx - 1)
+                            if col_key == 'description' or col_key == 'summary':
+                                # 任务描述和任务简述：左对齐，上下居中，自动换行
+                                cell.alignment = Alignment(horizontal='left', vertical='center', wrap_text=True)
+                            elif col_key == 'comment' or col_key == 'change_count':
+                                # 评论列：左对齐，上下居中
+                                cell.alignment = Alignment(horizontal='left', vertical='center')
+                            else:
+                                # 其他列：居中，上下居中
+                                cell.alignment = Alignment(horizontal='center', vertical='center')
                         
                         # 设置评论列自动换行（方式一）
                         if comment_mode == 'inline' and comments:
@@ -996,7 +1134,8 @@ def init_app(app):
                                     break
                             if comment_col_idx:
                                 comment_cell = ws.cell(row=row_num, column=comment_col_idx)
-                                comment_cell.alignment = Alignment(wrap_text=True, vertical='top')
+                                # 评论列：左对齐，上下居中，自动换行
+                                comment_cell.alignment = Alignment(horizontal='left', vertical='center', wrap_text=True)
                         
                         # 添加超链接（方式二）
                         if comment_mode == 'sheet' and comments:
@@ -1020,17 +1159,67 @@ def init_app(app):
                         
                         row_num += 1
                     
+                    # 方式二中，如果启用合并项目名称且Sheet中有多个任务，合并项目名称列
+                    if merge_project_name and 'project_name' in column_order and row_num > 3:
+                        # 找到项目名称列的索引
+                        project_name_col_idx = None
+                        for header_idx, col_key in header_col_map.items():
+                            if col_key == 'project_name':
+                                project_name_col_idx = header_idx + 1
+                                break
+                        if project_name_col_idx:
+                            # 合并从第2行（数据开始）到最后一行
+                            col_letter = get_column_letter(project_name_col_idx)
+                            ws.merge_cells(f'{col_letter}2:{col_letter}{row_num - 1}')
+                            # 设置合并后的单元格对齐方式为居中
+                            merged_cell = ws[f'{col_letter}2']
+                            merged_cell.alignment = Alignment(horizontal='center', vertical='center')
+                    
+                    # 根据内容自动调整列宽（复用方式一的函数）
+                    def calculate_column_width(ws, col_idx, min_width=10, max_width=80):
+                        """根据列内容计算合适的列宽"""
+                        col_letter = get_column_letter(col_idx)
+                        max_length = 0
+                        
+                        # 检查表头
+                        header_cell = ws.cell(row=1, column=col_idx)
+                        if header_cell.value:
+                            max_length = max(max_length, len(str(header_cell.value)))
+                        
+                        # 检查所有数据行
+                        for row in ws.iter_rows(min_row=2, max_row=ws.max_row, min_col=col_idx, max_col=col_idx):
+                            for cell in row:
+                                if cell.value:
+                                    # 对于可能换行的列，计算单行最大长度
+                                    cell_value = str(cell.value)
+                                    # 如果包含换行符，取最长的一行
+                                    if '\n' in cell_value:
+                                        lines = cell_value.split('\n')
+                                        max_line_length = max(len(line) for line in lines)
+                                        max_length = max(max_length, max_line_length)
+                                    else:
+                                        max_length = max(max_length, len(cell_value))
+                        
+                        # 设置列宽，添加一些边距
+                        width = min(max(max_length + 2, min_width), max_width)
+                        return width
+                    
                     # 调整列宽
                     for col_idx, header in enumerate(headers, 1):
                         col_letter = get_column_letter(col_idx)
-                        if header in ['任务简述']:
-                            ws.column_dimensions[col_letter].width = 20
-                        elif header == '详细描述':
-                            ws.column_dimensions[col_letter].width = 40
-                        elif header == '评论':
-                            ws.column_dimensions[col_letter].width = 50
+                        col_key = header_col_map.get(col_idx - 1)
+                        
+                        # 对于需要换行的列（任务简述、详细描述、评论），设置固定宽度
+                        if col_key == 'summary':
+                            ws.column_dimensions[col_letter].width = 30  # 任务简述
+                        elif col_key == 'description':
+                            ws.column_dimensions[col_letter].width = 50  # 详细描述
+                        elif col_key == 'comment' or (col_key == 'change_count' and comment_mode == 'inline'):
+                            ws.column_dimensions[col_letter].width = 50  # 评论
                         else:
-                            ws.column_dimensions[col_letter].width = 15
+                            # 其他列根据内容自动调整
+                            width = calculate_column_width(ws, col_idx, min_width=10, max_width=30)
+                            ws.column_dimensions[col_letter].width = width
 
                 # 创建评论Sheet（方式二）
                 if comment_mode == 'sheet' and comment_sheet_rows:
@@ -1053,6 +1242,7 @@ def init_app(app):
                         cell.alignment = Alignment(horizontal='center', vertical='center')
                         cell.border = border
                     
+                    # 添加评论数据行并设置对齐方式
                     for row_data in comment_sheet_rows:
                         timestamp = row_data['timestamp']
                         if timestamp:
@@ -1061,19 +1251,25 @@ def init_app(app):
                                 timestamp = dt.strftime('%Y-%m-%d %H:%M')
                             except:
                                 pass
+                        row_num = comment_ws.max_row + 1
                         comment_ws.append([
                             row_data['project_name'],
                             row_data['task_summary'],
                             timestamp,
                             row_data['content'],
                         ])
+                        
+                        # 设置对齐方式：项目名称和时间居中，任务简述和评论内容左对齐
+                        comment_ws.cell(row=row_num, column=1).alignment = Alignment(horizontal='center', vertical='center')  # 项目名称
+                        comment_ws.cell(row=row_num, column=2).alignment = Alignment(horizontal='left', vertical='center', wrap_text=True)  # 任务简述
+                        comment_ws.cell(row=row_num, column=3).alignment = Alignment(horizontal='center', vertical='center')  # 时间
+                        comment_ws.cell(row=row_num, column=4).alignment = Alignment(horizontal='left', vertical='center', wrap_text=True)  # 评论内容
                     
                     # 调整评论Sheet列宽
                     comment_ws.column_dimensions['A'].width = 20
                     comment_ws.column_dimensions['B'].width = 30
                     comment_ws.column_dimensions['C'].width = 18
                     comment_ws.column_dimensions['D'].width = 50
-                    comment_ws.column_dimensions['D'].alignment = Alignment(wrap_text=True)
 
             # 保存到内存
             output = BytesIO()
