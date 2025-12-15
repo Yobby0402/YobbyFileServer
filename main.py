@@ -276,6 +276,50 @@ def create_app():
     init_serial_socketio(socketio)
     app.socketio = socketio
     
+    # ---------------- Favorites API ----------------
+    from favorites_model import favorites_model
+    from flask import jsonify
+
+    @app.route('/api/favorites/list', methods=['GET'])
+    def list_favorites():
+        return jsonify(favorites_model.get_favorites())
+
+    @app.route('/api/favorites/add', methods=['POST'])
+    def add_favorite():
+        data = request.json
+        filepath = data.get('filepath')
+        group = data.get('group', '默认收藏')
+        remark = data.get('remark', '')
+        if not filepath:
+            return jsonify({'success': False, 'message': '文件路径不能为空'})
+        
+        success, msg = favorites_model.add_favorite(filepath, group, remark)
+        return jsonify({'success': success, 'message': msg})
+
+    @app.route('/api/favorites/remove', methods=['POST'])
+    def remove_favorite():
+        data = request.json
+        filepath = data.get('filepath')
+        success, msg = favorites_model.remove_favorite(filepath)
+        return jsonify({'success': success, 'message': msg})
+
+    @app.route('/api/favorites/group/add', methods=['POST'])
+    def add_favorite_group():
+        data = request.json
+        group_name = data.get('name')
+        if not group_name:
+            return jsonify({'success': False, 'message': '分组名不能为空'})
+        success, msg = favorites_model.add_group(group_name)
+        return jsonify({'success': success, 'message': msg})
+
+    @app.route('/api/favorites/group/delete', methods=['POST'])
+    def delete_favorite_group():
+        data = request.json
+        group_name = data.get('name')
+        success, msg = favorites_model.delete_group(group_name)
+        return jsonify({'success': success, 'message': msg})
+    # -----------------------------------------------
+
     return app
 
 

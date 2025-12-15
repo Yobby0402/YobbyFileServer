@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -90,7 +91,8 @@
             cursor: pointer;
             transition: all 0.2s;
             border: 2px solid transparent;
-            border-left-width: 8px; /* 左侧书签区域宽度 */
+            border-left-width: 8px;
+            /* 左侧书签区域宽度 */
         }
 
         .product-item:hover {
@@ -122,7 +124,9 @@
             padding: 20px;
         }
 
-        .attribute-panel, .product-detail-panel, .compare-panel {
+        .attribute-panel,
+        .product-detail-panel,
+        .compare-panel {
             background: white;
             border-radius: 12px;
             padding: 20px;
@@ -143,43 +147,43 @@
             border-radius: 8px;
             cursor: move;
         }
-        
+
         .attribute-item.dragging {
             opacity: 0.5;
         }
-        
+
         .attribute-item.drag-over {
             border-top: 3px solid var(--jasmine-green-500);
         }
-        
+
         .attribute-item.drag-over-bottom {
             border-bottom: 3px solid var(--jasmine-green-500);
         }
-        
+
         .sortable-column {
             user-select: none;
         }
-        
+
         .sortable-column:hover {
             background-color: var(--jasmine-green-100);
         }
-        
+
         #sortTable {
             width: 100%;
             table-layout: auto;
         }
-        
+
         #sortTable th,
         #sortTable td {
             padding: 8px 12px;
             word-wrap: break-word;
             overflow-wrap: break-word;
         }
-        
+
         #sortTable th {
             white-space: nowrap;
         }
-        
+
         #sortTable td {
             white-space: normal;
         }
@@ -302,6 +306,7 @@
         }
     </style>
 </head>
+
 <body class="jasmine-body">
     <div class="product-compare-container">
         <!-- 顶部工具栏 -->
@@ -332,14 +337,16 @@
                         <select class="form-select" id="fileSelector" style="flex: 1;">
                             <option value="">-- 选择对比文件 --</option>
                         </select>
-                        <button type="button" class="btn btn-sm btn-danger" id="deleteFileBtn" style="display: none;" title="删除当前对比文件">
+                        <button type="button" class="btn btn-sm btn-danger" id="deleteFileBtn" style="display: none;"
+                            title="删除当前对比文件">
                             <i class="fas fa-trash"></i>
                         </button>
                     </div>
                 </div>
                 <div class="panel-header">
                     <span>产品列表</span>
-                    <button type="button" class="btn btn-sm btn-primary float-end" id="addProductBtn" style="display: none;">
+                    <button type="button" class="btn btn-sm btn-primary float-end" id="addProductBtn"
+                        style="display: none;">
                         <i class="fas fa-plus"></i> 添加产品
                     </button>
                 </div>
@@ -356,9 +363,10 @@
                 <div class="panel-header">
                     <span id="rightPanelTitle">请选择操作</span>
                 </div>
-                
+
                 <!-- Tab 导航 -->
-                <div class="tab-navigation" id="tabNavigation" style="display: none; padding: 0 20px; background: rgba(255, 255, 255, 0.5); border-bottom: 1px solid rgba(95, 191, 174, 0.2);">
+                <div class="tab-navigation" id="tabNavigation"
+                    style="display: none; padding: 0 20px; background: rgba(255, 255, 255, 0.5); border-bottom: 1px solid rgba(95, 191, 174, 0.2);">
                     <ul class="nav nav-tabs" style="border-bottom: none;">
                         <li class="nav-item">
                             <a class="nav-link active" data-tab="attributes" onclick="switchTab('attributes')">
@@ -382,7 +390,7 @@
                         </li>
                     </ul>
                 </div>
-                
+
                 <!-- Tab 内容区域 -->
                 <div class="content-area" id="contentArea">
                     <!-- 属性管理 Tab -->
@@ -392,7 +400,7 @@
                             <p>请先创建属性列表，然后添加产品</p>
                         </div>
                     </div>
-                    
+
                     <!-- 产品详情 Tab -->
                     <div class="tab-content" id="tabProductDetail" style="display: none;">
                         <div class="empty-state" id="productDetailEmptyState">
@@ -401,7 +409,7 @@
                         </div>
                         <div id="productDetailContent" style="display: none;"></div>
                     </div>
-                    
+
                     <!-- 雷达图 Tab -->
                     <div class="tab-content" id="tabRadar" style="display: none;">
                         <div class="empty-state" id="radarEmptyState">
@@ -412,7 +420,8 @@
                             </p>
                         </div>
                         <div id="radarChartContainer" style="display: none;">
-                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                            <div
+                                style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
                                 <h5>产品对比雷达图</h5>
                                 <button type="button" class="btn btn-sm btn-success" onclick="exportRadarChart()">
                                     <i class="fas fa-download"></i> 导出图表
@@ -424,7 +433,7 @@
                             <div id="radarAnalysisPanel" style="margin-top: 20px;"></div>
                         </div>
                     </div>
-                    
+
                     <!-- 参数排序 Tab -->
                     <div class="tab-content" id="tabSort" style="display: none;">
                         <div id="sortContent"></div>
@@ -522,8 +531,34 @@
         </div>
     </div>
 
+    <!-- 浮动工具栏 -->
+    <div class="floating-toolbar">
+        <button class="toolbar-btn" title="切换主题" onclick="cycleTheme()">
+            <i class="fas fa-palette"></i>
+        </button>
+        <a href="/" class="toolbar-btn back-btn" title="返回首页">
+            <i class="fas fa-home"></i>
+        </a>
+        <a href="/logout" class="toolbar-btn logout-btn" title="退出登录">
+            <i class="fas fa-sign-out-alt"></i>
+        </a>
+    </div>
+
+    <script>
+        function cycleTheme() {
+            const themes = ['snow', 'dark', 'ocean', 'sunset', 'forest', 'cyberpunk'];
+            const current = localStorage.getItem('yobby_theme') || 'snow';
+            const nextIndex = (themes.indexOf(current) + 1) % themes.length;
+            const nextTheme = themes[nextIndex];
+            if (window.YobbyTheme) {
+                window.YobbyTheme.setTheme(nextTheme);
+            }
+        }
+    </script>
+
     <script src="{{ url_for('static', filename='js/bootstrap.bundle.min.js') }}"></script>
     <script src="{{ url_for('static', filename='js/product_compare.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
 </body>
-</html>
 
+</html>

@@ -1,6 +1,6 @@
 body {
-    background: radial-gradient(circle at 20% 20%, rgba(213, 240, 230, 0.95), rgba(224, 244, 239, 0.92)),
-                linear-gradient(160deg, rgba(214, 242, 234, 0.85), rgba(188, 232, 220, 0.9));
+    background: var(--jasmine-gradient-main);
+    background-attachment: fixed;
     min-height: 100vh;
     font-family: "Microsoft YaHei", "Segoe UI", Arial, sans-serif;
     color: var(--jasmine-ink);
@@ -21,10 +21,11 @@ body {
     gap: 18px;
     padding: 24px;
     border-radius: 20px;
-    background: rgba(255, 255, 255, 0.12);
+    background: var(--jasmine-panel-glass);
     backdrop-filter: blur(12px);
-    color: #f8f9ff;
+    color: var(--jasmine-ink);
     margin-bottom: 0;
+    border: 1px solid var(--jasmine-outline);
 }
 
 .todo-header .page-title {
@@ -91,27 +92,27 @@ body {
 .todo-header .form-control {
     padding: 8px 16px;
     border-radius: 8px;
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    background: rgba(255, 255, 255, 0.15);
-    color: #0f172a;
+    border: 1px solid var(--jasmine-outline);
+    background: var(--jasmine-panel-glass);
+    color: var(--jasmine-ink);
     font-size: 14px;
     transition: all 0.2s ease;
 }
 
 .todo-header .form-control:focus {
-    background: rgba(255, 255, 255, 0.25);
-    border-color: rgba(255, 255, 255, 0.4);
-    box-shadow: 0 0 0 0.2rem rgba(255, 255, 255, 0.25);
+    background: var(--jasmine-panel-glass);
+    border-color: var(--jasmine-primary);
+    box-shadow: var(--jasmine-focus-shadow);
     outline: none;
 }
 
 .todo-header .input-group-text {
     padding: 8px 16px;
     border-radius: 8px 0 0 8px;
-    background: rgba(255, 255, 255, 0.2);
-    border: 1px solid rgba(255, 255, 255, 0.2);
+    background: var(--jasmine-panel-glass);
+    border: 1px solid var(--jasmine-outline);
     border-right: none;
-    color: #f1f5ff;
+    color: var(--jasmine-ink);
     font-weight: 600;
     font-size: 14px;
     display: flex;
@@ -174,16 +175,16 @@ body {
     align-items: center;
     margin-right: 0;
     padding: 0 12px;
-    background: rgba(255, 255, 255, 0.15);
+    background: var(--jasmine-panel-glass);
     border-radius: 8px;
-    border: 1px solid rgba(255, 255, 255, 0.2);
+    border: 1px solid var(--jasmine-outline);
     height: 38px;
 }
 
 .font-size-label {
     font-size: 14px;
     margin-right: 0;
-    color: #f1f5ff;
+    color: var(--jasmine-ink);
     font-weight: 500;
     white-space: nowrap;
 }
@@ -197,7 +198,7 @@ body {
 .font-size-value {
     font-size: 14px;
     margin: 0;
-    color: #f1f5ff;
+    color: var(--jasmine-ink);
     font-weight: 600;
     min-width: 30px;
     display: inline-block;
@@ -207,7 +208,7 @@ body {
 .font-size-unit {
     font-size: 14px;
     margin-left: 0;
-    color: rgba(241, 245, 255, 0.8);
+    color: var(--jasmine-muted);
 }
 
 /* 风格切换开关统一高度 */
@@ -217,16 +218,16 @@ body {
     gap: 10px;
     margin-right: 0;
     padding: 0 12px;
-    background: rgba(255, 255, 255, 0.15);
+    background: var(--jasmine-panel-glass);
     border-radius: 8px;
-    border: 1px solid rgba(255, 255, 255, 0.2);
+    border: 1px solid var(--jasmine-outline);
     height: 38px;
 }
 
 .switch-label {
     font-size: 14px;
     font-weight: 500;
-    color: #f1f5ff;
+    color: var(--jasmine-ink);
     margin: 0;
     white-space: nowrap;
 }
@@ -285,11 +286,11 @@ body {
     border-radius: 50%;
 }
 
-input:checked + .slider {
+input:checked+.slider {
     background-color: #667eea;
 }
 
-input:checked + .slider:before {
+input:checked+.slider:before {
     transform: translateX(26px);
 }
 
@@ -327,7 +328,7 @@ input:checked + .slider:before {
 
 /* 表格风格样式 */
 .table-style {
-    background: rgba(255, 255, 255, 0.95);
+    background: var(--jasmine-panel-glass);
     border-radius: 16px;
     padding: 20px;
     overflow: auto;
@@ -351,12 +352,12 @@ input:checked + .slider:before {
 .preview-table {
     width: 100%;
     border-collapse: collapse;
-    background: white;
+    background: transparent;
     font-size: 13px;
 }
 
 .preview-table thead {
-    background: linear-gradient(120deg, rgba(214, 242, 234, 0.9), rgba(200, 236, 224, 0.9));
+    background: var(--jasmine-green-200);
     position: sticky;
     top: 0;
     z-index: 10;
@@ -366,8 +367,8 @@ input:checked + .slider:before {
     padding: 12px 16px;
     text-align: left;
     font-weight: 600;
-    color: var(--jasmine-green-700);
-    border-bottom: 2px solid rgba(95, 191, 174, 0.3);
+    color: var(--jasmine-ink);
+    border-bottom: 2px solid var(--jasmine-outline);
     white-space: nowrap;
     cursor: move;
     user-select: none;
@@ -436,16 +437,16 @@ input:checked + .slider:before {
 }
 
 .preview-table tbody tr {
-    border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+    border-bottom: 1px solid var(--jasmine-outline);
     transition: background-color 0.2s;
 }
 
 .preview-table tbody tr:nth-child(even) {
-    background-color: rgba(248, 249, 250, 0.8);
+    background-color: var(--jasmine-panel-glass);
 }
 
 .preview-table tbody tr:nth-child(odd) {
-    background-color: rgba(255, 255, 255, 1);
+    background-color: transparent;
 }
 
 .preview-table tbody tr:hover {
@@ -454,7 +455,7 @@ input:checked + .slider:before {
 
 .preview-table td {
     padding: 10px 16px;
-    color: #475569;
+    color: var(--jasmine-ink);
     vertical-align: top;
 }
 
@@ -522,9 +523,9 @@ input:checked + .slider:before {
     top: 50%;
     left: 50%;
     transform: translate(-50%, -50%);
-    background: white;
+    background: var(--jasmine-white);
     border-radius: 12px;
-    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+    box-shadow: var(--jasmine-shadow-lg);
     z-index: 1000;
     min-width: 400px;
     max-width: 600px;
@@ -546,7 +547,7 @@ input:checked + .slider:before {
 .filter-header h6 {
     margin: 0;
     font-weight: 600;
-    color: #1e293b;
+    color: var(--jasmine-ink);
 }
 
 .filter-body {
@@ -1533,4 +1534,3 @@ input:checked + .slider:before {
         color: #64748b;
     }
 }
-

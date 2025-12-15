@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -7,14 +8,15 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap.min.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/jasmine_base.css') }}">
     <style>
-        body, html {
+        body,
+        html {
             height: 100%;
             margin: 0;
             padding: 0;
             overflow: hidden;
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Microsoft YaHei", sans-serif;
         }
-        
+
         /* 浮动工具栏 */
         .floating-toolbar {
             position: fixed;
@@ -25,7 +27,7 @@
             flex-direction: column;
             gap: 10px;
         }
-        
+
         .toolbar-btn {
             width: 60px;
             height: 60px;
@@ -42,31 +44,31 @@
             justify-content: center;
             position: relative;
         }
-        
+
         .toolbar-btn:hover {
             transform: translateY(-3px);
             box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
         }
-        
+
         .toolbar-btn:active {
             transform: translateY(-1px);
         }
-        
+
         .toolbar-btn.save-btn {
             background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
         }
-        
+
         .toolbar-btn.download-btn {
             background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
         }
-        
+
         .toolbar-btn.back-btn {
             background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);
             width: 50px;
             height: 50px;
             font-size: 20px;
         }
-        
+
         .toolbar-btn .tooltip-text {
             position: absolute;
             right: 70px;
@@ -80,11 +82,11 @@
             pointer-events: none;
             transition: opacity 0.3s;
         }
-        
+
         .toolbar-btn:hover .tooltip-text {
             opacity: 1;
         }
-        
+
         /* 保存状态指示器 */
         .save-status {
             position: fixed;
@@ -100,7 +102,7 @@
             gap: 10px;
             font-size: 14px;
         }
-        
+
         /* 保存提示框 */
         .save-hint {
             position: fixed;
@@ -117,41 +119,42 @@
             font-weight: bold;
             animation: slideDown 0.5s ease-out;
         }
-        
+
         @keyframes slideDown {
             from {
                 opacity: 0;
                 transform: translateX(-50%) translateY(-20px);
             }
+
             to {
                 opacity: 1;
                 transform: translateX(-50%) translateY(0);
             }
         }
-        
+
         .save-status.show {
             display: flex;
         }
-        
+
         .save-status.saving {
             background: rgba(255, 193, 7, 0.95);
         }
-        
+
         .save-status.saved {
             background: rgba(40, 167, 69, 0.95);
             color: white;
         }
-        
+
         .save-status.error {
             background: rgba(220, 53, 69, 0.95);
             color: white;
         }
-        
+
         .drawio-container {
             height: 100vh;
             width: 100vw;
         }
-        
+
         .loading-spinner {
             display: flex;
             justify-content: center;
@@ -162,18 +165,18 @@
             flex-direction: column;
             gap: 20px;
         }
-        
+
         .spinner {
             width: 3rem;
             height: 3rem;
         }
-        
+
         iframe {
             width: 100%;
             height: 100%;
             border: none;
         }
-        
+
         /* 文件名输入模态框 */
         .modal-overlay {
             display: none;
@@ -187,11 +190,11 @@
             align-items: center;
             justify-content: center;
         }
-        
+
         .modal-overlay.show {
             display: flex;
         }
-        
+
         .modal-content {
             background: white;
             padding: 30px;
@@ -200,12 +203,12 @@
             width: 90%;
             box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
         }
-        
+
         .modal-content h3 {
             margin-top: 0;
             margin-bottom: 20px;
         }
-        
+
         .modal-content input {
             width: 100%;
             padding: 10px;
@@ -214,18 +217,18 @@
             font-size: 16px;
             margin-bottom: 20px;
         }
-        
+
         .modal-content input:focus {
             outline: none;
             border-color: var(--jasmine-green-600);
         }
-        
+
         .modal-buttons {
             display: flex;
             gap: 10px;
             justify-content: flex-end;
         }
-        
+
         .modal-buttons button {
             padding: 10px 20px;
             border: none;
@@ -234,37 +237,44 @@
             font-size: 16px;
             transition: all 0.3s;
         }
-        
+
         .modal-buttons .btn-primary {
             background: var(--jasmine-green-600);
             color: white;
         }
-        
+
         .modal-buttons .btn-secondary {
             background: #6c757d;
             color: white;
         }
-        
+
         .modal-buttons button:hover {
             opacity: 0.8;
         }
     </style>
 </head>
+
 <body>
     <!-- 保存状态指示器 -->
     <div id="save-status" class="save-status">
         <span class="spinner-border spinner-border-sm"></span>
         <span id="status-text">保存中...</span>
     </div>
-    
+
     <!-- 保存提示（首次打开时显示） -->
     <div id="save-hint" class="save-hint" style="display: none;">
         💾 按Ctrl+S保存到服务器
     </div>
-    
+
     <!-- 浮动工具栏 -->
     <div class="floating-toolbar">
-        <button id="upload-btn" class="toolbar-btn upload-btn" title="打开本地文件" style="background: linear-gradient(135deg, #fa709a 0%, #fee140 100%);">
+        <button id="theme-btn" class="toolbar-btn" title="切换主题" onclick="cycleTheme()"
+            style="background: linear-gradient(135deg, #a18cd1 0%, #fbc2eb 100%);">
+            <i class="fas fa-palette"></i>
+            <span class="tooltip-text">切换主题</span>
+        </button>
+        <button id="upload-btn" class="toolbar-btn upload-btn" title="打开本地文件"
+            style="background: linear-gradient(135deg, #fa709a 0%, #fee140 100%);">
             📂
             <span class="tooltip-text">打开本地文件</span>
         </button>
@@ -277,10 +287,22 @@
             <span class="tooltip-text">返回</span>
         </button>
     </div>
-    
+
+    <script>
+        function cycleTheme() {
+            const themes = ['snow', 'dark', 'ocean'];
+            const current = localStorage.getItem('yobby_theme') || 'snow';
+            const nextIndex = (themes.indexOf(current) + 1) % themes.length;
+            const nextTheme = themes[nextIndex];
+            if (window.YobbyTheme) {
+                window.YobbyTheme.setTheme(nextTheme);
+            }
+        }
+    </script>
+
     <!-- 隐藏的文件输入 -->
     <input type="file" id="file-input" accept=".drawio,.xml,.dio" style="display: none;" />
-    
+
     <!-- 文件名输入模态框 -->
     <div id="filename-modal" class="modal-overlay">
         <div class="modal-content">
@@ -292,7 +314,7 @@
             </div>
         </div>
     </div>
-    
+
     <!-- Draw.io 编辑器容器 -->
     <div class="drawio-container">
         <div id="loading" class="loading-spinner">
@@ -301,17 +323,18 @@
         </div>
         <iframe id="drawio-iframe" src="" style="display: none;"></iframe>
     </div>
-    
+
     <script src="{{ url_for('static', filename='js/jquery-3.6.0.min.js') }}"></script>
     <script src="{{ url_for('static', filename='js/bootstrap.bundle.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
     <script>
         // 从服务器传递的数据
-        let currentFilepath = {{ filepath|tojson|safe }} || null;
-        let initialContent = {{ diagram_content|tojson|safe }} || '';
+        let currentFilepath = {{ filepath| tojson | safe }} || null;
+        let initialContent = {{ diagram_content| tojson | safe }} || '';
         let isModified = false;
         let drawioIframe = null;
         let drawioReady = false;
-        
+
         // 提取当前目录路径（用于保存新文件）
         let currentDir = '';
         if (currentFilepath) {
@@ -320,7 +343,7 @@
                 currentDir = currentFilepath.substring(0, lastSlash + 1);
             }
         }
-        
+
         // 调试输出
         console.log('[DEBUG] ===== 页面加载调试信息 =====');
         console.log('[DEBUG] currentFilepath:', currentFilepath);
@@ -330,27 +353,27 @@
         console.log('[DEBUG] initialContent length:', initialContent ? initialContent.length : 0);
         console.log('[DEBUG] initialContent type:', typeof initialContent);
         console.log('[DEBUG] ================================');
-        
+
         // 初始化
-        document.addEventListener('DOMContentLoaded', function() {
+        document.addEventListener('DOMContentLoaded', function () {
             drawioIframe = document.getElementById('drawio-iframe');
-            
+
             // 构建iframe URL
             // 配置Draw.io为离线模式，保留完整编辑界面
             // embed=1: 启用embed模式，支持postMessage API
             // proto=json: 使用JSON格式通信
             let iframeSrc = '/drawio?offline=1&stealth=1&local=1&sync=none&mode=device&lang=zh&embed=1&proto=json';
-            
+
             console.log('[DEBUG] 设置iframe src...');
             console.log('[DEBUG] 是否有初始内容:', !!initialContent, '长度:', initialContent?.length);
             drawioIframe.src = iframeSrc;
-            
+
             // 监听Draw.io的init事件
             let drawioInitialized = false;
-            const initListener = function(e) {
+            const initListener = function (e) {
                 try {
                     let data = e.data;
-                    
+
                     // 解析JSON字符串
                     if (typeof data === 'string') {
                         try {
@@ -359,12 +382,12 @@
                             return;
                         }
                     }
-                    
+
                     // 监听init事件
                     if (data && data.event === 'init' && !drawioInitialized) {
                         console.log('[DEBUG] Draw.io已初始化（收到init事件）');
                         drawioInitialized = true;
-                        
+
                         // Draw.io初始化完成，立即加载内容
                         try {
                             if (initialContent && initialContent.length > 0) {
@@ -387,7 +410,7 @@
                                 drawioIframe.contentWindow.postMessage(loadMsg, '*');
                                 console.log('[DEBUG] 已发送空白图表（响应init）');
                             }
-                            
+
                             // 配置Draw.io
                             const configMsg = JSON.stringify({
                                 action: 'configure',
@@ -406,14 +429,14 @@
                 }
             };
             window.addEventListener('message', initListener);
-            
+
             // 等待iframe加载完成
-            drawioIframe.onload = function() {
+            drawioIframe.onload = function () {
                 console.log('[DEBUG] iframe加载完成');
                 document.getElementById('loading').style.display = 'none';
                 drawioIframe.style.display = 'block';
                 drawioReady = true;
-                
+
                 // 显示保存提示（5秒后自动消失）
                 if (currentFilepath) {
                     const hint = document.getElementById('save-hint');
@@ -426,7 +449,7 @@
                         }, 500);
                     }, 5000);
                 }
-                
+
                 // 备用：如果3秒内没收到init事件，强制加载
                 setTimeout(() => {
                     if (!drawioInitialized) {
@@ -452,7 +475,7 @@
                                 drawioIframe.contentWindow.postMessage(loadMsg, '*');
                                 console.log('[DEBUG] 已强制发送空白图表');
                             }
-                            
+
                             // 配置Draw.io
                             const configMsg = JSON.stringify({
                                 action: 'configure',
@@ -468,19 +491,19 @@
                     }
                 }, 3000);
             };
-            
+
             // 绑定按钮事件
             document.getElementById('upload-btn').addEventListener('click', openLocalFile);
             // save-btn已移除，使用Ctrl+S保存
             document.getElementById('download-btn').addEventListener('click', downloadFile);
             document.getElementById('back-btn').addEventListener('click', goBack);
-            
+
             // 绑定文件输入事件
             document.getElementById('file-input').addEventListener('change', handleFileSelect);
-            
+
             // 全局autosave监听器（捕获所有autosave事件）
             let lastAutosaveXml = null;
-            window.addEventListener('message', function(e) {
+            window.addEventListener('message', function (e) {
                 try {
                     let data = e.data;
                     if (typeof data === 'string') {
@@ -490,7 +513,7 @@
                             return;
                         }
                     }
-                    
+
                     // 始终记录最新的autosave内容
                     if (data && data.event === 'autosave' && data.xml) {
                         lastAutosaveXml = data.xml;
@@ -500,9 +523,9 @@
                     // 忽略
                 }
             });
-            
+
             // 监听键盘快捷键
-            document.addEventListener('keydown', function(e) {
+            document.addEventListener('keydown', function (e) {
                 // Ctrl+S 保存
                 if (e.ctrlKey && e.key === 's') {
                     e.preventDefault();
@@ -519,15 +542,15 @@
                     }
                 }
             });
-            
+
             // 监听来自Draw.io的消息
             window.addEventListener('message', handleDrawioMessage);
-            
+
             // 额外添加一个调试监听器，捕获所有消息
-            window.addEventListener('message', function(e) {
+            window.addEventListener('message', function (e) {
                 try {
                     let data = e.data;
-                    
+
                     // 如果是JSON字符串，尝试解析
                     let parsedData = data;
                     if (typeof data === 'string') {
@@ -537,7 +560,7 @@
                             // 不是JSON，保持原样
                         }
                     }
-                    
+
                     // 详细记录所有消息
                     console.log('[DEBUG] 收到原始消息:', {
                         dataType: typeof data,
@@ -546,17 +569,17 @@
                         origin: e.origin,
                         source: e.source === drawioIframe?.contentWindow ? 'Draw.io iframe' : 'other'
                     });
-                    
+
                     // 特别监听save相关的消息
                     if (typeof parsedData === 'object' && parsedData !== null) {
                         if (parsedData.event === 'save' || parsedData.event === 'saveAs' || parsedData.event === 'autosave') {
                             console.log('[DEBUG] *** 检测到保存事件 ***', parsedData.event);
-                            
+
                             // 如果是save或saveAs事件
                             if (parsedData.event === 'save' || parsedData.event === 'saveAs') {
                                 // 阻止默认行为
                                 e.stopPropagation && e.stopPropagation();
-                                
+
                                 // 获取XML内容并保存到服务器
                                 if (parsedData.xml) {
                                     console.log('[DEBUG] 保存事件包含XML，长度:', parsedData.xml.length);
@@ -577,34 +600,34 @@
                 }
             });
         });
-        
+
         // 打开本地文件
         function openLocalFile() {
             document.getElementById('file-input').click();
         }
-        
+
         // 处理文件选择
         function handleFileSelect(event) {
             const file = event.target.files[0];
             if (!file) return;
-            
+
             const reader = new FileReader();
-            reader.onload = function(e) {
+            reader.onload = function (e) {
                 const xml = e.target.result;
-                
+
                 // 确保文件名有.drawio扩展名
                 let filename = file.name;
                 if (!filename.endsWith('.drawio')) {
                     filename += '.drawio';
                 }
-                
+
                 // 保存到当前目录
                 const uploadFilepath = currentDir ? currentDir + filename : filename;
                 console.log('[DEBUG] 上传本地文件到:', uploadFilepath);
-                
+
                 // 保存到服务器
                 saveToServer(uploadFilepath, xml);
-                
+
                 // 加载到编辑器（使用embed模式的load）
                 const loadMsg = JSON.stringify({
                     action: 'load',
@@ -612,22 +635,22 @@
                     autosave: 1
                 });
                 drawioIframe.contentWindow.postMessage(loadMsg, '*');
-                
+
                 currentFilepath = uploadFilepath;
                 showSaveStatus('saved', '文件已上传到服务器');
             };
-            
+
             reader.readAsText(file);
-            
+
             // 重置input以允许重新选择相同文件
             event.target.value = '';
         }
-        
+
         // 处理来自Draw.io的消息
         function handleDrawioMessage(event) {
             try {
                 let data = event.data;
-                
+
                 // 如果是JSON字符串，解析它
                 if (typeof data === 'string') {
                     try {
@@ -637,21 +660,21 @@
                         return;
                     }
                 }
-                
+
                 if (typeof data === 'object' && data !== null) {
                     console.log('[DEBUG] 收到Draw.io消息:', data);
-                    
+
                     // 监听内容变化
                     if (data.event === 'modified') {
                         isModified = true;
                         console.log('[DEBUG] 内容已修改');
                     }
-                    
+
                     // 拦截保存事件
                     if (data.event === 'save') {
                         console.log('[DEBUG] 拦截到Draw.io的保存事件');
                         event.preventDefault && event.preventDefault();
-                        
+
                         // 如果有文件路径，保存到服务器；否则询问文件名
                         if (data.xml) {
                             if (currentFilepath) {
@@ -665,7 +688,7 @@
                         }
                         return;
                     }
-                    
+
                     // 监听自动保存
                     if (data.event === 'autosave') {
                         console.log('[DEBUG] 自动保存事件触发');
@@ -673,29 +696,29 @@
                             autoSaveToServer(data.xml);
                         }
                     }
-                    
-                // 响应导出请求（已在saveFile中处理，这里不需要额外处理）
-                // if (data.event === 'export' && data.data) {
-                //     // 导出事件已由saveFile函数处理
-                // }
+
+                    // 响应导出请求（已在saveFile中处理，这里不需要额外处理）
+                    // if (data.event === 'export' && data.data) {
+                    //     // 导出事件已由saveFile函数处理
+                    // }
                 }
             } catch (e) {
                 console.error('[ERROR] 处理Draw.io消息失败:', e);
             }
         }
-        
+
         // 保存文件
         function saveFile() {
             console.log('[DEBUG] 请求保存...');
             showSaveStatus('saving');
-            
+
             // 方案：模拟Ctrl+S按键，触发Draw.io的autosave
             try {
                 console.log('[DEBUG] 模拟Ctrl+S快捷键...');
-                
+
                 // 设置autosave监听器
                 let saveReceived = false;
-                const handleAutosave = function(event) {
+                const handleAutosave = function (event) {
                     try {
                         let data = event.data;
                         if (typeof data === 'string') {
@@ -705,21 +728,21 @@
                                 return;
                             }
                         }
-                        
+
                         if (data && data.event === 'autosave' && data.xml && !saveReceived) {
                             saveReceived = true;
                             window.removeEventListener('message', handleAutosave);
-                            
+
                             const xml = data.xml;
                             console.log('[DEBUG] 捕获autosave，XML长度:', xml.length);
                             console.log('[DEBUG] XML前100字符:', xml.substring(0, 100));
-                            
+
                             if (!xml.includes('<mxfile') && !xml.includes('<?xml')) {
                                 console.error('[ERROR] XML格式无效');
                                 showSaveStatus('error', '保存失败');
                                 return;
                             }
-                            
+
                             if (currentFilepath) {
                                 saveToServer(currentFilepath, xml);
                             } else {
@@ -730,13 +753,13 @@
                         console.error('[ERROR]', e);
                     }
                 };
-                
+
                 window.addEventListener('message', handleAutosave);
-                
+
                 // 向iframe发送Ctrl+S按键事件
                 const iframe = drawioIframe;
                 const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
-                
+
                 // 创建键盘事件
                 const keydownEvent = new KeyboardEvent('keydown', {
                     key: 's',
@@ -747,7 +770,7 @@
                     bubbles: true,
                     cancelable: true
                 });
-                
+
                 const keyupEvent = new KeyboardEvent('keyup', {
                     key: 's',
                     code: 'KeyS',
@@ -757,18 +780,18 @@
                     bubbles: true,
                     cancelable: true
                 });
-                
+
                 console.log('[DEBUG] 触发键盘事件...');
                 iframeDoc.dispatchEvent(keydownEvent);
                 iframeDoc.dispatchEvent(keyupEvent);
-                
+
                 // 超时处理
                 setTimeout(() => {
                     if (!saveReceived) {
                         console.warn('[WARN] 未捕获到autosave事件');
                         window.removeEventListener('message', handleAutosave);
                         showSaveStatus('saved', '已触发保存');
-                        
+
                         // 提示用户手动确认
                         setTimeout(() => {
                             if (confirm('未检测到自动保存响应。\n\n请在Draw.io中按Ctrl+S保存，然后点击"确定"再次尝试保存到服务器。')) {
@@ -779,17 +802,17 @@
                         }, 100);
                     }
                 }, 2000);
-                
+
             } catch (e) {
                 console.error('[ERROR] 保存失败:', e);
                 showSaveStatus('error');
             }
         }
-        
+
         // 保存到服务器
         function saveToServer(filepath, content) {
             showSaveStatus('saving');
-            
+
             fetch('/drawio_save', {
                 method: 'POST',
                 headers: {
@@ -800,26 +823,26 @@
                     content: content
                 })
             })
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    showSaveStatus('saved');
-                    isModified = false;
-                    currentFilepath = filepath;
-                } else {
-                    showSaveStatus('error', data.error || '保存失败');
-                }
-            })
-            .catch(error => {
-                console.error('保存错误:', error);
-                showSaveStatus('error', '网络错误');
-            });
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        showSaveStatus('saved');
+                        isModified = false;
+                        currentFilepath = filepath;
+                    } else {
+                        showSaveStatus('error', data.error || '保存失败');
+                    }
+                })
+                .catch(error => {
+                    console.error('保存错误:', error);
+                    showSaveStatus('error', '网络错误');
+                });
         }
-        
+
         // 自动保存（静默）
         function autoSaveToServer(content) {
             if (!currentFilepath) return;
-            
+
             fetch('/drawio_save', {
                 method: 'POST',
                 headers: {
@@ -830,24 +853,24 @@
                     content: content
                 })
             })
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    console.log('自动保存成功');
-                }
-            })
-            .catch(error => {
-                console.error('自动保存失败:', error);
-            });
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        console.log('自动保存成功');
+                    }
+                })
+                .catch(error => {
+                    console.error('自动保存失败:', error);
+                });
         }
-        
+
         // 显示保存状态
         function showSaveStatus(status, message) {
             const statusEl = document.getElementById('save-status');
             const textEl = document.getElementById('status-text');
-            
+
             statusEl.className = 'save-status show ' + status;
-            
+
             if (status === 'saving') {
                 textEl.textContent = '保存中...';
             } else if (status === 'saved') {
@@ -862,55 +885,55 @@
                 }, 3000);
             }
         }
-        
+
         // 显示文件名输入框
         function showFilenameModal(xml) {
             window.pendingXml = xml;
             document.getElementById('filename-modal').classList.add('show');
             document.getElementById('filename-input').focus();
         }
-        
+
         // 关闭文件名输入框
         function closeFilenameModal() {
             document.getElementById('filename-modal').classList.remove('show');
             window.pendingXml = null;
         }
-        
+
         // 使用文件名保存
         function saveWithFilename() {
             let filename = document.getElementById('filename-input').value.trim();
-            
+
             if (!filename) {
                 alert('请输入文件名');
                 return;
             }
-            
+
             // 确保有.drawio扩展名
             if (!filename.endsWith('.drawio')) {
                 filename += '.drawio';
             }
-            
+
             // 保存到当前目录，如果没有当前目录则保存到根目录
             const filepath = currentDir ? currentDir + filename : filename;
             console.log('[DEBUG] 保存新文件到:', filepath);
-            
+
             // 更新currentFilepath以便后续保存
             currentFilepath = filepath;
-            
+
             saveToServer(filepath, window.pendingXml);
             closeFilenameModal();
         }
-        
+
         // 下载文件
         function downloadFile() {
             console.log('[DEBUG] 请求下载文件...');
-            
+
             let downloadReceived = false;
-            
-            const handleDownload = function(event) {
+
+            const handleDownload = function (event) {
                 try {
                     let data = event.data;
-                    
+
                     // 如果是JSON字符串，解析它
                     if (typeof data === 'string') {
                         try {
@@ -919,15 +942,15 @@
                             return;
                         }
                     }
-                    
+
                     if (data && data.event === 'export' && !downloadReceived) {
                         const xml = data.data || data.xml;
                         if (xml && typeof xml === 'string') {
                             downloadReceived = true;
                             window.removeEventListener('message', handleDownload);
-                            
+
                             console.log('[DEBUG] 准备下载文件，长度:', xml.length);
-                            const blob = new Blob([xml], {type: 'text/xml'});
+                            const blob = new Blob([xml], { type: 'text/xml' });
                             const url = URL.createObjectURL(blob);
                             const a = document.createElement('a');
                             a.href = url;
@@ -942,15 +965,15 @@
                     console.error('[ERROR] 处理下载消息失败:', e);
                 }
             };
-            
+
             window.addEventListener('message', handleDownload);
-            
+
             const exportMsg = JSON.stringify({
                 action: 'export',
                 format: 'xml'
             });
             drawioIframe.contentWindow.postMessage(exportMsg, '*');
-            
+
             setTimeout(() => {
                 if (!downloadReceived) {
                     window.removeEventListener('message', handleDownload);
@@ -958,7 +981,7 @@
                 }
             }, 5000);
         }
-        
+
         // 返回
         function goBack() {
             if (isModified) {
@@ -969,9 +992,9 @@
                 window.location.href = '{{ url_for("file_browser") }}';
             }
         }
-        
+
         // 监听页面关闭
-        window.addEventListener('beforeunload', function(e) {
+        window.addEventListener('beforeunload', function (e) {
             if (isModified) {
                 e.preventDefault();
                 e.returnValue = '';
@@ -979,5 +1002,5 @@
         });
     </script>
 </body>
-</html>
 
+</html>

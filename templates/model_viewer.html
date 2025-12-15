@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -12,7 +13,7 @@
             margin: 0;
             overflow: hidden;
             font-family: 'Arial', 'Microsoft YaHei', sans-serif;
-            background: linear-gradient(135deg, var(--jasmine-green-600) 0%, var(--jasmine-green-400) 100%);
+            background: var(--jasmine-gradient-main);
         }
 
         #canvas-container {
@@ -120,8 +121,13 @@
         }
 
         @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
         }
 
         .back-btn {
@@ -167,6 +173,7 @@
         }
     </style>
 </head>
+
 <body>
     <!-- 返回按钮 -->
     <a href="{{ back_url }}" class="back-btn">
@@ -225,14 +232,40 @@
         }
     }
     </script>
-    
+    <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
+
+    <!-- 浮动工具栏 -->
+    <div class="floating-toolbar">
+        <button class="toolbar-btn" title="切换主题" onclick="cycleTheme()">
+            <i class="fas fa-palette"></i>
+        </button>
+        <a href="/" class="toolbar-btn back-btn" title="返回首页">
+            <i class="fas fa-home"></i>
+        </a>
+        <a href="/logout" class="toolbar-btn logout-btn" title="退出登录">
+            <i class="fas fa-sign-out-alt"></i>
+        </a>
+    </div>
+
+    <script>
+        function cycleTheme() {
+            const themes = ['snow', 'dark', 'ocean', 'sunset', 'forest', 'cyberpunk'];
+            const current = localStorage.getItem('yobby_theme') || 'snow';
+            const nextIndex = (themes.indexOf(current) + 1) % themes.length;
+            const nextTheme = themes[nextIndex];
+            if (window.YobbyTheme) {
+                window.YobbyTheme.setTheme(nextTheme);
+            }
+        }
+    </script>
+
     <script type="module">
         // 导入Three.js核心和加载器
         import * as THREE from 'three';
-        import { GLTFLoader } from '{{ url_for('static', filename='libs/three/GLTFLoader.js') }}';
-        import { OBJLoader } from '{{ url_for('static', filename='libs/three/OBJLoader.js') }}';
-        import { STLLoader } from '{{ url_for('static', filename='libs/three/STLLoader.js') }}';
-        import { OrbitControls } from '{{ url_for('static', filename='libs/three/OrbitControls.js') }}';
+        import { GLTFLoader } from '{{ url_for('static', filename='libs / three / GLTFLoader.js') }}';
+        import { OBJLoader } from '{{ url_for('static', filename='libs / three / OBJLoader.js') }}';
+        import { STLLoader } from '{{ url_for('static', filename='libs / three / STLLoader.js') }}';
+        import { OrbitControls } from '{{ url_for('static', filename='libs / three / OrbitControls.js') }}';
 
         // 全局变量
         let scene, camera, renderer, controls;
@@ -461,17 +494,17 @@
         // 动画循环
         function animate() {
             requestAnimationFrame(animate);
-            
+
             if (autoRotate && model) {
                 model.rotation.y += 0.01;
             }
-            
+
             controls.update();
             renderer.render(scene, camera);
         }
 
         // 全局函数 - 重置相机
-        window.resetCamera = function() {
+        window.resetCamera = function () {
             if (model) {
                 const box = new THREE.Box3().setFromObject(model);
                 const size = box.getSize(new THREE.Vector3());
@@ -487,7 +520,7 @@
         };
 
         // 切换线框模式
-        window.toggleWireframe = function() {
+        window.toggleWireframe = function () {
             if (!model) return;
             isWireframe = !isWireframe;
             model.traverse((child) => {
@@ -498,23 +531,23 @@
         };
 
         // 切换网格
-        window.toggleGrid = function() {
+        window.toggleGrid = function () {
             gridHelper.visible = !gridHelper.visible;
         };
 
         // 切换坐标轴
-        window.toggleAxes = function() {
+        window.toggleAxes = function () {
             axesHelper.visible = !axesHelper.visible;
         };
 
         // 切换背景
-        window.changeBackground = function() {
+        window.changeBackground = function () {
             currentBgIndex = (currentBgIndex + 1) % backgrounds.length;
             scene.background = new THREE.Color(backgrounds[currentBgIndex].color);
         };
 
         // 切换自动旋转
-        window.toggleAutoRotate = function() {
+        window.toggleAutoRotate = function () {
             autoRotate = !autoRotate;
         };
 
@@ -522,5 +555,5 @@
         init();
     </script>
 </body>
-</html>
 
+</html>

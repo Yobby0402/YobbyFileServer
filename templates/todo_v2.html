@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -9,6 +10,7 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/jasmine_base.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/todo_v2.css') }}">
 </head>
+
 <body class="jasmine-body" data-direct-access="{{ 'true' if direct_access else 'false' }}">
     <div class="todo-v2-page container-fluid">
         <header class="todo-header">
@@ -21,7 +23,8 @@
                             <i class="fas fa-file"></i> 数据文件
                         </label>
                         <input type="file" class="form-control" id="fileSelector" accept=".json" style="display: none;">
-                        <input type="text" class="form-control" id="fileSelectorDisplay" placeholder="默认使用todo_v2文件" readonly>
+                        <input type="text" class="form-control" id="fileSelectorDisplay" placeholder="默认使用todo_v2文件"
+                            readonly>
                         <button class="btn btn-outline-secondary" type="button" id="fileSelectorBtn">
                             <i class="fas fa-folder-open"></i> 选择文件
                         </button>
@@ -39,7 +42,8 @@
                     <div class="header-actions">
                         <div class="font-size-controls">
                             <label class="font-size-label">字体大小：</label>
-                            <input type="range" class="form-range" id="fontSizeInput" min="10" max="48" value="14" style="width: 150px;">
+                            <input type="range" class="form-range" id="fontSizeInput" min="10" max="48" value="14"
+                                style="width: 150px;">
                             <span class="font-size-value" id="fontSizeValue">14</span>
                             <span class="font-size-unit">px</span>
                         </div>
@@ -60,7 +64,8 @@
                         <button type="button" class="btn btn-outline-emerald" onclick="window.location.href='/'">
                             <i class="fas fa-home"></i> 返回选择界面
                         </button>
-                        <button type="button" class="btn btn-outline-secondary" onclick="window.open('/todo', '_blank')">
+                        <button type="button" class="btn btn-outline-secondary"
+                            onclick="window.open('/todo', '_blank')">
                             <i class="fas fa-history"></i> 旧版ToDo
                         </button>
                         {% if direct_access %}
@@ -141,8 +146,10 @@
                         <div class="mb-3">
                             <label class="form-label">主题色</label>
                             <div class="color-picker-group">
-                                <input type="color" class="form-control form-control-color" name="color" value="#4facfe" title="选择主题色">
-                                <button type="button" class="btn btn-outline-secondary" data-action="random-color">随机颜色</button>
+                                <input type="color" class="form-control form-control-color" name="color" value="#4facfe"
+                                    title="选择主题色">
+                                <button type="button" class="btn btn-outline-secondary"
+                                    data-action="random-color">随机颜色</button>
                             </div>
                         </div>
                     </div>
@@ -174,7 +181,8 @@
                             <label class="form-label">主题色</label>
                             <div class="color-picker-group">
                                 <input type="color" class="form-control form-control-color" name="color" title="选择主题色">
-                                <button type="button" class="btn btn-outline-secondary" data-action="random-color">随机颜色</button>
+                                <button type="button" class="btn btn-outline-secondary"
+                                    data-action="random-color">随机颜色</button>
                             </div>
                         </div>
                     </div>
@@ -223,7 +231,8 @@
                             </div>
                             <div class="col-12">
                                 <label class="form-label">详细描述</label>
-                                <textarea class="form-control" rows="4" name="description" placeholder="详细描述任务内容、验收标准或注意事项"></textarea>
+                                <textarea class="form-control" rows="4" name="description"
+                                    placeholder="详细描述任务内容、验收标准或注意事项"></textarea>
                             </div>
                         </div>
                     </div>
@@ -297,7 +306,8 @@
                     <div class="modal-body">
                         <div class="mb-3">
                             <label class="form-label">评论内容</label>
-                            <textarea class="form-control" name="content" rows="4" placeholder="记录最新进展或补充说明" required></textarea>
+                            <textarea class="form-control" name="content" rows="4" placeholder="记录最新进展或补充说明"
+                                required></textarea>
                             <div class="invalid-feedback">请输入评论内容</div>
                         </div>
                     </div>
@@ -327,13 +337,16 @@
                     </div>
                     <div class="history-filters mb-3">
                         <div class="btn-group" role="group">
-                            <input type="radio" class="btn-check" name="historyFilter" id="historyFilterAll" value="all" checked>
+                            <input type="radio" class="btn-check" name="historyFilter" id="historyFilterAll" value="all"
+                                checked>
                             <label class="btn btn-outline-primary" for="historyFilterAll">全部</label>
 
-                            <input type="radio" class="btn-check" name="historyFilter" id="historyFilterUpdate" value="update">
+                            <input type="radio" class="btn-check" name="historyFilter" id="historyFilterUpdate"
+                                value="update">
                             <label class="btn btn-outline-primary" for="historyFilterUpdate">仅修改</label>
 
-                            <input type="radio" class="btn-check" name="historyFilter" id="historyFilterComment" value="comment">
+                            <input type="radio" class="btn-check" name="historyFilter" id="historyFilterComment"
+                                value="comment">
                             <label class="btn btn-outline-primary" for="historyFilterComment">仅评论</label>
                         </div>
                     </div>
@@ -378,26 +391,34 @@
                                 <i class="fas fa-calendar-alt"></i> 时间范围
                             </h6>
                             <div class="form-check">
-                                <input class="form-check-input" type="radio" name="timeRange" id="timeRangeAll" value="all" checked>
+                                <input class="form-check-input" type="radio" name="timeRange" id="timeRangeAll"
+                                    value="all" checked>
                                 <label class="form-check-label" for="timeRangeAll">全部任务</label>
                             </div>
                             <div class="form-check">
-                                <input class="form-check-input" type="radio" name="timeRange" id="timeRangeCompleted" value="completed">
+                                <input class="form-check-input" type="radio" name="timeRange" id="timeRangeCompleted"
+                                    value="completed">
                                 <label class="form-check-label" for="timeRangeCompleted">仅已完成（进度=100%）</label>
                             </div>
                             <div class="form-check">
-                                <input class="form-check-input" type="radio" name="timeRange" id="timeRangePending" value="pending">
-                                <label class="form-check-label" for="timeRangePending">仅未完成（进度<100%）</label>
+                                <input class="form-check-input" type="radio" name="timeRange" id="timeRangePending"
+                                    value="pending">
+                                <label class="form-check-label" for="timeRangePending">仅未完成（进度<100%）< /label>
                             </div>
                             <div class="form-check">
-                                <input class="form-check-input" type="radio" name="timeRange" id="timeRangeCustom" value="custom">
+                                <input class="form-check-input" type="radio" name="timeRange" id="timeRangeCustom"
+                                    value="custom">
                                 <label class="form-check-label" for="timeRangeCustom">自定义时间范围</label>
                             </div>
-                            <div class="custom-time-range" id="customTimeRange" style="display: none; margin-top: 10px; margin-left: 20px;">
-                                <input type="date" class="form-control form-control-sm d-inline-block" id="customStartDate" style="width: 150px;">
+                            <div class="custom-time-range" id="customTimeRange"
+                                style="display: none; margin-top: 10px; margin-left: 20px;">
+                                <input type="date" class="form-control form-control-sm d-inline-block"
+                                    id="customStartDate" style="width: 150px;">
                                 <span class="mx-2">至</span>
-                                <input type="date" class="form-control form-control-sm d-inline-block" id="customEndDate" style="width: 150px;">
-                                <select class="form-select form-select-sm d-inline-block ms-2" id="customTimeField" style="width: 120px;">
+                                <input type="date" class="form-control form-control-sm d-inline-block"
+                                    id="customEndDate" style="width: 150px;">
+                                <select class="form-select form-select-sm d-inline-block ms-2" id="customTimeField"
+                                    style="width: 120px;">
                                     <option value="created">创建时间</option>
                                     <option value="updated">更新时间</option>
                                     <option value="due">预计完成时间</option>
@@ -424,13 +445,15 @@
                                 <i class="fas fa-layer-group"></i> 项目导出方式
                             </h6>
                             <div class="form-check">
-                                <input class="form-check-input" type="radio" name="projectMode" id="projectModeSingle" value="single" checked>
+                                <input class="form-check-input" type="radio" name="projectMode" id="projectModeSingle"
+                                    value="single" checked>
                                 <label class="form-check-label" for="projectModeSingle">
                                     方式一：同一Sheet，第一列添加项目名称
                                 </label>
                             </div>
                             <div class="form-check">
-                                <input class="form-check-input" type="radio" name="projectMode" id="projectModeMultiple" value="multiple">
+                                <input class="form-check-input" type="radio" name="projectMode" id="projectModeMultiple"
+                                    value="multiple">
                                 <label class="form-check-label" for="projectModeMultiple">
                                     方式二：不同项目导出到不同Sheet，Sheet名称为项目名称
                                 </label>
@@ -443,13 +466,15 @@
                                 <i class="fas fa-comments"></i> 评论处理方式
                             </h6>
                             <div class="form-check">
-                                <input class="form-check-input" type="radio" name="commentMode" id="commentModeInline" value="inline" checked>
+                                <input class="form-check-input" type="radio" name="commentMode" id="commentModeInline"
+                                    value="inline" checked>
                                 <label class="form-check-label" for="commentModeInline">
                                     方式一：在任务行的评论列中，单元格内多行显示（时间戳 + 评论内容）
                                 </label>
                             </div>
                             <div class="form-check">
-                                <input class="form-check-input" type="radio" name="commentMode" id="commentModeSheet" value="sheet">
+                                <input class="form-check-input" type="radio" name="commentMode" id="commentModeSheet"
+                                    value="sheet">
                                 <label class="form-check-label" for="commentModeSheet">
                                     方式二：单独Sheet保存评论，任务行添加超链接跳转
                                 </label>
@@ -518,9 +543,35 @@
         </div>
     </div>
 
+    <!-- 浮动工具栏 -->
+    <div class="floating-toolbar">
+        <button class="toolbar-btn" title="切换主题" onclick="cycleTheme()">
+            <i class="fas fa-palette"></i>
+        </button>
+        <a href="/" class="toolbar-btn back-btn" title="返回首页">
+            <i class="fas fa-home"></i>
+        </a>
+        <a href="/logout" class="toolbar-btn logout-btn" title="退出登录">
+            <i class="fas fa-sign-out-alt"></i>
+        </a>
+    </div>
+
+    <script>
+        function cycleTheme() {
+            const themes = ['snow', 'dark', 'ocean', 'sunset', 'forest', 'cyberpunk'];
+            const current = localStorage.getItem('yobby_theme') || 'snow';
+            const nextIndex = (themes.indexOf(current) + 1) % themes.length;
+            const nextTheme = themes[nextIndex];
+            if (window.YobbyTheme) {
+                window.YobbyTheme.setTheme(nextTheme);
+            }
+        }
+    </script>
+
     <script src="{{ url_for('static', filename='js/bootstrap.bundle.min.js') }}"></script>
     <script src="{{ url_for('static', filename='js/todo_v2.js') }}"></script>
     <script src="{{ url_for('static', filename='js/todo_v2_export.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
 </body>
-</html>
 
+</html>

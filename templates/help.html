@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -156,7 +157,8 @@
             gap: 10px;
         }
 
-        .feature-card ul, .feature-card p {
+        .feature-card ul,
+        .feature-card p {
             font-size: 0.95rem;
             line-height: 1.72;
             color: #1f2937;
@@ -180,7 +182,8 @@
             border: 1px solid rgba(95, 191, 174, 0.25);
         }
 
-        .tip-box, .warn-box {
+        .tip-box,
+        .warn-box {
             border-radius: 16px;
             padding: 18px 22px;
             margin: 20px 0;
@@ -259,6 +262,7 @@
                 grid-template-columns: 1fr;
                 padding: 0 20px 48px;
             }
+
             .toc {
                 position: relative;
                 top: 0;
@@ -267,6 +271,7 @@
         }
     </style>
 </head>
+
 <body>
     <header class="hero">
         <div class="container-lg">
@@ -318,7 +323,8 @@
                     <div class="feature-card header">
                         <h3><i class="fas fa-bolt"></i> 步骤 1 · 启动服务</h3>
                         <ul>
-                            <li><strong>图形界面（推荐）：</strong> 双击 <code>YobboyFileServer.exe</code> → 点击“启动服务器” → 复制或扫码界面上方地址。</li>
+                            <li><strong>图形界面（推荐）：</strong> 双击 <code>YobboyFileServer.exe</code> → 点击“启动服务器” →
+                                复制或扫码界面上方地址。</li>
                             <li><strong>命令行：</strong> <code>python main.py</code> 即可启动（确保安装依赖）。</li>
                             <li>界面显示绿色状态代表服务已启动；支持最小化到托盘后台运行。</li>
                         </ul>
@@ -418,11 +424,11 @@
                             <li><strong>配置文件：</strong>编辑 <code>config.ini</code> 中的 <code>root_dir</code> 并重启。</li>
                         </ul>
                         <div class="code-block">
-[settings]
-root_dir = C:\your\workspace
-password = ats123
-admin_password = admin123
-close_to_tray = true
+                            [settings]
+                            root_dir = C:\your\workspace
+                            password = ats123
+                            admin_password = admin123
+                            close_to_tray = true
                         </div>
                     </div>
                 </div>
@@ -474,7 +480,8 @@ close_to_tray = true
                         <div class="warn-box">
                             <i class="fas fa-shield-alt mt-1"></i>
                             <div>
-                                <strong>浏览器限制：</strong>必须在 HTTPS 或 <code>localhost</code> 下使用 Web Serial 功能；非安全上下文请切换到远程模式。
+                                <strong>浏览器限制：</strong>必须在 HTTPS 或 <code>localhost</code> 下使用 Web Serial
+                                功能；非安全上下文请切换到远程模式。
                             </div>
                         </div>
                     </div>
@@ -492,7 +499,8 @@ close_to_tray = true
                             <li>在“持续日志”面板选择串口和参数，点击“开启持续日志”即可后台写入 JSONL。</li>
                             <li>日志可以随时载入到当前界面，与实时数据一起查看，支持增量加载。</li>
                             <li>可随时停止日志捕获；日志保存在 <code>logs/serial_capture/&lt;port&gt;/YYYY-MM-DD.jsonl</code>。</li>
-                            <li>API：<code>POST /api/serial/capture/start</code>、<code>/stop</code>、<code>/status</code>、<code>/log/&lt;port&gt;</code>。</li>
+                            <li>API：<code>POST /api/serial/capture/start</code>、<code>/stop</code>、<code>/status</code>、<code>/log/&lt;port&gt;</code>。
+                            </li>
                         </ul>
                     </div>
                 </div>
@@ -574,7 +582,8 @@ close_to_tray = true
                         <h3><i class="fas fa-download"></i> 安装方式</h3>
                         <ul>
                             <li><strong>Windows 便携版：</strong>下载最新 exe，一键运行，无需额外依赖。</li>
-                            <li><strong>源码部署：</strong><code>git clone</code> → <code>pip install -r requirements.txt</code> → <code>python main.py</code>。</li>
+                            <li><strong>源码部署：</strong><code>git clone</code> →
+                                <code>pip install -r requirements.txt</code> → <code>python main.py</code>。</li>
                             <li><strong>手动打包：</strong>运行 <code>pyinstaller YobboyFileServer.spec</code> 生成独立 exe。</li>
                         </ul>
                     </div>
@@ -678,6 +687,7 @@ close_to_tray = true
     </div>
 
     <script src="{{ url_for('static', filename='js/bootstrap.bundle.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
     <script>
         document.querySelectorAll('.toc a').forEach((anchor) => {
             anchor.addEventListener('click', (event) => {
@@ -690,9 +700,11 @@ close_to_tray = true
         });
     </script>
 </body>
+
 </html>
 <!DOCTYPE html>
 <html lang="zh-CN">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -707,7 +719,7 @@ close_to_tray = true
             min-height: 100vh;
             padding: 20px;
         }
-        
+
         .help-container {
             max-width: 1000px;
             margin: 0 auto;
@@ -716,30 +728,30 @@ close_to_tray = true
             box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
             padding: 40px;
         }
-        
+
         .help-header {
             text-align: center;
             margin-bottom: 40px;
             border-bottom: 3px solid var(--jasmine-green-600);
             padding-bottom: 20px;
         }
-        
+
         .help-header h1 {
             color: var(--jasmine-green-600);
             font-size: 2.5rem;
             font-weight: bold;
             margin-bottom: 10px;
         }
-        
+
         .help-header p {
             color: #6c757d;
             font-size: 1.1rem;
         }
-        
+
         .help-section {
             margin-bottom: 40px;
         }
-        
+
         .help-section h2 {
             color: var(--jasmine-green-600);
             font-size: 1.8rem;
@@ -748,12 +760,12 @@ close_to_tray = true
             display: flex;
             align-items: center;
         }
-        
+
         .help-section h2 i {
             margin-right: 15px;
             font-size: 1.5rem;
         }
-        
+
         .help-section h3 {
             color: var(--jasmine-green-400);
             font-size: 1.3rem;
@@ -761,22 +773,23 @@ close_to_tray = true
             margin-top: 25px;
             margin-bottom: 15px;
         }
-        
-        .help-section p, .help-section li {
+
+        .help-section p,
+        .help-section li {
             color: #495057;
             font-size: 1rem;
             line-height: 1.8;
             margin-bottom: 10px;
         }
-        
+
         .help-section ul {
             padding-left: 20px;
         }
-        
+
         .help-section li {
             margin-bottom: 15px;
         }
-        
+
         .feature-card {
             background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
             border-radius: 10px;
@@ -784,23 +797,23 @@ close_to_tray = true
             margin-bottom: 20px;
             box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
         }
-        
+
         .feature-card h4 {
             color: var(--jasmine-green-600);
             font-weight: bold;
             margin-bottom: 10px;
         }
-        
+
         .feature-card p {
             color: #495057;
             margin-bottom: 0;
         }
-        
+
         .back-button {
             text-align: center;
             margin-top: 40px;
         }
-        
+
         .back-button a {
             display: inline-block;
             padding: 12px 30px;
@@ -811,12 +824,12 @@ close_to_tray = true
             font-weight: bold;
             transition: all 0.3s ease;
         }
-        
+
         .back-button a:hover {
             transform: translateY(-2px);
             box-shadow: 0 5px 15px rgba(102, 126, 234, 0.3);
         }
-        
+
         .tip-box {
             background: #fff3cd;
             border-left: 4px solid #ffc107;
@@ -824,16 +837,16 @@ close_to_tray = true
             border-radius: 5px;
             margin: 20px 0;
         }
-        
+
         .tip-box strong {
             color: #856404;
         }
-        
+
         .tip-box p {
             color: #856404;
             margin-bottom: 0;
         }
-        
+
         .code-block {
             background: #f8f9fa;
             border: 1px solid #dee2e6;
@@ -847,17 +860,18 @@ close_to_tray = true
         }
     </style>
 </head>
+
 <body>
     <div class="help-container">
         <div class="help-header">
             <h1>📖 Yobboy文件服务器使用帮助</h1>
             <p>欢迎使用Yobboy文件服务器！本指南将帮助您快速上手。</p>
         </div>
-        
+
         <!-- 快速开始 -->
         <div class="help-section">
             <h2><i class="fas fa-rocket"></i>快速开始</h2>
-            
+
             <h3>1. 启动服务器</h3>
             <p><strong>方式一：使用图形界面（推荐）</strong></p>
             <ul>
@@ -866,7 +880,7 @@ close_to_tray = true
                 <li>服务器启动后，界面会显示访问地址</li>
                 <li>在浏览器中打开显示的任何一个地址即可访问</li>
             </ul>
-            
+
             <div class="tip-box">
                 <strong>💡 提示：</strong>
                 <p>图形界面提供了菜单栏，可以方便地访问各种功能：</p>
@@ -876,14 +890,14 @@ close_to_tray = true
                     <li><strong>帮助菜单：</strong>查看使用帮助、关于信息</li>
                 </ul>
             </div>
-            
+
             <h3>2. 登录系统</h3>
             <ul>
                 <li>首次访问会进入登录页面</li>
                 <li>输入密码（默认密码：<code>ats123</code>）</li>
                 <li>登录成功后会进入功能选择页面</li>
             </ul>
-            
+
             <h3>3. 选择功能</h3>
             <p>登录后您可以选择以下功能：</p>
             <div class="feature-card">
@@ -895,11 +909,11 @@ close_to_tray = true
                 <p>创建和编辑流程图、架构图等。支持本地文件上传和服务器保存，全离线模式，不依赖第三方服务。</p>
             </div>
         </div>
-        
+
         <!-- 文件浏览器功能 -->
         <div class="help-section">
             <h2><i class="fas fa-folder-open"></i>文件浏览器功能</h2>
-            
+
             <h3>支持的文件类型</h3>
             <ul>
                 <li><strong>图片文件：</strong>JPG, PNG, GIF, BMP, SVG, WebP - 直接在线预览</li>
@@ -909,7 +923,7 @@ close_to_tray = true
                 <li><strong>代码文件：</strong>Python, JavaScript, HTML, CSS等 - 语法高亮显示</li>
                 <li><strong>Draw.io文件：</strong>DRAWIO, DIO, DIAGRAM, XML - 在线预览和编辑</li>
             </ul>
-            
+
             <h3>主要操作</h3>
             <ul>
                 <li><strong>浏览文件：</strong>点击文件夹可以进入该目录</li>
@@ -917,7 +931,7 @@ close_to_tray = true
                 <li><strong>下载文件：</strong>点击下载按钮将文件保存到本地</li>
                 <li><strong>返回上级：</strong>使用面包屑导航快速跳转到上级目录</li>
             </ul>
-            
+
             <h3>服务器设置</h3>
             <p>如果需要更改服务器配置（根目录和密码）：</p>
             <ul>
@@ -934,11 +948,11 @@ close_to_tray = true
                 <li>更改设置后需要重启服务器使配置生效</li>
             </ul>
         </div>
-        
+
         <!-- Draw.io编辑器功能 -->
         <div class="help-section">
             <h2><i class="fas fa-paint-brush"></i>Draw.io 编辑器功能</h2>
-            
+
             <h3>主要特性</h3>
             <ul>
                 <li><strong>完全离线：</strong>无需连接外部服务，所有功能均在本地运行</li>
@@ -946,7 +960,7 @@ close_to_tray = true
                 <li><strong>实时保存：</strong>可以将图表保存到服务器或导出到本地</li>
                 <li><strong>多种导出格式：</strong>支持PNG、JPG、SVG、PDF等格式导出</li>
             </ul>
-            
+
             <h3>基本操作</h3>
             <ul>
                 <li><strong>创建新图表：</strong>进入Draw.io编辑器后，从左侧图形库拖拽元素到画布</li>
@@ -954,31 +968,32 @@ close_to_tray = true
                 <li><strong>打开现有图表：</strong>从文件浏览器中点击.drawio文件即可编辑</li>
                 <li><strong>导出图表：</strong>点击 <strong>文件 → 导出为</strong> 选择导出格式</li>
             </ul>
-            
+
             <div class="tip-box">
                 <strong>💡 提示：</strong>
-                <p>Draw.io编辑器支持快捷键操作，常用的有：<code>Ctrl+C</code> 复制，<code>Ctrl+V</code> 粘贴，<code>Ctrl+Z</code> 撤销，<code>Delete</code> 删除选中元素。</p>
+                <p>Draw.io编辑器支持快捷键操作，常用的有：<code>Ctrl+C</code> 复制，<code>Ctrl+V</code> 粘贴，<code>Ctrl+Z</code>
+                    撤销，<code>Delete</code> 删除选中元素。</p>
             </div>
         </div>
-        
+
         <!-- 配置说明 -->
         <div class="help-section">
             <h2><i class="fas fa-cog"></i>配置说明</h2>
-            
+
             <h3>配置文件位置</h3>
             <p>配置文件 <code>config.ini</code> 保存在以下位置：</p>
             <ul>
                 <li><strong>优先：</strong>程序运行目录</li>
                 <li><strong>备选：</strong>用户主目录下的 <code>.yobboy_file_server</code> 文件夹</li>
             </ul>
-            
+
             <h3>配置项说明</h3>
             <div class="code-block">
-[settings]<br>
-root_dir = C:\your\path\here  # 文件浏览器根目录<br>
-password = ats123              # 登录密码
+                [settings]<br>
+                root_dir = C:\your\path\here # 文件浏览器根目录<br>
+                password = ats123 # 登录密码
             </div>
-            
+
             <h3>修改配置的三种方式</h3>
             <p><strong>方式一：使用GUI设置界面（推荐）</strong></p>
             <ul>
@@ -987,21 +1002,21 @@ password = ats123              # 登录密码
                 <li>点击"保存设置"即可，无需手动重启</li>
                 <li>如果服务器正在运行，系统会自动先停止服务器</li>
             </ul>
-            
+
             <p><strong>方式二：手动编辑配置文件</strong></p>
             <ul>
                 <li>找到并打开 <code>config.ini</code> 文件</li>
                 <li>修改 <code>root_dir</code> 和 <code>password</code> 的值</li>
                 <li>保存文件后重启服务器使更改生效</li>
             </ul>
-            
+
             <p><strong>方式三：Web界面设置</strong></p>
             <ul>
                 <li>登录后访问 <code>/set_root</code> 路径设置根目录</li>
                 <li>修改密码需要编辑配置文件</li>
             </ul>
         </div>
-        
+
         <!-- 安全说明 -->
         <div class="help-section">
             <h2><i class="fas fa-shield-alt"></i>安全与隐私</h2>
@@ -1012,17 +1027,17 @@ password = ats123              # 登录密码
                 <li><strong>访问记录：</strong>所有访问记录保存在 <code>logs</code> 目录中，可随时查询</li>
                 <li><strong>路径安全：</strong>系统会自动防止路径遍历攻击，确保只能访问根目录下的文件</li>
             </ul>
-            
+
             <div class="tip-box">
                 <strong>⚠️ 注意：</strong>
                 <p>请妥善保管登录密码，不要在不受信任的设备上使用。如果怀疑密码泄露，请及时通过GUI设置界面或编辑配置文件修改密码。</p>
             </div>
         </div>
-        
+
         <!-- 常见问题 -->
         <div class="help-section">
             <h2><i class="fas fa-question-circle"></i>常见问题</h2>
-            
+
             <h3>Q: 服务器启动失败怎么办？</h3>
             <p>A: 请检查以下几点：</p>
             <ul>
@@ -1030,7 +1045,7 @@ password = ats123              # 登录密码
                 <li>防火墙是否阻止了程序运行</li>
                 <li>查看日志文件获取详细错误信息</li>
             </ul>
-            
+
             <h3>Q: 无法访问服务器？</h3>
             <p>A: 请确认：</p>
             <ul>
@@ -1039,7 +1054,7 @@ password = ats123              # 登录密码
                 <li>客户端和服务器在同一局域网内</li>
                 <li>防火墙未阻止端口5000</li>
             </ul>
-            
+
             <h3>Q: 文件预览不正常？</h3>
             <p>A: 不同文件类型的预览要求：</p>
             <ul>
@@ -1047,7 +1062,7 @@ password = ats123              # 登录密码
                 <li>视频文件需要浏览器支持对应的编码格式</li>
                 <li>Markdown文件中的相对路径图片需要与MD文件在同一根目录下</li>
             </ul>
-            
+
             <h3>Q: 如何在其他设备访问？</h3>
             <p>A: 操作步骤：</p>
             <ul>
@@ -1056,7 +1071,7 @@ password = ats123              # 登录密码
                 <li>在其他设备的浏览器中输入 <code>http://服务器IP:5000</code></li>
                 <li>输入登录密码即可访问</li>
             </ul>
-            
+
             <h3>Q: 如何修改服务器根目录和密码？</h3>
             <p>A: 最简单的方法：</p>
             <ul>
@@ -1066,14 +1081,14 @@ password = ats123              # 登录密码
                 <li>如果服务器正在运行，会自动先停止</li>
                 <li>保存后可以重新启动服务器使用新配置</li>
             </ul>
-            
+
             <h3>Q: 如何访问帮助文档？</h3>
             <p>A: 有两种方式：</p>
             <ul>
                 <li><strong>GUI界面：</strong>点击菜单栏 <strong>"帮助 → 使用帮助"</strong>，系统会自动打开浏览器显示帮助页面（如果服务器未运行会先启动）</li>
                 <li><strong>Web界面：</strong>在选择页面底部点击"使用帮助"链接，或直接访问 <code>/help</code> 路径</li>
             </ul>
-            
+
             <h3>Q: GUI窗口关闭后服务器会停止吗？</h3>
             <p>A: 取决于操作方式：</p>
             <ul>
@@ -1082,15 +1097,15 @@ password = ats123              # 登录密码
                 <li><strong>托盘图标：</strong>双击系统托盘图标可以重新显示窗口</li>
             </ul>
         </div>
-        
+
         <!-- 返回按钮 -->
         <div class="back-button">
             <a href="javascript:history.back()"><i class="fas fa-arrow-left"></i> 返回</a>
             <a href="/" style="margin-left: 15px;"><i class="fas fa-home"></i> 首页</a>
         </div>
     </div>
-    
+
     <script src="{{ url_for('static', filename='js/bootstrap.bundle.min.js') }}"></script>
 </body>
-</html>
 
+</html>

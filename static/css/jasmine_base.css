@@ -30,8 +30,11 @@
     --bs-danger-rgb: 240, 124, 130;
 }
 
-html, body {
+html {
     height: 100%;
+}
+
+body {
     min-height: 100%;
     margin: 0;
     padding: 0;
@@ -39,6 +42,8 @@ html, body {
     color: var(--jasmine-ink);
     background: var(--jasmine-gradient-main);
     background-attachment: fixed;
+    background-repeat: no-repeat;
+    background-size: cover;
 }
 
 body {
@@ -49,7 +54,8 @@ a {
     color: var(--jasmine-green-600);
 }
 
-a:hover, a:focus {
+a:hover,
+a:focus {
     color: var(--jasmine-green-700);
 }
 
@@ -222,7 +228,7 @@ body.jasmine-body {
     background: linear-gradient(120deg, var(--jasmine-green-600), var(--jasmine-green-400));
 }
 
-.breadcrumb-item + .breadcrumb-item::before {
+.breadcrumb-item+.breadcrumb-item::before {
     color: var(--jasmine-green-400);
 }
 
@@ -407,3 +413,223 @@ body:not(.choice-page) {
     border-color: transparent;
 }
 
+/* Floating Toolbar (Global) */
+.floating-toolbar {
+    position: fixed;
+    bottom: 25px;
+    right: 25px;
+    z-index: 9999;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.toolbar-btn {
+    width: 54px;
+    height: 54px;
+    border-radius: 50%;
+    border: none;
+    background: var(--jasmine-green-600);
+    color: white !important;
+    font-size: 1.2rem;
+    cursor: pointer;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+    transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-decoration: none !important;
+    position: relative;
+}
+
+.toolbar-btn:hover {
+    transform: translateY(-4px) scale(1.05);
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.3);
+    color: white !important;
+}
+
+.toolbar-btn:active {
+    transform: translateY(-1px);
+}
+
+/* Theme Overrides */
+
+/* Dark Theme (Deep Night) */
+[data-theme='dark'] {
+    --jasmine-cream: #1a1b1e;
+    --jasmine-white: #25262b;
+    --jasmine-green-100: #2c2e33;
+    --jasmine-green-200: #373a40;
+    --jasmine-green-300: #5c5f66;
+    --jasmine-green-400: #adb5bd;
+    --jasmine-green-500: #ced4da;
+    --jasmine-green-600: #dee2e6;
+    --jasmine-green-700: #e9ecef;
+    --jasmine-ink: #f8f9fa;
+    --jasmine-muted: #a5a5a5;
+
+    --jasmine-gradient-main: linear-gradient(135deg, #101113 0%, #1a1b1e 100%);
+    --jasmine-gradient-soft: linear-gradient(135deg, #25262b 0%, #2c2e33 100%);
+    --jasmine-panel-gradient: linear-gradient(145deg, rgba(37, 38, 43, 0.9), rgba(44, 46, 51, 0.9));
+    --jasmine-panel-glass: linear-gradient(145deg, rgba(37, 38, 43, 0.8), rgba(26, 27, 30, 0.8));
+
+    --jasmine-outline: rgba(255, 255, 255, 0.1);
+    --jasmine-focus-shadow: 0 0 0 0.25rem rgba(255, 255, 255, 0.1);
+    --jasmine-shadow-sm: 0 4px 12px rgba(0, 0, 0, 0.3);
+    --jasmine-shadow-lg: 0 10px 30px rgba(0, 0, 0, 0.5);
+}
+
+/* Ocean Theme */
+[data-theme='ocean'] {
+    --jasmine-cream: #f0f9ff;
+    --jasmine-white: #ffffff;
+    --jasmine-green-100: #e0f2fe;
+    --jasmine-green-200: #bae6fd;
+    --jasmine-green-300: #7dd3fc;
+    --jasmine-green-400: #38bdf8;
+    --jasmine-green-500: #0ea5e9;
+    --jasmine-green-600: #0284c7;
+    --jasmine-green-700: #0369a1;
+    --jasmine-ink: #0c4a6e;
+    --jasmine-muted: #475569;
+
+    --jasmine-gradient-main: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+    --jasmine-gradient-soft: linear-gradient(120deg, #e0f2fe 0%, #bae6fd 100%);
+    --jasmine-panel-gradient: linear-gradient(145deg, rgba(255, 255, 255, 0.9), rgba(224, 242, 254, 0.9));
+    --jasmine-panel-glass: linear-gradient(145deg, rgba(255, 255, 255, 0.8), rgba(224, 242, 254, 0.8));
+
+    --jasmine-outline: rgba(14, 165, 233, 0.3);
+    --jasmine-focus-shadow: 0 0 0 0.25rem rgba(14, 165, 233, 0.25);
+    --jasmine-shadow-sm: 0 4px 12px rgba(3, 105, 161, 0.1);
+    --jasmine-shadow-lg: 0 10px 30px rgba(3, 105, 161, 0.15);
+}
+
+/* Sunset Theme */
+[data-theme='sunset'] {
+    --jasmine-cream: #fff7ed;
+    --jasmine-white: #ffffff;
+    --jasmine-green-100: #ffedd5;
+    --jasmine-green-200: #fed7aa;
+    --jasmine-green-300: #fdba74;
+    --jasmine-green-400: #fb923c;
+    --jasmine-green-500: #f97316;
+    --jasmine-green-600: #ea580c;
+    --jasmine-green-700: #c2410c;
+    --jasmine-ink: #7c2d12;
+    --jasmine-muted: #573429;
+
+    --jasmine-gradient-main: linear-gradient(135deg, #fff7ed 0%, #ffedd5 100%);
+    --jasmine-gradient-soft: linear-gradient(120deg, #ffedd5 0%, #fed7aa 100%);
+    --jasmine-panel-gradient: linear-gradient(145deg, rgba(255, 255, 255, 0.9), rgba(255, 237, 213, 0.9));
+    --jasmine-panel-glass: linear-gradient(145deg, rgba(255, 255, 255, 0.8), rgba(255, 237, 213, 0.8));
+
+    --jasmine-outline: rgba(249, 115, 22, 0.3);
+    --jasmine-focus-shadow: 0 0 0 0.25rem rgba(249, 115, 22, 0.25);
+    --jasmine-shadow-sm: 0 4px 12px rgba(194, 65, 12, 0.1);
+    --jasmine-shadow-lg: 0 10px 30px rgba(194, 65, 12, 0.15);
+}
+
+/* Forest Theme */
+[data-theme='forest'] {
+    --jasmine-cream: #f6fdf6;
+    --jasmine-white: #ffffff;
+    --jasmine-green-100: #dcfce7;
+    --jasmine-green-200: #bbf7d0;
+    --jasmine-green-300: #86efac;
+    --jasmine-green-400: #4ade80;
+    --jasmine-green-500: #22c55e;
+    --jasmine-green-600: #16a34a;
+    --jasmine-green-700: #15803d;
+    --jasmine-ink: #14532d;
+    --jasmine-muted: #365314;
+
+    --jasmine-gradient-main: linear-gradient(135deg, #f6fdf6 0%, #dcfce7 100%);
+    --jasmine-gradient-soft: linear-gradient(120deg, #dcfce7 0%, #bbf7d0 100%);
+    --jasmine-panel-gradient: linear-gradient(145deg, rgba(255, 255, 255, 0.9), rgba(220, 252, 231, 0.9));
+    --jasmine-panel-glass: linear-gradient(145deg, rgba(255, 255, 255, 0.8), rgba(220, 252, 231, 0.8));
+
+    --jasmine-outline: rgba(34, 197, 94, 0.3);
+    --jasmine-focus-shadow: 0 0 0 0.25rem rgba(34, 197, 94, 0.25);
+    --jasmine-shadow-sm: 0 4px 12px rgba(21, 128, 61, 0.1);
+    --jasmine-shadow-lg: 0 10px 30px rgba(21, 128, 61, 0.15);
+}
+
+/* Cyberpunk Theme */
+[data-theme='cyberpunk'] {
+    --jasmine-cream: #050510;
+    --jasmine-white: #121225;
+    --jasmine-green-100: #2c0b4a;
+    --jasmine-green-200: #551a8b;
+    --jasmine-green-300: #8833cc;
+    --jasmine-green-400: #aa44dd;
+    --jasmine-green-500: #cc55ee;
+    --jasmine-green-600: #e066ff;
+    --jasmine-green-700: #ff77ff;
+    --jasmine-ink: #00ffea;
+    --jasmine-muted: #bd93f9;
+
+    --jasmine-gradient-main: linear-gradient(135deg, #050510 0%, #1a0b2e 100%);
+    --jasmine-gradient-soft: linear-gradient(120deg, #1a0b2e 0%, #2c0b4a 100%);
+    --jasmine-panel-gradient: linear-gradient(145deg, rgba(18, 18, 37, 0.9), rgba(44, 11, 74, 0.9));
+    --jasmine-panel-glass: linear-gradient(145deg, rgba(18, 18, 37, 0.85), rgba(44, 11, 74, 0.85));
+
+    --jasmine-outline: rgba(224, 102, 255, 0.3);
+    --jasmine-focus-shadow: 0 0 0 0.25rem rgba(224, 102, 255, 0.25);
+    --jasmine-shadow-sm: 0 4px 12px rgba(0, 255, 234, 0.2);
+    --jasmine-shadow-lg: 0 10px 30px rgba(224, 102, 255, 0.2);
+}
+
+/* Specific overrides for Dark Mode Components */
+[data-theme='cyberpunk'] .card,
+[data-theme='cyberpunk'] .modal-content,
+[data-theme='cyberpunk'] .container-main,
+[data-theme='cyberpunk'] .jasmine-soft-panel {
+    background: #1e1e1e;
+    background: var(--jasmine-panel-glass);
+    border-color: rgba(255, 255, 255, 0.1);
+    color: var(--jasmine-ink);
+}
+
+/* Specific overrides for Dark Mode Components */
+[data-theme='dark'] .card,
+[data-theme='dark'] .modal-content,
+[data-theme='dark'] .container-main,
+[data-theme='dark'] .jasmine-soft-panel {
+    background: #1e1e1e;
+    background: var(--jasmine-panel-glass);
+    border-color: rgba(255, 255, 255, 0.1);
+    color: #f8f9fa;
+}
+
+[data-theme='dark'] .card-header,
+[data-theme='dark'] .card-footer {
+    background: rgba(255, 255, 255, 0.05);
+    border-color: rgba(255, 255, 255, 0.1);
+    color: #f8f9fa;
+}
+
+[data-theme='dark'] .navbar {
+    background: #1a1b1e;
+    border-bottom-color: rgba(255, 255, 255, 0.1);
+}
+
+[data-theme='dark'] .text-muted,
+[data-theme='dark'] .text-secondary {
+    color: #adb5bd !important;
+}
+
+[data-theme='dark'] .table {
+    background: var(--jasmine-panel-glass);
+    color: #f8f9fa;
+}
+
+[data-theme='dark'] .table-hover tbody tr:hover {
+    background-color: rgba(255, 255, 255, 0.05);
+}
+
+[data-theme='dark'] .form-control,
+[data-theme='dark'] .form-select {
+    background: rgba(0, 0, 0, 0.2);
+    border-color: rgba(255, 255, 255, 0.15);
+    color: #f8f9fa;
+}

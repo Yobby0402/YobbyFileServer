@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -9,6 +10,7 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/jasmine_base.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/serial_tool.css') }}">
 </head>
+
 <body>
     <!-- 顶部导航栏 -->
     <nav class="navbar navbar-dark bg-dark">
@@ -41,11 +43,12 @@
                     </div>
                     <div class="card-body">
                         <div class="btn-group w-100" role="group">
-                            <input type="radio" class="btn-check" name="connectionMode" id="modeLocal" value="local" checked>
+                            <input type="radio" class="btn-check" name="connectionMode" id="modeLocal" value="local"
+                                checked>
                             <label class="btn btn-outline-primary" for="modeLocal">
                                 <i class="fas fa-desktop"></i> 本地串口
                             </label>
-                            
+
                             <input type="radio" class="btn-check" name="connectionMode" id="modeRemote" value="remote">
                             <label class="btn btn-outline-success" for="modeRemote">
                                 <i class="fas fa-cloud"></i> 远程串口
@@ -159,7 +162,8 @@
                         <div class="row g-2">
                             <div class="col-6">
                                 <label class="form-label">波特率</label>
-                                <input type="number" class="form-control form-control-sm" id="captureBaudRate" value="9600" min="110" step="10">
+                                <input type="number" class="form-control form-control-sm" id="captureBaudRate"
+                                    value="9600" min="110" step="10">
                             </div>
                             <div class="col-6">
                                 <label class="form-label">数据位</label>
@@ -210,7 +214,8 @@
                             <button class="btn btn-outline-secondary" id="pauseBtn" title="暂停/继续">
                                 <i class="fas fa-pause"></i>
                             </button>
-                            <button class="btn btn-outline-secondary" id="autoScrollBtn" title="自动滚动" data-active="true">
+                            <button class="btn btn-outline-secondary" id="autoScrollBtn" title="自动滚动"
+                                data-active="true">
                                 <i class="fas fa-arrow-down"></i>
                             </button>
                             <button class="btn btn-outline-success" id="saveLogBtn" title="保存日志">
@@ -222,34 +227,37 @@
                         <!-- 显示模式切换 -->
                         <div class="data-format-tabs">
                             <div class="btn-group btn-group-sm mb-2" role="group">
-                                <input type="radio" class="btn-check" name="displayMode" id="modeBubble" value="bubble" checked>
+                                <input type="radio" class="btn-check" name="displayMode" id="modeBubble" value="bubble"
+                                    checked>
                                 <label class="btn btn-outline-success" for="modeBubble">
                                     <i class="fas fa-comments"></i> 气泡
                                 </label>
-                                
-                                <input type="radio" class="btn-check" name="displayMode" id="modeTerminal" value="terminal">
+
+                                <input type="radio" class="btn-check" name="displayMode" id="modeTerminal"
+                                    value="terminal">
                                 <label class="btn btn-outline-success" for="modeTerminal">
                                     <i class="fas fa-terminal"></i> 终端
                                 </label>
                             </div>
                             <div class="btn-group btn-group-sm" role="group">
-                                <input type="radio" class="btn-check" name="dataFormat" id="formatText" value="text" checked>
+                                <input type="radio" class="btn-check" name="dataFormat" id="formatText" value="text"
+                                    checked>
                                 <label class="btn btn-outline-primary" for="formatText">文本</label>
-                                
+
                                 <input type="radio" class="btn-check" name="dataFormat" id="formatHex" value="hex">
                                 <label class="btn btn-outline-primary" for="formatHex">HEX</label>
-                                
+
                                 <input type="radio" class="btn-check" name="dataFormat" id="formatDec" value="dec">
                                 <label class="btn btn-outline-primary" for="formatDec">十进制</label>
-                                
+
                                 <input type="radio" class="btn-check" name="dataFormat" id="formatBin" value="bin">
                                 <label class="btn btn-outline-primary" for="formatBin">二进制</label>
                             </div>
                         </div>
-                        
+
                         <!-- 数据显示区域 - 气泡模式 -->
                         <div id="dataDisplay" class="data-display"></div>
-                        
+
                         <!-- 终端模式容器 -->
                         <div id="terminalContainer" class="terminal-container" style="display: none;">
                             <!-- 终端快捷键工具栏 -->
@@ -274,23 +282,27 @@
                                 </button>
                                 <div class="form-check form-switch d-inline-block ms-3">
                                     <input class="form-check-input" type="checkbox" id="localEcho" checked>
-                                    <label class="form-check-label text-light" for="localEcho" title="关闭后只显示设备回显，适用于有回显的设备（如MicroPython）">
+                                    <label class="form-check-label text-light" for="localEcho"
+                                        title="关闭后只显示设备回显，适用于有回显的设备（如MicroPython）">
                                         本地回显
                                     </label>
                                 </div>
                             </div>
-                            
+
                             <!-- 真实终端 - 显示区域 + 隐藏输入 -->
                             <div class="terminal-wrapper">
                                 <div id="terminalDisplay" class="terminal-display"></div>
-                                <input type="text" id="terminalInput" class="terminal-hidden-input" autocomplete="off" spellcheck="false">
+                                <input type="text" id="terminalInput" class="terminal-hidden-input" autocomplete="off"
+                                    spellcheck="false">
                             </div>
                         </div>
-                        
+
                         <!-- 统计信息 -->
                         <div class="stats-bar">
-                            <span><i class="fas fa-download text-success"></i> RX: <strong id="rxBytes">0</strong> 字节</span>
-                            <span><i class="fas fa-upload text-primary"></i> TX: <strong id="txBytes">0</strong> 字节</span>
+                            <span><i class="fas fa-download text-success"></i> RX: <strong id="rxBytes">0</strong>
+                                字节</span>
+                            <span><i class="fas fa-upload text-primary"></i> TX: <strong id="txBytes">0</strong>
+                                字节</span>
                             <span><i class="fas fa-clock"></i> <span id="uptime">00:00:00</span></span>
                         </div>
                     </div>
@@ -311,7 +323,8 @@
                         </div>
                         <div class="mb-2">
                             <div class="form-check form-check-inline">
-                                <input class="form-check-input" type="radio" name="sendFormat" id="sendText" value="text" checked>
+                                <input class="form-check-input" type="radio" name="sendFormat" id="sendText"
+                                    value="text" checked>
                                 <label class="form-check-label" for="sendText">文本</label>
                             </div>
                             <div class="form-check form-check-inline">
@@ -376,7 +389,8 @@
                         </div>
                         <div class="mb-2">
                             <label class="form-label">间隔时间 (毫秒)</label>
-                            <input type="number" class="form-control form-control-sm" id="timerInterval" value="1000" min="100" max="60000">
+                            <input type="number" class="form-control form-control-sm" id="timerInterval" value="1000"
+                                min="100" max="60000">
                         </div>
                         <small class="text-muted">定时发送上方输入框的内容</small>
                     </div>
@@ -400,15 +414,18 @@
                     </div>
                     <div class="mb-3">
                         <label class="form-label">指令内容</label>
-                        <textarea class="form-control" id="commandContent" rows="3" placeholder="例如：AT+STATUS"></textarea>
+                        <textarea class="form-control" id="commandContent" rows="3"
+                            placeholder="例如：AT+STATUS"></textarea>
                     </div>
                     <div class="mb-3">
                         <div class="form-check form-check-inline">
-                            <input class="form-check-input" type="radio" name="commandFormat" id="commandText" value="text" checked>
+                            <input class="form-check-input" type="radio" name="commandFormat" id="commandText"
+                                value="text" checked>
                             <label class="form-check-label" for="commandText">文本</label>
                         </div>
                         <div class="form-check form-check-inline">
-                            <input class="form-check-input" type="radio" name="commandFormat" id="commandHex" value="hex">
+                            <input class="form-check-input" type="radio" name="commandFormat" id="commandHex"
+                                value="hex">
                             <label class="form-check-label" for="commandHex">HEX</label>
                         </div>
                     </div>
@@ -456,8 +473,9 @@
                 </div>
                 <div class="modal-body">
                     <h6><i class="fas fa-info-circle text-primary"></i> 浏览器兼容性</h6>
-                    <p>本地串口模式仅支持 <strong>Chrome</strong>、<strong>Edge</strong>、<strong>Opera</strong> 等 Chromium 内核浏览器。</p>
-                    
+                    <p>本地串口模式仅支持 <strong>Chrome</strong>、<strong>Edge</strong>、<strong>Opera</strong> 等 Chromium 内核浏览器。
+                    </p>
+
                     <h6 class="mt-3"><i class="fas fa-plug text-success"></i> 本地串口模式</h6>
                     <ul>
                         <li>点击"添加"按钮，浏览器会弹出串口选择框</li>
@@ -465,7 +483,7 @@
                         <li>配置波特率等参数后即可收发数据</li>
                         <li>数据实时显示，支持多种格式（文本/HEX/十进制/二进制）</li>
                     </ul>
-                    
+
                     <h6 class="mt-3"><i class="fas fa-cloud text-info"></i> 远程串口模式</h6>
                     <ul>
                         <li>切换到"远程串口"模式</li>
@@ -473,7 +491,7 @@
                         <li>可以监控其他客户端的串口数据</li>
                         <li>也可以远程发送命令到设备</li>
                     </ul>
-                    
+
                     <h6 class="mt-3"><i class="fas fa-terminal text-warning"></i> 常用功能</h6>
                     <ul>
                         <li><strong>数据格式切换</strong>：支持文本、HEX、十进制、二进制显示</li>
@@ -483,7 +501,7 @@
                         <li><strong>暂停/继续</strong>：暂停数据显示（数据仍在接收）</li>
                         <li><strong>自动滚动</strong>：自动滚动到最新数据</li>
                     </ul>
-                    
+
                     <h6 class="mt-3"><i class="fas fa-keyboard text-secondary"></i> 快捷键</h6>
                     <ul>
                         <li><kbd>Ctrl</kbd> + <kbd>Enter</kbd>：发送数据</li>
@@ -498,9 +516,35 @@
         </div>
     </div>
 
+    <!-- 浮动工具栏 -->
+    <div class="floating-toolbar">
+        <button class="toolbar-btn" title="切换主题" onclick="cycleTheme()">
+            <i class="fas fa-palette"></i>
+        </button>
+        <a href="/" class="toolbar-btn back-btn" title="返回首页">
+            <i class="fas fa-home"></i>
+        </a>
+        <a href="/logout" class="toolbar-btn logout-btn" title="退出登录">
+            <i class="fas fa-sign-out-alt"></i>
+        </a>
+    </div>
+
+    <script>
+        function cycleTheme() {
+            const themes = ['snow', 'dark', 'ocean', 'sunset', 'forest', 'cyberpunk'];
+            const current = localStorage.getItem('yobby_theme') || 'snow';
+            const nextIndex = (themes.indexOf(current) + 1) % themes.length;
+            const nextTheme = themes[nextIndex];
+            if (window.YobbyTheme) {
+                window.YobbyTheme.setTheme(nextTheme);
+            }
+        }
+    </script>
+
     <script src="{{ url_for('static', filename='js/bootstrap.bundle.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
     <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
     <script src="{{ url_for('static', filename='js/serial_tool.js') }}?v={{ range(1, 99999) | random }}"></script>
 </body>
-</html>
 
+</html>

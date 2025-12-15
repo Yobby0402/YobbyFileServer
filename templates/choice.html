@@ -1,30 +1,31 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Yobboy文件服务器</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap.min.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/font-awesome.min.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/jasmine_base.css') }}">
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-        
         body {
-            font-family: 'Microsoft YaHei', Arial, sans-serif;
             height: 100vh;
             overflow: hidden;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: var(--jasmine-gradient-main);
+            color: var(--jasmine-text-main);
+            transition: background 0.5s ease;
+            font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif;
+            margin: 0;
         }
-        
+
         .main-container {
             display: flex;
             height: 100vh;
+            width: 100%;
         }
-        
+
+        /* Choice Section: Transparent to show global theme */
         .choice-section {
             flex: 1;
             display: flex;
@@ -32,241 +33,447 @@
             justify-content: center;
             align-items: center;
             cursor: pointer;
-            transition: all 0.3s ease;
+            transition: all 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94);
             position: relative;
             overflow: hidden;
-        }
-        
-        .choice-section:hover {
-            transform: scale(1.02);
-        }
-        
-        .choice-section:hover::before {
-            opacity: 0.1;
-        }
-        
-        .choice-section::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: rgba(255, 255, 255, 0.1);
-            opacity: 0;
-            transition: opacity 0.3s ease;
-        }
-        
-        .file-browser {
-            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
-        }
-        
-        .drawio-editor {
-            background: linear-gradient(135deg, #fa709a 0%, #fee140 100%);
-        }
-        
-        .serial-tool {
-            background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);
+            border-right: 1px solid rgba(255, 255, 255, 0.1);
+            background: rgba(255, 255, 255, 0.02);
+            /* Slight tint */
         }
 
-        .todo-board {
-            background: linear-gradient(135deg, #fbc2eb 0%, #a6c1ee 100%);
+        /* Hover Effect: Grow */
+        .choice-section:hover {
+            flex: 1.4;
+            z-index: 10;
+            background: rgba(255, 255, 255, 0.08);
+            box-shadow: 0 0 50px rgba(0, 0, 0, 0.1);
         }
-        
-        .product-compare {
-            background: linear-gradient(135deg, #a8edea 0%, #fed6e3 100%);
-        }
-        
+
+        /* Glassmorphism Content Card with Distinct Identities */
         .choice-content {
             text-align: center;
-            color: white;
             z-index: 2;
-            position: relative;
+            padding: 30px;
+            border-radius: 24px;
+
+            /* Base Glass Style */
+            background: rgba(255, 255, 255, 0.15);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.1);
+
+            transition: all 0.3s ease;
+            max-width: 85%;
+            width: 280px;
+            transform: translateY(0);
         }
-        
+
+        /* Section Specific Card Styles (The "Color" is now continuously visible in the card) */
+
+        /* File Browser (Blue) */
+        .choice-section.file-browser .choice-content {
+            background: linear-gradient(145deg, rgba(54, 209, 220, 0.2), rgba(91, 134, 229, 0.2));
+            border-color: rgba(91, 134, 229, 0.3);
+        }
+
+        .choice-section.file-browser:hover .choice-content {
+            background: linear-gradient(145deg, rgba(54, 209, 220, 0.3), rgba(91, 134, 229, 0.3));
+            box-shadow: 0 15px 45px rgba(91, 134, 229, 0.25);
+        }
+
+        /* ToDo (Purple) */
+        .choice-section.todo-board .choice-content {
+            background: linear-gradient(145deg, rgba(161, 140, 209, 0.2), rgba(251, 194, 235, 0.2));
+            border-color: rgba(161, 140, 209, 0.3);
+        }
+
+        .choice-section.todo-board:hover .choice-content {
+            background: linear-gradient(145deg, rgba(161, 140, 209, 0.3), rgba(251, 194, 235, 0.3));
+            box-shadow: 0 15px 45px rgba(161, 140, 209, 0.25);
+        }
+
+        /* Product Compare (Green/Teal) */
+        .choice-section.product-compare .choice-content {
+            background: linear-gradient(145deg, rgba(132, 250, 176, 0.2), rgba(143, 211, 244, 0.2));
+            border-color: rgba(132, 250, 176, 0.3);
+        }
+
+        .choice-section.product-compare:hover .choice-content {
+            background: linear-gradient(145deg, rgba(132, 250, 176, 0.3), rgba(143, 211, 244, 0.3));
+            box-shadow: 0 15px 45px rgba(132, 250, 176, 0.25);
+        }
+
+        /* Audio Relay (Orange) */
+        .choice-section.audio-relay .choice-content {
+            background: linear-gradient(145deg, rgba(255, 159, 67, 0.2), rgba(255, 82, 82, 0.2));
+            border-color: rgba(255, 159, 67, 0.3);
+        }
+
+        .choice-section.audio-relay:hover .choice-content {
+            background: linear-gradient(145deg, rgba(255, 159, 67, 0.3), rgba(255, 82, 82, 0.3));
+            box-shadow: 0 15px 45px rgba(255, 159, 67, 0.25);
+        }
+
+        .choice-section.product-compare:hover .choice-content {
+            background: linear-gradient(145deg, rgba(132, 250, 176, 0.3), rgba(143, 211, 244, 0.3));
+            box-shadow: 0 15px 45px rgba(132, 250, 176, 0.25);
+        }
+
+        /* Draw.io (Pink/Orange) */
+        .choice-section.drawio-editor .choice-content {
+            background: linear-gradient(145deg, rgba(250, 112, 154, 0.2), rgba(254, 225, 64, 0.2));
+            border-color: rgba(250, 112, 154, 0.3);
+        }
+
+        .choice-section.drawio-editor:hover .choice-content {
+            background: linear-gradient(145deg, rgba(250, 112, 154, 0.3), rgba(254, 225, 64, 0.3));
+            box-shadow: 0 15px 45px rgba(250, 112, 154, 0.25);
+        }
+
+        /* Serial Tool (Emerald) */
+        .choice-section.serial-tool .choice-content {
+            background: linear-gradient(145deg, rgba(67, 233, 123, 0.2), rgba(56, 249, 215, 0.2));
+            border-color: rgba(67, 233, 123, 0.3);
+        }
+
+        .choice-section.serial-tool:hover .choice-content {
+            background: linear-gradient(145deg, rgba(67, 233, 123, 0.3), rgba(56, 249, 215, 0.3));
+            box-shadow: 0 15px 45px rgba(67, 233, 123, 0.25);
+        }
+
+        /* Common Hover for Content */
+        .choice-section:hover .choice-content {
+            transform: translateY(-10px);
+            border-color: rgba(255, 255, 255, 0.7);
+        }
+
+        /* Choice Icon & Text */
         .choice-icon {
-            font-size: 4rem;
+            font-size: 3.5rem;
             margin-bottom: 20px;
-            display: block;
-            transition: transform 0.3s ease;
+            display: inline-block;
+            filter: drop-shadow(0 4px 6px rgba(0, 0, 0, 0.1));
+            transition: transform 0.4s ease;
         }
-        
+
         .choice-section:hover .choice-icon {
-            animation: bounce 0.6s ease;
+            transform: scale(1.1) rotate(5deg);
         }
-        
+
         .choice-title {
-            font-size: 2.5rem;
-            font-weight: bold;
-            margin-bottom: 15px;
-            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+            font-size: 1.6rem;
+            font-weight: 700;
+            margin-bottom: 12px;
+            color: var(--jasmine-ink);
+            /* Adapts to theme */
+            text-shadow: 0 2px 4px rgba(255, 255, 255, 0.3);
         }
-        
+
+        /* Ensure text is readable in dark mode too */
+        [data-theme='dark'] .choice-title {
+            color: #f0f0f0;
+            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
+        }
+
         .choice-description {
-            font-size: 1.1rem;
-            opacity: 0.9;
-            max-width: 300px;
-            line-height: 1.6;
-            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+            font-size: 0.95rem;
+            color: var(--jasmine-muted);
+            /* Adapts to theme */
+            line-height: 1.5;
+            font-weight: 500;
         }
-        
-        .divider {
-            width: 2px;
-            background: rgba(255, 255, 255, 0.3);
-            position: relative;
+
+        [data-theme='dark'] .choice-description {
+            color: #ccc;
         }
-        
+
+        /* Footer & Controls */
         .footer {
             position: fixed;
             bottom: 0;
             left: 0;
             right: 0;
-            background: rgba(0, 0, 0, 0.8);
-            color: white;
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-top: 1px solid rgba(255, 255, 255, 0.2);
+            color: var(--jasmine-muted);
             text-align: center;
-            padding: 15px;
-            font-size: 0.9rem;
+            padding: 10px;
+            font-size: 0.85rem;
+            z-index: 100;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 20px;
         }
-        
-        .logout-link {
+
+        [data-theme='dark'] .footer {
+            color: #ccc;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .top-controls {
             position: fixed;
-            top: 20px;
-            right: 20px;
-            z-index: 10;
+            top: 24px;
+            right: 24px;
+            z-index: 100;
+            display: flex;
+            gap: 12px;
         }
-        
-        .logout-link a {
-            color: white;
+
+        .control-btn {
+            background: rgba(255, 255, 255, 0.2);
+            border: 1px solid rgba(255, 255, 255, 0.4);
+            color: var(--jasmine-ink);
+            padding: 8px 16px;
+            border-radius: 999px;
             text-decoration: none;
+            font-size: 0.9rem;
+            font-weight: 600;
+            transition: all 0.2s ease;
+            backdrop-filter: blur(8px);
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            cursor: pointer;
+        }
+
+        [data-theme='dark'] .control-btn {
+            color: #fff;
             background: rgba(0, 0, 0, 0.3);
-            padding: 10px 20px;
-            border-radius: 20px;
-            transition: background 0.3s ease;
+            border: 1px solid rgba(255, 255, 255, 0.2);
         }
-        
-        .logout-link a:hover {
-            background: rgba(0, 0, 0, 0.6);
-            color: white;
+
+        .control-btn:hover {
+            transform: translateY(-2px);
+            background: rgba(255, 255, 255, 0.4);
+            color: var(--jasmine-primary);
         }
-        
-        @keyframes bounce {
-            0%, 100% {
+
+        [data-theme='dark'] .control-btn:hover {
+            background: rgba(255, 255, 255, 0.1);
+            color: #fff;
+        }
+
+        /* Theme Switcher Styles (Fixed) */
+        .theme-switcher {
+            position: relative;
+            /* Bridge for hover */
+            padding-bottom: 20px;
+            margin-bottom: -20px;
+        }
+
+        .theme-dropdown {
+            position: absolute;
+            top: 100%;
+            /* No margin top, directly below */
+            right: 0;
+            padding: 8px;
+            /* Internal padding */
+            margin-top: 5px;
+            /* Slight visual separation */
+
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.5);
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+
+            display: none;
+            flex-direction: column;
+            min-width: 150px;
+            z-index: 101;
+        }
+
+        /* Invisible bridge to keep hover active */
+        .theme-switcher::after {
+            content: '';
+            position: absolute;
+            top: 100%;
+            left: 0;
+            width: 100%;
+            height: 10px;
+            /* Covers the 5px margin-top of dropdown */
+        }
+
+        .theme-switcher:hover .theme-dropdown {
+            display: flex;
+            animation: fadeIn 0.2s ease;
+        }
+
+        .theme-option {
+            padding: 10px 14px;
+            border-radius: 8px;
+            color: #333;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            transition: background 0.2s;
+            font-size: 0.9rem;
+            font-weight: 500;
+        }
+
+        .theme-option:hover {
+            background-color: rgba(0, 0, 0, 0.05);
+            color: var(--jasmine-primary, #36aa97);
+        }
+
+        .theme-dot {
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            display: inline-block;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(-5px);
+            }
+
+            to {
+                opacity: 1;
                 transform: translateY(0);
             }
-            25% {
-                transform: translateY(-15px);
-            }
-            50% {
-                transform: translateY(0);
-            }
-            75% {
-                transform: translateY(-8px);
-            }
         }
-        
+
         @media (max-width: 768px) {
             .main-container {
                 flex-direction: column;
+                height: auto;
+                padding-bottom: 60px;
             }
-            
-            .divider {
-                width: 100%;
-                height: 2px;
+
+            .choice-section {
+                padding: 40px 20px;
+                border: none;
+                min-height: 200px;
             }
-            
-            .choice-title {
-                font-size: 2rem;
-            }
-            
-            .choice-icon {
-                font-size: 3rem;
+
+            .choice-section:hover {
+                flex: 1;
             }
         }
     </style>
 </head>
+
 <body>
-    <div class="logout-link">
-        <a href="/logout">退出登录</a>
+    <div class="top-controls">
+        <!-- Theme Switcher -->
+        <div class="theme-switcher">
+            <button class="control-btn" id="themeBtn">
+                <i class="fas fa-palette"></i> 主题
+            </button>
+            <div class="theme-dropdown">
+                <div class="theme-option theme-btn" data-toggle="theme" data-value="snow">
+                    <span class="theme-dot" style="background: #f4f9f4; border: 1px solid #ddd;"></span> 茉莉飘雪
+                </div>
+                <div class="theme-option theme-btn" data-toggle="theme" data-value="dark">
+                    <span class="theme-dot" style="background: #1a2624; border: 1px solid #333;"></span> 深邃夜空
+                </div>
+                <div class="theme-option theme-btn" data-toggle="theme" data-value="ocean">
+                    <span class="theme-dot" style="background: #eef7fc; border: 1px solid #bde;"></span> 碧海蓝天
+                </div>
+                <div class="theme-option theme-btn" data-toggle="theme" data-value="sunset">
+                    <span class="theme-dot" style="background: #fff7ed; border: 1px solid #fcd34d;"></span> 日落黄昏
+                </div>
+                <div class="theme-option theme-btn" data-toggle="theme" data-value="forest">
+                    <span class="theme-dot" style="background: #f6fdf6; border: 1px solid #86efac;"></span> 迷雾森林
+                </div>
+                <div class="theme-option theme-btn" data-toggle="theme" data-value="cyberpunk">
+                    <span class="theme-dot" style="background: #050510; border: 1px solid #d946ef;"></span> 赛博朋克
+                </div>
+            </div>
+        </div>
+
+        <a href="/logout" class="control-btn">
+            <i class="fas fa-sign-out-alt"></i> 退出
+        </a>
     </div>
-    
+
     <div class="main-container">
         <div class="choice-section file-browser" onclick="window.location.href='/file_browser'">
             <div class="choice-content">
                 <span class="choice-icon">📁</span>
                 <h2 class="choice-title">文件浏览器</h2>
                 <p class="choice-description">
-                    浏览、预览和下载服务器上的文件<br>
-                    支持多种文件格式查看和下载<br>
-                    全离线模式，仅局域网内访问，访问记录可查询
+                    全功能文件管理与预览<br>
+                    支持代码、Markdown、3D模型
                 </p>
             </div>
         </div>
-        
-        <div class="divider"></div>
 
         <div class="choice-section todo-board" onclick="window.location.href='/todo/v2'">
             <div class="choice-content">
                 <span class="choice-icon">📝</span>
                 <h2 class="choice-title">ToDo 任务管理</h2>
                 <p class="choice-description">
-                    项目管理与任务追踪系统<br>
-                    支持项目分组、任务排序、进度跟踪<br>
-                    待完成概览卡片展示
+                    高效的项目追踪与待办事项<br>
+                    看板视图，进度一目了然
                 </p>
             </div>
         </div>
-        
-        <div class="divider"></div>
 
         <div class="choice-section product-compare" onclick="window.location.href='/product_compare'">
             <div class="choice-content">
                 <span class="choice-icon">⚖️</span>
                 <h2 class="choice-title">产品对比</h2>
                 <p class="choice-description">
-                    记录和对比不同产品的参数<br>
-                    支持表格和雷达图直观展示<br>
-                    多维度分析产品优势与劣势
+                    多维度参数对比与雷达图<br>
+                    智能分析产品优劣势
                 </p>
             </div>
         </div>
-        
-        <div class="divider"></div>
-        
+
         <div class="choice-section drawio-editor" onclick="window.location.href='/drawio_main'">
             <div class="choice-content">
                 <span class="choice-icon">📊</span>
                 <h2 class="choice-title">Draw.io 编辑器</h2>
                 <p class="choice-description">
-                    创建和编辑流程图、架构图<br>
-                    支持本地文件上传和服务器保存<br>
-                    全离线模式，不依赖第三方服务，本地存储，安全可靠
+                    集成 Draw.io 专业编辑器<br>
+                    本地保存，安全可靠
                 </p>
             </div>
         </div>
-        
-        <div class="divider"></div>
-        
+
         <div class="choice-section serial-tool" onclick="window.location.href='/serial_tool'">
             <div class="choice-content">
                 <span class="choice-icon">🔌</span>
-                <h2 class="choice-title">串口调试助手</h2>
+                <h2 class="choice-title">串口助手</h2>
                 <p class="choice-description">
-                    连接本地或远程串口设备<br>
-                    实时数据收发与监控<br>
-                    支持数据记录、十六进制显示等功能
+                    Web 端串口数据收发调试<br>
+                    支持实时监控与日志记录
+                </p>
+            </div>
+        </div>
+
+        <div class="choice-section audio-relay" onclick="window.location.href='/audio_relay'">
+            <div class="choice-content">
+                <span class="choice-icon">📻</span>
+                <h2 class="choice-title">远程音箱</h2>
+                <p class="choice-description">
+                    局域网音频实时串流<br>
+                    让设备变身无线音响
                 </p>
             </div>
         </div>
     </div>
-    
+
     <div class="footer">
-        © 2025 Yobboy文件服务器 - 本地化文件管理与图表编辑解决方案
-        <br>
-        <a href="/help" style="color: #4facfe; text-decoration: none; margin-top: 10px; display: inline-block;">
+        <span>© 2025 Yobboy 文件服务器</span>
+        <span style="opacity: 0.3">|</span>
+        <a href="/help" style="color: inherit; text-decoration: none; display: flex; align-items: center; gap: 5px;">
             <i class="fas fa-question-circle"></i> 使用帮助
         </a>
     </div>
 
     <script src="{{ url_for('static', filename='js/bootstrap.bundle.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
 </body>
+
 </html>

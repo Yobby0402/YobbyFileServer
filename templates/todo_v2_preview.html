@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ToDo 表格预览 - Yobboy 文件服务器</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap.min.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/font-awesome.min.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/jasmine_base.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/todo_v2_preview.css') }}">
+</head>
+<body class="jasmine-body" data-direct-access="{{ 'true' if direct_access else 'false' }}">
+    <div class="todo-preview-page container-fluid">
+        <header class="preview-header">
+            <div class="header-left">
+                <h1 class="page-title">
+                    <i class="fas fa-table"></i> ToDo 表格预览
+                </h1>
+            </div>
+            <div class="header-controls">
+                <div class="search-group">
+                    <div class="input-group">
+                        <span class="input-group-text"><i class="fas fa-search"></i></span>
+                        <input type="text" class="form-control form-control-sm" id="searchInput" placeholder="搜索任务...">
+                    </div>
+                </div>
+                <div class="time-filter-group">
+                    <label class="filter-label">时间筛选：</label>
+                    <select class="form-select form-select-sm" id="timeFilterType">
+                        <option value="none">不筛选</option>
+                        <option value="created">创建时间</option>
+                        <option value="updated">更新时间</option>
+                        <option value="due">预计完成时间</option>
+                    </select>
+                    <input type="date" class="form-control form-control-sm" id="timeFilterStart" style="display: none;">
+                    <span class="filter-separator" style="display: none;">至</span>
+                    <input type="date" class="form-control form-control-sm" id="timeFilterEnd" style="display: none;">
+                </div>
+                <div class="font-size-controls">
+                    <button type="button" class="btn btn-sm btn-outline-secondary" id="fontSizeSmall" title="小字体">
+                        <i class="fas fa-font"></i> 小
+                    </button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary active" id="fontSizeMedium" title="中字体">
+                        <i class="fas fa-font"></i> 中
+                    </button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" id="fontSizeLarge" title="大字体">
+                        <i class="fas fa-font"></i> 大
+                    </button>
+                </div>
+                <button type="button" class="btn btn-success" id="exportButton">
+                    <i class="fas fa-file-excel"></i> 导出Excel
+                </button>
+                <button type="button" class="btn btn-outline-secondary" onclick="window.location.href='/todo/v2'">
+                    <i class="fas fa-arrow-left"></i> 返回
+                </button>
+            </div>
+        </header>
+
+        <div id="alertContainer"></div>
+
+        <!-- 筛选遮罩层 -->
+        <div id="filterOverlay" class="filter-overlay"></div>
+
+        <!-- 筛选面板 -->
+        <div id="filterPanel" class="filter-panel" style="display: none;">
+            <div class="filter-panel-content">
+                <div class="filter-header">
+                    <h6>筛选设置</h6>
+                    <button type="button" class="btn-close" id="closeFilterPanel"></button>
+                </div>
+                <div class="filter-body" id="filterBody">
+                    <!-- 筛选内容将动态生成 -->
+                </div>
+                <div class="filter-footer">
+                    <button type="button" class="btn btn-sm btn-secondary" id="clearFilter">清除筛选</button>
+                    <button type="button" class="btn btn-sm btn-primary" id="applyFilter">应用筛选</button>
+                </div>
+            </div>
+        </div>
+
+        <main class="preview-main">
+            <div class="table-wrapper">
+                <table class="preview-table" id="previewTable">
+                    <thead id="tableHead">
+                        <!-- 表头将通过JavaScript动态生成 -->
+                    </thead>
+                    <tbody id="tableBody">
+                        <!-- 数据行将通过JavaScript动态生成 -->
+                    </tbody>
+                </table>
+            </div>
+            <div id="emptyMessage" class="empty-message" style="display: none;">
+                <i class="fas fa-inbox"></i>
+                <p>暂无数据或筛选结果为空</p>
+            </div>
+        </main>
+    </div>
+
+    <!-- 导出配置模态框 -->
+    <div class="modal fade" id="exportModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        <i class="fas fa-file-excel"></i> 导出Excel配置
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <form id="exportForm">
+                    <div class="modal-body">
+                        <!-- 时间范围选择 -->
+                        <div class="config-section">
+                            <h6 class="section-title">
+                                <i class="fas fa-calendar-alt"></i> 时间范围
+                            </h6>
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="timeRange" id="timeRangeAll" value="all" checked>
+                                <label class="form-check-label" for="timeRangeAll">全部任务</label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="timeRange" id="timeRangeCompleted" value="completed">
+                                <label class="form-check-label" for="timeRangeCompleted">仅已完成（进度=100%）</label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="timeRange" id="timeRangePending" value="pending">
+                                <label class="form-check-label" for="timeRangePending">仅未完成（进度<100%）</label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="timeRange" id="timeRangeCustom" value="custom">
+                                <label class="form-check-label" for="timeRangeCustom">自定义时间范围</label>
+                            </div>
+                            <div class="custom-time-range" id="customTimeRange" style="display: none; margin-top: 10px; margin-left: 20px;">
+                                <input type="date" class="form-control form-control-sm d-inline-block" id="customStartDate" style="width: 150px;">
+                                <span class="mx-2">至</span>
+                                <input type="date" class="form-control form-control-sm d-inline-block" id="customEndDate" style="width: 150px;">
+                                <select class="form-select form-select-sm d-inline-block ms-2" id="customTimeField" style="width: 120px;">
+                                    <option value="created">创建时间</option>
+                                    <option value="updated">更新时间</option>
+                                    <option value="due">预计完成时间</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <!-- 列选择与排序 -->
+                        <div class="config-section">
+                            <h6 class="section-title">
+                                <i class="fas fa-columns"></i> 列选择与排序
+                            </h6>
+                            <div class="column-selector">
+                                <p class="text-muted small">拖拽列名可调整顺序，勾选列可控制是否导出</p>
+                                <ul id="columnList" class="column-list">
+                                    <!-- 列列表将通过JavaScript动态生成 -->
+                                </ul>
+                            </div>
+                        </div>
+
+                        <!-- 项目导出方式 -->
+                        <div class="config-section">
+                            <h6 class="section-title">
+                                <i class="fas fa-layer-group"></i> 项目导出方式
+                            </h6>
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="projectMode" id="projectModeSingle" value="single" checked>
+                                <label class="form-check-label" for="projectModeSingle">
+                                    方式一：同一Sheet，第一列添加项目名称
+                                </label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="projectMode" id="projectModeMultiple" value="multiple">
+                                <label class="form-check-label" for="projectModeMultiple">
+                                    方式二：不同项目导出到不同Sheet，Sheet名称为项目名称
+                                </label>
+                            </div>
+                        </div>
+
+                        <!-- 评论处理方式 -->
+                        <div class="config-section">
+                            <h6 class="section-title">
+                                <i class="fas fa-comments"></i> 评论处理方式
+                            </h6>
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="commentMode" id="commentModeInline" value="inline" checked>
+                                <label class="form-check-label" for="commentModeInline">
+                                    方式一：在任务行的评论列中，单元格内多行显示（时间戳 + 评论内容）
+                                </label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="commentMode" id="commentModeSheet" value="sheet">
+                                <label class="form-check-label" for="commentModeSheet">
+                                    方式二：单独Sheet保存评论，任务行添加超链接跳转
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-download"></i> 开始导出
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- 评论查看模态框 -->
+    <div class="modal fade" id="commentModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        <i class="fas fa-comments"></i> 评论详情
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="comment-info mb-3">
+                        <strong>任务：</strong><span id="commentTaskSummary"></span><br>
+                        <strong>项目：</strong><span id="commentProjectName"></span>
+                    </div>
+                    <div class="table-responsive">
+                        <table class="table table-sm table-bordered" id="commentTable">
+                            <thead>
+                                <tr>
+                                    <th style="width: 60px;">序号</th>
+                                    <th style="width: 180px;">时间戳</th>
+                                    <th>评论内容</th>
+                                </tr>
+                            </thead>
+                            <tbody id="commentTableBody">
+                                <!-- 评论数据将动态生成 -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/bootstrap.bundle.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/todo_v2_preview.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/todo_v2_export.js') }}"></script>
+</body>
+</html>
+

@@ -13,7 +13,10 @@ import posixpath # 用于处理 URL 路径
 from share_links import ShareLinkManager  # 导入分享链接管理器
 from todo_manager import todo_manager
 from serial_manager import serial_manager
+from serial_manager import serial_manager
+from serial_manager import serial_manager
 from product_compare_manager import product_compare_manager
+
 
 # 检查用户是否已登录的函数
 def is_logged_in():
@@ -2265,6 +2268,125 @@ def init_app(app):
             return redirect(url_for('login'))
         return render_template('serial_tool.html')
 
+    @app.route('/audio_relay')
+    def audio_relay():
+        """远程音箱页面"""
+        if not is_logged_in():
+            return redirect(url_for('login'))
+        return render_template('audio_relay.html')
+
+    @app.route('/audio_stream.wav')
+    def audio_feed():
+        """音频流接口"""
+        if not is_logged_in():
+            abort(401)
+        
+        def generate():
+            for chunk in audio_streamer.gen_audio():
+                yield chunk
+        
+        response = Response(generate(), mimetype='audio/wav')
+        response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
+        response.headers['X-Content-Type-Options'] = 'nosniff'
+        return response
+
+    @app.route('/audio_test_record')
+    def audio_test_record():
+        """测试录音功能 - 录制5秒音频并保存"""
+        if not is_logged_in():
+            abort(401)
+        
+        import wave
+        import time
+        
+        try:
+            # 创建测试文件
+            test_file = os.path.join(os.path.dirname(__file__), 'test_audio.wav')
+            
+            # 打开 WAV 文件
+            wf = wave.open(test_file, 'wb')
+            wf.setnchannels(audio_streamer.CHANNELS)
+            wf.setsampwidth(audio_streamer.SAMPLE_WIDTH)
+            wf.setframerate(audio_streamer.RATE)
+            
+            print(f"[Test] Recording 5 seconds to {test_file}...")
+            
+            # 录制5秒
+            start_time = time.time()
+            frames_recorded = 0
+            
+            while time.time() - start_time < 5:
+                try:
+                    chunk = audio_streamer.audio_queue.get(timeout=0.1)
+                    wf.writeframes(chunk)
+                    frames_recorded += 1
+                except:
+                    pass
+            
+            wf.close()
+            
+            file_size = os.path.getsize(test_file)
+            print(f"[Test] Recording complete. Frames: {frames_recorded}, File size: {file_size} bytes")
+            
+            return jsonify({
+                'success': True,
+                'file': test_file,
+                'frames': frames_recorded,
+                'size': file_size,
+                'message': f'录制完成! 文件保存在: {test_file}'
+            })
+            
+        except Exception as e:
+            print(f"[Test] Recording failed: {e}")
+            import traceback
+            traceback.print_exc()
+            return jsonify({
+                'success': False,
+                'error': str(e)
+            }), 500
+
+    @app.route('/audio_status')
+    def audio_status():
+        """查看音频捕获状态"""
+        if not is_logged_in():
+            abort(401)
+        
+        try:
+            import soundcard as sc
+            
+            # 获取所有设备
+            all_mics = sc.all_microphones(include_loopback=True)
+            devices = []
+            for i, mic in enumerate(all_mics):
+                devices.append({
+                    'index': i,
+                    'name': mic.name,
+                    'is_loopback': mic.isloopback,
+                    'channels': mic.channels if hasattr(mic, 'channels') else 'N/A'
+                })
+            
+            status = {
+                'success': True,
+                'running': audio_streamer.running,
+                'queue_size': audio_streamer.audio_queue.qsize(),
+                'sample_rate': audio_streamer.RATE,
+                'channels': audio_streamer.CHANNELS,
+                'selected_device': audio_streamer.loopback_mic.name if audio_streamer.loopback_mic else None,
+                'all_devices': devices
+            }
+            
+            return jsonify(status)
+            
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            return jsonify({
+                'success': False,
+                'error': str(e)
+            }), 500
+
     def _normalize_parity(value: str) -> str:
         mapping = {
             'none': 'N',
@@ -3448,5 +3570,79 @@ def init_app(app):
             return jsonify({'success': False, 'error': f'上传失败: {str(e)}'}), 500
 
 
+    @app.route('/delete/<path:filepath>')
+    def delete_file(filepath):
+        """删除文件或文件夹"""
+        if not is_logged_in():
+            return redirect(url_for('login'))
+        
+        root_dir = current_app.config.get('ROOT_DIR')
+        if not root_dir:
+            abort(404)
+        
+        # 安全检查
+        try:
+            full_path = os.path.join(root_dir, filepath)
+            full_path = os.path.normpath(full_path)
+            if not full_path.startswith(os.path.normpath(root_dir)):
+                abort(403)
+        except Exception:
+            abort(400)
+            
+        if not os.path.exists(full_path):
+            abort(404)
+            
+        try:
+            if os.path.isdir(full_path):
+                import shutil
+                shutil.rmtree(full_path)
+            else:
+                os.remove(full_path)
+        except Exception as e:
+            # 可以在这里添加flash消息
+            print(f"删除失败: {e}")
+            
+        # 返回上一级目录
+        parent_dir = os.path.dirname(filepath)
+        if parent_dir == '.':
+            parent_dir = ''
+            
+        return redirect(url_for('file_browser', path=parent_dir))
 
-
+    @app.route('/rename', methods=['POST'])
+    def rename_file():
+        """重命名文件或文件夹"""
+        if not is_logged_in():
+            return jsonify({'success': False, 'error': '未登录'}), 401
+            
+        try:
+            data = request.json
+            old_path = data.get('old_path')
+            new_name = data.get('new_name')
+            
+            if not old_path or not new_name:
+                return jsonify({'success': False, 'error': '参数不完整'}), 400
+                
+            root_dir = current_app.config.get('ROOT_DIR')
+            
+            # 构建完整路径
+            full_old_path = os.path.join(root_dir, old_path)
+            parent_dir = os.path.dirname(full_old_path)
+            full_new_path = os.path.join(parent_dir, new_name)
+            
+            # 安全检查
+            if not os.path.abspath(full_old_path).startswith(os.path.abspath(root_dir)) or                not os.path.abspath(full_new_path).startswith(os.path.abspath(root_dir)):
+                return jsonify({'success': False, 'error': '非法路径'}), 403
+                
+            if not os.path.exists(full_old_path):
+                return jsonify({'success': False, 'error': '源文件不存在'}), 404
+                
+            if os.path.exists(full_new_path):
+                return jsonify({'success': False, 'error': '目标文件名已存在'}), 400
+                
+            os.rename(full_old_path, full_new_path)
+            
+            return jsonify({'success': True, 'message': '重命名成功'})
+            
+        except Exception as e:
+            return jsonify({'success': False, 'error': f'重命名失败: {str(e)}'}), 500
