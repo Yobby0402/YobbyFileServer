@@ -484,6 +484,142 @@ def init_app(app):
         except Exception as exc:
             return jsonify({'success': False, 'error': str(exc)}), 500
 
+    def _generate_last_week_progress(task, last_monday, last_sunday, include_completed_task_update_time=False):
+        """生成上周进展文本
+        
+        Args:
+            task: 任务数据
+            last_monday: 上周一日期
+            last_sunday: 上周日日期
+            include_completed_task_update_time: 对于不是在上周完成的预研任务，是否在结论上添加更新时间
+        """
+        import sys
+        from datetime import datetime
+        if last_monday is None or last_sunday is None:
+            return '--'
+            
+        task_progress = task.get('progress', 0) or 0
+        task_updated = task.get('updated_at', '')
+        is_completed = task_progress >= 100
+        # 对于没有设定的任务，统一按照预研任务处理
+        task_type = task.get('task_type') or '预研任务'
+        conclusion = task.get('conclusion', '')
+        comments = task.get('comments', [])
+        
+        # 调试信息：输出任务基本信息（使用stderr确保输出）
+        task_summary = task.get('summary', 'N/A')[:30]
+        sys.stderr.write(f"\n[任务调试] {task_summary}\n")
+        sys.stderr.write(f"  进度: {task_progress}% | 是否完成: {is_completed}\n")
+        sys.stderr.write(f"  更新时间: {task_updated}\n")
+        sys.stderr.write(f"  任务类型: {task_type}\n")
+        sys.stderr.write(f"  结论: {conclusion[:50] if conclusion else '(无)'}\n")
+        sys.stderr.write(f"  评论数: {len(comments)}\n")
+        
+        # 检查任务更新时间是否在上周
+        if task_updated:
+            try:
+                task_date = datetime.fromisoformat(task_updated.replace('Z', '+00:00')).date()
+                in_week_range = last_monday <= task_date <= last_sunday
+                sys.stderr.write(f"  任务更新时间({task_date})在上周范围({last_monday}~{last_sunday}): {in_week_range}\n")
+            except Exception as e:
+                sys.stderr.write(f"  解析任务更新时间失败: {e}\n")
+        
+        # 检查任务完成时间是否在上周
+        completed_last_week = False
+        if is_completed and task_updated:
+            try:
+                task_date = datetime.fromisoformat(task_updated.replace('Z', '+00:00')).date()
+                if last_monday <= task_date <= last_sunday:
+                    completed_last_week = True
+            except Exception as e:
+                pass
+        
+        # 收集上周的评论（不包含时间戳）
+        last_week_comments = []
+        for idx, comment in enumerate(comments):
+            comment_time = comment.get('timestamp', '')
+            if comment_time:
+                try:
+                    comment_date = datetime.fromisoformat(comment_time.replace('Z', '+00:00')).date()
+                    in_week_range = last_monday <= comment_date <= last_sunday
+                    if in_week_range:
+                        comment_content = comment.get('content', '').strip()
+                        last_week_comments.append(comment_content)
+                        sys.stderr.write(f"  评论{idx+1}({comment_date}): 在上周范围内，内容: {comment_content[:50]}\n")
+                    else:
+                        sys.stderr.write(f"  评论{idx+1}({comment_date}): 不在上周范围内\n")
+                except Exception as e:
+                    sys.stderr.write(f"  解析评论{idx+1}时间失败: {e}\n")
+        sys.stderr.write(f"  上周评论数: {len(last_week_comments)}\n")
+        
+        progress_lines = []
+        
+        if is_completed:
+            # 已完成的任务
+            sys.stderr.write(f"  任务已完成，completed_last_week: {completed_last_week}\n")
+            if completed_last_week:
+                # 上周完成的任务：添加评论和结论
+                sys.stderr.write(f"  上周完成的任务：添加评论和结论\n")
+                if last_week_comments:
+                    progress_lines.extend(last_week_comments)
+                    sys.stderr.write(f"  添加了 {len(last_week_comments)} 条评论\n")
+                if conclusion:
+                    progress_lines.append(conclusion)
+                    sys.stderr.write(f"  添加了结论\n")
+            else:
+                # 上周之前已完成的：只有最终结论
+                sys.stderr.write(f"  上周之前已完成：只有最终结论\n")
+                if conclusion:
+                    conclusion_text = conclusion
+                    # 对于预研任务，如果配置了包含更新时间，则在结论后添加更新时间
+                    if task_type == '预研任务' and include_completed_task_update_time and task_updated:
+                        try:
+                            task_date = datetime.fromisoformat(task_updated.replace('Z', '+00:00')).date()
+                            conclusion_text = f"{conclusion} (完成时间: {task_date.strftime('%Y-%m-%d')})"
+                            sys.stderr.write(f"  添加了结论（包含完成时间）\n")
+                        except Exception as e:
+                            # 解析失败时使用原始结论
+                            conclusion_text = conclusion
+                            sys.stderr.write(f"  添加了结论（解析时间失败: {e}）\n")
+                    progress_lines.append(conclusion_text)
+                    sys.stderr.write(f"  添加了结论\n")
+        else:
+            # 未完成的任务：检查是否在上周有更新（有评论或者updated_at在上周）
+            updated_last_week = False
+            if task_updated:
+                try:
+                    task_date = datetime.fromisoformat(task_updated.replace('Z', '+00:00')).date()
+                    if last_monday <= task_date <= last_sunday:
+                        updated_last_week = True
+                except Exception as e:
+                    sys.stderr.write(f"  解析任务更新时间失败: {e}\n")
+            
+            # 如果上周有评论，也算作上周有更新
+            if last_week_comments:
+                updated_last_week = True
+            
+            sys.stderr.write(f"  任务未完成，updated_last_week: {updated_last_week}，上周评论数: {len(last_week_comments)}\n")
+            
+            # 如果上周有更新（有评论或updated_at在上周），添加评论（分条），如果是预研任务，最后添加一条结论
+            if updated_last_week:
+                sys.stderr.write(f"  上周有更新，添加评论和结论\n")
+                if last_week_comments:
+                    progress_lines.extend(last_week_comments)
+                    sys.stderr.write(f"  添加了 {len(last_week_comments)} 条评论\n")
+                # 对于预研任务，即使没有评论，如果有结论也添加
+                if conclusion and task_type == '预研任务':
+                    progress_lines.append(conclusion)
+                    sys.stderr.write(f"  添加了预研任务结论\n")
+                # 如果上周有更新但没有评论也没有结论，至少显示"有更新"
+                if not last_week_comments and not (conclusion and task_type == '预研任务'):
+                    progress_lines.append('有更新')
+                    sys.stderr.write(f"  添加了'有更新'标记\n")
+        
+        result = '\n'.join(progress_lines) if progress_lines else '--'
+        sys.stderr.write(f"  最终结果: {result[:100]}\n")
+        sys.stderr.flush()
+        return result
+
     @app.route('/api/todo/v2/export/excel', methods=['POST'])
     def todo_v2_export_excel():
         """导出TODO数据为Excel文件"""
@@ -504,14 +640,72 @@ def init_app(app):
             # 获取自定义文件名
             custom_file_name = config.get('fileName')
             
-            # 检查是否是预览模式
-            time_range = config.get('timeRange', 'all')
-            if time_range == 'preview':
-                # 预览模式：直接使用传入的预览数据
+            # 获取导出范围配置
+            export_range = config.get('exportRange', config.get('timeRange', 'all'))  # 兼容旧版timeRange
+            if export_range == 'preview':
+                # 导出当前预览：直接使用传入的预览数据
                 preview_data = config.get('previewData', [])
                 if not preview_data:
                     return jsonify({'success': False, 'error': '预览数据为空'}), 400
                 all_tasks = preview_data
+            elif export_range == 'weekly':
+                # 周报导出：需要特殊处理
+                data = manager.list_all()
+                all_tasks = []
+                # 计算上周的日期范围（从上一个周一到周日）
+                from datetime import timedelta
+                today = datetime.now().date()
+                days_since_monday = today.weekday()  # 0=Monday, 6=Sunday
+                last_sunday = today - timedelta(days=days_since_monday + 1)  # 上一个周日
+                last_monday = last_sunday - timedelta(days=6)  # 上一个周一
+                last_monday_str = last_monday.strftime('%Y-%m-%d')
+                last_sunday_str = last_sunday.strftime('%Y-%m-%d')
+                # 调试信息：输出上周时间范围（使用stderr确保输出）
+                import sys
+                sys.stderr.write("=" * 60 + "\n")
+                sys.stderr.write("[周报数据筛选调试信息]\n")
+                sys.stderr.write(f"今天是: {today}\n")
+                sys.stderr.write(f"今天是星期几 (0=Monday, 6=Sunday): {days_since_monday}\n")
+                sys.stderr.write(f"上周一: {last_monday}\n")
+                sys.stderr.write(f"上周日: {last_sunday}\n")
+                sys.stderr.write(f"上周时间范围: {last_monday} 至 {last_sunday}\n")
+                sys.stderr.write("=" * 60 + "\n")
+                sys.stderr.flush()
+                
+                include_completed = config.get('includeCompletedTasks', False)
+                
+                for project in data.get('projects', []):
+                    for task in project.get('tasks', []):
+                        task_with_project = {
+                            **task,
+                            'project_id': project['id'],
+                            'project_name': project['name'],
+                            'project_color': project.get('color', '#4facfe'),
+                            'project_phase': project.get('phase', '预研阶段'),
+                        }
+                        
+                        # 检查任务是否应该包含在周报中
+                        task_progress = task.get('progress', 0) or 0
+                        task_updated = task.get('updated_at', '')
+                        is_completed = task_progress >= 100
+                        is_pending = task_progress < 100
+                        
+                        # 检查是否在上周有更新
+                        updated_last_week = False
+                        if task_updated:
+                            try:
+                                task_date = datetime.fromisoformat(task_updated.replace('Z', '+00:00')).date()
+                                if last_monday <= task_date <= last_sunday:
+                                    updated_last_week = True
+                            except:
+                                pass
+                        
+                        # 包含条件：
+                        # 1. 未完成的任务（始终包含）
+                        # 2. 已完成但上周有更新的任务（始终包含）
+                        # 3. 已完成但上周没有更新的任务（可选，根据include_completed参数）
+                        if is_pending or updated_last_week or (include_completed and is_completed):
+                            all_tasks.append(task_with_project)
             else:
                 # 正常模式：从数据库获取数据
                 data = manager.list_all()
@@ -525,39 +719,42 @@ def init_app(app):
                             'project_id': project['id'],
                             'project_name': project['name'],
                             'project_color': project.get('color', '#4facfe'),
+                            'project_phase': project.get('phase', '预研阶段'),
                         }
                         all_tasks.append(task_with_project)
 
-                # 应用时间范围筛选
-            if time_range == 'completed':
-                all_tasks = [t for t in all_tasks if (t.get('progress') or 0) >= 100]
-            elif time_range == 'pending':
-                all_tasks = [t for t in all_tasks if (t.get('progress') or 0) < 100]
-            elif time_range == 'custom':
-                custom_range = config.get('customTimeRange')
-                if custom_range:
-                    start_date = datetime.strptime(custom_range['start'], '%Y-%m-%d')
-                    end_date = datetime.strptime(custom_range['end'], '%Y-%m-%d')
-                    field = custom_range.get('field', 'created')
-                    
-                    filtered_tasks = []
-                    for task in all_tasks:
-                        date_str = None
-                        if field == 'created':
-                            date_str = task.get('created_at')
-                        elif field == 'updated':
-                            date_str = task.get('updated_at')
-                        elif field == 'due':
-                            date_str = task.get('due_date')
-                        
-                        if date_str:
-                            try:
-                                task_date = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
-                                if start_date <= task_date <= end_date:
-                                    filtered_tasks.append(task)
-                            except:
-                                pass
-                    all_tasks = filtered_tasks
+                # 兼容旧版时间范围筛选（仅在exportRange为'all'或未设置时使用）
+                if export_range == 'all' and 'timeRange' in config:
+                    time_range = config.get('timeRange', 'all')
+                    if time_range == 'completed':
+                        all_tasks = [t for t in all_tasks if (t.get('progress') or 0) >= 100]
+                    elif time_range == 'pending':
+                        all_tasks = [t for t in all_tasks if (t.get('progress') or 0) < 100]
+                    elif time_range == 'custom':
+                        custom_range = config.get('customTimeRange')
+                        if custom_range:
+                            start_date = datetime.strptime(custom_range['start'], '%Y-%m-%d')
+                            end_date = datetime.strptime(custom_range['end'], '%Y-%m-%d')
+                            field = custom_range.get('field', 'created')
+                            
+                            filtered_tasks = []
+                            for task in all_tasks:
+                                date_str = None
+                                if field == 'created':
+                                    date_str = task.get('created_at')
+                                elif field == 'updated':
+                                    date_str = task.get('updated_at')
+                                elif field == 'due':
+                                    date_str = task.get('due_date')
+                                
+                                if date_str:
+                                    try:
+                                        task_date = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
+                                        if start_date <= task_date <= end_date:
+                                            filtered_tasks.append(task)
+                                    except:
+                                        pass
+                            all_tasks = filtered_tasks
 
             # 获取列配置
             columns = config.get('columns', [])
@@ -579,7 +776,32 @@ def init_app(app):
                 'created_at': '创建时间',
                 'updated_at': '最后更新时间',
                 'change_count': '改动数量',
+                'conclusion': '结论',
+                'last_week_progress': '上周进展',
+                'this_week_plan': '本周计划',
             }
+            
+            # 如果是周报模式，需要计算上周日期范围
+            is_weekly = export_range == 'weekly'
+            last_monday = None
+            last_sunday = None
+            if is_weekly:
+                from datetime import timedelta
+                import sys
+                today = datetime.now().date()
+                days_since_monday = today.weekday()  # 0=Monday, 6=Sunday
+                last_sunday = today - timedelta(days=days_since_monday + 1)  # 上一个周日
+                last_monday = last_sunday - timedelta(days=6)  # 上一个周一
+                # 调试信息：输出上周时间范围（使用stderr确保输出）
+                sys.stderr.write("=" * 60 + "\n")
+                sys.stderr.write("[周报导出调试信息]\n")
+                sys.stderr.write(f"今天是: {today}\n")
+                sys.stderr.write(f"今天是星期几 (0=Monday, 6=Sunday): {days_since_monday}\n")
+                sys.stderr.write(f"上周一: {last_monday}\n")
+                sys.stderr.write(f"上周日: {last_sunday}\n")
+                sys.stderr.write(f"上周时间范围: {last_monday} 至 {last_sunday}\n")
+                sys.stderr.write("=" * 60 + "\n")
+                sys.stderr.flush()
 
             # 创建Excel工作簿
             wb = openpyxl.Workbook()
@@ -620,15 +842,16 @@ def init_app(app):
                         header_col_map[col_idx] = col
                         col_idx += 1
                 
-                # 如果使用sheet模式且没有change_count列，添加评论列用于超链接
-                if comment_mode == 'sheet' and 'change_count' not in column_order:
-                    headers.append('评论')
-                    header_col_map[col_idx] = 'comment'
-                    col_idx += 1
-                elif comment_mode == 'inline' and 'change_count' not in column_order:
-                    headers.append('评论')
-                    header_col_map[col_idx] = 'comment'
-                    col_idx += 1
+                # 如果不是周报模式，添加评论列（周报模式使用上周进展和本周计划列）
+                if not is_weekly:
+                    if comment_mode == 'sheet' and 'change_count' not in column_order:
+                        headers.append('评论')
+                        header_col_map[col_idx] = 'comment'
+                        col_idx += 1
+                    elif comment_mode == 'inline' and 'change_count' not in column_order:
+                        headers.append('评论')
+                        header_col_map[col_idx] = 'comment'
+                        col_idx += 1
                 
                 ws.append(headers)
                 
@@ -686,6 +909,9 @@ def init_app(app):
                     row_fill = even_row_fill if is_even else odd_row_fill
                     
                     task_project_name = task.get('project_name', '--')
+                    project_phase = task.get('project_phase', '预研阶段')
+                    # 在项目名称后添加阶段（括号标注）
+                    task_project_name_with_phase = f"{task_project_name} ({project_phase})"
                     
                     # 处理项目名称合并逻辑
                     if merge_project_name and project_name_col_idx:
@@ -706,7 +932,7 @@ def init_app(app):
                         if col_key == 'global_index':
                             row_data.append(global_idx)
                         elif col_key == 'project_name':
-                            row_data.append(task_project_name)
+                            row_data.append(task_project_name_with_phase)
                         elif col_key == 'index':
                             # 使用任务在其项目中的序号
                             project_id = task.get('project_id', '')
@@ -715,7 +941,17 @@ def init_app(app):
                             project_task_counters[project_id] += 1
                             row_data.append(project_task_counters[project_id])
                         elif col_key == 'summary':
-                            row_data.append(task.get('summary', '--'))
+                            task_summary = task.get('summary', '--')
+                            task_type = task.get('task_type', '研发任务')
+                            # 在任务简述后添加任务类型（括号标注）
+                            task_summary_with_type = f"{task_summary} ({task_type})"
+                            row_data.append(task_summary_with_type)
+                        elif col_key == 'conclusion':
+                            # 结论列（非周报模式，周报模式下结论已合并到上周进展中）
+                            if not is_weekly:
+                                row_data.append(task.get('conclusion', '--'))
+                            else:
+                                row_data.append('--')
                         elif col_key == 'description':
                             row_data.append(task.get('description', '--'))
                         elif col_key == 'priority':
@@ -745,35 +981,56 @@ def init_app(app):
                                     row_data.append(updated)
                             else:
                                 row_data.append('--')
-                        elif col_key == 'change_count':
-                            # 改动数量：显示修改次数和评论数
-                            update_history = task.get('update_history', [])
-                            update_count = len([r for r in update_history if r.get('field') != 'comment'])
-                            comment_count = len(comments)
-                            row_data.append(f"{update_count}次修改 {comment_count}条评论")
-                        elif col_key == 'comment':
-                            # 额外的评论列
-                            if comment_mode == 'inline':
-                                # 内联模式：显示评论内容
-                                if comments:
-                                    comment_text = '\n'.join([
-                                        f"[{datetime.fromisoformat(c.get('timestamp', '').replace('Z', '+00:00')).strftime('%Y-%m-%d %H:%M')}] {c.get('content', '')}"
-                                        for c in comments
-                                    ])
-                                    row_data.append(comment_text)
-                                else:
-                                    row_data.append('--')
+                        elif col_key == 'last_week_progress':
+                            # 上周进展列（仅周报模式）
+                            if is_weekly:
+                                # 获取配置：是否在结论上添加更新时间（仅适用于非上周完成的预研任务）
+                                include_completed_task_update_time = config.get('includeCompletedTaskUpdateTime', False)
+                                progress_text = _generate_last_week_progress(task, last_monday, last_sunday, include_completed_task_update_time)
+                                row_data.append(progress_text)
                             else:
-                                # sheet模式：显示超链接文本（超链接会在后面添加）
-                                if comments:
-                                    row_data.append(f"查看评论({len(comments)})")
+                                row_data.append('--')
+                        elif col_key == 'this_week_plan':
+                            # 本周计划列（仅周报模式，默认为空）
+                            if is_weekly:
+                                row_data.append('')  # 默认留空
+                            else:
+                                row_data.append('--')
+                        elif col_key == 'change_count':
+                            # 改动数量：显示修改次数和评论数（非周报模式）
+                            if not is_weekly:
+                                update_history = task.get('update_history', [])
+                                update_count = len([r for r in update_history if r.get('field') != 'comment'])
+                                comment_count = len(comments)
+                                row_data.append(f"{update_count}次修改 {comment_count}条评论")
+                            else:
+                                row_data.append('--')
+                        elif col_key == 'comment':
+                            # 额外的评论列（非周报模式）
+                            if not is_weekly:
+                                if comment_mode == 'inline':
+                                    # 内联模式：显示评论内容
+                                    if comments:
+                                        comment_text = '\n'.join([
+                                            f"[{datetime.fromisoformat(c.get('timestamp', '').replace('Z', '+00:00')).strftime('%Y-%m-%d %H:%M')}] {c.get('content', '')}"
+                                            for c in comments
+                                        ])
+                                        row_data.append(comment_text)
+                                    else:
+                                        row_data.append('--')
                                 else:
-                                    row_data.append('--')
+                                    # sheet模式：显示超链接文本（超链接会在后面添加）
+                                    if comments:
+                                        row_data.append(f"查看评论({len(comments)})")
+                                    else:
+                                        row_data.append('--')
+                            else:
+                                row_data.append('--')
                         else:
                             row_data.append('--')
                     
-                    # 收集评论数据（方式二）
-                    if comment_mode == 'sheet':
+                    # 收集评论数据（方式二，非周报模式）
+                    if not is_weekly and comment_mode == 'sheet':
                         for comment in comments:
                             comment_sheet_rows.append({
                                 'project_name': task.get('project_name', '--'),
@@ -801,12 +1058,26 @@ def init_app(app):
                         elif col_key == 'comment' or col_key == 'change_count':
                             # 评论列：左对齐，上下居中
                             cell.alignment = Alignment(horizontal='left', vertical='center')
+                        elif col_key == 'last_week_progress' or col_key == 'this_week_plan':
+                            # 上周进展和本周计划列：左对齐，上下居中，自动换行
+                            cell.alignment = Alignment(horizontal='left', vertical='center', wrap_text=True)
                         else:
                             # 其他列：居中，上下居中
                             cell.alignment = Alignment(horizontal='center', vertical='center')
                     
-                    # 设置评论列自动换行（方式一）
-                    if comment_mode == 'inline' and comments:
+                    # 设置上周进展列自动换行（周报模式）
+                    if is_weekly:
+                        last_week_col_idx = None
+                        for header_idx, col_key in header_col_map.items():
+                            if col_key == 'last_week_progress':
+                                last_week_col_idx = header_idx + 1
+                                break
+                        if last_week_col_idx:
+                            last_week_cell = ws.cell(row=row_num, column=last_week_col_idx)
+                            last_week_cell.alignment = Alignment(horizontal='left', vertical='center', wrap_text=True)
+                    
+                    # 设置评论列自动换行（方式一，非周报模式）
+                    if not is_weekly and comment_mode == 'inline' and comments:
                         # 找到评论列的索引
                         comment_col_idx = None
                         for header_idx, col_key in header_col_map.items():
@@ -820,8 +1091,8 @@ def init_app(app):
                             # 评论列：左对齐，上下居中，自动换行
                             comment_cell.alignment = Alignment(horizontal='left', vertical='center', wrap_text=True)
                     
-                    # 添加超链接（方式二）
-                    if comment_mode == 'sheet' and comments:
+                    # 添加超链接（方式二，非周报模式）
+                    if not is_weekly and comment_mode == 'sheet' and comments:
                         # 找到评论列的索引（可能是change_count列或comment列）
                         comment_col_idx = None
                         for header_idx, col_key in header_col_map.items():
@@ -897,16 +1168,18 @@ def init_app(app):
                     if col_key == 'summary':
                         ws.column_dimensions[col_letter].width = 30  # 任务简述
                     elif col_key == 'description':
-                        ws.column_dimensions[col_letter].width = 50  # 详细描述
+                        ws.column_dimensions[col_letter].width = 30  # 详细描述（已缩小）
                     elif col_key == 'comment' or (col_key == 'change_count' and comment_mode == 'inline'):
                         ws.column_dimensions[col_letter].width = 50  # 评论
+                    elif col_key == 'last_week_progress' or col_key == 'this_week_plan':
+                        ws.column_dimensions[col_letter].width = 50  # 上周进展和本周计划
                     else:
                         # 其他列根据内容自动调整
                         width = calculate_column_width(ws, col_idx, min_width=10, max_width=30)
                         ws.column_dimensions[col_letter].width = width
 
-                # 创建评论Sheet（方式二）
-                if comment_mode == 'sheet' and comment_sheet_rows:
+                # 创建评论Sheet（方式二，非周报模式）
+                if not is_weekly and comment_mode == 'sheet' and comment_sheet_rows:
                     comment_ws = wb.create_sheet('评论', 1)
                     comment_ws.append(['项目名称', '任务简述', '时间', '评论内容'])
                     
@@ -1216,7 +1489,7 @@ def init_app(app):
                         if col_key == 'summary':
                             ws.column_dimensions[col_letter].width = 30  # 任务简述
                         elif col_key == 'description':
-                            ws.column_dimensions[col_letter].width = 50  # 详细描述
+                            ws.column_dimensions[col_letter].width = 30  # 详细描述（已缩小）
                         elif col_key == 'comment' or (col_key == 'change_count' and comment_mode == 'inline'):
                             ws.column_dimensions[col_letter].width = 50  # 评论
                         else:
@@ -1224,8 +1497,8 @@ def init_app(app):
                             width = calculate_column_width(ws, col_idx, min_width=10, max_width=30)
                             ws.column_dimensions[col_letter].width = width
 
-                # 创建评论Sheet（方式二）
-                if comment_mode == 'sheet' and comment_sheet_rows:
+                # 创建评论Sheet（方式二，非周报模式）
+                if not is_weekly and comment_mode == 'sheet' and comment_sheet_rows:
                     comment_ws = wb.create_sheet('评论', len(wb.sheetnames))
                     comment_ws.append(['项目名称', '任务简述', '时间', '评论内容'])
                     
@@ -1296,6 +1569,293 @@ def init_app(app):
 
         except ImportError:
             return jsonify({'success': False, 'error': 'openpyxl库未安装，请运行: pip install openpyxl'}), 500
+        except Exception as exc:
+            import traceback
+            traceback.print_exc()
+            return jsonify({'success': False, 'error': str(exc)}), 500
+
+    @app.route('/todo/v2/export/preview')
+    def todo_v2_export_preview_page():
+        """导出预览页面"""
+        if not has_todo_access():
+            return redirect(url_for('login'))
+        return render_template('todo_v2_export_preview.html')
+
+    @app.route('/api/todo/v2/export/preview', methods=['POST'])
+    def todo_v2_export_preview():
+        """预览导出数据（返回JSON格式的表格数据）- 复用导出Excel的数据准备逻辑"""
+        if not has_todo_access():
+            return jsonify({'success': False, 'error': '未授权'}), 401
+
+        try:
+            from datetime import datetime
+            config = request.json or {}
+            manager = current_app.config['TODO_MANAGER']
+            
+            # ===== 数据准备逻辑（复用导出Excel的逻辑）=====
+            export_range = config.get('exportRange', config.get('timeRange', 'all'))
+            if export_range == 'preview':
+                preview_data = config.get('previewData', [])
+                if not preview_data:
+                    return jsonify({'success': False, 'error': '预览数据为空'}), 400
+                all_tasks = preview_data
+            elif export_range == 'weekly':
+                data = manager.list_all()
+                all_tasks = []
+                from datetime import timedelta
+                today = datetime.now().date()
+                days_since_monday = today.weekday()
+                last_sunday = today - timedelta(days=days_since_monday + 1)
+                last_monday = last_sunday - timedelta(days=6)
+                include_completed = config.get('includeCompletedTasks', False)
+                
+                for project in data.get('projects', []):
+                    for task in project.get('tasks', []):
+                        task_with_project = {
+                            **task,
+                            'project_id': project['id'],
+                            'project_name': project['name'],
+                            'project_color': project.get('color', '#4facfe'),
+                            'project_phase': project.get('phase', '预研阶段'),
+                        }
+                        task_progress = task.get('progress', 0) or 0
+                        task_updated = task.get('updated_at', '')
+                        is_completed = task_progress >= 100
+                        is_pending = task_progress < 100
+                        updated_last_week = False
+                        if task_updated:
+                            try:
+                                task_date = datetime.fromisoformat(task_updated.replace('Z', '+00:00')).date()
+                                if last_monday <= task_date <= last_sunday:
+                                    updated_last_week = True
+                            except:
+                                pass
+                        if is_pending or updated_last_week or (include_completed and is_completed):
+                            all_tasks.append(task_with_project)
+            else:
+                data = manager.list_all()
+                all_tasks = []
+                for project in data.get('projects', []):
+                    for task in project.get('tasks', []):
+                        task_with_project = {
+                            **task,
+                            'project_id': project['id'],
+                            'project_name': project['name'],
+                            'project_color': project.get('color', '#4facfe'),
+                            'project_phase': project.get('phase', '预研阶段'),
+                        }
+                        all_tasks.append(task_with_project)
+
+            # 获取列配置
+            columns = config.get('columns', [])
+            column_order = config.get('columnOrder', columns)
+            project_mode = config.get('projectMode', 'single')
+            comment_mode = config.get('commentMode', 'inline')
+            merge_project_name = config.get('mergeProjectName', False)
+            add_global_index = config.get('addGlobalIndex', False)
+            is_weekly = export_range == 'weekly'
+            
+            # 列定义映射
+            column_definitions = {
+                'project_name': '项目名称',
+                'index': '序号',
+                'summary': '任务简述',
+                'description': '详细描述',
+                'priority': '优先级',
+                'progress': '进度',
+                'due_date': '预计完成时间',
+                'created_at': '创建时间',
+                'updated_at': '最后更新时间',
+                'change_count': '改动数量',
+                'conclusion': '结论',
+                'last_week_progress': '上周进展',
+                'this_week_plan': '本周计划',
+            }
+            
+            # 计算上周日期范围（如果是周报模式）
+            last_monday = None
+            last_sunday = None
+            if is_weekly:
+                from datetime import timedelta
+                today = datetime.now().date()
+                days_since_monday = today.weekday()
+                last_sunday = today - timedelta(days=days_since_monday + 1)
+                last_monday = last_sunday - timedelta(days=6)
+
+            # ===== 生成表头 =====
+            headers = []
+            header_col_map = {}
+            col_idx = 0
+            
+            if add_global_index:
+                headers.append('总序号')
+                header_col_map[col_idx] = 'global_index'
+                col_idx += 1
+            
+            if 'project_name' in column_order:
+                headers.append('项目名称')
+                header_col_map[col_idx] = 'project_name'
+                col_idx += 1
+            
+            for col in column_order:
+                if col == 'project_name':
+                    continue
+                if col in column_definitions:
+                    if col == 'change_count' and comment_mode == 'inline':
+                        headers.append('评论')
+                    else:
+                        headers.append(column_definitions[col])
+                    header_col_map[col_idx] = col
+                    col_idx += 1
+            
+            if not is_weekly:
+                if comment_mode == 'sheet' and 'change_count' not in column_order:
+                    headers.append('评论')
+                    header_col_map[col_idx] = 'comment'
+                elif comment_mode == 'inline' and 'change_count' not in column_order:
+                    headers.append('评论')
+                    header_col_map[col_idx] = 'comment'
+            
+            # ===== 生成数据行（复用导出Excel的逻辑）=====
+            include_completed_task_update_time = config.get('includeCompletedTaskUpdateTime', False)
+            project_task_counters = {}
+            rows = []
+            
+            for global_idx, task in enumerate(all_tasks, 1):
+                row_data = []
+                comments = task.get('comments', [])
+                project_id = task.get('project_id', '')
+                
+                # 计算项目内序号
+                if project_id not in project_task_counters:
+                    project_task_counters[project_id] = 0
+                project_task_counters[project_id] += 1
+                task_index = project_task_counters[project_id]
+                
+                task_project_name = task.get('project_name', '--')
+                project_phase = task.get('project_phase', '预研阶段')
+                task_project_name_with_phase = f"{task_project_name} ({project_phase})"
+                
+                # 按照表头顺序构建数据行（复用导出Excel的逻辑）
+                for header_idx in range(len(headers)):
+                    col_key = header_col_map.get(header_idx)
+                    
+                    if col_key == 'global_index':
+                        row_data.append(global_idx)
+                    elif col_key == 'project_name':
+                        row_data.append(task_project_name_with_phase)
+                    elif col_key == 'index':
+                        row_data.append(task_index)
+                    elif col_key == 'summary':
+                        task_summary = task.get('summary', '--')
+                        task_type = task.get('task_type') or '预研任务'
+                        task_summary_with_type = f"{task_summary} ({task_type})"
+                        row_data.append(task_summary_with_type)
+                    elif col_key == 'conclusion':
+                        if not is_weekly:
+                            row_data.append(task.get('conclusion', '--'))
+                        else:
+                            row_data.append('--')
+                    elif col_key == 'description':
+                        row_data.append(task.get('description', '--'))
+                    elif col_key == 'priority':
+                        row_data.append(task.get('priority', 3))
+                    elif col_key == 'progress':
+                        row_data.append(f"{task.get('progress', 0)}%")
+                    elif col_key == 'due_date':
+                        due_date = task.get('due_date')
+                        row_data.append(due_date if due_date else '--')
+                    elif col_key == 'created_at':
+                        created = task.get('created_at', '')
+                        if created:
+                            try:
+                                dt = datetime.fromisoformat(created.replace('Z', '+00:00'))
+                                row_data.append(dt.strftime('%Y-%m-%d %H:%M'))
+                            except:
+                                row_data.append(created)
+                        else:
+                            row_data.append('--')
+                    elif col_key == 'updated_at':
+                        updated = task.get('updated_at', '')
+                        if updated:
+                            try:
+                                dt = datetime.fromisoformat(updated.replace('Z', '+00:00'))
+                                row_data.append(dt.strftime('%Y-%m-%d %H:%M'))
+                            except:
+                                row_data.append(updated)
+                        else:
+                            row_data.append('--')
+                    elif col_key == 'last_week_progress':
+                        if is_weekly:
+                            progress_text = _generate_last_week_progress(task, last_monday, last_sunday, include_completed_task_update_time)
+                            row_data.append(progress_text)
+                        else:
+                            row_data.append('--')
+                    elif col_key == 'this_week_plan':
+                        if is_weekly:
+                            row_data.append('')
+                        else:
+                            row_data.append('--')
+                    elif col_key == 'change_count':
+                        if not is_weekly:
+                            update_history = task.get('update_history', [])
+                            update_count = len([r for r in update_history if r.get('field') != 'comment'])
+                            comment_count = len(comments)
+                            row_data.append(f"{update_count}次修改 {comment_count}条评论")
+                        else:
+                            row_data.append('--')
+                    elif col_key == 'comment':
+                        if not is_weekly:
+                            if comment_mode == 'inline':
+                                if comments:
+                                    comment_text = '\n'.join([
+                                        f"[{datetime.fromisoformat(c.get('timestamp', '').replace('Z', '+00:00')).strftime('%Y-%m-%d %H:%M')}] {c.get('content', '')}"
+                                        for c in comments
+                                    ])
+                                    row_data.append(comment_text)
+                                else:
+                                    row_data.append('--')
+                            else:
+                                if comments:
+                                    row_data.append(f"查看评论({len(comments)})")
+                                else:
+                                    row_data.append('--')
+                        else:
+                            row_data.append('--')
+                    else:
+                        row_data.append('--')
+                
+                rows.append(row_data)
+            
+            # 构建metadata
+            metadata = {
+                'project_count': len(set(t.get('project_id') for t in all_tasks)),
+                'task_count': len(all_tasks),
+                'export_range': export_range,
+                'project_mode': project_mode,
+            }
+            
+            # 如果是周报模式，添加时间范围
+            if export_range == 'weekly':
+                from datetime import timedelta
+                today = datetime.now().date()
+                days_since_monday = today.weekday()  # 0=Monday, 6=Sunday
+                last_sunday = today - timedelta(days=days_since_monday + 1)  # 上一个周日
+                last_monday = last_sunday - timedelta(days=6)  # 上一个周一
+                metadata['weekly_date_range'] = {
+                    'start': last_monday.strftime('%Y-%m-%d'),
+                    'end': last_sunday.strftime('%Y-%m-%d')
+                }
+            
+            # 返回预览数据
+            result = {
+                'headers': headers,
+                'rows': rows,
+                'metadata': metadata
+            }
+            
+            return jsonify({'success': True, 'data': result})
+            
         except Exception as exc:
             import traceback
             traceback.print_exc()

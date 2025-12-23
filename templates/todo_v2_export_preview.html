@@ -1,0 +1,1287 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>导出数据预览</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap.min.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/font-awesome.min.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/jasmine_base.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/todo_v2.css') }}">
+    <style>
+        body {
+            background-color: #f5f7fa;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            padding: 20px;
+        }
+        .preview-container {
+            max-width: 100%;
+            margin: 0 auto;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            padding: 20px;
+        }
+        .preview-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid #e0e0e0;
+        }
+        .preview-title {
+            font-size: 24px;
+            font-weight: bold;
+            color: #2c3e50;
+        }
+        .preview-actions {
+            display: flex;
+            gap: 10px;
+        }
+        .preview-table td[contenteditable="true"] {
+            background-color: #fffacd;
+            outline: 2px solid #4CAF50;
+            outline-offset: -2px;
+            cursor: text;
+        }
+        .preview-table td[contenteditable="true"]:focus {
+            background-color: #fff9c4;
+            outline-color: #2196F3;
+        }
+        .preview-table td.selected-cell {
+            background-color: #b3d9ff !important;
+            outline: 2px solid #2196F3;
+            outline-offset: -2px;
+        }
+        
+        /* 主题适配 - 可编辑单元格 */
+        [data-theme='dark'] .preview-table td[contenteditable="true"] {
+            background-color: #4a5568;
+            color: #e2e8f0;
+        }
+        [data-theme='dark'] .preview-table td[contenteditable="true"]:focus {
+            background-color: #5a6578;
+        }
+        [data-theme='ocean'] .preview-table td[contenteditable="true"] {
+            background-color: #1e40af;
+            color: #e0f2fe;
+        }
+        [data-theme='ocean'] .preview-table td[contenteditable="true"]:focus {
+            background-color: #2563eb;
+        }
+        [data-theme='sunset'] .preview-table td[contenteditable="true"] {
+            background-color: #c2410c;
+            color: #fed7aa;
+        }
+        [data-theme='sunset'] .preview-table td[contenteditable="true"]:focus {
+            background-color: #dc2626;
+        }
+        [data-theme='forest'] .preview-table td[contenteditable="true"] {
+            background-color: #16a34a;
+            color: #dcfce7;
+        }
+        [data-theme='forest'] .preview-table td[contenteditable="true"]:focus {
+            background-color: #22c55e;
+        }
+        [data-theme='cyberpunk'] .preview-table td[contenteditable="true"] {
+            background-color: #7c3aed;
+            color: #e9d5ff;
+        }
+        [data-theme='cyberpunk'] .preview-table td[contenteditable="true"]:focus {
+            background-color: #8b5cf6;
+        }
+        
+        /* 主题适配 - 选中单元格 */
+        [data-theme='dark'] .preview-table td.selected-cell {
+            background-color: #4a90e2 !important;
+            color: #ffffff;
+        }
+        [data-theme='ocean'] .preview-table td.selected-cell {
+            background-color: #3b82f6 !important;
+            color: #ffffff;
+        }
+        [data-theme='sunset'] .preview-table td.selected-cell {
+            background-color: #f97316 !important;
+            color: #ffffff;
+        }
+        [data-theme='forest'] .preview-table td.selected-cell {
+            background-color: #22c55e !important;
+            color: #ffffff;
+        }
+        [data-theme='cyberpunk'] .preview-table td.selected-cell {
+            background-color: #a855f7 !important;
+            color: #ffffff;
+        }
+        .edit-mode-indicator {
+            background-color: #ff9800;
+            color: white;
+            padding: 5px 15px;
+            border-radius: 4px;
+            font-size: 14px;
+            margin-right: 10px;
+        }
+        .edit-toolbar {
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            padding: 10px;
+            margin-bottom: 15px;
+            display: none;
+            flex-wrap: wrap;
+            gap: 10px;
+            align-items: center;
+        }
+        .edit-toolbar.show {
+            display: flex;
+        }
+        .edit-toolbar .toolbar-group {
+            display: flex;
+            gap: 5px;
+            align-items: center;
+            padding-right: 15px;
+            border-right: 1px solid #dee2e6;
+        }
+        .edit-toolbar .toolbar-group:last-child {
+            border-right: none;
+        }
+        .edit-toolbar .btn-sm {
+            padding: 5px 10px;
+            font-size: 13px;
+        }
+        .edit-toolbar .form-control-sm {
+            padding: 4px 8px;
+            font-size: 13px;
+            width: 120px;
+        }
+        .preview-table {
+            position: relative;
+        }
+        .preview-table th {
+            position: relative;
+            user-select: none;
+            cursor: move;
+        }
+        .preview-table th.dragging {
+            opacity: 0.5;
+        }
+        .preview-table th .resizer {
+            position: absolute;
+            top: 0;
+            right: 0;
+            width: 5px;
+            height: 100%;
+            cursor: col-resize;
+            background-color: transparent;
+            z-index: 1;
+        }
+        .preview-table th .resizer:hover {
+            background-color: #2196F3;
+        }
+        .preview-table th .resizer.active {
+            background-color: #2196F3;
+        }
+        .drop-indicator {
+            position: absolute;
+            top: 0;
+            height: 100%;
+            width: 2px;
+            background-color: #2196F3;
+            z-index: 10;
+            pointer-events: none;
+        }
+        .preview-table-container {
+            overflow-x: auto;
+            max-height: calc(100vh - 200px);
+            overflow-y: auto;
+        }
+        .preview-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+        .preview-table thead {
+            position: sticky;
+            top: 0;
+            z-index: 10;
+            background-color: #D6F2EA;
+        }
+        .preview-table th {
+            background-color: #D6F2EA;
+            color: #1E5F4F;
+            font-weight: bold;
+            padding: 12px 8px;
+            text-align: center;
+            border: 1px solid #C8ECE0;
+            white-space: nowrap;
+        }
+        .preview-table td {
+            padding: 10px 8px;
+            border: 1px solid #E0E0E0;
+            vertical-align: middle;
+            background-color: #FFFFFF;
+            color: var(--jasmine-ink, #333);
+        }
+        .preview-table tbody tr:nth-child(even) {
+            background-color: #F8F9FA;
+        }
+        .preview-table tbody tr:nth-child(even) td {
+            background-color: #F8F9FA;
+        }
+        .preview-table tbody tr:nth-child(odd) {
+            background-color: #FFFFFF;
+        }
+        .preview-table tbody tr:nth-child(odd) td {
+            background-color: #FFFFFF;
+        }
+        .preview-table tbody tr:hover {
+            background-color: #E8F5E9;
+        }
+        .preview-table tbody tr:hover td {
+            background-color: #E8F5E9;
+        }
+        
+        /* 主题适配 - 深色主题 */
+        [data-theme='dark'] .preview-table thead {
+            background-color: #2d3748;
+        }
+        [data-theme='dark'] .preview-table th {
+            background-color: #2d3748;
+            color: #e2e8f0;
+            border-color: #4a5568;
+        }
+        [data-theme='dark'] .preview-table td {
+            background-color: #1a202c;
+            color: #e2e8f0;
+            border-color: #4a5568;
+        }
+        [data-theme='dark'] .preview-table tbody tr:nth-child(even) {
+            background-color: #1a202c;
+        }
+        [data-theme='dark'] .preview-table tbody tr:nth-child(even) td {
+            background-color: #1a202c;
+        }
+        [data-theme='dark'] .preview-table tbody tr:nth-child(odd) {
+            background-color: #2d3748;
+        }
+        [data-theme='dark'] .preview-table tbody tr:nth-child(odd) td {
+            background-color: #2d3748;
+        }
+        [data-theme='dark'] .preview-table tbody tr:hover {
+            background-color: #374151;
+        }
+        [data-theme='dark'] .preview-table tbody tr:hover td {
+            background-color: #374151;
+        }
+        
+        /* 其他主题的适配 */
+        [data-theme='ocean'] .preview-table thead {
+            background-color: #1e3a5f;
+        }
+        [data-theme='ocean'] .preview-table th {
+            background-color: #1e3a5f;
+            color: #e0f2fe;
+            border-color: #3b82f6;
+        }
+        [data-theme='ocean'] .preview-table td {
+            background-color: #0f172a;
+            color: #e0f2fe;
+            border-color: #1e40af;
+        }
+        [data-theme='ocean'] .preview-table tbody tr:nth-child(even) td {
+            background-color: #0f172a;
+        }
+        [data-theme='ocean'] .preview-table tbody tr:nth-child(odd) td {
+            background-color: #1e293b;
+        }
+        [data-theme='ocean'] .preview-table tbody tr:hover td {
+            background-color: #334155;
+        }
+        
+        [data-theme='sunset'] .preview-table thead {
+            background-color: #7c2d12;
+        }
+        [data-theme='sunset'] .preview-table th {
+            background-color: #7c2d12;
+            color: #fed7aa;
+            border-color: #ea580c;
+        }
+        [data-theme='sunset'] .preview-table td {
+            background-color: #451a03;
+            color: #fed7aa;
+            border-color: #c2410c;
+        }
+        [data-theme='sunset'] .preview-table tbody tr:nth-child(even) td {
+            background-color: #451a03;
+        }
+        [data-theme='sunset'] .preview-table tbody tr:nth-child(odd) td {
+            background-color: #5f2708;
+        }
+        [data-theme='sunset'] .preview-table tbody tr:hover td {
+            background-color: #78350f;
+        }
+        
+        [data-theme='forest'] .preview-table thead {
+            background-color: #14532d;
+        }
+        [data-theme='forest'] .preview-table th {
+            background-color: #14532d;
+            color: #dcfce7;
+            border-color: #22c55e;
+        }
+        [data-theme='forest'] .preview-table td {
+            background-color: #052e16;
+            color: #dcfce7;
+            border-color: #16a34a;
+        }
+        [data-theme='forest'] .preview-table tbody tr:nth-child(even) td {
+            background-color: #052e16;
+        }
+        [data-theme='forest'] .preview-table tbody tr:nth-child(odd) td {
+            background-color: #064e3b;
+        }
+        [data-theme='forest'] .preview-table tbody tr:hover td {
+            background-color: #065f46;
+        }
+        
+        [data-theme='cyberpunk'] .preview-table thead {
+            background-color: #581c87;
+        }
+        [data-theme='cyberpunk'] .preview-table th {
+            background-color: #581c87;
+            color: #f3e8ff;
+            border-color: #a855f7;
+        }
+        [data-theme='cyberpunk'] .preview-table td {
+            background-color: #1e1b4b;
+            color: #e9d5ff;
+            border-color: #7c3aed;
+        }
+        [data-theme='cyberpunk'] .preview-table tbody tr:nth-child(even) td {
+            background-color: #1e1b4b;
+        }
+        [data-theme='cyberpunk'] .preview-table tbody tr:nth-child(odd) td {
+            background-color: #312e81;
+        }
+        [data-theme='cyberpunk'] .preview-table tbody tr:hover td {
+            background-color: #4338ca;
+        }
+        .preview-table td.text-left {
+            text-align: left;
+        }
+        .preview-table td.text-center {
+            text-align: center;
+        }
+        .preview-table td.text-wrap {
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            max-width: 300px;
+        }
+        .loading {
+            text-align: center;
+            padding: 50px;
+            color: #666;
+        }
+        .error {
+            text-align: center;
+            padding: 50px;
+            color: #dc3545;
+        }
+        .metadata {
+            background-color: #f8f9fa;
+            padding: 15px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+            font-size: 14px;
+            color: #666;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 15px;
+        }
+        .metadata-left {
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 20px;
+        }
+        .metadata-item {
+            display: inline-block;
+        }
+        .metadata-label {
+            font-weight: bold;
+            color: #333;
+        }
+        .preview-header {
+            display: none; /* 隐藏标题区域 */
+        }
+    </style>
+</head>
+<body class="jasmine-body">
+    <div class="preview-container todo-v2-page">
+        <div id="metadata" class="metadata" style="display: none;">
+            <div class="metadata-left"></div>
+            <div class="preview-actions">
+                <span id="editModeIndicator" class="edit-mode-indicator" style="display: none;">
+                    <i class="fas fa-edit"></i> 编辑模式
+                </span>
+                <button class="btn btn-secondary" onclick="window.close()">
+                    <i class="fas fa-times"></i> 关闭
+                </button>
+                <button class="btn btn-info" id="toggleEditBtn" style="display: none;">
+                    <i class="fas fa-edit"></i> 进入编辑模式
+                </button>
+                <button class="btn btn-primary" id="downloadExcelBtn" style="display: none;">
+                    <i class="fas fa-download"></i> 导出Excel
+                </button>
+            </div>
+        </div>
+        
+        <div id="loading" class="loading">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">加载中...</span>
+            </div>
+            <p>正在加载预览数据...</p>
+        </div>
+        
+        <div id="error" class="error" style="display: none;"></div>
+        
+        <div id="previewContent" class="preview-table-container" style="display: none;">
+            <!-- 编辑工具栏 -->
+            <div id="editToolbar" class="edit-toolbar">
+                <div class="toolbar-group">
+                    <span class="text-muted small">提示：点击单元格即可编辑内容，拖动列标题可调整顺序，拖动列边界可调整宽度</span>
+                </div>
+            </div>
+            
+            <div style="overflow-x: auto;">
+                <table class="preview-table" id="previewTable">
+                    <thead id="previewTableHead"></thead>
+                    <tbody id="previewTableBody"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- 浮动工具栏 -->
+    <div class="floating-toolbar">
+        <button class="toolbar-btn" title="切换主题" onclick="cycleTheme()">
+            <i class="fas fa-palette"></i>
+        </button>
+        <a href="/todo/v2" class="toolbar-btn back-btn" title="返回ToDo管理">
+            <i class="fas fa-arrow-left"></i>
+        </a>
+        <a href="/" class="toolbar-btn back-btn" title="返回首页">
+            <i class="fas fa-home"></i>
+        </a>
+    </div>
+
+    <script>
+        function cycleTheme() {
+            const themes = ['snow', 'dark', 'ocean', 'sunset', 'forest', 'cyberpunk'];
+            const current = localStorage.getItem('yobby_theme') || 'snow';
+            const nextIndex = (themes.indexOf(current) + 1) % themes.length;
+            const nextTheme = themes[nextIndex];
+            if (window.YobbyTheme) {
+                window.YobbyTheme.setTheme(nextTheme);
+            }
+        }
+    </script>
+
+    <script src="{{ url_for('static', filename='js/bootstrap.bundle.min.js') }}"></script>
+    <script src="/static/libs/exceljs/exceljs.min.js"></script>
+    <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
+    <script>
+        let previewData = null;
+        let exportConfig = null;
+        let isEditMode = false;
+        let originalTableData = null; // 存储原始数据，用于取消编辑
+        let currentTableData = null; // 存储当前表格数据引用
+
+        // 从URL参数或sessionStorage获取预览数据
+        function loadPreviewData() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const dataKey = urlParams.get('dataKey');
+            
+            if (dataKey) {
+                try {
+                    const storedData = sessionStorage.getItem(dataKey);
+                    if (storedData) {
+                        const parsed = JSON.parse(storedData);
+                        previewData = parsed.data;
+                        exportConfig = parsed.config;
+                        // 清理sessionStorage
+                        sessionStorage.removeItem(dataKey);
+                        return true;
+                    }
+                } catch (error) {
+                    console.error('解析预览数据失败:', error);
+                }
+            }
+            
+            // 兼容旧方式：监听来自父窗口的消息
+            window.addEventListener('message', function(event) {
+                // 验证来源
+                if (event.origin !== window.location.origin) {
+                    return;
+                }
+                
+                if (event.data && event.data.type === 'preview_data') {
+                    previewData = event.data.data;
+                    exportConfig = event.data.config;
+                    renderPreview();
+                }
+            });
+            
+            return false;
+        }
+
+        // 页面加载时尝试获取数据
+        if (loadPreviewData() && previewData) {
+            renderPreview();
+        }
+
+        // 渲染预览表格
+        function renderPreview() {
+            const loadingEl = document.getElementById('loading');
+            const errorEl = document.getElementById('error');
+            const contentEl = document.getElementById('previewContent');
+            const metadataEl = document.getElementById('metadata');
+            const downloadBtn = document.getElementById('downloadExcelBtn');
+
+            if (!previewData || !previewData.success) {
+                loadingEl.style.display = 'none';
+                errorEl.style.display = 'block';
+                errorEl.textContent = previewData?.error || '加载数据失败';
+                return;
+            }
+
+            const data = previewData.data;
+            currentTableData = data; // 保存数据引用
+            loadingEl.style.display = 'none';
+            contentEl.style.display = 'block';
+            downloadBtn.style.display = 'block';
+            
+            // 显示编辑按钮
+            const toggleEditBtn = document.getElementById('toggleEditBtn');
+            if (toggleEditBtn) {
+                toggleEditBtn.style.display = 'block';
+            }
+
+            // 显示元数据
+            if (data.metadata) {
+                metadataEl.style.display = 'flex';
+                const metadataLeft = metadataEl.querySelector('.metadata-left');
+                const previewActions = metadataEl.querySelector('.preview-actions');
+                
+                let rangeLabel = getExportRangeLabel(data.metadata.export_range);
+                // 如果是周报，添加时间范围
+                if (data.metadata.export_range === 'weekly' && data.metadata.weekly_date_range) {
+                    const range = data.metadata.weekly_date_range;
+                    rangeLabel = `${range.start}~${range.end} 周报`;
+                }
+                
+                metadataLeft.innerHTML = `
+                    <span class="metadata-item">
+                        <span class="metadata-label">项目数量：</span>${data.metadata.project_count || 0}
+                    </span>
+                    <span class="metadata-item">
+                        <span class="metadata-label">任务数量：</span>${data.metadata.task_count || 0}
+                    </span>
+                    <span class="metadata-item">
+                        <span class="metadata-label">导出范围：</span>${rangeLabel}
+                    </span>
+                `;
+                
+                // 确保按钮区域显示
+                if (previewActions) {
+                    previewActions.style.display = 'flex';
+                    previewActions.style.gap = '10px';
+                    previewActions.style.alignItems = 'center';
+                }
+            }
+
+            // 渲染表头（支持拖动和调整宽度）
+            const thead = document.getElementById('previewTableHead');
+            thead.innerHTML = '<tr></tr>';
+            const theadTr = thead.querySelector('tr');
+            
+            data.headers.forEach((header, index) => {
+                const th = document.createElement('th');
+                th.textContent = header;
+                th.dataset.columnIndex = index;
+                th.dataset.columnName = header;
+                
+                // 如果处于编辑模式，添加拖动和调整宽度功能
+                if (isEditMode) {
+                    th.draggable = true;
+                    
+                    // 添加调整宽度的resizer
+                    const resizer = document.createElement('div');
+                    resizer.className = 'resizer';
+                    th.appendChild(resizer);
+                    
+                    // 拖动列顺序事件
+                    th.addEventListener('dragstart', handleHeaderDragStart);
+                    th.addEventListener('dragover', handleHeaderDragOver);
+                    th.addEventListener('drop', handleHeaderDrop);
+                    th.addEventListener('dragend', handleHeaderDragEnd);
+                    
+                    // 调整列宽事件
+                    setupColumnResizer(th, resizer);
+                }
+                
+                theadTr.appendChild(th);
+            });
+
+            // 渲染数据行（支持项目名称列合并）
+            const tbody = document.getElementById('previewTableBody');
+            tbody.innerHTML = '';
+            
+            // 找到项目名称列的索引
+            const projectNameColIndex = data.headers.indexOf('项目名称');
+            const mergeProjectName = exportConfig && exportConfig.mergeProjectName !== false; // 默认启用合并
+            
+            // 用于跟踪项目名称合并
+            let currentProjectName = null;
+            let projectNameCells = [];
+            const allRows = []; // 存储所有行，用于后续处理合并
+            
+            // 第一遍：创建所有行和单元格
+            data.rows.forEach((row, rowIndex) => {
+                const tr = document.createElement('tr');
+                const cells = [];
+                
+                row.forEach((cell, cellIndex) => {
+                    const td = document.createElement('td');
+                    td.textContent = cell !== null && cell !== undefined ? cell : '--';
+                    
+                    // 设置对齐方式
+                    const header = data.headers[cellIndex];
+                    if (header === '项目名称' || header === '序号' || header === '总序号' || 
+                        header === '优先级' || header === '进度' || header === '创建时间' || 
+                        header === '最后更新时间' || header === '预计完成时间') {
+                        td.className = 'text-center';
+                    } else {
+                        td.className = 'text-left';
+                        // 对于可能包含换行的内容，添加换行样式
+                        if (typeof cell === 'string' && (cell.includes('\n') || cell.length > 50)) {
+                            td.classList.add('text-wrap');
+                        }
+                    }
+                    
+                    // 如果处于编辑模式，添加事件监听器
+                    if (isEditMode) {
+                        td.contentEditable = 'true';
+                        td.addEventListener('click', handleCellClick);
+                        td.addEventListener('focus', handleCellFocus);
+                    }
+                    
+                    cells.push(td);
+                    tr.appendChild(td);
+                });
+                
+                allRows.push({ tr, cells, projectName: row[projectNameColIndex] });
+                tbody.appendChild(tr);
+            });
+            
+            // 第二遍：处理项目名称列的合并
+            if (mergeProjectName && projectNameColIndex >= 0) {
+                allRows.forEach((rowData, rowIndex) => {
+                    const currentRowProjectName = rowData.projectName;
+                    const projectNameCell = rowData.cells[projectNameColIndex];
+                    
+                    if (currentProjectName !== currentRowProjectName) {
+                        // 项目名称变化，如果之前有连续的项目名称，进行合并
+                        if (currentProjectName !== null && projectNameCells.length > 1) {
+                            const firstCell = projectNameCells[0];
+                            firstCell.rowSpan = projectNameCells.length;
+                            firstCell.style.verticalAlign = 'middle';
+                            // 移除其他单元格
+                            projectNameCells.slice(1).forEach(cell => {
+                                cell.parentNode.removeChild(cell);
+                            });
+                        }
+                        // 重置
+                        currentProjectName = currentRowProjectName;
+                        projectNameCells = [projectNameCell];
+                    } else if (currentRowProjectName !== null && currentRowProjectName !== undefined) {
+                        // 相同的项目名称，添加到合并列表
+                        projectNameCells.push(projectNameCell);
+                    }
+                });
+                
+                // 处理最后一个项目名称的合并
+                if (currentProjectName !== null && projectNameCells.length > 1) {
+                    const firstCell = projectNameCells[0];
+                    firstCell.rowSpan = projectNameCells.length;
+                    firstCell.style.verticalAlign = 'middle';
+                    projectNameCells.slice(1).forEach(cell => {
+                        cell.parentNode.removeChild(cell);
+                    });
+                }
+            }
+        }
+
+        function getExportRangeLabel(range) {
+            const labels = {
+                'all': '全部导出',
+                'preview': '导出当前预览',
+                'weekly': '导出周报',
+            };
+            return labels[range] || range;
+        }
+
+        // 切换编辑模式
+        const toggleEditBtn = document.getElementById('toggleEditBtn');
+        if (toggleEditBtn) {
+            toggleEditBtn.addEventListener('click', function() {
+                toggleEditMode();
+            });
+        }
+
+
+        // 列拖动相关变量
+        let draggedHeader = null;
+        let dropIndicator = null;
+
+        // 处理表头拖动开始
+        function handleHeaderDragStart(e) {
+            // 跳过索引列
+            if (this.classList.contains('col-index-header')) {
+                e.preventDefault();
+                return false;
+            }
+            draggedHeader = this;
+            this.classList.add('dragging');
+            e.dataTransfer.effectAllowed = 'move';
+            e.dataTransfer.setData('text/html', this.innerHTML);
+        }
+
+        // 处理表头拖动经过
+        function handleHeaderDragOver(e) {
+            if (e.preventDefault) {
+                e.preventDefault();
+            }
+            e.dataTransfer.dropEffect = 'move';
+            
+            // 跳过索引列
+            if (this.classList.contains('col-index-header')) {
+                return;
+            }
+            
+            if (this !== draggedHeader) {
+                const rect = this.getBoundingClientRect();
+                const x = e.clientX - rect.left;
+                const midPoint = rect.width / 2;
+                
+                // 移除现有的指示器
+                if (dropIndicator) {
+                    dropIndicator.remove();
+                }
+                
+                // 创建新的指示器
+                dropIndicator = document.createElement('div');
+                dropIndicator.className = 'drop-indicator';
+                const theadTr = this.parentNode;
+                if (x < midPoint) {
+                    dropIndicator.style.left = '0';
+                    theadTr.insertBefore(dropIndicator, this);
+                } else {
+                    dropIndicator.style.right = '0';
+                    if (this.nextSibling) {
+                        theadTr.insertBefore(dropIndicator, this.nextSibling);
+                    } else {
+                        theadTr.appendChild(dropIndicator);
+                    }
+                }
+            }
+        }
+
+        // 处理表头放置
+        function handleHeaderDrop(e) {
+            if (e.stopPropagation) {
+                e.stopPropagation();
+            }
+            
+            if (draggedHeader !== this) {
+                const theadTr = this.parentNode;
+                // 只获取数据列（跳过索引列）
+                const dataHeaders = Array.from(theadTr.querySelectorAll('th:not(.col-index-header)'));
+                const draggedIndex = dataHeaders.indexOf(draggedHeader);
+                const targetIndex = dataHeaders.indexOf(this);
+                
+                const x = e.clientX - this.getBoundingClientRect().left;
+                const midPoint = this.getBoundingClientRect().width / 2;
+                const insertBefore = x < midPoint;
+                
+                // 移动表头（包括textContent，这样列名会跟着移动）
+                if (insertBefore) {
+                    theadTr.insertBefore(draggedHeader, this);
+                } else {
+                    if (this.nextSibling) {
+                        theadTr.insertBefore(draggedHeader, this.nextSibling);
+                    } else {
+                        theadTr.appendChild(draggedHeader);
+                    }
+                }
+                
+                // 移动所有行的对应列（跳过行索引列）
+                const tbody = document.querySelector('#previewTable tbody');
+                tbody.querySelectorAll('tr').forEach(tr => {
+                    const cells = Array.from(tr.children);
+                    // 跳过行索引单元格（第一个）
+                    const dataCells = isEditMode ? cells.slice(1) : cells;
+                    const draggedCell = dataCells[draggedIndex];
+                    const targetCell = dataCells[targetIndex];
+                    
+                    if (draggedCell && targetCell) {
+                        if (insertBefore) {
+                            tr.insertBefore(draggedCell, targetCell);
+                        } else {
+                            if (targetCell.nextSibling) {
+                                tr.insertBefore(draggedCell, targetCell.nextSibling);
+                            } else {
+                                tr.appendChild(draggedCell);
+                            }
+                        }
+                    }
+                });
+                
+                // 更新列索引
+                updateColumnIndices();
+            }
+            
+            // 清理
+            if (dropIndicator) {
+                dropIndicator.remove();
+                dropIndicator = null;
+            }
+            
+            return false;
+        }
+        
+
+        // 处理表头拖动结束
+        function handleHeaderDragEnd(e) {
+            this.classList.remove('dragging');
+            if (dropIndicator) {
+                dropIndicator.remove();
+                dropIndicator = null;
+            }
+        }
+
+        // 设置列宽调整
+        function setupColumnResizer(th, resizer) {
+            let isResizing = false;
+            let startX = 0;
+            let startWidth = 0;
+            
+            resizer.addEventListener('mousedown', function(e) {
+                isResizing = true;
+                startX = e.pageX;
+                startWidth = th.offsetWidth;
+                resizer.classList.add('active');
+                e.preventDefault();
+                e.stopPropagation();
+            });
+            
+            document.addEventListener('mousemove', function(e) {
+                if (!isResizing) return;
+                const diff = e.pageX - startX;
+                const newWidth = Math.max(50, startWidth + diff); // 最小宽度50px
+                th.style.width = newWidth + 'px';
+                th.style.minWidth = newWidth + 'px';
+                
+                // 同步设置表格宽度，避免布局问题
+                const table = document.getElementById('previewTable');
+                if (table) {
+                    table.style.tableLayout = 'fixed';
+                }
+            });
+            
+            document.addEventListener('mouseup', function() {
+                if (isResizing) {
+                    isResizing = false;
+                    resizer.classList.remove('active');
+                }
+            });
+        }
+
+        let selectedRowIndex = null;
+        let selectedColIndex = null;
+
+        function toggleEditMode() {
+            isEditMode = !isEditMode;
+            const table = document.getElementById('previewTable');
+            const indicator = document.getElementById('editModeIndicator');
+            const toggleBtn = document.getElementById('toggleEditBtn');
+            const downloadBtn = document.getElementById('downloadExcelBtn');
+            const editToolbar = document.getElementById('editToolbar');
+            
+            if (isEditMode) {
+                // 进入编辑模式
+                if (!originalTableData) {
+                    // 保存原始数据
+                    originalTableData = getTableData();
+                }
+                
+                // 使所有数据单元格可编辑（不包括表头）
+                // 注意：合并的单元格也保持可编辑，编辑时会自动同步到所有合并的单元格
+                const tbody = table.querySelector('tbody');
+                
+                // 使所有数据单元格可编辑（包括合并的单元格）
+                // 注意：合并的单元格保持合并状态，编辑时会自动应用到所有被合并的单元格
+                tbody.querySelectorAll('td').forEach((td, index) => {
+                    td.contentEditable = 'true';
+                    // 添加点击事件，选中单元格
+                    td.addEventListener('click', handleCellClick);
+                    td.addEventListener('focus', handleCellFocus);
+                });
+                
+                // 为表头添加拖动和调整宽度功能
+                const thead = table.querySelector('thead');
+                if (thead) {
+                    const headers = thead.querySelectorAll('th');
+                    headers.forEach((th, index) => {
+                        th.draggable = true;
+                        th.dataset.columnIndex = index;
+                        
+                        // 如果还没有resizer，添加一个
+                        let resizer = th.querySelector('.resizer');
+                        if (!resizer) {
+                            resizer = document.createElement('div');
+                            resizer.className = 'resizer';
+                            th.appendChild(resizer);
+                        }
+                        
+                        // 添加拖动事件（如果还没有添加）
+                        if (!th.hasAttribute('data-drag-bound')) {
+                            th.addEventListener('dragstart', handleHeaderDragStart);
+                            th.addEventListener('dragover', handleHeaderDragOver);
+                            th.addEventListener('drop', handleHeaderDrop);
+                            th.addEventListener('dragend', handleHeaderDragEnd);
+                            th.setAttribute('data-drag-bound', 'true');
+                        }
+                        
+                        // 添加调整宽度功能（如果还没有添加）
+                        if (!resizer.hasAttribute('data-resize-bound')) {
+                            setupColumnResizer(th, resizer);
+                            resizer.setAttribute('data-resize-bound', 'true');
+                        }
+                    });
+                }
+                
+                // 显示编辑工具栏
+                editToolbar.classList.add('show');
+                
+                indicator.style.display = 'inline-block';
+                toggleBtn.innerHTML = '<i class="fas fa-times"></i> 退出编辑模式';
+                toggleBtn.className = 'btn btn-warning';
+                downloadBtn.innerHTML = '<i class="fas fa-download"></i> 导出编辑后的Excel';
+                
+                // 添加编辑提示
+                showEditHint();
+            } else {
+                // 退出编辑模式
+                const tbody = table.querySelector('tbody');
+                tbody.querySelectorAll('td').forEach(td => {
+                    td.contentEditable = 'false';
+                    td.removeEventListener('click', handleCellClick);
+                    td.removeEventListener('focus', handleCellFocus);
+                    td.classList.remove('selected-cell');
+                });
+                
+                // 隐藏编辑工具栏
+                editToolbar.classList.remove('show');
+                
+                // 移除表头的拖动功能
+                const thead = table.querySelector('thead');
+                if (thead) {
+                    const headers = thead.querySelectorAll('th');
+                    headers.forEach(th => {
+                        th.draggable = false;
+                        th.removeAttribute('data-drag-bound');
+                    });
+                }
+                
+                indicator.style.display = 'none';
+                toggleBtn.innerHTML = '<i class="fas fa-edit"></i> 进入编辑模式';
+                toggleBtn.className = 'btn btn-info';
+                downloadBtn.innerHTML = '<i class="fas fa-download"></i> 导出Excel';
+                
+                selectedRowIndex = null;
+                selectedColIndex = null;
+            }
+        }
+
+        function handleCellClick(event) {
+            const td = event.target.closest('td');
+            if (!td) return;
+            
+            // 清除之前的选中状态
+            document.querySelectorAll('.selected-cell').forEach(cell => {
+                cell.classList.remove('selected-cell');
+            });
+            
+            // 设置当前单元格为选中状态
+            td.classList.add('selected-cell');
+        }
+
+        function handleCellFocus(event) {
+            handleCellClick(event);
+        }
+
+        function showEditHint() {
+            if (document.getElementById('editHint')) return;
+            const hint = document.createElement('div');
+            hint.id = 'editHint';
+            hint.className = 'alert alert-info mt-3';
+            hint.innerHTML = '<i class="fas fa-info-circle"></i> 提示：点击表格单元格即可编辑内容，编辑完成后点击"导出编辑后的Excel"按钮保存。';
+            const container = document.querySelector('.preview-container');
+            const content = document.getElementById('previewContent');
+            container.insertBefore(hint, content);
+            setTimeout(() => {
+                if (hint.parentNode) {
+                    hint.style.transition = 'opacity 0.3s';
+                    hint.style.opacity = '0';
+                    setTimeout(() => hint.remove(), 300);
+                }
+            }, 5000);
+        }
+
+        // 获取当前表格数据（支持合并单元格）
+        function getTableData() {
+            const table = document.getElementById('previewTable');
+            const headers = [];
+            const rows = [];
+            
+            // 获取表头
+            table.querySelectorAll('thead th').forEach(th => {
+                headers.push(th.textContent.trim());
+            });
+            
+            const tbody = table.querySelector('tbody');
+            const allRows = Array.from(tbody.querySelectorAll('tr'));
+            
+            // 创建一个二维数组来跟踪哪些单元格已经被合并单元格填充
+            const rowData = [];
+            allRows.forEach(() => {
+                rowData.push(new Array(headers.length).fill(null));
+            });
+            
+            // 第一遍：处理所有单元格（包括合并的）
+            allRows.forEach((tr, rowIdx) => {
+                Array.from(tr.children).forEach((td, colIdx) => {
+                    const rowspan = parseInt(td.getAttribute('rowspan') || '1');
+                    const colspan = parseInt(td.getAttribute('colspan') || '1');
+                    const cellValue = td.textContent.trim();
+                    
+                    // 填充当前单元格
+                    if (rowData[rowIdx][colIdx] === null) {
+                        rowData[rowIdx][colIdx] = cellValue;
+                    }
+                    
+                    // 如果单元格有rowspan，填充下方被合并的行
+                    for (let i = 1; i < rowspan; i++) {
+                        if (rowIdx + i < rowData.length) {
+                            if (rowData[rowIdx + i][colIdx] === null) {
+                                rowData[rowIdx + i][colIdx] = cellValue; // 使用合并单元格的值
+                            }
+                        }
+                    }
+                    
+                    // 如果单元格有colspan，填充右侧被合并的列
+                    for (let i = 1; i < colspan; i++) {
+                        if (colIdx + i < headers.length) {
+                            if (rowData[rowIdx][colIdx + i] === null) {
+                                rowData[rowIdx][colIdx + i] = ''; // colspan合并的列通常为空
+                            }
+                        }
+                    }
+                });
+            });
+            
+            // 将rowData转换为rows格式，处理null值
+            rowData.forEach(row => {
+                const filledRow = row.map(cell => cell === null ? '' : cell);
+                rows.push(filledRow);
+            });
+            
+            return { headers, rows };
+        }
+
+        // 更新列索引
+        function updateColumnIndices() {
+            const headers = Array.from(document.querySelectorAll('#previewTable thead th'));
+            headers.forEach((th, index) => {
+                th.dataset.columnIndex = index;
+            });
+        }
+
+        // 导出Excel功能（使用ExcelJS）
+        document.getElementById('downloadExcelBtn').addEventListener('click', async function() {
+            if (!previewData || !previewData.success || !exportConfig) {
+                alert('无法导出：数据未加载或配置缺失');
+                return;
+            }
+
+            try {
+                // 使用ExcelJS生成Excel文件
+                const ExcelJS = window.ExcelJS;
+                if (!ExcelJS) {
+                    alert('ExcelJS库未加载，无法导出Excel');
+                    return;
+                }
+
+                const workbook = new ExcelJS.Workbook();
+                const worksheet = workbook.addWorksheet('任务列表');
+
+                // 如果处于编辑模式，使用编辑后的数据；否则使用原始数据
+                let data;
+                if (isEditMode) {
+                    // 获取编辑后的表格数据
+                    const editedData = getTableData();
+                    data = {
+                        headers: editedData.headers,
+                        rows: editedData.rows,
+                        metadata: previewData.data.metadata
+                    };
+                } else {
+                    data = previewData.data;
+                }
+
+                // 设置表头
+                const headerRow = worksheet.addRow(data.headers);
+                headerRow.font = { bold: true, color: { argb: 'FF1E5F4F' }, size: 11 };
+                headerRow.fill = {
+                    type: 'pattern',
+                    pattern: 'solid',
+                    fgColor: { argb: 'FFD6F2EA' }
+                };
+                headerRow.alignment = { vertical: 'middle', horizontal: 'center' };
+                headerRow.eachCell(cell => {
+                    cell.border = {
+                        top: { style: 'thin' },
+                        left: { style: 'thin' },
+                        right: { style: 'thin' },
+                        bottom: { style: 'thin' }
+                    };
+                });
+
+                // 添加数据行
+                data.rows.forEach((row, rowIndex) => {
+                    // 确保行数据长度与表头一致
+                    while (row.length < data.headers.length) {
+                        row.push('');
+                    }
+                    if (row.length > data.headers.length) {
+                        row = row.slice(0, data.headers.length);
+                    }
+                    
+                    const dataRow = worksheet.addRow(row);
+                    const isEven = rowIndex % 2 === 0;
+                    dataRow.fill = {
+                        type: 'pattern',
+                        pattern: 'solid',
+                        fgColor: { argb: isEven ? 'FFF8F9FA' : 'FFFFFFFF' }
+                    };
+                    dataRow.eachCell((cell, colNumber) => {
+                        cell.border = {
+                            top: { style: 'thin', color: { argb: 'FFE0E0E0' } },
+                            left: { style: 'thin', color: { argb: 'FFE0E0E0' } },
+                            right: { style: 'thin', color: { argb: 'FFE0E0E0' } },
+                            bottom: { style: 'thin', color: { argb: 'FFE0E0E0' } }
+                        };
+                        
+                        const header = data.headers[colNumber - 1];
+                        if (header === '项目名称' || header === '序号' || header === '总序号' || 
+                            header === '优先级' || header === '进度' || header === '创建时间' || 
+                            header === '最后更新时间' || header === '预计完成时间') {
+                            cell.alignment = { vertical: 'middle', horizontal: 'center' };
+                        } else {
+                            cell.alignment = { vertical: 'middle', horizontal: 'left', wrapText: true };
+                        }
+                    });
+                });
+                
+                // 处理项目名称列的合并（如果启用）
+                if (exportConfig && exportConfig.mergeProjectName !== false) {
+                    const projectNameColIndex = data.headers.indexOf('项目名称');
+                    if (projectNameColIndex >= 0) {
+                        let currentProjectName = null;
+                        let startRow = null;
+                        let rowCount = 0;
+                        
+                        data.rows.forEach((row, rowIndex) => {
+                            const projectName = row[projectNameColIndex];
+                            if (projectName !== currentProjectName) {
+                                // 项目名称变化，合并之前的单元格
+                                if (currentProjectName !== null && startRow !== null && rowCount > 1) {
+                                    worksheet.mergeCells(startRow + 2, projectNameColIndex + 1, startRow + rowCount + 1, projectNameColIndex + 1);
+                                    const cell = worksheet.getCell(startRow + 2, projectNameColIndex + 1);
+                                    cell.alignment = { vertical: 'middle', horizontal: 'center' };
+                                }
+                                currentProjectName = projectName;
+                                startRow = rowIndex;
+                                rowCount = 1;
+                            } else {
+                                rowCount++;
+                            }
+                        });
+                        
+                        // 处理最后一组
+                        if (currentProjectName !== null && startRow !== null && rowCount > 1) {
+                            worksheet.mergeCells(startRow + 2, projectNameColIndex + 1, startRow + rowCount + 1, projectNameColIndex + 1);
+                            const cell = worksheet.getCell(startRow + 2, projectNameColIndex + 1);
+                            cell.alignment = { vertical: 'middle', horizontal: 'center' };
+                        }
+                    }
+                }
+
+                // 调整列宽
+                worksheet.columns.forEach((column, index) => {
+                    let maxLength = 10;
+                    column.eachCell({ includeEmpty: true }, cell => {
+                        const columnLength = cell.value ? cell.value.toString().length : 10;
+                        if (columnLength > maxLength) {
+                            maxLength = columnLength;
+                        }
+                    });
+                    column.width = Math.min(Math.max(maxLength + 2, 10), 50);
+                });
+
+                // 生成并下载文件
+                const buffer = await workbook.xlsx.writeBuffer();
+                const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+                const url = window.URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                
+                // 生成文件名
+                const now = new Date();
+                const filename = exportConfig.fileName || 
+                    `todo_export_${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}${String(now.getSeconds()).padStart(2, '0')}.xlsx`;
+                
+                link.download = filename;
+                link.click();
+                window.URL.revokeObjectURL(url);
+            } catch (error) {
+                console.error('导出Excel失败:', error);
+                alert('导出Excel失败: ' + error.message);
+            }
+        });
+
+        // 如果直接打开页面（没有数据），显示错误
+        setTimeout(() => {
+            if (!previewData) {
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('error').style.display = 'block';
+                document.getElementById('error').textContent = '未接收到预览数据，请从导出配置页面点击预览按钮';
+            }
+        }, 3000);
+    </script>
+</body>
+</html>
+

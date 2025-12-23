@@ -12,6 +12,7 @@
         'due_date': { key: 'due_date', label: '预计完成时间', default: true, order: 6 },
         'created_at': { key: 'created_at', label: '创建时间', default: true, order: 7 },
         'updated_at': { key: 'updated_at', label: '最后更新时间', default: true, order: 8 },
+        'conclusion': { key: 'conclusion', label: '结论', default: false, order: 9 },
     };
 
     const state = {
@@ -212,6 +213,7 @@
                     project_id: project.id,
                     project_name: project.name,
                     project_color: project.color || '#4facfe',
+                    project_phase: project.phase || '预研阶段',
                 };
                 allTasks.push(taskWithProject);
             }
@@ -360,7 +362,7 @@
                 <div class="project-color-indicator" style="background-color: ${project.color || '#4facfe'};"></div>
                 <div class="project-header-content">
                     <div class="project-info">
-                        <h3 class="project-name">${escapeHtml(project.name || '未命名项目')}</h3>
+                        <h3 class="project-name">${escapeHtml(project.name || '未命名项目')} <span class="project-phase">(${escapeHtml(project.phase || '预研阶段')})</span></h3>
                         <div class="project-meta">
                             <span>创建于 ${formatDate(project.created_at)}</span>
                             <span>任务数: ${project.tasks.length}</span>
@@ -563,7 +565,7 @@
             <tr data-task-id="${task.id}" data-project-id="${projectId}">
                 <td class="drag-handle" draggable="true">${index}</td>
                 <td>
-                    <div class="task-summary">${escapeHtml(task.summary || '未命名任务')}</div>
+                    <div class="task-summary">${escapeHtml(task.summary || '未命名任务')} <span class="task-type">(${escapeHtml(task.task_type || '研发任务')})</span></div>
                 </td>
                 <td class="task-description-cell">
                     ${hasDescription ? `<div class="task-description-wrapper"><div class="task-description-content ${isLongDescription ? 'collapsed' : ''}" id="${descriptionId}">${descriptionPreview}</div>${isLongDescription ? `<button type="button" class="btn btn-link btn-sm task-description-toggle" data-target="${descriptionId}" data-expanded="false"><i class="fas fa-chevron-down"></i> <span class="toggle-text">展开</span></button>` : ''}</div>` : '<span class="text-muted">--</span>'}
@@ -716,7 +718,7 @@
                         <div class="pending-card-project" style="color: ${projectColor}">
                             ${escapeHtml(task.project_name || '未命名项目')}
                         </div>
-                        <h4 class="pending-card-summary">${escapeHtml(task.summary || '未命名任务')}</h4>
+                        <h4 class="pending-card-summary">${escapeHtml(task.summary || '未命名任务')} <span class="task-type">(${escapeHtml(task.task_type || '研发任务')})</span></h4>
                     </div>
                 </div>
                 <div class="pending-card-meta">
@@ -965,6 +967,10 @@
         refs.editProjectForm.dataset.projectId = projectId;
         refs.editProjectForm.querySelector('[name="name"]').value = project.name || '';
         refs.editProjectForm.querySelector('[name="color"]').value = project.color || '#4facfe';
+        const phaseField = refs.editProjectForm.querySelector('[name="phase"]');
+        if (phaseField) {
+            phaseField.value = project.phase || '预研阶段';
+        }
         refs.editProjectForm.classList.remove('was-validated');
 
         if (modals.editProject) {
@@ -1001,6 +1007,14 @@
         const dueField = refs.editTaskForm.querySelector('[name="due_date"]');
         if (dueField) {
             dueField.value = task.due_date || '';
+        }
+        const taskTypeField = refs.editTaskForm.querySelector('[name="task_type"]');
+        if (taskTypeField) {
+            taskTypeField.value = task.task_type || '研发任务';
+        }
+        const conclusionField = refs.editTaskForm.querySelector('[name="conclusion"]');
+        if (conclusionField) {
+            conclusionField.value = task.conclusion || '';
         }
         refs.editTaskForm.classList.remove('was-validated');
 
@@ -1158,6 +1172,7 @@
         const payload = {
             name: formData.get('name') || '',
             color: formData.get('color') || '#4facfe',
+            phase: formData.get('phase') || '预研阶段',
         };
 
         try {
@@ -1184,6 +1199,7 @@
         const payload = {
             name: formData.get('name') || '',
             color: formData.get('color') || '#4facfe',
+            phase: formData.get('phase') || '预研阶段',
         };
 
         try {
@@ -1212,6 +1228,8 @@
             priority: parseInt(formData.get('priority') || '3'),
             progress: parseInt(formData.get('progress') || '0'),
             due_date: formData.get('due_date') || null,
+            task_type: formData.get('task_type') || '研发任务',
+            conclusion: formData.get('conclusion') || '',
         };
 
         try {
@@ -1240,6 +1258,8 @@
             priority: parseInt(formData.get('priority') || '3'),
             progress: parseInt(formData.get('progress') || '0'),
             due_date: formData.get('due_date') || null,
+            task_type: formData.get('task_type') || '研发任务',
+            conclusion: formData.get('conclusion') || '',
         };
 
         try {
@@ -1439,6 +1459,7 @@
                     project_id: project.id,
                     project_name: project.name,
                     project_color: project.color || '#4facfe',
+                    project_phase: project.phase || '预研阶段',
                     index: taskIndex + 1,
                     change_count: updateCount + commentCount,
                     update_count: updateCount,
@@ -1781,11 +1802,13 @@
     function getTableCellContent(task, colKey) {
         switch (colKey) {
             case 'project_name':
-                return `<span style="color: ${task.project_color}">${escapeHtml(task.project_name || '--')}</span>`;
+                const projectPhase = task.project_phase || '预研阶段';
+                return `<span style="color: ${task.project_color}">${escapeHtml(task.project_name || '--')} (${escapeHtml(projectPhase)})</span>`;
             case 'index':
                 return String(task.index || '--');
             case 'summary':
-                return escapeHtml(task.summary || '--');
+                const taskType = task.task_type || '研发任务';
+                return `${escapeHtml(task.summary || '--')} <span class="task-type">(${escapeHtml(taskType)})</span>`;
             case 'description':
                 const desc = task.description || '';
                 if (!desc) return '--';
@@ -1815,6 +1838,8 @@
                 return formatDateTime(task.created_at);
             case 'updated_at':
                 return formatDateTime(task.updated_at);
+            case 'conclusion':
+                return escapeHtml(task.conclusion || '--');
             default:
                 return '--';
         }

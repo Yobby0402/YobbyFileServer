@@ -32,6 +32,8 @@ class TodoManager:
 
     DEFAULT_COLOR = "#4facfe"
     DEFAULT_PRIORITY = 3  # 1-5，3为中等优先级
+    DEFAULT_PHASE = "预研阶段"  # 项目阶段默认值
+    DEFAULT_TASK_TYPE = "预研任务"  # 任务类型默认值（对于没有设定的任务，统一按照预研任务处理）
 
     def __init__(self, storage_path: Optional[str] = None):
         data_dir = _ensure_data_dir()
@@ -133,6 +135,22 @@ class TodoManager:
             return TodoManager.DEFAULT_PRIORITY
         return max(1, min(5, value))
 
+    @staticmethod
+    def _normalize_phase(phase: Optional[str]) -> str:
+        """标准化项目阶段"""
+        valid_phases = ["预研阶段", "ES1阶段", "PL阶段", "MP阶段", "完成", "暂停", "终止"]
+        if not phase or phase not in valid_phases:
+            return TodoManager.DEFAULT_PHASE
+        return phase
+
+    @staticmethod
+    def _normalize_task_type(task_type: Optional[str]) -> str:
+        """标准化任务类型（对于没有设定的任务，统一按照预研任务处理）"""
+        valid_types = ["预研任务", "研发任务"]
+        if not task_type or task_type not in valid_types:
+            return "预研任务"  # 默认使用预研任务
+        return task_type
+
     def _calculate_project_progress(self, tasks: List[Dict]) -> int:
         """计算项目整体进度"""
         if not tasks:
@@ -171,6 +189,7 @@ class TodoManager:
                 "id": project_id,
                 "name": payload.get("name") or "未命名项目",
                 "color": self._normalize_color(payload.get("color")),
+                "phase": self._normalize_phase(payload.get("phase")),
                 "created_at": now,
                 "updated_at": now,
                 "tasks": [],
@@ -189,6 +208,8 @@ class TodoManager:
                 project["name"] = payload.get("name") or "未命名项目"
             if "color" in payload:
                 project["color"] = self._normalize_color(payload.get("color"))
+            if "phase" in payload:
+                project["phase"] = self._normalize_phase(payload.get("phase"))
 
             project["updated_at"] = _utc_now()
             self._persist()
@@ -215,6 +236,8 @@ class TodoManager:
                 "priority": self._sanitize_priority(payload.get("priority")),
                 "progress": self._sanitize_progress(payload.get("progress")),
                 "due_date": self._normalize_due_date(payload.get("due_date")),
+                "task_type": self._normalize_task_type(payload.get("task_type")),
+                "conclusion": payload.get("conclusion") or "",
                 "created_at": now,
                 "updated_at": now,
                 "update_history": [],
@@ -277,6 +300,20 @@ class TodoManager:
                 if old_value != new_value:
                     task["due_date"] = new_value
                     update_records.append(self._build_update_record("due_date", old_value, new_value))
+
+            if "task_type" in payload:
+                old_value = task.get("task_type")
+                new_value = self._normalize_task_type(payload.get("task_type"))
+                if old_value != new_value:
+                    task["task_type"] = new_value
+                    update_records.append(self._build_update_record("task_type", old_value, new_value))
+
+            if "conclusion" in payload:
+                old_value = task.get("conclusion")
+                new_value = payload.get("conclusion") or ""
+                if old_value != new_value:
+                    task["conclusion"] = new_value
+                    update_records.append(self._build_update_record("conclusion", old_value, new_value))
 
             if update_records:
                 task.setdefault("update_history", []).extend(update_records)

@@ -152,6 +152,18 @@
                                     data-action="random-color">随机颜色</button>
                             </div>
                         </div>
+                        <div class="mb-3">
+                            <label class="form-label">项目阶段</label>
+                            <select class="form-select" name="phase">
+                                <option value="预研阶段" selected>预研阶段</option>
+                                <option value="ES1阶段">ES阶段</option>
+                                <option value="PL阶段">PL阶段</option>
+                                <option value="MP阶段">MP阶段</option>
+                                <option value="完成">完成</option>
+                                <option value="暂停">暂停</option>
+                                <option value="终止">终止</option>
+                            </select>
+                        </div>
                     </div>
                     <div class="modal-footer">
                         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
@@ -184,6 +196,18 @@
                                 <button type="button" class="btn btn-outline-secondary"
                                     data-action="random-color">随机颜色</button>
                             </div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">项目阶段</label>
+                            <select class="form-select" name="phase">
+                                <option value="预研阶段">预研阶段</option>
+                                <option value="ES1阶段">ES阶段</option>
+                                <option value="PL阶段">PL阶段</option>
+                                <option value="MP阶段">MP阶段</option>
+                                <option value="完成">完成</option>
+                                <option value="暂停">暂停</option>
+                                <option value="终止">终止</option>
+                            </select>
                         </div>
                     </div>
                     <div class="modal-footer">
@@ -229,10 +253,22 @@
                                 <label class="form-label">完成进度 (%)</label>
                                 <input type="number" class="form-control" name="progress" min="0" max="100" value="0">
                             </div>
+                            <div class="col-md-6">
+                                <label class="form-label">任务类型</label>
+                                <select class="form-select" name="task_type">
+                                    <option value="研发任务" selected>研发任务</option>
+                                    <option value="预研任务">预研任务</option>
+                                </select>
+                            </div>
                             <div class="col-12">
                                 <label class="form-label">详细描述</label>
                                 <textarea class="form-control" rows="4" name="description"
                                     placeholder="详细描述任务内容、验收标准或注意事项"></textarea>
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label">结论</label>
+                                <textarea class="form-control" rows="2" name="conclusion"
+                                    placeholder="任务结论或总结"></textarea>
                             </div>
                         </div>
                     </div>
@@ -279,9 +315,21 @@
                                 <label class="form-label">完成进度 (%)</label>
                                 <input type="number" class="form-control" name="progress" min="0" max="100">
                             </div>
+                            <div class="col-md-6">
+                                <label class="form-label">任务类型</label>
+                                <select class="form-select" name="task_type">
+                                    <option value="研发任务">研发任务</option>
+                                    <option value="预研任务">预研任务</option>
+                                </select>
+                            </div>
                             <div class="col-12">
                                 <label class="form-label">详细描述</label>
                                 <textarea class="form-control" rows="4" name="description"></textarea>
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label">结论</label>
+                                <textarea class="form-control" rows="2" name="conclusion"
+                                    placeholder="任务结论或总结"></textarea>
                             </div>
                         </div>
                     </div>
@@ -385,44 +433,44 @@
                 </div>
                 <form id="exportForm">
                     <div class="modal-body">
-                        <!-- 时间范围选择 -->
+                        <!-- 导出范围配置 -->
                         <div class="config-section">
                             <h6 class="section-title">
-                                <i class="fas fa-calendar-alt"></i> 时间范围
+                                <i class="fas fa-filter"></i> 导出范围
                             </h6>
                             <div class="form-check">
-                                <input class="form-check-input" type="radio" name="timeRange" id="timeRangeAll"
+                                <input class="form-check-input" type="radio" name="exportRange" id="exportRangeAll"
                                     value="all" checked>
-                                <label class="form-check-label" for="timeRangeAll">全部任务</label>
+                                <label class="form-check-label" for="exportRangeAll">全部导出</label>
                             </div>
                             <div class="form-check">
-                                <input class="form-check-input" type="radio" name="timeRange" id="timeRangeCompleted"
-                                    value="completed">
-                                <label class="form-check-label" for="timeRangeCompleted">仅已完成（进度=100%）</label>
+                                <input class="form-check-input" type="radio" name="exportRange" id="exportRangePreview"
+                                    value="preview">
+                                <label class="form-check-label" for="exportRangePreview">导出当前预览</label>
                             </div>
                             <div class="form-check">
-                                <input class="form-check-input" type="radio" name="timeRange" id="timeRangePending"
-                                    value="pending">
-                                <label class="form-check-label" for="timeRangePending">仅未完成（进度<100%）< /label>
+                                <input class="form-check-input" type="radio" name="exportRange" id="exportRangeWeekly"
+                                    value="weekly">
+                                <label class="form-check-label" for="exportRangeWeekly">导出周报</label>
                             </div>
-                            <div class="form-check">
-                                <input class="form-check-input" type="radio" name="timeRange" id="timeRangeCustom"
-                                    value="custom">
-                                <label class="form-check-label" for="timeRangeCustom">自定义时间范围</label>
-                            </div>
-                            <div class="custom-time-range" id="customTimeRange"
-                                style="display: none; margin-top: 10px; margin-left: 20px;">
-                                <input type="date" class="form-control form-control-sm d-inline-block"
-                                    id="customStartDate" style="width: 150px;">
-                                <span class="mx-2">至</span>
-                                <input type="date" class="form-control form-control-sm d-inline-block"
-                                    id="customEndDate" style="width: 150px;">
-                                <select class="form-select form-select-sm d-inline-block ms-2" id="customTimeField"
-                                    style="width: 120px;">
-                                    <option value="created">创建时间</option>
-                                    <option value="updated">更新时间</option>
-                                    <option value="due">预计完成时间</option>
-                                </select>
+                            <!-- 周报配置选项 -->
+                            <div class="weekly-options" id="weeklyOptions"
+                                style="display: none; margin-top: 10px; margin-left: 20px; padding: 10px; background-color: #f8f9fa; border-radius: 4px;">
+                                <div class="form-check mb-2">
+                                    <input class="form-check-input" type="checkbox" id="includeCompletedTasks" checked>
+                                    <label class="form-check-label" for="includeCompletedTasks">
+                                        包含已完成但上周未更新的任务
+                                    </label>
+                                </div>
+                                <div class="form-check mb-2">
+                                    <input class="form-check-input" type="checkbox" id="includeCompletedTaskUpdateTime">
+                                    <label class="form-check-label" for="includeCompletedTaskUpdateTime">
+                                        在预研任务结论后添加完成时间（仅适用于非上周完成的任务）
+                                    </label>
+                                </div>
+                                <small class="text-muted">
+                                    周报将包含所有项目，以及所有在上周（从上一个周一到周日）有更新或目前尚未完成的任务
+                                </small>
                             </div>
                         </div>
 
@@ -513,8 +561,8 @@
                     </div>
                     <div class="modal-footer">
                         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
-                        <button type="button" class="btn btn-info" id="exportCurrentPreviewBtn">
-                            <i class="fas fa-table"></i> 导出当前预览
+                        <button type="button" class="btn btn-info" id="previewExportBtn">
+                            <i class="fas fa-eye"></i> 预览
                         </button>
                         <button type="submit" class="btn btn-primary">
                             <i class="fas fa-download"></i> 开始导出
