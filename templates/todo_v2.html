@@ -6,8 +6,22 @@
     <title>ToDo 任务管理 - Yobboy 文件服务器</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap.min.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/font-awesome.min.css') }}">
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/jasmine_base.css') }}">
+        <!-- Theme System -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/themes.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/app_style.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/todo_v2.css') }}">
+    <script>
+        (function() {
+            const savedTheme = localStorage.getItem('site_theme') || 'jasmine';
+            if (document.body) {
+                document.body.setAttribute('data-theme', savedTheme);
+            } else {
+                document.addEventListener('DOMContentLoaded', function() {
+                    document.body.setAttribute('data-theme', savedTheme);
+                });
+            }
+        })();
+    </script>
 </head>
 <body class="jasmine-body" data-direct-access="{{ 'true' if direct_access else 'false' }}">
     <div class="todo-v2-page container-fluid">
@@ -44,12 +58,17 @@
                             <span class="font-size-unit">px</span>
                         </div>
                         <div class="style-switch">
-                            <label class="switch-label">卷轴风格</label>
-                            <label class="switch">
-                                <input type="checkbox" id="styleSwitch">
-                                <span class="slider"></span>
-                            </label>
-                            <label class="switch-label">表格风格</label>
+                            <div class="btn-group" role="group" aria-label="显示风格切换">
+                                <button type="button" class="btn btn-sm btn-outline-info style-btn" data-style="scroll" id="styleScrollBtn">
+                                    <i class="fas fa-scroll"></i> 卷轴
+                                </button>
+                                <button type="button" class="btn btn-sm btn-outline-info style-btn" data-style="table" id="styleTableBtn">
+                                    <i class="fas fa-table"></i> 表格
+                                </button>
+                                <button type="button" class="btn btn-sm btn-outline-info style-btn" data-style="report" id="styleReportBtn">
+                                    <i class="fas fa-file-alt"></i> 汇报
+                                </button>
+                            </div>
                         </div>
                         <button type="button" class="btn btn-primary" id="newProjectButton">
                             <i class="fas fa-plus"></i> 新建项目
@@ -120,6 +139,42 @@
                     <p>暂无数据或筛选结果为空</p>
                 </div>
             </div>
+
+            <!-- 汇报风格显示区域 -->
+            <div id="reportStyleContainer" class="style-container report-style" style="display: none;">
+                <div class="report-table-wrapper">
+                    <div class="report-table-controls">
+                        <button type="button" class="btn btn-sm btn-success" id="exportReportBtn">
+                            <i class="fas fa-file-excel"></i> 导出Excel
+                        </button>
+                        <button type="button" class="btn btn-sm btn-info" id="fullscreenReportBtn">
+                            <i class="fas fa-expand"></i> 全屏查看
+                        </button>
+                    </div>
+                    <div class="report-table-container" id="reportTableContainer">
+                        <table class="report-table" id="reportTable">
+                            <thead>
+                                <tr>
+                                    <th>项目名称</th>
+                                    <th>序号</th>
+                                    <th>任务简述</th>
+                                    <th>详细描述</th>
+                                    <th>状态</th>
+                                    <th>当前进展</th>
+                                    <th>本周计划</th>
+                                </tr>
+                            </thead>
+                            <tbody id="reportTableBody">
+                                <!-- 汇报表格数据将通过JavaScript动态生成 -->
+                            </tbody>
+                        </table>
+                    </div>
+                    <div id="reportEmptyMessage" class="empty-message" style="display: none;">
+                        <i class="fas fa-inbox"></i>
+                        <p>暂无汇报数据</p>
+                    </div>
+                </div>
+            </div>
         </main>
     </div>
 
@@ -143,6 +198,18 @@
                             <div class="color-picker-group">
                                 <input type="color" class="form-control form-control-color" name="color" value="#4facfe" title="选择主题色">
                                 <button type="button" class="btn btn-outline-secondary" data-action="random-color">随机颜色</button>
+                            </div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">阶段</label>
+                            <input type="text" class="form-control" name="phase" placeholder="例如：ES1阶段">
+                        </div>
+                        <div class="mb-3">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" name="show_in_report" id="createProjectShowInReport" checked>
+                                <label class="form-check-label" for="createProjectShowInReport">
+                                    显示在汇报页
+                                </label>
                             </div>
                         </div>
                     </div>
@@ -175,6 +242,18 @@
                             <div class="color-picker-group">
                                 <input type="color" class="form-control form-control-color" name="color" title="选择主题色">
                                 <button type="button" class="btn btn-outline-secondary" data-action="random-color">随机颜色</button>
+                            </div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">阶段</label>
+                            <input type="text" class="form-control" name="phase" placeholder="例如：ES1阶段">
+                        </div>
+                        <div class="mb-3">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" name="show_in_report" id="editProjectShowInReport">
+                                <label class="form-check-label" for="editProjectShowInReport">
+                                    显示在汇报页
+                                </label>
                             </div>
                         </div>
                     </div>
@@ -221,9 +300,33 @@
                                 <label class="form-label">完成进度 (%)</label>
                                 <input type="number" class="form-control" name="progress" min="0" max="100" value="0">
                             </div>
+                            <div class="col-md-6">
+                                <label class="form-label">任务类型</label>
+                                <select class="form-select" name="task_type">
+                                    <option value="">-- 选择类型 --</option>
+                                    <option value="预研任务">预研任务</option>
+                                    <option value="研发任务">研发任务</option>
+                                </select>
+                            </div>
                             <div class="col-12">
                                 <label class="form-label">详细描述</label>
                                 <textarea class="form-control" rows="4" name="description" placeholder="详细描述任务内容、验收标准或注意事项"></textarea>
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label">任务结论</label>
+                                <textarea class="form-control" rows="3" name="conclusion" placeholder="任务完成后的结论或总结"></textarea>
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label">本周计划</label>
+                                <textarea class="form-control" rows="2" name="weekly_plan" placeholder="本周计划内容"></textarea>
+                            </div>
+                            <div class="col-12">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" name="show_in_report" id="createTaskShowInReport" checked>
+                                    <label class="form-check-label" for="createTaskShowInReport">
+                                        显示在汇报页
+                                    </label>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -270,9 +373,33 @@
                                 <label class="form-label">完成进度 (%)</label>
                                 <input type="number" class="form-control" name="progress" min="0" max="100">
                             </div>
+                            <div class="col-md-6">
+                                <label class="form-label">任务类型</label>
+                                <select class="form-select" name="task_type">
+                                    <option value="">-- 选择类型 --</option>
+                                    <option value="预研任务">预研任务</option>
+                                    <option value="研发任务">研发任务</option>
+                                </select>
+                            </div>
                             <div class="col-12">
                                 <label class="form-label">详细描述</label>
                                 <textarea class="form-control" rows="4" name="description"></textarea>
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label">任务结论</label>
+                                <textarea class="form-control" rows="3" name="conclusion" placeholder="任务完成后的结论或总结"></textarea>
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label">本周计划</label>
+                                <textarea class="form-control" rows="2" name="weekly_plan" placeholder="本周计划内容"></textarea>
+                            </div>
+                            <div class="col-12">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" name="show_in_report" id="editTaskShowInReport">
+                                    <label class="form-check-label" for="editTaskShowInReport">
+                                        显示在汇报页
+                                    </label>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -306,6 +433,149 @@
                         <button type="submit" class="btn btn-primary">提交评论</button>
                     </div>
                 </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- 项目描述编辑和预览模态框 -->
+    <div class="modal fade" id="projectDescriptionModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered" style="width: 61vw; max-width: 61vw; height: 61vh; max-height: 61vh;">
+            <div class="modal-content" style="height: 100%; display: flex; flex-direction: column;">
+                <div class="modal-header">
+                    <h5 class="modal-title">项目描述</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body" style="flex: 1; overflow: hidden; display: flex; flex-direction: column;">
+                    <!-- 预览模式 -->
+                    <div id="descriptionPreviewMode" style="flex: 1; overflow: auto; display: flex; flex-direction: column;">
+                        <div class="d-flex justify-content-end mb-2">
+                            <button type="button" class="btn btn-sm btn-primary" id="editDescriptionBtn">
+                                <i class="fas fa-edit"></i> 编辑
+                            </button>
+                        </div>
+                        <div class="markdown-body" id="projectDescriptionPreview" style="flex: 1; padding: 15px; border: 1px solid #ddd; border-radius: 4px; background: #f9f9f9; min-height: 300px;">
+                            <p class="text-muted">暂无描述内容</p>
+                        </div>
+                    </div>
+                    
+                    <!-- 编辑模式 -->
+                    <div id="descriptionEditMode" style="flex: 1; overflow: hidden; display: none; flex-direction: column;">
+                        <div id="projectDescriptionEditorContainer" style="flex: 1; overflow: hidden; border: 1px solid #ddd; border-radius: 4px;"></div>
+                        <small class="text-muted mt-2 d-block">支持Markdown语法，包括标题、列表、链接、代码块等</small>
+                    </div>
+                </div>
+                <div class="modal-footer" id="descriptionModalFooter">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 项目链接管理模态框 -->
+    <div class="modal fade" id="projectLinksModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">管理项目链接</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <button type="button" class="btn btn-sm btn-primary" id="addProjectLinkBtn">
+                            <i class="fas fa-plus"></i> 添加链接
+                        </button>
+                    </div>
+                    <div id="projectLinksList">
+                        <p class="text-muted">暂无链接</p>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 任务链接管理模态框 -->
+    <div class="modal fade" id="taskLinksModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">管理任务链接</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <button type="button" class="btn btn-sm btn-primary" id="addTaskLinkBtn">
+                            <i class="fas fa-plus"></i> 添加链接
+                        </button>
+                    </div>
+                    <div id="taskLinksList">
+                        <p class="text-muted">暂无链接</p>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 添加/编辑链接模态框 -->
+    <div class="modal fade" id="linkEditModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="linkEditModalTitle">添加链接</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <form id="linkEditForm">
+                    <div class="modal-body">
+                        <div class="mb-3">
+                            <label class="form-label">链接名称</label>
+                            <input type="text" class="form-control" id="linkNameInput" placeholder="例如：项目文档" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">链接地址</label>
+                            <div class="input-group">
+                                <input type="text" class="form-control" id="linkUrlInput" placeholder="https://example.com 或 /file_browser?path=..." required>
+                                <button type="button" class="btn btn-outline-secondary" id="selectFileBtn" title="选择文件浏览器中的文件">
+                                    <i class="fas fa-folder-open"></i> 选择文件
+                                </button>
+                            </div>
+                            <small class="text-muted">可以粘贴外部链接或文件浏览器链接，也可以点击"选择文件"按钮选择文件</small>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                        <button type="submit" class="btn btn-primary">保存</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- 文件选择器模态框 -->
+    <div class="modal fade" id="fileSelectorModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">选择文件</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body" style="max-height: 60vh; overflow-y: auto;">
+                    <div id="fileTreeContainer">
+                        <div class="text-center py-3">
+                            <div class="spinner-border spinner-border-sm" role="status">
+                                <span class="visually-hidden">加载中...</span>
+                            </div>
+                            <span class="ms-2">正在加载文件列表...</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                </div>
             </div>
         </div>
     </div>
@@ -518,9 +788,28 @@
         </div>
     </div>
 
+    <!-- 浮动工具栏 -->
+    <div class="floating-toolbar">
+        {% if not direct_access %}
+        <a href="{{ url_for('index') }}" class="toolbar-btn back-btn" title="返回选择界面">
+            🏠
+            <span class="tooltip-text">返回选择界面</span>
+        </a>
+        {% else %}
+        <a href="{{ url_for('file_browser') }}" class="toolbar-btn back-btn" title="返回文件浏览器">
+            🏠
+            <span class="tooltip-text">返回文件浏览器</span>
+        </a>
+        {% endif %}
+    </div>
+
     <script src="{{ url_for('static', filename='js/bootstrap.bundle.min.js') }}"></script>
+    <!-- CodeMirror 编辑器 -->
+    <script src="{{ url_for('static', filename='libs/codemirror/lib/codemirror.js') }}"></script>
+    <script src="{{ url_for('static', filename='libs/codemirror/mode/markdown/markdown.js') }}"></script>
     <script src="{{ url_for('static', filename='js/todo_v2.js') }}"></script>
     <script src="{{ url_for('static', filename='js/todo_v2_export.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/theme_floater.js') }}"></script>
 </body>
 </html>
 

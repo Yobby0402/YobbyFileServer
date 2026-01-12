@@ -28,7 +28,7 @@
         },
         expandedProjects: new Set(), // 存储展开的项目ID
         directAccess: document.body.dataset.directAccess === 'true',
-        currentStyle: localStorage.getItem('todoStyle') || 'scroll', // 'scroll' 或 'table'
+        currentStyle: localStorage.getItem('todoStyle') || 'scroll', // 'scroll', 'table' 或 'report'
         pendingCollapsed: localStorage.getItem('pendingCollapsed') === 'true', // 待完成任务列表是否折叠
         // 表格风格相关状态
         flatTasks: [], // 扁平化的任务列表
@@ -69,12 +69,20 @@
         createTaskForm: document.getElementById('createTaskForm'),
         editTaskForm: document.getElementById('editTaskForm'),
         commentForm: document.getElementById('commentForm'),
-        styleSwitch: document.getElementById('styleSwitch'),
+        styleScrollBtn: document.getElementById('styleScrollBtn'),
+        styleTableBtn: document.getElementById('styleTableBtn'),
+        styleReportBtn: document.getElementById('styleReportBtn'),
         scrollStyleContainer: document.getElementById('scrollStyleContainer'),
         tableStyleContainer: document.getElementById('tableStyleContainer'),
+        reportStyleContainer: document.getElementById('reportStyleContainer'),
         tableHead: document.getElementById('tableHead'),
         tableBody: document.getElementById('tableBody'),
         tableEmptyMessage: document.getElementById('tableEmptyMessage'),
+        reportTable: document.getElementById('reportTable'),
+        reportTableBody: document.getElementById('reportTableBody'),
+        reportEmptyMessage: document.getElementById('reportEmptyMessage'),
+        exportReportBtn: document.getElementById('exportReportBtn'),
+        fullscreenReportBtn: document.getElementById('fullscreenReportBtn'),
         fontSizeInput: document.getElementById('fontSizeInput'),
     };
 
@@ -360,7 +368,7 @@
                 <div class="project-color-indicator" style="background-color: ${project.color || '#4facfe'};"></div>
                 <div class="project-header-content">
                     <div class="project-info">
-                        <h3 class="project-name">${escapeHtml(project.name || '未命名项目')}</h3>
+                        <h3 class="project-name">${escapeHtml(project.name || '未命名项目')}${project.phase ? `(${escapeHtml(project.phase)})` : ''}</h3>
                         <div class="project-meta">
                             <span>创建于 ${formatDate(project.created_at)}</span>
                             <span>任务数: ${project.tasks.length}</span>
@@ -375,6 +383,12 @@
                     <div class="project-actions">
                         <button type="button" class="btn btn-sm btn-outline-primary" data-action="new-task" data-project-id="${project.id}">
                             <i class="fas fa-plus"></i> 新建任务
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-info" data-action="view-description" data-project-id="${project.id}" title="查看项目描述">
+                            <i class="fas fa-file-alt"></i> 描述
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-info" data-action="manage-links" data-project-id="${project.id}" title="管理链接">
+                            <i class="fas fa-link"></i> 链接
                         </button>
                         <button type="button" class="btn btn-sm btn-outline-secondary" data-action="edit-project" data-project-id="${project.id}">
                             <i class="fas fa-pen"></i> 编辑
@@ -588,6 +602,9 @@
                     <div class="task-actions">
                         <button type="button" class="btn btn-sm btn-outline-primary" data-action="comment-task" data-project-id="${projectId}" data-task-id="${task.id}">
                             <i class="fas fa-comment"></i>
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-info" data-action="manage-task-links" data-project-id="${projectId}" data-task-id="${task.id}" title="管理链接">
+                            <i class="fas fa-link"></i>
                         </button>
                         <button type="button" class="btn btn-sm btn-outline-secondary" data-action="edit-task" data-project-id="${projectId}" data-task-id="${task.id}">
                             <i class="fas fa-pen"></i>
@@ -965,6 +982,14 @@
         refs.editProjectForm.dataset.projectId = projectId;
         refs.editProjectForm.querySelector('[name="name"]').value = project.name || '';
         refs.editProjectForm.querySelector('[name="color"]').value = project.color || '#4facfe';
+        const phaseField = refs.editProjectForm.querySelector('[name="phase"]');
+        if (phaseField) {
+            phaseField.value = project.phase || '';
+        }
+        const showInReportField = refs.editProjectForm.querySelector('[name="show_in_report"]');
+        if (showInReportField) {
+            showInReportField.checked = project.show_in_report !== false;
+        }
         refs.editProjectForm.classList.remove('was-validated');
 
         if (modals.editProject) {
@@ -1002,6 +1027,22 @@
         if (dueField) {
             dueField.value = task.due_date || '';
         }
+        const taskTypeField = refs.editTaskForm.querySelector('[name="task_type"]');
+        if (taskTypeField) {
+            taskTypeField.value = task.task_type || '';
+        }
+        const conclusionField = refs.editTaskForm.querySelector('[name="conclusion"]');
+        if (conclusionField) {
+            conclusionField.value = task.conclusion || '';
+        }
+        const weeklyPlanField = refs.editTaskForm.querySelector('[name="weekly_plan"]');
+        if (weeklyPlanField) {
+            weeklyPlanField.value = task.weekly_plan || '';
+        }
+        const showInReportField = refs.editTaskForm.querySelector('[name="show_in_report"]');
+        if (showInReportField) {
+            showInReportField.checked = task.show_in_report !== false;
+        }
         refs.editTaskForm.classList.remove('was-validated');
 
         if (modals.editTask) {
@@ -1036,11 +1077,20 @@
             case 'new-task':
                 openCreateTaskModal(projectId);
                 break;
+            case 'view-description':
+                openProjectDescriptionModal(projectId);
+                break;
+            case 'manage-links':
+                openProjectLinksModal(projectId);
+                break;
             case 'edit-project':
                 openEditProjectModal(projectId);
                 break;
             case 'delete-project':
                 deleteProject(projectId);
+                break;
+            case 'manage-task-links':
+                openTaskLinksModal(taskId);
                 break;
             case 'edit-task':
                 openEditTaskModal(projectId, taskId);
@@ -1106,7 +1156,10 @@
             .projects-container,
             .preview-table,
             .preview-table th,
-            .preview-table td {
+            .preview-table td,
+            .report-table,
+            .report-table th,
+            .report-table td {
                 font-size: ${fontSize}px !important;
             }
             
@@ -1158,6 +1211,8 @@
         const payload = {
             name: formData.get('name') || '',
             color: formData.get('color') || '#4facfe',
+            phase: formData.get('phase') || '',
+            show_in_report: formData.get('show_in_report') === 'on',
         };
 
         try {
@@ -1184,6 +1239,8 @@
         const payload = {
             name: formData.get('name') || '',
             color: formData.get('color') || '#4facfe',
+            phase: formData.get('phase') || '',
+            show_in_report: formData.get('show_in_report') === 'on',
         };
 
         try {
@@ -1212,6 +1269,10 @@
             priority: parseInt(formData.get('priority') || '3'),
             progress: parseInt(formData.get('progress') || '0'),
             due_date: formData.get('due_date') || null,
+            task_type: formData.get('task_type') || '',
+            conclusion: formData.get('conclusion') || '',
+            weekly_plan: formData.get('weekly_plan') || '',
+            show_in_report: formData.get('show_in_report') === 'on',
         };
 
         try {
@@ -1240,6 +1301,10 @@
             priority: parseInt(formData.get('priority') || '3'),
             progress: parseInt(formData.get('progress') || '0'),
             due_date: formData.get('due_date') || null,
+            task_type: formData.get('task_type') || '',
+            conclusion: formData.get('conclusion') || '',
+            weekly_plan: formData.get('weekly_plan') || '',
+            show_in_report: formData.get('show_in_report') === 'on',
         };
 
         try {
@@ -2070,31 +2135,77 @@
 
     // ===== 风格切换 =====
 
+    function updateStyleButtons() {
+        // 更新按钮的激活状态
+        if (refs.styleScrollBtn) {
+            if (state.currentStyle === 'scroll') {
+                refs.styleScrollBtn.classList.add('active', 'btn-info');
+                refs.styleScrollBtn.classList.remove('btn-outline-info');
+            } else {
+                refs.styleScrollBtn.classList.remove('active', 'btn-info');
+                refs.styleScrollBtn.classList.add('btn-outline-info');
+            }
+        }
+        if (refs.styleTableBtn) {
+            if (state.currentStyle === 'table') {
+                refs.styleTableBtn.classList.add('active', 'btn-info');
+                refs.styleTableBtn.classList.remove('btn-outline-info');
+            } else {
+                refs.styleTableBtn.classList.remove('active', 'btn-info');
+                refs.styleTableBtn.classList.add('btn-outline-info');
+            }
+        }
+        if (refs.styleReportBtn) {
+            if (state.currentStyle === 'report') {
+                refs.styleReportBtn.classList.add('active', 'btn-info');
+                refs.styleReportBtn.classList.remove('btn-outline-info');
+            } else {
+                refs.styleReportBtn.classList.remove('active', 'btn-info');
+                refs.styleReportBtn.classList.add('btn-outline-info');
+            }
+        }
+    }
+
     function switchStyle(style) {
         state.currentStyle = style;
         localStorage.setItem('todoStyle', style);
+        updateStyleButtons();
 
-        if (style === 'scroll') {
+        // 隐藏所有容器
             if (refs.scrollStyleContainer) {
-                refs.scrollStyleContainer.style.display = 'block';
-                refs.scrollStyleContainer.classList.add('active');
+            refs.scrollStyleContainer.style.display = 'none';
+            refs.scrollStyleContainer.classList.remove('active');
             }
             if (refs.tableStyleContainer) {
                 refs.tableStyleContainer.style.display = 'none';
                 refs.tableStyleContainer.classList.remove('active');
             }
-            if (refs.styleSwitch) refs.styleSwitch.checked = false;
-        } else {
+        if (refs.reportStyleContainer) {
+            refs.reportStyleContainer.style.display = 'none';
+            refs.reportStyleContainer.classList.remove('active');
+        }
+
+        // 显示对应的容器
+        if (style === 'scroll') {
             if (refs.scrollStyleContainer) {
-                refs.scrollStyleContainer.style.display = 'none';
-                refs.scrollStyleContainer.classList.remove('active');
+                refs.scrollStyleContainer.style.display = 'block';
+                refs.scrollStyleContainer.classList.add('active');
             }
+            // 显示待完成概览
+            const pendingSection = document.querySelector('.pending-overview-section');
+            if (pendingSection) {
+                pendingSection.style.display = '';
+            }
+        } else if (style === 'table') {
             if (refs.tableStyleContainer) {
                 refs.tableStyleContainer.style.display = 'block';
                 refs.tableStyleContainer.classList.add('active');
             }
-            if (refs.styleSwitch) refs.styleSwitch.checked = true;
-            
+            // 显示待完成概览
+            const pendingSection = document.querySelector('.pending-overview-section');
+            if (pendingSection) {
+                pendingSection.style.display = '';
+            }
             // 只有在数据已加载时才初始化表格
             if (state.projects && state.projects.length >= 0) {
                 flattenTasks();
@@ -2102,7 +2213,1235 @@
                 applyTableFilters();
                 renderTable();
             }
+        } else if (style === 'report') {
+            if (refs.reportStyleContainer) {
+                refs.reportStyleContainer.style.display = 'block';
+                refs.reportStyleContainer.classList.add('active');
+            }
+            // 隐藏待完成概览
+            const pendingSection = document.querySelector('.pending-overview-section');
+            if (pendingSection) {
+                pendingSection.style.display = 'none';
+            }
+            // 渲染汇报表格
+            if (state.projects && state.projects.length >= 0) {
+                renderReportTable();
+            }
         }
+    }
+
+    // ===== 汇报表格渲染 =====
+    
+    function renderReportTable() {
+        if (!refs.reportTableBody) return;
+        
+        // 过滤出需要显示的项目（show_in_report为true）
+        const reportProjects = state.projects.filter(project => project.show_in_report !== false);
+        
+        if (reportProjects.length === 0) {
+            refs.reportTableBody.innerHTML = '<tr><td colspan="7" class="text-center text-muted">暂无汇报数据</td></tr>';
+            if (refs.reportEmptyMessage) {
+                refs.reportEmptyMessage.style.display = 'block';
+            }
+            return;
+        }
+        
+        if (refs.reportEmptyMessage) {
+            refs.reportEmptyMessage.style.display = 'none';
+        }
+        
+        let html = '';
+        
+        reportProjects.forEach(project => {
+            // 获取项目中需要显示的任务（show_in_report为true）
+            const reportTasks = (project.tasks || []).filter(task => task.show_in_report !== false);
+            
+            if (reportTasks.length === 0) {
+                return; // 如果没有任务需要显示，跳过这个项目
+            }
+            
+            // 项目名称单元格的行数
+            const rowspan = reportTasks.length;
+            const projectName = project.name || '未命名项目';
+            const projectPhase = project.phase || '';
+            
+            reportTasks.forEach((task, index) => {
+                const isFirstRow = index === 0;
+                const serialNumber = index + 1; // 序号
+                const summary = escapeHtml(task.summary || '');
+                const description = escapeHtml((task.description || '').replace(/\n/g, '<br>'));
+                const isCompleted = (task.progress || 0) >= 100;
+                const status = isCompleted ? '已完成' : '未完成';
+                
+                // 当前进展
+                let currentProgress = '';
+                if (isCompleted) {
+                    // 已完成：显示结论（没有结论显示所有评论）
+                    if (task.conclusion) {
+                        currentProgress = escapeHtml(task.conclusion).replace(/\n/g, '<br>');
+                    } else {
+                        const comments = task.comments || [];
+                        if (comments.length > 0) {
+                            currentProgress = '<ul>' + comments.map(c => `<li>${escapeHtml(c.content)}</li>`).join('') + '</ul>';
+                        } else {
+                            currentProgress = '已完成';
+                        }
+                    }
+                } else {
+                    // 未完成：显示所有评论（没有评论显示"进行中"）
+                    const comments = task.comments || [];
+                    if (comments.length > 0) {
+                        currentProgress = '<ul>' + comments.map(c => `<li>${escapeHtml(c.content)}</li>`).join('') + '</ul>';
+                    } else {
+                        currentProgress = '进行中';
+                    }
+                }
+                
+                // 本周计划（显示weekly_plan属性）
+                const weeklyPlan = escapeHtml((task.weekly_plan || '').replace(/\n/g, '<br>'));
+                
+                html += '<tr class="report-row" data-project-id="' + escapeHtml(project.id) + '" data-task-id="' + escapeHtml(task.id) + '">';
+                
+                // 项目名称（只在第一行显示，需要合并单元格）
+                if (isFirstRow) {
+                    html += '<td rowspan="' + rowspan + '" class="report-project-name" style="text-align: center; vertical-align: middle;">';
+                    html += '<strong>' + escapeHtml(projectName) + '</strong>';
+                    if (projectPhase) {
+                        html += '<br><span style="color: #666; font-size: 0.9em;">(' + escapeHtml(projectPhase) + ')</span>';
+                    }
+                    html += '</td>';
+                }
+                
+                html += '<td class="report-serial">' + serialNumber + '</td>';
+                html += '<td class="report-summary">' + summary + '</td>';
+                html += '<td class="report-description">' + description + '</td>';
+                html += '<td class="report-status">' + status + '</td>';
+                html += '<td class="report-progress">' + currentProgress + '</td>';
+                html += '<td class="report-weekly-plan">' + weeklyPlan + '</td>';
+                html += '</tr>';
+            });
+        });
+        
+        refs.reportTableBody.innerHTML = html;
+        
+        // 绑定行点击事件（高亮显示）
+        refs.reportTableBody.querySelectorAll('.report-row').forEach(row => {
+            row.addEventListener('click', function() {
+                // 移除其他行的选中状态
+                refs.reportTableBody.querySelectorAll('.report-row').forEach(r => {
+                    r.classList.remove('selected');
+                });
+                // 添加当前行的选中状态
+                this.classList.add('selected');
+            });
+        });
+        
+        // 初始化列宽调整功能
+        initReportTableResize();
+        
+        // 自动调整列宽
+        autoResizeReportTableColumns();
+    }
+    
+    function initReportTableResize() {
+        const table = refs.reportTable;
+        if (!table) return;
+        
+        const headers = table.querySelectorAll('thead th');
+        let isResizing = false;
+        let currentHeader = null;
+        let startX = 0;
+        let startWidth = 0;
+        
+        headers.forEach((header, index) => {
+            if (index === headers.length - 1) return; // 最后一列不添加调整功能
+            
+            header.addEventListener('mousedown', (e) => {
+                // 检查是否点击在调整区域
+                const rect = header.getBoundingClientRect();
+                const resizeArea = rect.right - 5;
+                
+                if (e.clientX >= resizeArea) {
+                    isResizing = true;
+                    currentHeader = header;
+                    startX = e.clientX;
+                    startWidth = header.offsetWidth;
+                    
+                    document.body.style.cursor = 'col-resize';
+                    document.body.style.userSelect = 'none';
+                    
+                    e.preventDefault();
+                    e.stopPropagation();
+                }
+            });
+        });
+        
+        document.addEventListener('mousemove', (e) => {
+            if (!isResizing || !currentHeader) return;
+            
+            const diff = e.clientX - startX;
+            const newWidth = Math.max(50, startWidth + diff); // 最小宽度50px
+            currentHeader.style.width = newWidth + 'px';
+            currentHeader.style.minWidth = newWidth + 'px';
+            
+            // 同步调整同一列的所有单元格
+            const colIndex = Array.from(currentHeader.parentElement.children).indexOf(currentHeader);
+            const table = currentHeader.closest('table');
+            if (table) {
+                table.querySelectorAll(`tbody td:nth-child(${colIndex + 1})`).forEach(cell => {
+                    cell.style.width = newWidth + 'px';
+                    cell.style.minWidth = newWidth + 'px';
+                });
+            }
+        });
+        
+        document.addEventListener('mouseup', () => {
+            if (isResizing) {
+                isResizing = false;
+                currentHeader = null;
+                document.body.style.cursor = '';
+                document.body.style.userSelect = '';
+            }
+        });
+    }
+    
+    function autoResizeReportTableColumns() {
+        const table = refs.reportTable;
+        if (!table) return;
+        
+        // 设置表格为自动布局以计算内容宽度
+        table.style.tableLayout = 'auto';
+        
+        // 等待一帧以确保DOM已渲染
+        requestAnimationFrame(() => {
+            const headers = table.querySelectorAll('thead th');
+            const firstRow = table.querySelector('tbody tr');
+            
+            if (!firstRow) return;
+            
+            headers.forEach((header, index) => {
+                const colIndex = index + 1;
+                const cells = table.querySelectorAll(`tbody td:nth-child(${colIndex})`);
+                
+                if (cells.length === 0) return;
+                
+                // 计算内容的最大宽度
+                let maxWidth = header.scrollWidth;
+                cells.forEach(cell => {
+                    const cellWidth = cell.scrollWidth;
+                    if (cellWidth > maxWidth) {
+                        maxWidth = cellWidth;
+                    }
+                });
+                
+                // 设置最小宽度（但不超过屏幕宽度的30%）
+                const minWidth = Math.min(maxWidth + 20, window.innerWidth * 0.3);
+                header.style.minWidth = minWidth + 'px';
+                cells.forEach(cell => {
+                    cell.style.minWidth = minWidth + 'px';
+                });
+            });
+            
+            // 恢复为固定布局以提高性能
+            table.style.tableLayout = 'fixed';
+        });
+    }
+    
+    function exportReportToExcel() {
+        // 调用后端API导出汇报表格
+        try {
+            const reportProjects = state.projects.filter(project => project.show_in_report !== false);
+            if (reportProjects.length === 0) {
+                showAlert('warning', '暂无汇报数据可导出');
+                return;
+            }
+            
+            // 构建导出数据
+            const exportData = {
+                projects: reportProjects.map(project => ({
+                    ...project,
+                    tasks: (project.tasks || []).filter(task => task.show_in_report !== false)
+                }))
+            };
+            
+            // 调用导出API（使用现有的导出接口，但需要特殊处理汇报格式）
+            // 暂时使用简单的客户端导出，后续可以改进为服务端导出
+            showAlert('info', '汇报表格Excel导出功能开发中，请使用浏览器的打印功能或截图');
+            return;
+            
+            // 以下是预留的服务端导出代码
+            const url = '/api/todo/v2/export/excel';
+            fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    timeRange: 'preview',
+                    previewData: [], // 需要转换为扁平化的任务列表
+                    fileName: `汇报表格_${new Date().toISOString().split('T')[0]}.xlsx`
+                })
+            })
+            .then(response => {
+                if (!response.ok) {
+                    return response.json().then(err => { throw new Error(err.error || '导出失败'); });
+                }
+                return response.blob();
+            })
+            .then(blob => {
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `汇报表格_${new Date().toISOString().split('T')[0]}.xlsx`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                window.URL.revokeObjectURL(url);
+                showAlert('success', 'Excel文件导出成功！');
+            })
+            .catch(error => {
+                showAlert('danger', '导出失败：' + (error.message || String(error)));
+            });
+        } catch (error) {
+            showAlert('danger', '导出失败：' + (error.message || String(error)));
+        }
+    }
+    
+    function toggleReportFullscreen() {
+        const container = refs.reportStyleContainer;
+        if (!container) return;
+        
+        if (!document.fullscreenElement) {
+            // 进入全屏
+            if (container.requestFullscreen) {
+                container.requestFullscreen();
+            } else if (container.webkitRequestFullscreen) {
+                container.webkitRequestFullscreen();
+            } else if (container.mozRequestFullScreen) {
+                container.mozRequestFullScreen();
+            } else if (container.msRequestFullscreen) {
+                container.msRequestFullscreen();
+            }
+        } else {
+            // 退出全屏
+            if (document.exitFullscreen) {
+                document.exitFullscreen();
+            } else if (document.webkitExitFullscreen) {
+                document.webkitExitFullscreen();
+            } else if (document.mozCancelFullScreen) {
+                document.mozCancelFullScreen();
+            } else if (document.msExitFullscreen) {
+                document.msExitFullscreen();
+            }
+        }
+    }
+
+    // ===== 项目描述和链接管理 =====
+    
+    let currentProjectIdForDescription = null;
+    let currentProjectIdForLinks = null;
+    let currentTaskIdForLinks = null;
+    let currentLinkId = null;
+    let isEditingLink = false;
+    let descriptionEditor = null;
+    
+    let descriptionOriginalContent = '';
+    
+    function openProjectDescriptionModal(projectId) {
+        currentProjectIdForDescription = projectId;
+        const modalElement = document.getElementById('projectDescriptionModal');
+        let modal = bootstrap.Modal.getInstance(modalElement);
+        if (!modal) {
+            modal = new bootstrap.Modal(modalElement);
+        }
+        
+        const previewMode = document.getElementById('descriptionPreviewMode');
+        const editMode = document.getElementById('descriptionEditMode');
+        const previewDiv = document.getElementById('projectDescriptionPreview');
+        const editorContainer = document.getElementById('projectDescriptionEditorContainer');
+        const footer = document.getElementById('descriptionModalFooter');
+        
+        // 默认显示预览模式
+        previewMode.style.display = 'flex';
+        editMode.style.display = 'none';
+        footer.innerHTML = '<button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>';
+        
+        // 加载项目描述
+        fetch(`/api/todo/v2/projects/${projectId}/description`)
+            .then(response => response.json())
+            .then(result => {
+                if (result.success) {
+                    descriptionOriginalContent = result.description || '';
+                    updateDescriptionPreviewContent(descriptionOriginalContent);
+                }
+            })
+            .catch(error => {
+                showAlert('danger', '加载项目描述失败：' + error.message);
+            });
+        
+        // 绑定编辑按钮（每次打开模态框时重新绑定，确保事件处理器正确）
+        const editBtn = document.getElementById('editDescriptionBtn');
+        if (editBtn) {
+            // 移除旧的事件监听器
+            editBtn.replaceWith(editBtn.cloneNode(true));
+            const newEditBtn = document.getElementById('editDescriptionBtn');
+            newEditBtn.onclick = (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                enterEditMode();
+            };
+        }
+        
+        // 清理旧的编辑器实例
+        if (descriptionEditor) {
+            try {
+                descriptionEditor.toTextArea();
+            } catch (e) {
+                // 忽略错误
+            }
+            descriptionEditor = null;
+        }
+        
+        modal.show();
+    }
+    
+    function updateDescriptionPreviewContent(content) {
+        const previewDiv = document.getElementById('projectDescriptionPreview');
+        
+        if (!content || !content.trim()) {
+            previewDiv.innerHTML = '<p class="text-muted">暂无描述内容</p>';
+            return;
+        }
+        
+        // 调用API渲染Markdown
+        fetch(`/api/todo/v2/projects/${currentProjectIdForDescription}/description/preview`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ description: content })
+        })
+        .then(response => response.json())
+        .then(result => {
+            if (result.success) {
+                previewDiv.innerHTML = result.html;
+            } else {
+                previewDiv.innerHTML = '<p class="text-danger">预览失败：' + (result.error || '未知错误') + '</p>';
+            }
+        })
+        .catch(error => {
+            previewDiv.innerHTML = '<p class="text-danger">预览失败：' + error.message + '</p>';
+        });
+    }
+    
+    function enterEditMode() {
+        const previewMode = document.getElementById('descriptionPreviewMode');
+        const editMode = document.getElementById('descriptionEditMode');
+        const editorContainer = document.getElementById('projectDescriptionEditorContainer');
+        const footer = document.getElementById('descriptionModalFooter');
+        
+        // 切换到编辑模式（确保显示）
+        previewMode.style.display = 'none';
+        editMode.style.display = 'flex';
+        editMode.style.visibility = 'visible';
+        
+        // 更新footer按钮（使用setAttribute确保按钮存在）
+        footer.innerHTML = `
+            <button type="button" class="btn btn-secondary" id="cancelEditBtn">放弃更改</button>
+            <button type="button" class="btn btn-primary" id="saveDescriptionBtn">保存并退出</button>
+        `;
+        
+        // 强制显示编辑模式（防止被隐藏）
+        setTimeout(() => {
+            if (editMode) {
+                editMode.style.display = 'flex';
+                editMode.style.visibility = 'visible';
+            }
+        }, 10);
+        
+        // 清理旧的编辑器实例和所有CodeMirror元素
+        if (descriptionEditor) {
+            try {
+                const wrapper = descriptionEditor.getWrapperElement();
+                if (wrapper && wrapper.parentNode) {
+                    wrapper.parentNode.removeChild(wrapper);
+                } else {
+                    descriptionEditor.toTextArea();
+                }
+            } catch (e) {
+                try {
+                    descriptionEditor.toTextArea();
+                } catch (e2) {
+                    console.warn('清理旧编辑器实例失败:', e2);
+                }
+            }
+            descriptionEditor = null;
+        }
+        
+        // 清理所有可能的遗留元素
+        while (editorContainer.firstChild) {
+            editorContainer.removeChild(editorContainer.firstChild);
+        }
+        
+        // 创建新的textarea
+        const textarea = document.createElement('textarea');
+        textarea.id = 'projectDescriptionTextarea';
+        textarea.placeholder = '使用Markdown格式编写项目描述...';
+        textarea.style.width = '100%';
+        textarea.style.minHeight = '300px';
+        textarea.value = descriptionOriginalContent;
+        editorContainer.appendChild(textarea);
+        
+        // 等待DOM更新和模态框完全显示
+        setTimeout(() => {
+            try {
+                if (typeof CodeMirror === 'undefined') {
+                    console.error('CodeMirror未加载');
+                    showAlert('danger', '代码编辑器未加载，请刷新页面重试');
+                    return;
+                }
+                
+                const textareaEl = document.getElementById('projectDescriptionTextarea');
+                if (!textareaEl) {
+                    console.error('textarea元素不存在');
+                    showAlert('danger', '编辑器初始化失败：textarea元素不存在');
+                    return;
+                }
+                
+                descriptionEditor = CodeMirror.fromTextArea(textareaEl, {
+                    mode: 'markdown',
+                    theme: 'monokai',
+                    lineNumbers: true,
+                    lineWrapping: true,
+                    indentUnit: 2,
+                    tabSize: 2,
+                    autofocus: true
+                });
+                    
+                    if (!descriptionEditor) {
+                        console.error('CodeMirror初始化失败');
+                        return;
+                    }
+                    
+                    // 设置编辑器高度
+                    const updateEditorHeight = () => {
+                        if (!descriptionEditor) return;
+                        const modalBody = editorContainer.closest('.modal-body');
+                        if (!modalBody) return;
+                        const footerHeight = 60;
+                        const availableHeight = modalBody.offsetHeight - footerHeight - 50;
+                        descriptionEditor.setSize('100%', Math.max(availableHeight, 300) + 'px');
+                    };
+                    
+                    // 等待一帧后设置高度
+                    requestAnimationFrame(() => {
+                        updateEditorHeight();
+                        if (descriptionEditor) {
+                            descriptionEditor.refresh();
+                            descriptionEditor.focus();
+                        }
+                    });
+                    
+                    // 监听窗口大小变化
+                    const resizeHandler = () => {
+                        if (descriptionEditor && editMode.style.display !== 'none') {
+                            updateEditorHeight();
+                            descriptionEditor.refresh();
+                        }
+                    };
+                    window.addEventListener('resize', resizeHandler);
+                    
+                    // 绑定按钮事件
+                    const cancelBtn = document.getElementById('cancelEditBtn');
+                    const saveBtn = document.getElementById('saveDescriptionBtn');
+                    if (cancelBtn) cancelBtn.onclick = cancelEdit;
+                    if (saveBtn) saveBtn.onclick = saveAndExitEdit;
+            } catch (error) {
+                console.error('初始化CodeMirror编辑器失败:', error);
+                showAlert('danger', '初始化编辑器失败：' + error.message);
+            }
+        }, 100);
+    }
+    
+    function cancelEdit() {
+        const previewMode = document.getElementById('descriptionPreviewMode');
+        const editMode = document.getElementById('descriptionEditMode');
+        const footer = document.getElementById('descriptionModalFooter');
+        
+        if (!previewMode || !editMode || !footer) {
+            console.error('取消编辑时找不到必要的DOM元素');
+            return;
+        }
+        
+        // 先清理编辑器
+        if (descriptionEditor) {
+            try {
+                descriptionEditor.toTextArea();
+            } catch (e) {
+                console.warn('清理编辑器失败:', e);
+            }
+            descriptionEditor = null;
+        }
+        
+        // 恢复预览模式（强制显示）
+        editMode.style.display = 'none';
+        previewMode.style.display = 'flex';
+        footer.innerHTML = '<button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>';
+        
+        // 恢复原始内容预览
+        updateDescriptionPreviewContent(descriptionOriginalContent);
+        
+                    // 重新绑定编辑按钮
+                    const editBtn = document.getElementById('editDescriptionBtn');
+                    if (editBtn) {
+                        editBtn.replaceWith(editBtn.cloneNode(true));
+                        const newEditBtn = document.getElementById('editDescriptionBtn');
+                        if (newEditBtn) {
+                            newEditBtn.onclick = (e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                enterEditMode(e);
+                            };
+                        }
+                    }
+    }
+    
+    function saveAndExitEdit() {
+        if (!descriptionEditor) return;
+        const description = descriptionEditor.getValue();
+        
+        fetch(`/api/todo/v2/projects/${currentProjectIdForDescription}/description`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ description: description })
+        })
+        .then(response => response.json())
+        .then(result => {
+            if (result.success) {
+                descriptionOriginalContent = description;
+                showAlert('success', '项目描述已保存');
+                
+                // 退出编辑模式
+                const previewMode = document.getElementById('descriptionPreviewMode');
+                const editMode = document.getElementById('descriptionEditMode');
+                const footer = document.getElementById('descriptionModalFooter');
+                
+                editMode.style.display = 'none';
+                previewMode.style.display = 'flex';
+                footer.innerHTML = '<button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>';
+                
+                // 更新预览
+                updateDescriptionPreviewContent(description);
+                
+                // 清理编辑器
+                if (descriptionEditor) {
+                    descriptionEditor.toTextArea();
+                    descriptionEditor = null;
+                }
+            } else {
+                showAlert('danger', '保存失败：' + (result.error || '未知错误'));
+            }
+        })
+        .catch(error => {
+            showAlert('danger', '保存失败：' + error.message);
+        });
+    }
+    
+    function openProjectLinksModal(projectId) {
+        currentProjectIdForLinks = projectId;
+        currentTaskIdForLinks = null;
+        isEditingLink = false;
+        const modal = new bootstrap.Modal(document.getElementById('projectLinksModal'));
+        
+        // 加载链接列表
+        loadProjectLinks(projectId);
+        
+        // 绑定添加链接按钮
+        document.getElementById('addProjectLinkBtn').onclick = () => {
+            openLinkEditModal('project', null);
+        };
+        
+        modal.show();
+    }
+    
+    function openTaskLinksModal(taskId) {
+        currentTaskIdForLinks = taskId;
+        currentProjectIdForLinks = null;
+        isEditingLink = false;
+        const modal = new bootstrap.Modal(document.getElementById('taskLinksModal'));
+        
+        // 加载链接列表
+        loadTaskLinks(taskId);
+        
+        // 绑定添加链接按钮
+        document.getElementById('addTaskLinkBtn').onclick = () => {
+            openLinkEditModal('task', null);
+        };
+        
+        modal.show();
+    }
+    
+    function loadProjectLinks(projectId) {
+        const linksList = document.getElementById('projectLinksList');
+        
+        fetch(`/api/todo/v2/projects/${projectId}/links`)
+            .then(response => response.json())
+            .then(result => {
+                if (result.success) {
+                    renderLinksList(linksList, result.links, 'project');
+                } else {
+                    linksList.innerHTML = '<p class="text-danger">加载失败：' + (result.error || '未知错误') + '</p>';
+                }
+            })
+            .catch(error => {
+                linksList.innerHTML = '<p class="text-danger">加载失败：' + error.message + '</p>';
+            });
+    }
+    
+    function loadTaskLinks(taskId) {
+        const linksList = document.getElementById('taskLinksList');
+        
+        fetch(`/api/todo/v2/tasks/${taskId}/links`)
+            .then(response => response.json())
+            .then(result => {
+                if (result.success) {
+                    renderLinksList(linksList, result.links, 'task');
+                } else {
+                    linksList.innerHTML = '<p class="text-danger">加载失败：' + (result.error || '未知错误') + '</p>';
+                }
+            })
+            .catch(error => {
+                linksList.innerHTML = '<p class="text-danger">加载失败：' + error.message + '</p>';
+            });
+    }
+    
+    function renderLinksList(container, links, type) {
+        if (!links || links.length === 0) {
+            container.innerHTML = '<p class="text-muted">暂无链接</p>';
+            return;
+        }
+        
+        let html = '<div class="list-group">';
+        links.forEach(link => {
+            const isFileLink = link.url.startsWith('/file_browser') || link.url.startsWith('/preview');
+            html += `
+                <div class="list-group-item d-flex justify-content-between align-items-center">
+                    <div>
+                        <strong>${escapeHtml(link.name)}</strong>
+                        <br>
+                        <small class="text-muted">${escapeHtml(link.url)}</small>
+                    </div>
+                    <div>
+                        <button type="button" class="btn btn-sm btn-outline-primary me-1" onclick="handleLinkClick('${escapeHtml(link.url)}')" title="打开链接">
+                            <i class="fas fa-external-link-alt"></i>
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary me-1" onclick="editLink('${type}', '${link.id}')" title="编辑">
+                            <i class="fas fa-edit"></i>
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-danger" onclick="deleteLink('${type}', '${link.id}')" title="删除">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </div>
+                </div>
+            `;
+        });
+        html += '</div>';
+        container.innerHTML = html;
+    }
+    
+    window.handleLinkClick = function(url) {
+        // 判断是文件浏览器链接还是外部链接
+        if (url.startsWith('/file_browser') || url.startsWith('/preview')) {
+            // 文件浏览器链接，在新窗口打开
+            window.open(url, '_blank');
+        } else if (url.startsWith('http://') || url.startsWith('https://')) {
+            // 外部链接，在新窗口打开
+            window.open(url, '_blank');
+        } else {
+            // 相对路径，在当前窗口打开
+            window.location.href = url;
+        }
+    };
+    
+    window.editLink = function(type, linkId) {
+        currentLinkId = linkId;
+        isEditingLink = true;
+        
+        let links = [];
+        if (type === 'project') {
+            fetch(`/api/todo/v2/projects/${currentProjectIdForLinks}/links`)
+                .then(response => response.json())
+                .then(result => {
+                    if (result.success) {
+                        const link = result.links.find(l => l.id === linkId);
+                        if (link) {
+                            openLinkEditModal(type, link);
+                        }
+                    }
+                });
+        } else {
+            fetch(`/api/todo/v2/tasks/${currentTaskIdForLinks}/links`)
+                .then(response => response.json())
+                .then(result => {
+                    if (result.success) {
+                        const link = result.links.find(l => l.id === linkId);
+                        if (link) {
+                            openLinkEditModal(type, link);
+                        }
+                    }
+                });
+        }
+    };
+    
+    window.deleteLink = function(type, linkId) {
+        if (!confirm('确定删除此链接吗？')) {
+            return;
+        }
+        
+        let url = '';
+        if (type === 'project') {
+            url = `/api/todo/v2/projects/${currentProjectIdForLinks}/links/${linkId}`;
+        } else {
+            url = `/api/todo/v2/tasks/${currentTaskIdForLinks}/links/${linkId}`;
+        }
+        
+        fetch(url, { method: 'DELETE' })
+            .then(response => response.json())
+            .then(result => {
+                if (result.success) {
+                    showAlert('success', '链接已删除');
+                    if (type === 'project') {
+                        loadProjectLinks(currentProjectIdForLinks);
+                    } else {
+                        loadTaskLinks(currentTaskIdForLinks);
+                    }
+                } else {
+                    showAlert('danger', '删除失败：' + (result.error || '未知错误'));
+                }
+            })
+            .catch(error => {
+                showAlert('danger', '删除失败：' + error.message);
+            });
+    };
+    
+    function openLinkEditModal(type, link) {
+        const modal = new bootstrap.Modal(document.getElementById('linkEditModal'));
+        const title = document.getElementById('linkEditModalTitle');
+        const nameInput = document.getElementById('linkNameInput');
+        const urlInput = document.getElementById('linkUrlInput');
+        const form = document.getElementById('linkEditForm');
+        const selectFileBtn = document.getElementById('selectFileBtn');
+        
+        if (link) {
+            title.textContent = '编辑链接';
+            nameInput.value = link.name || '';
+            urlInput.value = link.url || '';
+        } else {
+            title.textContent = '添加链接';
+            nameInput.value = '';
+            urlInput.value = '';
+        }
+        
+        // 移除旧的事件监听器
+        const newForm = form.cloneNode(true);
+        form.parentNode.replaceChild(newForm, form);
+        
+        // 重新获取selectFileBtn（因为form被替换了）
+        const newSelectFileBtn = document.getElementById('selectFileBtn');
+        if (newSelectFileBtn) {
+            newSelectFileBtn.onclick = () => {
+                // 保存当前输入的引用，确保回调函数能访问到正确的元素
+                const currentUrlInput = document.getElementById('linkUrlInput');
+                const currentNameInput = document.getElementById('linkNameInput');
+                openFileSelector((filePath, fileName) => {
+                    // 回调时重新获取输入框元素（确保引用有效）
+                    const urlInput = document.getElementById('linkUrlInput');
+                    const nameInput = document.getElementById('linkNameInput');
+                    
+                    if (urlInput && filePath) {
+                        // 文件路径需要转换为目录路径（文件浏览器的path参数是目录路径）
+                        // 如果路径包含文件名，提取目录部分
+                        let dirPath = filePath;
+                        if (filePath && !filePath.endsWith('/')) {
+                            // 移除文件名，只保留目录路径
+                            const lastSlash = filePath.lastIndexOf('/');
+                            if (lastSlash > 0) {
+                                dirPath = filePath.substring(0, lastSlash);
+                            } else {
+                                dirPath = ''; // 根目录
+                            }
+                        }
+                        // 文件浏览器使用目录路径，文件会在预览中自动显示
+                        urlInput.value = `/file_browser?path=${encodeURIComponent(dirPath)}`;
+                    }
+                    if (nameInput && fileName && !nameInput.value.trim()) {
+                        nameInput.value = fileName;
+                    }
+                    const fileSelectorModal = bootstrap.Modal.getInstance(document.getElementById('fileSelectorModal'));
+                    if (fileSelectorModal) {
+                        fileSelectorModal.hide();
+                    }
+                });
+            };
+        }
+        
+        // 绑定提交事件
+        newForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            saveLink(type);
+        });
+        
+        modal.show();
+    }
+    
+    function openFileSelector(onSelect) {
+        const modalElement = document.getElementById('fileSelectorModal');
+        if (!modalElement) {
+            console.error('文件选择器模态框不存在');
+            showAlert('danger', '文件选择器模态框不存在');
+            return;
+        }
+        
+        let modal = bootstrap.Modal.getInstance(modalElement);
+        if (!modal) {
+            modal = new bootstrap.Modal(modalElement, {
+                backdrop: true,
+                keyboard: true,
+                focus: true
+            });
+        }
+        
+        const container = document.getElementById('fileTreeContainer');
+        if (!container) {
+            console.error('文件树容器不存在');
+            showAlert('danger', '文件树容器不存在');
+            return;
+        }
+        
+        container.innerHTML = '<div class="text-center py-3"><div class="spinner-border spinner-border-sm" role="status"></div><span class="ms-2">正在加载文件列表...</span></div>';
+        
+        modal.show();
+        
+        // 加载文件树
+        fetch('/api/todo/v2/file_tree')
+            .then(response => {
+                if (!response.ok) {
+                    return response.json().then(err => Promise.reject(err));
+                }
+                return response.json();
+            })
+            .then(result => {
+                console.log('文件树加载结果:', result);
+                if (result.success) {
+                    renderFileTree(container, result.tree, onSelect);
+                } else {
+                    container.innerHTML = '<div class="alert alert-danger">加载失败：' + (result.error || '未知错误') + '</div>';
+                }
+            })
+            .catch(error => {
+                console.error('文件树加载错误:', error);
+                container.innerHTML = '<div class="alert alert-danger">加载失败：' + (error.error || error.message || '未知错误') + '</div>';
+            });
+    }
+    
+    function renderFileTree(container, tree, onSelect) {
+        if (!tree || tree.length === 0) {
+            container.innerHTML = '<p class="text-muted text-center py-3">暂无文件</p>';
+            return;
+        }
+        
+        let html = '<ul class="list-group list-group-flush">';
+        
+        function renderNode(node, level = 0) {
+            const indent = level * 20;
+            const isDir = node.is_dir;
+            const icon = isDir ? '<i class="fas fa-folder text-warning"></i>' : '<i class="fas fa-file text-info"></i>';
+            const nodeId = `tree-node-${Math.random().toString(36).substr(2, 9)}`;
+            
+            html += `<li class="list-group-item" style="padding-left: ${indent + 15}px; cursor: pointer;" data-path="${escapeHtml(node.path)}" data-is-dir="${isDir}">`;
+            
+            // 如果是目录且有子项（包括未加载的），显示toggle按钮
+            const hasChildren = node.has_children || (node.children && node.children.length > 0);
+            if (isDir && hasChildren) {
+                const loadState = (node.children && node.children.length > 0) ? 'loaded' : 'lazy';
+                html += `<span class="tree-toggle me-2" data-target="${nodeId}" data-path="${escapeHtml(node.path)}" data-load-state="${loadState}"><i class="fas fa-chevron-right"></i></span>`;
+            } else {
+                html += '<span class="me-2" style="width: 16px; display: inline-block;"></span>';
+            }
+            
+            html += `${icon} <span>${escapeHtml(node.name)}</span>`;
+            html += '</li>';
+            
+            // 只渲染已经加载的子节点
+            if (isDir && node.children && node.children.length > 0) {
+                html += `<ul class="list-group list-group-flush" id="${nodeId}" style="display: none;">`;
+                node.children.forEach(child => renderNode(child, level + 1));
+                html += '</ul>';
+            }
+        }
+        
+        tree.forEach(node => renderNode(node));
+        html += '</ul>';
+        
+        container.innerHTML = html;
+        
+        // 绑定toggle按钮点击事件（支持懒加载）
+        container.querySelectorAll('.tree-toggle').forEach(toggle => {
+            toggle.addEventListener('click', function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                
+                const targetId = toggle.dataset.target;
+                const loadState = toggle.dataset.loadState;
+                const folderPath = toggle.dataset.path;
+                const target = document.getElementById(targetId);
+                const icon = toggle.querySelector('i');
+                
+                if (!target || target.style.display !== 'none') {
+                    // 折叠已展开的目录
+                    if (target) {
+                        target.style.display = 'none';
+                        icon.classList.remove('fa-chevron-down');
+                        icon.classList.add('fa-chevron-right');
+                    }
+                    return;
+                }
+                
+                // 展开目录
+                if (loadState === 'lazy' && folderPath) {
+                    // 懒加载：先显示加载提示
+                    const loadingHtml = `<li class="list-group-item" style="padding-left: 30px; color: #999;"><i class="fas fa-spinner fa-spin me-2"></i>加载中...</li>`;
+                    const tempDiv = document.createElement('div');
+                    tempDiv.innerHTML = `<ul class="list-group list-group-flush" id="${targetId}" style="display: block;">${loadingHtml}</ul>`;
+                    if (target.parentNode) {
+                        target.parentNode.insertBefore(tempDiv.firstChild, target.nextSibling);
+                        target.remove();
+                    }
+                    
+                    // 加载子目录
+                    fetch(`/api/todo/v2/file_tree/${encodeURIComponent(folderPath)}`)
+                        .then(response => response.json())
+                        .then(result => {
+                            const actualTarget = document.getElementById(targetId);
+                            if (!actualTarget) return;
+                            
+                            if (result.success && result.tree && result.tree.length > 0) {
+                                // 渲染子节点
+                                let childHtml = '';
+                                result.tree.forEach(childNode => {
+                                    const childIndent = 20;
+                                    const childIsDir = childNode.is_dir;
+                                    const childHasChildren = childNode.has_children || (childNode.children && childNode.children.length > 0);
+                                    const childIcon = childIsDir ? '<i class="fas fa-folder text-warning"></i>' : '<i class="fas fa-file text-info"></i>';
+                                    const childNodeId = `tree-node-${Math.random().toString(36).substr(2, 9)}`;
+                                    
+                                    childHtml += `<li class="list-group-item" style="padding-left: ${childIndent + 15}px; cursor: pointer;" data-path="${escapeHtml(childNode.path)}" data-is-dir="${childIsDir}">`;
+                                    if (childIsDir && childHasChildren) {
+                                        const childLoadState = (childNode.children && childNode.children.length > 0) ? 'loaded' : 'lazy';
+                                        childHtml += `<span class="tree-toggle me-2" data-target="${childNodeId}" data-path="${escapeHtml(childNode.path)}" data-load-state="${childLoadState}"><i class="fas fa-chevron-right"></i></span>`;
+                                    } else {
+                                        childHtml += '<span class="me-2" style="width: 16px; display: inline-block;"></span>';
+                                    }
+                                    childHtml += `${childIcon} <span>${escapeHtml(childNode.name)}</span></li>`;
+                                });
+                                actualTarget.innerHTML = childHtml;
+                                
+                                // 重新绑定事件（递归绑定新加载的节点）
+                                bindTreeEvents(actualTarget, onSelect);
+                            } else {
+                                actualTarget.innerHTML = '<li class="list-group-item text-muted" style="padding-left: 30px;">暂无文件</li>';
+                            }
+                            
+                            // 更新toggle状态
+                            toggle.dataset.loadState = 'loaded';
+                            icon.classList.remove('fa-chevron-right');
+                            icon.classList.add('fa-chevron-down');
+                        })
+                        .catch(error => {
+                            const actualTarget = document.getElementById(targetId);
+                            if (actualTarget) {
+                                actualTarget.innerHTML = '<li class="list-group-item text-danger" style="padding-left: 30px;">加载失败: ' + (error.error || error.message || '未知错误') + '</li>';
+                            }
+                        });
+                } else {
+                    // 已加载：直接显示
+                    target.style.display = 'block';
+                    icon.classList.remove('fa-chevron-right');
+                    icon.classList.add('fa-chevron-down');
+                }
+            });
+        });
+        
+        // 绑定文件选择事件
+        container.querySelectorAll('[data-is-dir="false"]').forEach(item => {
+            item.addEventListener('click', function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                const path = this.dataset.path;
+                const nameSpan = this.querySelector('span:last-child');
+                const name = nameSpan ? nameSpan.textContent.trim() : '';
+                if (onSelect && path) {
+                    onSelect(path, name);
+                }
+            });
+        });
+        
+        // 绑定目录项点击事件（不点击toggle时）
+        container.querySelectorAll('[data-is-dir="true"]').forEach(item => {
+            item.addEventListener('click', function(e) {
+                // 如果点击的不是toggle，不处理（目录只能通过toggle展开）
+                if (!e.target.closest('.tree-toggle')) {
+                    e.stopPropagation();
+                }
+            });
+        });
+    }
+    
+    // 辅助函数：绑定树节点事件（用于懒加载后的节点）
+    function bindTreeEvents(container, onSelect) {
+        // 绑定toggle按钮
+        container.querySelectorAll('.tree-toggle').forEach(toggle => {
+            toggle.addEventListener('click', function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                
+                const targetId = toggle.dataset.target;
+                const loadState = toggle.dataset.loadState;
+                const folderPath = toggle.dataset.path;
+                const target = document.getElementById(targetId);
+                const icon = toggle.querySelector('i');
+                
+                if (!target || target.style.display !== 'none') {
+                    if (target) {
+                        target.style.display = 'none';
+                        icon.classList.remove('fa-chevron-down');
+                        icon.classList.add('fa-chevron-right');
+                    }
+                    return;
+                }
+                
+                if (loadState === 'lazy' && folderPath) {
+                    const loadingHtml = `<li class="list-group-item" style="padding-left: 30px; color: #999;"><i class="fas fa-spinner fa-spin me-2"></i>加载中...</li>`;
+                    const tempDiv = document.createElement('div');
+                    tempDiv.innerHTML = `<ul class="list-group list-group-flush" id="${targetId}" style="display: block;">${loadingHtml}</ul>`;
+                    if (target.parentNode) {
+                        target.parentNode.insertBefore(tempDiv.firstChild, target.nextSibling);
+                        target.remove();
+                    }
+                    
+                    fetch(`/api/todo/v2/file_tree/${encodeURIComponent(folderPath)}`)
+                        .then(response => response.json())
+                        .then(result => {
+                            const actualTarget = document.getElementById(targetId);
+                            if (!actualTarget) return;
+                            
+                            if (result.success && result.tree && result.tree.length > 0) {
+                                let childHtml = '';
+                                result.tree.forEach(childNode => {
+                                    const childIndent = 20;
+                                    const childIsDir = childNode.is_dir;
+                                    const childHasChildren = childNode.has_children || (childNode.children && childNode.children.length > 0);
+                                    const childIcon = childIsDir ? '<i class="fas fa-folder text-warning"></i>' : '<i class="fas fa-file text-info"></i>';
+                                    const childNodeId = `tree-node-${Math.random().toString(36).substr(2, 9)}`;
+                                    
+                                    childHtml += `<li class="list-group-item" style="padding-left: ${childIndent + 15}px; cursor: pointer;" data-path="${escapeHtml(childNode.path)}" data-is-dir="${childIsDir}">`;
+                                    if (childIsDir && childHasChildren) {
+                                        const childLoadState = (childNode.children && childNode.children.length > 0) ? 'loaded' : 'lazy';
+                                        childHtml += `<span class="tree-toggle me-2" data-target="${childNodeId}" data-path="${escapeHtml(childNode.path)}" data-load-state="${childLoadState}"><i class="fas fa-chevron-right"></i></span>`;
+                                    } else {
+                                        childHtml += '<span class="me-2" style="width: 16px; display: inline-block;"></span>';
+                                    }
+                                    childHtml += `${childIcon} <span>${escapeHtml(childNode.name)}</span></li>`;
+                                });
+                                actualTarget.innerHTML = childHtml;
+                                bindTreeEvents(actualTarget, onSelect);
+                            } else {
+                                actualTarget.innerHTML = '<li class="list-group-item text-muted" style="padding-left: 30px;">暂无文件</li>';
+                            }
+                            
+                            toggle.dataset.loadState = 'loaded';
+                            icon.classList.remove('fa-chevron-right');
+                            icon.classList.add('fa-chevron-down');
+                        })
+                        .catch(error => {
+                            const actualTarget = document.getElementById(targetId);
+                            if (actualTarget) {
+                                actualTarget.innerHTML = '<li class="list-group-item text-danger" style="padding-left: 30px;">加载失败</li>';
+                            }
+                        });
+                } else {
+                    target.style.display = 'block';
+                    icon.classList.remove('fa-chevron-right');
+                    icon.classList.add('fa-chevron-down');
+                }
+            });
+        });
+        
+        // 绑定文件选择事件
+        container.querySelectorAll('[data-is-dir="false"]').forEach(item => {
+            item.addEventListener('click', function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                const path = this.dataset.path;
+                const nameSpan = this.querySelector('span:last-child');
+                const name = nameSpan ? nameSpan.textContent.trim() : '';
+                if (onSelect && path) {
+                    onSelect(path, name);
+                }
+            });
+        });
+    }
+    
+    function saveLink(type) {
+        const nameInput = document.getElementById('linkNameInput');
+        const urlInput = document.getElementById('linkUrlInput');
+        const name = nameInput.value.trim();
+        const url = urlInput.value.trim();
+        
+        if (!name || !url) {
+            showAlert('warning', '请填写链接名称和地址');
+            return;
+        }
+        
+        let apiUrl = '';
+        let method = 'POST';
+        
+        if (type === 'project') {
+            if (isEditingLink && currentLinkId) {
+                apiUrl = `/api/todo/v2/projects/${currentProjectIdForLinks}/links/${currentLinkId}`;
+                method = 'PUT';
+            } else {
+                apiUrl = `/api/todo/v2/projects/${currentProjectIdForLinks}/links`;
+            }
+        } else {
+            if (isEditingLink && currentLinkId) {
+                apiUrl = `/api/todo/v2/tasks/${currentTaskIdForLinks}/links/${currentLinkId}`;
+                method = 'PUT';
+            } else {
+                apiUrl = `/api/todo/v2/tasks/${currentTaskIdForLinks}/links`;
+            }
+        }
+        
+        fetch(apiUrl, {
+            method: method,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: name, url: url })
+        })
+        .then(response => response.json())
+        .then(result => {
+            if (result.success) {
+                showAlert('success', isEditingLink ? '链接已更新' : '链接已添加');
+                bootstrap.Modal.getInstance(document.getElementById('linkEditModal')).hide();
+                if (type === 'project') {
+                    loadProjectLinks(currentProjectIdForLinks);
+                } else {
+                    loadTaskLinks(currentTaskIdForLinks);
+                }
+                isEditingLink = false;
+                currentLinkId = null;
+            } else {
+                showAlert('danger', '保存失败：' + (result.error || '未知错误'));
+            }
+        })
+        .catch(error => {
+            showAlert('danger', '保存失败：' + error.message);
+        });
     }
 
     // ===== 待完成任务列表折叠 =====
@@ -2126,11 +3465,23 @@
     function init() {
         attachEventListeners();
         
-        // 初始化风格切换
-        if (refs.styleSwitch) {
-            refs.styleSwitch.addEventListener('change', (e) => {
-                switchStyle(e.target.checked ? 'table' : 'scroll');
-            });
+        // 初始化风格切换（三态切换）
+        if (refs.styleScrollBtn) {
+            refs.styleScrollBtn.addEventListener('click', () => switchStyle('scroll'));
+        }
+        if (refs.styleTableBtn) {
+            refs.styleTableBtn.addEventListener('click', () => switchStyle('table'));
+        }
+        if (refs.styleReportBtn) {
+            refs.styleReportBtn.addEventListener('click', () => switchStyle('report'));
+        }
+        
+        // 初始化汇报页面按钮
+        if (refs.exportReportBtn) {
+            refs.exportReportBtn.addEventListener('click', exportReportToExcel);
+        }
+        if (refs.fullscreenReportBtn) {
+            refs.fullscreenReportBtn.addEventListener('click', toggleReportFullscreen);
         }
         
         // 初始化待完成任务列表折叠状态
@@ -2142,6 +3493,7 @@
         applyFontSize();
         
         // 先设置风格显示状态（不渲染内容）
+        updateStyleButtons();
         if (state.currentStyle === 'scroll') {
             if (refs.scrollStyleContainer) {
                 refs.scrollStyleContainer.style.display = 'block';
@@ -2151,8 +3503,11 @@
                 refs.tableStyleContainer.style.display = 'none';
                 refs.tableStyleContainer.classList.remove('active');
             }
-            if (refs.styleSwitch) refs.styleSwitch.checked = false;
-        } else {
+            if (refs.reportStyleContainer) {
+                refs.reportStyleContainer.style.display = 'none';
+                refs.reportStyleContainer.classList.remove('active');
+            }
+        } else if (state.currentStyle === 'table') {
             if (refs.scrollStyleContainer) {
                 refs.scrollStyleContainer.style.display = 'none';
                 refs.scrollStyleContainer.classList.remove('active');
@@ -2161,7 +3516,23 @@
                 refs.tableStyleContainer.style.display = 'block';
                 refs.tableStyleContainer.classList.add('active');
             }
-            if (refs.styleSwitch) refs.styleSwitch.checked = true;
+            if (refs.reportStyleContainer) {
+                refs.reportStyleContainer.style.display = 'none';
+                refs.reportStyleContainer.classList.remove('active');
+            }
+        } else if (state.currentStyle === 'report') {
+            if (refs.scrollStyleContainer) {
+                refs.scrollStyleContainer.style.display = 'none';
+                refs.scrollStyleContainer.classList.remove('active');
+            }
+            if (refs.tableStyleContainer) {
+                refs.tableStyleContainer.style.display = 'none';
+                refs.tableStyleContainer.classList.remove('active');
+            }
+            if (refs.reportStyleContainer) {
+                refs.reportStyleContainer.style.display = 'block';
+                refs.reportStyleContainer.classList.add('active');
+            }
         }
         
         // 加载数据（数据加载完成后会自动渲染）

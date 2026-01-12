@@ -6,7 +6,9 @@
     <title>管理分享链接 - Yobboy 文件服务器</title>
     <link href="{{ url_for('static', filename='css/bootstrap.min.css') }}" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/font-awesome.min.css') }}">
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/jasmine_base.css') }}">
+        <!-- Theme System -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/themes.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/app_style.css') }}">
     <style>
         body {
             background: var(--jasmine-gradient-main);
@@ -145,6 +147,12 @@
             opacity: 0.5;
         }
     </style>
+    <script>
+        (function() {
+            const savedTheme = localStorage.getItem('site_theme') || 'jasmine';
+            document.body.setAttribute('data-theme', savedTheme);
+        })();
+    </script>
 </head>
 <body>
     <div class="container-main">
@@ -300,6 +308,7 @@
             });
         });
     </script>
+<script src="{{ url_for('static', filename='js/theme_floater.js') }}"></script>
 </body>
 </html>
 

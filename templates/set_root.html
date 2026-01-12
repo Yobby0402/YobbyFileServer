@@ -135,6 +135,12 @@
             }
         }
     </style>
+    <script>
+        (function() {
+            const savedTheme = localStorage.getItem('site_theme') || 'jasmine';
+            document.body.setAttribute('data-theme', savedTheme);
+        })();
+    </script>
 </head>
 <body>
     <div class="settings-card">
@@ -186,6 +192,7 @@
     
     <script src="/static/js/jquery-3.6.0.min.js"></script>
     <script src="/static/js/bootstrap.bundle.min.js"></script>
+<script src="{{ url_for('static', filename='js/theme_floater.js') }}"></script>
 </body>
 </html>
 

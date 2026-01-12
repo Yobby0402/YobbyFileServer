@@ -6,7 +6,9 @@
     <title>产品对比 - Yobboy 文件服务器</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap.min.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/font-awesome.min.css') }}">
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/jasmine_base.css') }}">
+        <!-- Theme System -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/themes.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/app_style.css') }}">
     <script src="{{ url_for('static', filename='libs/chart.js/chart.umd.min.js') }}"></script>
     <style>
         body {
@@ -301,6 +303,12 @@
             min-height: 400px;
         }
     </style>
+    <script>
+        (function() {
+            const savedTheme = localStorage.getItem('site_theme') || 'jasmine';
+            document.body.setAttribute('data-theme', savedTheme);
+        })();
+    </script>
 </head>
 <body class="jasmine-body">
     <div class="product-compare-container">
@@ -524,6 +532,7 @@
 
     <script src="{{ url_for('static', filename='js/bootstrap.bundle.min.js') }}"></script>
     <script src="{{ url_for('static', filename='js/product_compare.js') }}"></script>
+<script src="{{ url_for('static', filename='js/theme_floater.js') }}"></script>
 </body>
 </html>
 

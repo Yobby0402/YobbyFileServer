@@ -6,8 +6,16 @@
     <title>串口调试助手 - Yobboy文件服务器</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap.min.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/font-awesome.min.css') }}">
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/jasmine_base.css') }}">
+        <!-- Theme System -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/themes.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/app_style.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/serial_tool.css') }}">
+    <script>
+        (function() {
+            const savedTheme = localStorage.getItem('site_theme') || 'jasmine';
+            document.body.setAttribute('data-theme', savedTheme);
+        })();
+    </script>
 </head>
 <body>
     <!-- 顶部导航栏 -->
@@ -501,6 +509,7 @@
     <script src="{{ url_for('static', filename='js/bootstrap.bundle.min.js') }}"></script>
     <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
     <script src="{{ url_for('static', filename='js/serial_tool.js') }}?v={{ range(1, 99999) | random }}"></script>
+<script src="{{ url_for('static', filename='js/theme_floater.js') }}"></script>
 </body>
 </html>
 

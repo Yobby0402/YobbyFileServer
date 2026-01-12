@@ -6,7 +6,9 @@
     <title>使用帮助 - Yobboy 文件服务器 v3.0</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap.min.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/font-awesome.min.css') }}">
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/jasmine_base.css') }}">
+        <!-- Theme System -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/themes.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/app_style.css') }}">
     <style>
         body {
             background: linear-gradient(135deg, rgba(214, 242, 234, 0.55), rgba(240, 249, 244, 0.95));
@@ -266,6 +268,12 @@
             }
         }
     </style>
+    <script>
+        (function() {
+            const savedTheme = localStorage.getItem('site_theme') || 'jasmine';
+            document.body.setAttribute('data-theme', savedTheme);
+        })();
+    </script>
 </head>
 <body>
     <header class="hero">
@@ -689,6 +697,7 @@ close_to_tray = true
             });
         });
     </script>
+<script src="{{ url_for('static', filename='js/theme_floater.js') }}"></script>
 </body>
 </html>
 <!DOCTYPE html>
@@ -698,7 +707,9 @@ close_to_tray = true
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>使用帮助 - Yobboy文件服务器</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap.min.css') }}">
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/jasmine_base.css') }}">
+        <!-- Theme System -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/themes.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/app_style.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/font-awesome.min.css') }}">
     <style>
         body {
@@ -846,6 +857,12 @@ close_to_tray = true
             overflow-x: auto;
         }
     </style>
+    <script>
+        (function() {
+            const savedTheme = localStorage.getItem('site_theme') || 'jasmine';
+            document.body.setAttribute('data-theme', savedTheme);
+        })();
+    </script>
 </head>
 <body>
     <div class="help-container">
@@ -1091,6 +1108,7 @@ password = ats123              # 登录密码
     </div>
     
     <script src="{{ url_for('static', filename='js/bootstrap.bundle.min.js') }}"></script>
+<script src="{{ url_for('static', filename='js/theme_floater.js') }}"></script>
 </body>
 </html>
 

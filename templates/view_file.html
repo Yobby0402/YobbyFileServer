@@ -4,7 +4,9 @@
     <title>{{ filename }}</title>
     <meta charset="utf-8">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap.min.css') }}">
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/jasmine_base.css') }}">
+        <!-- Theme System -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/themes.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/app_style.css') }}">
     <!-- 引入本地GitHub风格的Markdown CSS -->
     <link rel="stylesheet" href="{{ url_for('static', filename='css/github-markdown-light.min.css') }}">
     <style>
@@ -22,6 +24,12 @@
         .back-link a { color: var(--jasmine-green-600); text-decoration: none; }
         .back-link a:hover { text-decoration: underline; }
     </style>
+    <script>
+        (function() {
+            const savedTheme = localStorage.getItem('site_theme') || 'jasmine';
+            document.body.setAttribute('data-theme', savedTheme);
+        })();
+    </script>
 </head>
 <body>
     <div class="container">
@@ -48,6 +56,7 @@
             <a href="{{ back_url }}">&larr; 返回上一级</a>
         </div>
     </div>
+<script src="{{ url_for('static', filename='js/theme_floater.js') }}"></script>
 </body>
 </html>
 

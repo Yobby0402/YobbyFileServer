@@ -35,7 +35,9 @@ class TodoManager:
 
     def __init__(self, storage_path: Optional[str] = None):
         data_dir = _ensure_data_dir()
-        self.storage_path = storage_path or os.path.join(data_dir, "todos_v2.json")
+        todos_dir = os.path.join(data_dir, "todos")
+        os.makedirs(todos_dir, exist_ok=True)
+        self.storage_path = storage_path or os.path.join(todos_dir, "todos_v2.json")
         self._lock = threading.RLock()
         self._data: Dict[str, Any] = {"projects": []}
         self._load()
@@ -174,6 +176,8 @@ class TodoManager:
                 "created_at": now,
                 "updated_at": now,
                 "tasks": [],
+                "phase": payload.get("phase", ""),
+                "show_in_report": payload.get("show_in_report", True),
             }
             self._data["projects"].append(project)
             self._persist()
@@ -189,6 +193,10 @@ class TodoManager:
                 project["name"] = payload.get("name") or "未命名项目"
             if "color" in payload:
                 project["color"] = self._normalize_color(payload.get("color"))
+            if "phase" in payload:
+                project["phase"] = payload.get("phase", "")
+            if "show_in_report" in payload:
+                project["show_in_report"] = bool(payload.get("show_in_report", True))
 
             project["updated_at"] = _utc_now()
             self._persist()
@@ -219,6 +227,10 @@ class TodoManager:
                 "updated_at": now,
                 "update_history": [],
                 "comments": [],
+                "task_type": payload.get("task_type", ""),
+                "conclusion": payload.get("conclusion", ""),
+                "weekly_plan": payload.get("weekly_plan", ""),
+                "show_in_report": payload.get("show_in_report", True),
             }
 
             project_idx = self._find_project_index(project_id)
@@ -277,6 +289,27 @@ class TodoManager:
                 if old_value != new_value:
                     task["due_date"] = new_value
                     update_records.append(self._build_update_record("due_date", old_value, new_value))
+
+            if "task_type" in payload:
+                old_value = task.get("task_type", "")
+                new_value = payload.get("task_type", "")
+                if old_value != new_value:
+                    task["task_type"] = new_value
+                    update_records.append(self._build_update_record("task_type", old_value, new_value))
+
+            if "conclusion" in payload:
+                old_value = task.get("conclusion", "")
+                new_value = payload.get("conclusion", "")
+                if old_value != new_value:
+                    task["conclusion"] = new_value
+                    update_records.append(self._build_update_record("conclusion", old_value, new_value))
+
+            if "show_in_report" in payload:
+                old_value = task.get("show_in_report", True)
+                new_value = bool(payload.get("show_in_report", True))
+                if old_value != new_value:
+                    task["show_in_report"] = new_value
+                    update_records.append(self._build_update_record("show_in_report", old_value, new_value))
 
             if update_records:
                 task.setdefault("update_history", []).extend(update_records)

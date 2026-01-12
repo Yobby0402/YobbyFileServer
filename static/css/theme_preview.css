@@ -1,9 +1,9 @@
-@import url('jasmine_base.css');
+/* @import url('jasmine_base.css'); removed, using themes.css */
 
 :root {
-    --jasmine-text-dark: var(--jasmine-ink);
-    --jasmine-text-light: var(--jasmine-muted);
-    --jasmine-shadow: 0 18px 40px rgba(30, 114, 96, 0.18);
+    --jasmine-text-dark: var(--t-text-main);
+    --jasmine-text-light: var(--t-text-muted);
+    --jasmine-shadow: var(--t-shadow-lg);
 }
 
 * {
@@ -14,7 +14,7 @@ body {
     margin: 0;
     font-family: "Source Han Sans CN", "Microsoft YaHei", "PingFang SC", Arial, sans-serif;
     background: radial-gradient(circle at 20% 20%, rgba(213, 240, 230, 0.95), rgba(224, 244, 239, 0.92)),
-                linear-gradient(160deg, rgba(214, 242, 234, 0.85), rgba(188, 232, 220, 0.9));
+        linear-gradient(160deg, rgba(214, 242, 234, 0.85), rgba(188, 232, 220, 0.9));
     color: var(--jasmine-text-dark);
     min-height: 100vh;
 }
@@ -48,7 +48,7 @@ body {
 .brand-logo {
     font-size: 26px;
     font-weight: 700;
-    color: var(--jasmine-green-600);
+    color: var(--t-primary);
 }
 
 .brand-subtitle {
@@ -79,7 +79,7 @@ body {
 }
 
 .solid-btn {
-    background: linear-gradient(120deg, var(--jasmine-green-600), var(--jasmine-green-300));
+    background: linear-gradient(120deg, var(--t-primary), var(--t-primary-light));
     color: #fff;
     box-shadow: 0 12px 30px rgba(54, 170, 151, 0.28);
 }
@@ -91,7 +91,7 @@ body {
 
 .ghost-btn {
     background: rgba(228, 246, 240, 0.65);
-    color: var(--jasmine-green-700);
+    color: var(--t-primary-hover);
     border: 1px solid rgba(54, 170, 151, 0.35);
 }
 
@@ -118,7 +118,7 @@ body {
 .hero-text h1 {
     font-size: 38px;
     margin: 0 0 16px;
-    color: var(--jasmine-green-700);
+    color: var(--t-primary-hover);
 }
 
 .hero-text p {
@@ -144,7 +144,7 @@ body {
 
 .hero-card h2 {
     margin-top: 0;
-    color: var(--jasmine-green-700);
+    color: var(--t-primary-hover);
 }
 
 .hero-card p {
@@ -177,14 +177,14 @@ body {
 .stat-value {
     font-size: 24px;
     font-weight: 700;
-    color: var(--jasmine-green-600);
+    color: var(--t-primary);
 }
 
 .component-section h2,
 .table-section h2 {
     font-size: 28px;
     margin: 0 0 20px;
-    color: var(--jasmine-green-700);
+    color: var(--t-primary-hover);
 }
 
 .component-grid {
@@ -226,14 +226,14 @@ body {
 .preview-input:focus,
 .preview-select:focus {
     outline: none;
-    border-color: var(--jasmine-green-500);
+    border-color: var(--t-primary);
     box-shadow: 0 0 0 3px rgba(95, 191, 174, 0.25);
 }
 
 .preview-range {
     width: 100%;
     margin-bottom: 18px;
-    accent-color: var(--jasmine-green-500);
+    accent-color: var(--t-primary);
 }
 
 .checkbox-label {
@@ -245,7 +245,7 @@ body {
 }
 
 .checkbox-label input {
-    accent-color: var(--jasmine-green-600);
+    accent-color: var(--t-primary);
     width: 16px;
     height: 16px;
 }
@@ -258,7 +258,7 @@ body {
 
 .card-sample h3 {
     margin-top: 0;
-    color: var(--jasmine-green-600);
+    color: var(--t-primary);
 }
 
 .card-list {
@@ -285,7 +285,7 @@ body {
 }
 
 .dot-success {
-    background: var(--jasmine-green-500);
+    background: var(--t-primary);
 }
 
 .dot-warning {
@@ -309,7 +309,7 @@ body {
 
 .preview-table thead {
     background: linear-gradient(120deg, rgba(200, 236, 224, 0.95), rgba(180, 228, 214, 0.95));
-    color: var(--jasmine-green-700);
+    color: var(--t-primary-hover);
 }
 
 .preview-table th,
@@ -338,7 +338,7 @@ body {
 
 .status-progress {
     background: rgba(54, 170, 151, 0.18);
-    color: var(--jasmine-green-600);
+    color: var(--t-primary);
 }
 
 .status-warning {
@@ -361,7 +361,7 @@ body {
 
 .progress-fill {
     height: 100%;
-    background: linear-gradient(120deg, var(--jasmine-green-500), var(--jasmine-green-300));
+    background: linear-gradient(120deg, var(--t-primary), var(--t-primary-light));
     border-radius: 999px;
 }
 
@@ -381,7 +381,7 @@ body {
 }
 
 .footer-links a {
-    color: var(--jasmine-green-600);
+    color: var(--t-primary);
     text-decoration: none;
     font-size: 14px;
 }
@@ -400,13 +400,16 @@ body {
         gap: 18px;
         text-align: center;
     }
+
     .preview-nav,
     .preview-actions {
         justify-content: center;
     }
+
     .hero-section {
         grid-template-columns: 1fr;
     }
+
     .component-grid {
         grid-template-columns: 1fr;
     }
@@ -416,19 +419,22 @@ body {
     .preview-main {
         padding: 24px;
     }
+
     .preview-header {
         padding: 20px 24px;
     }
+
     .preview-footer {
         flex-direction: column;
         gap: 12px;
         padding: 20px 24px;
     }
+
     .hero-actions {
         flex-direction: column;
     }
+
     .form-actions {
         flex-direction: column;
     }
 }
-

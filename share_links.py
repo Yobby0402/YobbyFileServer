@@ -14,7 +14,7 @@ from typing import Optional, Dict, List
 class ShareLinkManager:
     """分享链接管理器"""
     
-    def __init__(self, db_path='share_links.db'):
+    def __init__(self, db_path='data/share_links/share_links.db'):
         """初始化数据库连接"""
         self.db_path = db_path
         self.init_database()

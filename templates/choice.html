@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -12,19 +13,19 @@
             padding: 0;
             box-sizing: border-box;
         }
-        
+
         body {
             font-family: 'Microsoft YaHei', Arial, sans-serif;
             height: 100vh;
             overflow: hidden;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         }
-        
+
         .main-container {
             display: flex;
             height: 100vh;
         }
-        
+
         .choice-section {
             flex: 1;
             display: flex;
@@ -36,15 +37,15 @@
             position: relative;
             overflow: hidden;
         }
-        
+
         .choice-section:hover {
             transform: scale(1.02);
         }
-        
+
         .choice-section:hover::before {
             opacity: 0.1;
         }
-        
+
         .choice-section::before {
             content: '';
             position: absolute;
@@ -56,15 +57,15 @@
             opacity: 0;
             transition: opacity 0.3s ease;
         }
-        
+
         .file-browser {
             background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
         }
-        
+
         .drawio-editor {
             background: linear-gradient(135deg, #fa709a 0%, #fee140 100%);
         }
-        
+
         .serial-tool {
             background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);
         }
@@ -72,36 +73,36 @@
         .todo-board {
             background: linear-gradient(135deg, #fbc2eb 0%, #a6c1ee 100%);
         }
-        
+
         .product-compare {
             background: linear-gradient(135deg, #a8edea 0%, #fed6e3 100%);
         }
-        
+
         .choice-content {
             text-align: center;
             color: white;
             z-index: 2;
             position: relative;
         }
-        
+
         .choice-icon {
             font-size: 4rem;
             margin-bottom: 20px;
             display: block;
             transition: transform 0.3s ease;
         }
-        
+
         .choice-section:hover .choice-icon {
             animation: bounce 0.6s ease;
         }
-        
+
         .choice-title {
             font-size: 2.5rem;
             font-weight: bold;
             margin-bottom: 15px;
             text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
         }
-        
+
         .choice-description {
             font-size: 1.1rem;
             opacity: 0.9;
@@ -109,13 +110,13 @@
             line-height: 1.6;
             text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
         }
-        
+
         .divider {
             width: 2px;
             background: rgba(255, 255, 255, 0.3);
             position: relative;
         }
-        
+
         .footer {
             position: fixed;
             bottom: 0;
@@ -127,14 +128,14 @@
             padding: 15px;
             font-size: 0.9rem;
         }
-        
+
         .logout-link {
             position: fixed;
             top: 20px;
             right: 20px;
             z-index: 10;
         }
-        
+
         .logout-link a {
             color: white;
             text-decoration: none;
@@ -143,52 +144,180 @@
             border-radius: 20px;
             transition: background 0.3s ease;
         }
-        
+
         .logout-link a:hover {
             background: rgba(0, 0, 0, 0.6);
             color: white;
         }
-        
+
         @keyframes bounce {
-            0%, 100% {
+
+            0%,
+            100% {
                 transform: translateY(0);
             }
+
             25% {
                 transform: translateY(-15px);
             }
+
             50% {
                 transform: translateY(0);
             }
+
             75% {
                 transform: translateY(-8px);
             }
         }
-        
+
+        /* Updated Header Actions */
+        .top-right-bar {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 100;
+            display: flex;
+            gap: 15px;
+            align-items: center;
+        }
+
+        .top-btn {
+            color: white;
+            text-decoration: none;
+            background: rgba(0, 0, 0, 0.3);
+            padding: 10px 20px;
+            border-radius: 20px;
+            transition: background 0.3s ease;
+            cursor: pointer;
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            border: none;
+            font-size: 1rem;
+            outline: none;
+            height: 44px;
+        }
+
+        .top-btn:hover {
+            background: rgba(0, 0, 0, 0.6);
+            color: white;
+            text-decoration: none;
+        }
+
+        /* Dropdown logic */
+        .theme-wrapper {
+            position: relative;
+        }
+
+        .theme-dropdown-menu {
+            position: absolute;
+            top: 110%;
+            right: 0;
+            background: rgba(0, 0, 0, 0.85);
+            border-radius: 12px;
+            padding: 10px 0;
+            min-width: 160px;
+            opacity: 0;
+            visibility: hidden;
+            transform: translateY(10px);
+            transition: all 0.3s cubic-bezier(0.165, 0.84, 0.44, 1);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .theme-wrapper:hover .theme-dropdown-menu {
+            opacity: 1;
+            visibility: visible;
+            transform: translateY(0);
+        }
+
+        .theme-item {
+            display: block;
+            padding: 10px 20px;
+            color: rgba(255, 255, 255, 0.9);
+            text-decoration: none;
+            cursor: pointer;
+            transition: background 0.2s;
+            text-align: left;
+            font-size: 0.95rem;
+            white-space: nowrap;
+        }
+
+        .theme-item:hover {
+            background: rgba(255, 255, 255, 0.15);
+            color: white;
+        }
+
         @media (max-width: 768px) {
             .main-container {
                 flex-direction: column;
             }
-            
+
             .divider {
                 width: 100%;
                 height: 2px;
             }
-            
+
             .choice-title {
                 font-size: 2rem;
             }
-            
+
             .choice-icon {
                 font-size: 3rem;
             }
+
+            .top-right-bar {
+                top: 15px;
+                right: 15px;
+                gap: 10px;
+            }
+
+            .top-btn {
+                padding: 8px 15px;
+                font-size: 0.9rem;
+            }
         }
     </style>
+    <script>
+        // Inline setup for choice page
+        window.setTheme = function (themeName) {
+            document.body.setAttribute('data-theme', themeName);
+            localStorage.setItem('site_theme', themeName);
+        };
+        (function () {
+            const savedTheme = localStorage.getItem('site_theme') || 'jasmine';
+            document.body.setAttribute('data-theme', savedTheme);
+        })();
+    </script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/themes.css') }}">
+    <!-- Load app_style but need to be careful with overrides. choice.html is custom. -->
 </head>
+
 <body>
-    <div class="logout-link">
-        <a href="/logout">退出登录</a>
+    <div class="top-right-bar">
+        <!-- Theme Selection -->
+        <div class="theme-wrapper">
+            <button class="top-btn">
+                <i class="fa fa-paint-brush"></i> 主题
+            </button>
+            <div class="theme-dropdown-menu">
+                <div class="theme-item" onclick="setTheme('jasmine')">🍃 茉莉奶白</div>
+                <div class="theme-item" onclick="setTheme('mist-forest')">🌲 迷雾森林</div>
+                <div class="theme-item" onclick="setTheme('sunset')">🌅 日落黄昏</div>
+                <div class="theme-item" onclick="setTheme('golden-beach')">🏖️ 黄金沙滩</div>
+                <div class="theme-item" onclick="setTheme('cyberpunk')">🌃 赛博朋克</div>
+                <div class="theme-item" onclick="setTheme('aurora')">🌌 极光星空</div>
+            </div>
+        </div>
+
+        <!-- Logout -->
+        <a href="/logout" class="top-btn">
+            <i class="fa fa-sign-out"></i> 退出
+        </a>
     </div>
-    
+
     <div class="main-container">
         <div class="choice-section file-browser" onclick="window.location.href='/file_browser'">
             <div class="choice-content">
@@ -201,7 +330,7 @@
                 </p>
             </div>
         </div>
-        
+
         <div class="divider"></div>
 
         <div class="choice-section todo-board" onclick="window.location.href='/todo/v2'">
@@ -215,7 +344,7 @@
                 </p>
             </div>
         </div>
-        
+
         <div class="divider"></div>
 
         <div class="choice-section product-compare" onclick="window.location.href='/product_compare'">
@@ -229,9 +358,9 @@
                 </p>
             </div>
         </div>
-        
+
         <div class="divider"></div>
-        
+
         <div class="choice-section drawio-editor" onclick="window.location.href='/drawio_main'">
             <div class="choice-content">
                 <span class="choice-icon">📊</span>
@@ -243,9 +372,9 @@
                 </p>
             </div>
         </div>
-        
+
         <div class="divider"></div>
-        
+
         <div class="choice-section serial-tool" onclick="window.location.href='/serial_tool'">
             <div class="choice-content">
                 <span class="choice-icon">🔌</span>
@@ -258,7 +387,7 @@
             </div>
         </div>
     </div>
-    
+
     <div class="footer">
         © 2025 Yobboy文件服务器 - 本地化文件管理与图表编辑解决方案
         <br>
@@ -269,4 +398,5 @@
 
     <script src="{{ url_for('static', filename='js/bootstrap.bundle.min.js') }}"></script>
 </body>
+
 </html>

@@ -3,6 +3,8 @@ import os
 import sys
 import re
 import configparser
+import json
+from datetime import datetime
 # 确保在文件顶部添加必要的导入
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify, send_from_directory, send_file, make_response, abort, current_app
 import markdown
@@ -12,6 +14,7 @@ from urllib.parse import quote # 导入 quote 用于编码文件名
 import posixpath # 用于处理 URL 路径
 from share_links import ShareLinkManager  # 导入分享链接管理器
 from todo_manager import todo_manager
+from todo_extended_manager import todo_extended_manager
 from serial_manager import serial_manager
 from product_compare_manager import product_compare_manager
 
@@ -98,6 +101,53 @@ AUDIO_EXTENSIONS = ['.mp3', '.wav', '.flac', '.ogg', '.wma', '.m4a', '.aac']  # 
 DRAWIO_EXTENSIONS = ['.drawio', '.diagram', '.dio', '.xml']  # 添加.xml作为draw.io格式
 MODEL_3D_EXTENSIONS = ['.gltf', '.glb', '.obj', '.stl', '.fbx', '.step', '.stp']  # 3D模型文件格式
 
+# 获取data文件夹路径
+def get_data_path(relative_path=''):
+    """获取data文件夹路径"""
+    if getattr(sys, 'frozen', False):
+        # 打包环境：exe 所在目录
+        base_path = os.path.dirname(sys.executable)
+    else:
+        # 开发环境：.py 文件所在目录
+        base_path = os.path.dirname(os.path.abspath(__file__))
+    data_dir = os.path.join(base_path, 'data')
+    if relative_path:
+        return os.path.join(data_dir, relative_path)
+    return data_dir
+
+# 获取收藏文件路径
+def get_favorites_path():
+    """获取收藏文件路径"""
+    return get_data_path('file_server/favorites.json')
+
+# 加载收藏数据
+def load_favorites():
+    """加载收藏数据"""
+    favorites_path = get_favorites_path()
+    try:
+        os.makedirs(os.path.dirname(favorites_path), exist_ok=True)
+        if os.path.exists(favorites_path):
+            with open(favorites_path, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        else:
+            return {'groups': [], 'items': []}
+    except Exception as e:
+        print(f"加载收藏数据失败: {e}")
+        return {'groups': [], 'items': []}
+
+# 保存收藏数据
+def save_favorites(data):
+    """保存收藏数据"""
+    favorites_path = get_favorites_path()
+    try:
+        os.makedirs(os.path.dirname(favorites_path), exist_ok=True)
+        with open(favorites_path, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=4)
+        return True
+    except Exception as e:
+        print(f"保存收藏数据失败: {e}")
+        return False
+
 # 修复init_app函数内部的Draw.io路由
 
 def init_app(app):
@@ -111,6 +161,9 @@ def init_app(app):
 
     # 初始化 ToDo 管理器
     app.config['TODO_MANAGER'] = todo_manager
+    
+    # 初始化 ToDo 扩展数据管理器
+    app.config['TODO_EXTENDED_MANAGER'] = todo_extended_manager
     
     # 初始化产品对比管理器
     app.config['PRODUCT_COMPARE_MANAGER'] = product_compare_manager
@@ -479,6 +532,267 @@ def init_app(app):
             overview = manager.get_pending_overview()
             return jsonify({'success': True, 'overview': overview})
         except Exception as exc:
+            return jsonify({'success': False, 'error': str(exc)}), 500
+
+    # ===== ToDo扩展功能API（项目描述和链接） =====
+
+    @app.route('/api/todo/v2/projects/<project_id>/description', methods=['GET', 'PUT', 'DELETE'])
+    def todo_v2_project_description(project_id):
+        """项目描述操作：获取、更新、删除"""
+        if not has_todo_access():
+            return jsonify({'success': False, 'error': '未授权'}), 401
+
+        extended_manager = current_app.config['TODO_EXTENDED_MANAGER']
+
+        if request.method == 'GET':
+            description = extended_manager.get_project_description(project_id)
+            return jsonify({'success': True, 'description': description})
+
+        if request.method == 'PUT':
+            payload = request.json or {}
+            description_md = payload.get('description', '')
+            extended_manager.set_project_description(project_id, description_md)
+            return jsonify({'success': True, 'description': description_md})
+
+        # DELETE
+        extended_manager.delete_project_description(project_id)
+        return jsonify({'success': True})
+
+    @app.route('/api/todo/v2/projects/<project_id>/description/preview', methods=['POST'])
+    def todo_v2_project_description_preview(project_id):
+        """预览项目描述的Markdown渲染结果"""
+        if not has_todo_access():
+            return jsonify({'success': False, 'error': '未授权'}), 401
+
+        payload = request.json or {}
+        description_md = payload.get('description', '')
+        
+        try:
+            # 使用现有的markdown渲染功能
+            html_content = markdown_parser.render(description_md)
+            return jsonify({'success': True, 'html': html_content})
+        except Exception as exc:
+            return jsonify({'success': False, 'error': str(exc)}), 500
+
+    @app.route('/api/todo/v2/projects/<project_id>/links', methods=['GET', 'POST'])
+    def todo_v2_project_links(project_id):
+        """项目链接操作：获取、添加"""
+        if not has_todo_access():
+            return jsonify({'success': False, 'error': '未授权'}), 401
+
+        extended_manager = current_app.config['TODO_EXTENDED_MANAGER']
+
+        if request.method == 'GET':
+            links = extended_manager.get_project_links(project_id)
+            return jsonify({'success': True, 'links': links})
+
+        # POST - 添加链接
+        payload = request.json or {}
+        name = payload.get('name', '').strip()
+        url = payload.get('url', '').strip()
+        
+        if not name or not url:
+            return jsonify({'success': False, 'error': '链接名称和地址不能为空'}), 400
+
+        link = extended_manager.add_project_link(project_id, name, url)
+        return jsonify({'success': True, 'link': link})
+
+    @app.route('/api/todo/v2/projects/<project_id>/links/<link_id>', methods=['PUT', 'DELETE'])
+    def todo_v2_project_link(project_id, link_id):
+        """项目链接操作：更新、删除"""
+        if not has_todo_access():
+            return jsonify({'success': False, 'error': '未授权'}), 401
+
+        extended_manager = current_app.config['TODO_EXTENDED_MANAGER']
+
+        if request.method == 'PUT':
+            payload = request.json or {}
+            name = payload.get('name', '').strip()
+            url = payload.get('url', '').strip()
+            
+            if not name or not url:
+                return jsonify({'success': False, 'error': '链接名称和地址不能为空'}), 400
+
+            link = extended_manager.update_project_link(project_id, link_id, name, url)
+            if link:
+                return jsonify({'success': True, 'link': link})
+            return jsonify({'success': False, 'error': '链接不存在'}), 404
+
+        # DELETE
+        success = extended_manager.delete_project_link(project_id, link_id)
+        if success:
+            return jsonify({'success': True})
+        return jsonify({'success': False, 'error': '链接不存在'}), 404
+
+    @app.route('/api/todo/v2/tasks/<task_id>/links', methods=['GET', 'POST'])
+    def todo_v2_task_links(task_id):
+        """任务链接操作：获取、添加"""
+        if not has_todo_access():
+            return jsonify({'success': False, 'error': '未授权'}), 401
+
+        extended_manager = current_app.config['TODO_EXTENDED_MANAGER']
+
+        if request.method == 'GET':
+            links = extended_manager.get_task_links(task_id)
+            return jsonify({'success': True, 'links': links})
+
+        # POST - 添加链接
+        payload = request.json or {}
+        name = payload.get('name', '').strip()
+        url = payload.get('url', '').strip()
+        
+        if not name or not url:
+            return jsonify({'success': False, 'error': '链接名称和地址不能为空'}), 400
+
+        link = extended_manager.add_task_link(task_id, name, url)
+        return jsonify({'success': True, 'link': link})
+
+    @app.route('/api/todo/v2/tasks/<task_id>/links/<link_id>', methods=['PUT', 'DELETE'])
+    def todo_v2_task_link(task_id, link_id):
+        """任务链接操作：更新、删除"""
+        if not has_todo_access():
+            return jsonify({'success': False, 'error': '未授权'}), 401
+
+        extended_manager = current_app.config['TODO_EXTENDED_MANAGER']
+
+        if request.method == 'PUT':
+            payload = request.json or {}
+            name = payload.get('name', '').strip()
+            url = payload.get('url', '').strip()
+            
+            if not name or not url:
+                return jsonify({'success': False, 'error': '链接名称和地址不能为空'}), 400
+
+            link = extended_manager.update_task_link(task_id, link_id, name, url)
+            if link:
+                return jsonify({'success': True, 'link': link})
+            return jsonify({'success': False, 'error': '链接不存在'}), 404
+
+        # DELETE
+        success = extended_manager.delete_task_link(task_id, link_id)
+        if success:
+            return jsonify({'success': True})
+        return jsonify({'success': False, 'error': '链接不存在'}), 404
+
+    @app.route('/api/todo/v2/file_tree', methods=['GET'])
+    def todo_v2_file_tree():
+        """获取文件浏览器文件树（用于文件选择器）- 仅加载第一层，支持懒加载"""
+        if not has_todo_access():
+            return jsonify({'success': False, 'error': '未授权'}), 401
+
+        root_dir = current_app.config.get('ROOT_DIR')
+        if not root_dir or not os.path.exists(root_dir) or not os.path.isdir(root_dir):
+            return jsonify({'success': False, 'error': '共享文件夹未设置'}), 404
+
+        # 只加载第一层，不递归加载子目录（支持懒加载）
+        def build_tree_first_level(dir_path, rel_path=''):
+            """只构建第一层文件树"""
+            result = []
+            try:
+                items = os.listdir(dir_path)
+                items.sort(key=lambda x: (not os.path.isdir(os.path.join(dir_path, x)), x.lower()))
+                
+                for item in items:
+                    try:
+                        item_path = os.path.join(dir_path, item)
+                        item_rel_path = posixpath.join(rel_path, item) if rel_path else item
+                        
+                        node = {
+                            'name': item,
+                            'path': item_rel_path,
+                            'is_dir': os.path.isdir(item_path)
+                        }
+                        
+                        # 如果是目录，标记有子节点，但不加载内容（懒加载）
+                        if node['is_dir']:
+                            # 检查是否有子项
+                            try:
+                                sub_items = os.listdir(item_path)
+                                node['has_children'] = len(sub_items) > 0
+                                node['children'] = []  # 初始为空，点击展开时再加载
+                            except:
+                                node['has_children'] = False
+                                node['children'] = []
+                        
+                        result.append(node)
+                    except Exception as e:
+                        print(f"Error processing item {item} in {dir_path}: {e}")
+                        continue
+            except Exception as e:
+                print(f"Error building tree for {dir_path}: {e}")
+            
+            return result
+
+        try:
+            tree = build_tree_first_level(root_dir)
+            return jsonify({'success': True, 'tree': tree})
+        except Exception as exc:
+            import traceback
+            traceback.print_exc()
+            return jsonify({'success': False, 'error': str(exc)}), 500
+    
+    @app.route('/api/todo/v2/file_tree/<path:folder_path>', methods=['GET'])
+    def todo_v2_file_tree_subfolder(folder_path):
+        """获取指定文件夹的子文件树（用于懒加载）"""
+        if not has_todo_access():
+            return jsonify({'success': False, 'error': '未授权'}), 401
+
+        root_dir = current_app.config.get('ROOT_DIR')
+        if not root_dir or not os.path.exists(root_dir) or not os.path.isdir(root_dir):
+            return jsonify({'success': False, 'error': '共享文件夹未设置'}), 404
+
+        # 构建完整路径
+        folder_full_path = os.path.join(root_dir, folder_path)
+        
+        # 安全检查：确保路径在root_dir内
+        if not os.path.abspath(folder_full_path).startswith(os.path.abspath(root_dir)):
+            return jsonify({'success': False, 'error': '路径不安全'}), 400
+        
+        if not os.path.exists(folder_full_path) or not os.path.isdir(folder_full_path):
+            return jsonify({'success': False, 'error': '文件夹不存在'}), 404
+
+        def build_tree_first_level(dir_path, rel_path=''):
+            """只构建第一层文件树"""
+            result = []
+            try:
+                items = os.listdir(dir_path)
+                items.sort(key=lambda x: (not os.path.isdir(os.path.join(dir_path, x)), x.lower()))
+                
+                for item in items:
+                    try:
+                        item_path = os.path.join(dir_path, item)
+                        item_rel_path = posixpath.join(rel_path, item) if rel_path else item
+                        
+                        node = {
+                            'name': item,
+                            'path': item_rel_path,
+                            'is_dir': os.path.isdir(item_path)
+                        }
+                        
+                        if node['is_dir']:
+                            try:
+                                sub_items = os.listdir(item_path)
+                                node['has_children'] = len(sub_items) > 0
+                                node['children'] = []
+                            except:
+                                node['has_children'] = False
+                                node['children'] = []
+                        
+                        result.append(node)
+                    except Exception as e:
+                        print(f"Error processing item {item} in {dir_path}: {e}")
+                        continue
+            except Exception as e:
+                print(f"Error building tree for {dir_path}: {e}")
+            
+            return result
+
+        try:
+            tree = build_tree_first_level(folder_full_path, folder_path)
+            return jsonify({'success': True, 'tree': tree})
+        except Exception as exc:
+            import traceback
+            traceback.print_exc()
             return jsonify({'success': False, 'error': str(exc)}), 500
 
     @app.route('/api/todo/v2/export/excel', methods=['POST'])
@@ -1579,6 +1893,31 @@ def init_app(app):
         except Exception as exc:
             return jsonify({'success': False, 'error': str(exc)}), 500
 
+    @app.route('/api/favorites', methods=['GET'])
+    def get_favorites():
+        """获取收藏列表"""
+        if not is_logged_in():
+            return jsonify({'success': False, 'error': '未登录'}), 401
+        
+        try:
+            data = load_favorites()
+            return jsonify({'success': True, 'data': data})
+        except Exception as e:
+            return jsonify({'success': False, 'error': str(e)}), 500
+    
+    @app.route('/api/favorites/groups/<group_name>', methods=['GET'])
+    def get_favorites_by_group(group_name):
+        """获取指定分组的收藏文件"""
+        if not is_logged_in():
+            return jsonify({'success': False, 'error': '未登录'}), 401
+        
+        try:
+            data = load_favorites()
+            items = [item for item in data.get('items', []) if item.get('group') == group_name]
+            return jsonify({'success': True, 'items': items, 'group': group_name})
+        except Exception as e:
+            return jsonify({'success': False, 'error': str(e)}), 500
+
     @app.route('/file_browser')
     def file_browser():
         """文件浏览器页面，显示文件列表"""
@@ -1665,12 +2004,16 @@ def init_app(app):
         else:
             parent_rel_path = ''
         
+        # 加载收藏数据
+        favorites_data = load_favorites()
+        
         return render_template('index.html', 
                               directories=directories, 
                               files=files, 
                               current_path=path, 
                               path_parts=path_parts,
-                              parent_rel_path=parent_rel_path)
+                              parent_rel_path=parent_rel_path,
+                              favorites_groups=favorites_data.get('groups', []))
     
     @app.route('/view/<path:filepath>')
     def view_file(filepath):

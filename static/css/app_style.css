@@ -1,0 +1,433 @@
+/* 
+   App Style (Refactored from jasmine_base.css)
+   Uses variables from themes.css
+*/
+
+:root {
+    /* Legacy mapping for backward compatibility if any inline styles use them */
+    --jasmine-green-600: var(--t-primary);
+    --jasmine-green-700: var(--t-primary-hover);
+    --jasmine-green-400: var(--t-primary-light);
+    --jasmine-ink: var(--t-text-main);
+    --jasmine-muted: var(--t-text-muted);
+    --jasmine-gradient-main: var(--t-bg-body);
+    --jasmine-panel-glass: var(--t-bg-panel);
+    --jasmine-shadow-lg: var(--t-shadow-lg);
+}
+
+html {
+    height: 100%;
+    min-height: 100%;
+    margin: 0;
+    padding: 0;
+    font-family: "Source Han Sans CN", "Microsoft YaHei", "PingFang SC", Arial, sans-serif;
+    background: var(--t-bg-body);
+    background-attachment: fixed;
+    background-size: 100% 100%;
+    background-repeat: no-repeat;
+}
+
+body {
+    min-height: 100%;
+    margin: 0;
+    padding: 0;
+    color: var(--t-text-main);
+    background: transparent;
+}
+
+body {
+    line-height: 1.6;
+}
+
+a {
+    color: var(--t-primary);
+    text-decoration: none;
+    transition: color 0.2s ease;
+}
+
+a:hover,
+a:focus {
+    color: var(--t-primary-hover);
+    text-decoration: underline;
+}
+
+.btn-primary {
+    background: linear-gradient(120deg, var(--t-primary), var(--t-primary-light));
+    border: none;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    /* Generic shadow for button */
+    color: #fff;
+}
+
+.btn-primary:hover,
+.btn-primary:focus {
+    background: linear-gradient(120deg, var(--t-primary-hover), var(--t-primary));
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.15);
+}
+
+.btn-outline-primary,
+.btn-outline-success {
+    color: var(--t-primary);
+    border-color: var(--t-primary);
+}
+
+.btn-outline-primary:hover,
+.btn-outline-primary:focus,
+.btn-outline-success:hover,
+.btn-outline-success:focus {
+    background: var(--t-primary);
+    color: #fff;
+    border-color: var(--t-primary);
+}
+
+.btn-success {
+    /* Map success to primary for unity, or define a success var? 
+       Using primary for now to keep theme consistent */
+    background: linear-gradient(120deg, var(--t-primary), var(--t-primary-light));
+    border: none;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    color: #fff;
+}
+
+.btn-outline-secondary {
+    border-color: var(--t-border);
+    color: var(--t-text-muted);
+}
+
+.btn-outline-secondary:hover {
+    background: var(--t-border-light);
+    color: var(--t-primary-hover);
+}
+
+.card,
+.modal-content {
+    border: 1px solid var(--t-border-light);
+    border-radius: 20px;
+    background: var(--t-bg-panel);
+    box-shadow: var(--t-shadow-sm);
+    backdrop-filter: blur(6px);
+    color: var(--t-text-main);
+}
+
+.card-header {
+    border-bottom-color: var(--t-border-light);
+    background: var(--t-bg-soft);
+    color: var(--t-primary-hover);
+    font-weight: 600;
+}
+
+.card-footer {
+    border-top-color: var(--t-border-light);
+    background: var(--t-bg-soft);
+}
+
+.table {
+    background: var(--t-bg-panel-opaque);
+    border-radius: 16px;
+    overflow: hidden;
+    color: var(--t-text-main);
+}
+
+.table thead {
+    background: var(--t-bg-soft);
+    color: var(--t-primary-hover);
+}
+
+.table-hover tbody tr:hover {
+    background-color: var(--t-border-light);
+}
+
+.badge.bg-primary,
+.badge.bg-success {
+    background: linear-gradient(120deg, var(--t-primary), var(--t-primary-light)) !important;
+    color: #fff;
+}
+
+.form-control,
+.form-select,
+.form-check-input {
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.5);
+    /* Semi-transparent white for inputs */
+    border: 1px solid var(--t-border);
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    color: var(--t-text-main);
+}
+
+/* Dark mode adjustment for inputs if needed, generic solution: */
+[data-theme="cyberpunk"] .form-control,
+[data-theme="aurora"] .form-control,
+[data-theme="mist-forest"] .form-control {
+    background: rgba(0, 0, 0, 0.2);
+    border-color: var(--t-border);
+    color: var(--t-text-main);
+}
+
+.form-control:focus,
+.form-select:focus,
+.form-check-input:focus {
+    border-color: var(--t-primary);
+    box-shadow: var(--t-focus-ring);
+    background: rgba(255, 255, 255, 0.8);
+}
+
+[data-theme="cyberpunk"] .form-control:focus,
+[data-theme="aurora"] .form-control:focus {
+    background: rgba(0, 0, 0, 0.4);
+}
+
+.alert {
+    border-radius: 14px;
+    border-color: var(--t-border-light);
+}
+
+.navbar {
+    border-bottom: 1px solid var(--t-border-light);
+    background: var(--t-bg-soft);
+    /* Changed from primary gradient to soft for standard look, or use primary? Original was dark green. */
+    /* Let's use primary for navbar to match original feel but themed */
+    background: linear-gradient(120deg, var(--t-primary-hover), var(--t-primary));
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.navbar .navbar-brand,
+.navbar .navbar-text,
+.navbar .nav-link {
+    color: #fff !important;
+    /* Always white on primary navbar */
+}
+
+/* Original classes */
+.jasmine-body,
+body.jasmine-body {
+    background: var(--t-bg-body);
+}
+
+.jasmine-panel {
+    background: var(--t-bg-panel);
+    border-radius: 22px;
+    box-shadow: var(--t-shadow-lg);
+}
+
+.jasmine-soft-panel {
+    background: var(--t-bg-panel-opaque);
+    border-radius: 22px;
+    box-shadow: var(--t-shadow-sm);
+}
+
+.jasmine-highlight {
+    background: var(--t-bg-soft);
+    border-left: 4px solid var(--t-primary-light);
+    padding: 12px 16px;
+    border-radius: 14px;
+    color: var(--t-text-main);
+}
+
+.jasmine-link {
+    color: var(--t-primary);
+    text-decoration: none;
+}
+
+.jasmine-link:hover {
+    color: var(--t-primary-hover);
+    text-decoration: underline;
+}
+
+.progress {
+    background: var(--t-border-light);
+    border-radius: 999px;
+    overflow: hidden;
+}
+
+.progress-bar {
+    background: linear-gradient(120deg, var(--t-primary), var(--t-primary-light));
+}
+
+.breadcrumb-item+.breadcrumb-item::before {
+    color: var(--t-primary-light);
+}
+
+.list-group-item {
+    border-color: var(--t-border-light);
+    background-color: var(--t-bg-panel-opaque);
+    color: var(--t-text-main);
+}
+
+.list-group-item.active {
+    background: linear-gradient(120deg, var(--t-primary), var(--t-primary-light));
+    border-color: transparent;
+}
+
+.text-primary,
+.link-primary {
+    color: var(--t-primary) !important;
+}
+
+.bg-primary {
+    background: linear-gradient(120deg, var(--t-primary), var(--t-primary-light)) !important;
+}
+
+.border-primary {
+    border-color: var(--t-primary) !important;
+}
+
+.shadow-jasmine {
+    box-shadow: var(--t-shadow-lg);
+}
+
+body:not(.choice-page) {
+    background: var(--t-bg-body) !important;
+}
+
+/* Toolbar buttons */
+.toolbar-btn {
+    background: linear-gradient(135deg, var(--t-primary-hover), var(--t-primary)) !important;
+    color: #fff !important;
+    border: none;
+}
+
+.toolbar-btn.back-btn {
+    background: linear-gradient(135deg, var(--t-primary-light), var(--t-primary-lighter)) !important;
+    color: var(--t-text-main) !important;
+    /* might be light on light? */
+}
+
+/* Fix contrast */
+[data-theme="cyberpunk"] .toolbar-btn.back-btn,
+[data-theme="aurora"] .toolbar-btn.back-btn {
+    color: #000 !important;
+}
+
+/* Helper cards */
+.upload-card,
+.quick-share-card,
+.empty-state-icon {
+    background: linear-gradient(135deg, var(--t-primary), var(--t-primary-light)) !important;
+    color: #fff !important;
+}
+
+.card-dashboard,
+.file-manager-sidebar,
+.table-section,
+.jasmine-panel-block {
+    background: var(--t-bg-panel) !important;
+    border-left-color: var(--t-primary) !important;
+    box-shadow: var(--t-shadow-sm) !important;
+    color: var(--t-text-main);
+}
+
+.card-dashboard span.badge,
+.folder-item .badge {
+    background: linear-gradient(135deg, var(--t-primary), var(--t-primary-light)) !important;
+    color: #fff !important;
+}
+
+.selected-breadcrumb {
+    border-left: 4px solid var(--t-primary) !important;
+    background: var(--t-border-light) !important;
+}
+
+.custom-nav-link.active {
+    color: var(--t-primary) !important;
+    border-bottom: 3px solid var(--t-primary) !important;
+    background: var(--t-border-light) !important;
+}
+
+.modal-header {
+    background: linear-gradient(135deg, var(--t-primary), var(--t-primary-light)) !important;
+    color: #fff !important;
+}
+
+.text-highlight,
+.link-highlight,
+.jasmine-accent {
+    color: var(--t-primary) !important;
+}
+
+.jasmine-border {
+    border-color: var(--t-border) !important;
+}
+
+.save-hint {
+    background: linear-gradient(135deg, var(--t-primary), var(--t-primary-light)) !important;
+    color: #fff !important;
+    box-shadow: 0 14px 34px rgba(0, 0, 0, 0.2) !important;
+}
+
+.save-status {
+    background: var(--t-bg-soft);
+    border: 1px solid var(--t-border-light);
+    color: var(--t-primary-hover);
+}
+
+.container-main {
+    background: var(--t-bg-panel);
+    border-radius: 20px;
+    box-shadow: var(--t-shadow-lg);
+    border: 1px solid var(--t-border-light);
+    backdrop-filter: blur(8px);
+    transition: box-shadow 0.25s ease, transform 0.25s ease;
+    color: var(--t-text-main);
+}
+
+.container-main:hover {
+    box-shadow: var(--t-shadow-lg);
+    /* maybe enhance shadow? */
+    transform: translateY(-2px);
+}
+
+.page-header,
+.section-header {
+    border-bottom: 1px solid var(--t-border-light);
+    color: var(--t-primary-hover);
+}
+
+.page-header p,
+.section-header p {
+    color: var(--t-text-muted);
+}
+
+.share-card,
+.info-card,
+.jasmine-card {
+    background: var(--t-bg-panel-opaque);
+    border-radius: 18px;
+    border: 1px solid var(--t-border-light);
+    box-shadow: var(--t-shadow-sm);
+    color: var(--t-text-main);
+}
+
+.stat-card,
+.jasmine-pill {
+    background: linear-gradient(135deg, var(--t-primary), var(--t-primary-light));
+    color: #fff;
+    border-radius: 16px;
+    box-shadow: var(--t-shadow-sm);
+}
+
+.share-url,
+.jasmine-code-block {
+    background: var(--t-border-light);
+    /* use generic light bg */
+    border-radius: 12px;
+    border: 1px solid var(--t-border-light);
+    box-shadow: none;
+}
+
+.share-url input,
+.jasmine-code-block input {
+    background: transparent;
+    color: var(--t-text-main);
+}
+
+.pagination .page-link {
+    color: var(--t-primary);
+    background-color: var(--t-bg-panel-opaque);
+    border-color: var(--t-border-light);
+}
+
+.pagination .page-item.active .page-link {
+    background: linear-gradient(135deg, var(--t-primary), var(--t-primary-light));
+    border-color: transparent;
+    color: #fff;
+}

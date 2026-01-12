@@ -1,0 +1,234 @@
+/* 
+   Themes Definition File
+   Defines CSS variables for different themes.
+   Default theme is "Jasmine" (茉莉奶白).
+*/
+
+:root {
+    /* =========================================
+       Base Variables (Default: Jasmine / 茉莉奶白)
+       ========================================= */
+    
+    /* Core Colors */
+    --t-primary: #1f8f7e;          /* jasmine-green-600 */
+    --t-primary-hover: #0c7464;    /* jasmine-green-700 */
+    --t-primary-light: #5fbfae;    /* jasmine-green-400 */
+    --t-primary-lighter: #93d4c8;  /* jasmine-green-300 */
+    --t-primary-faint: #e0f4ef;    /* jasmine-green-100 */
+
+    /* Text Colors */
+    --t-text-main: #1f2f2d;        /* jasmine-ink */
+    --t-text-muted: #4a5f5b;       /* jasmine-muted */
+    --t-text-light: #fdfdf8;       /* white/cream text */
+
+    /* Backgrounds */
+    --t-bg-body: linear-gradient(140deg, rgba(16, 130, 110, 0.98) 0%, rgba(54, 170, 151, 0.94) 45%, rgba(193, 231, 223, 0.9) 100%);
+    --t-bg-panel: linear-gradient(150deg, rgba(215, 242, 234, 0.92), rgba(255, 255, 255, 0.9)); /* jasmine-panel-glass */
+    --t-bg-panel-opaque: #fdfdf8;  /* jasmine-white */
+    --t-bg-soft: linear-gradient(130deg, rgba(214, 242, 234, 0.92), rgba(236, 248, 243, 0.88)); /* jasmine-gradient-soft */
+
+    /* UI Elements */
+    --t-border: rgba(95, 191, 174, 0.35); /* jasmine-outline */
+    --t-border-light: rgba(95, 191, 174, 0.18);
+    --t-shadow-sm: 0 10px 30px rgba(30, 114, 96, 0.12);
+    --t-shadow-lg: 0 18px 42px rgba(30, 114, 96, 0.18);
+    --t-focus-ring: 0 0 0 0.25rem rgba(54, 170, 151, 0.25);
+    
+    /* Bootstrap overrides */
+    --bs-primary: var(--t-primary);
+    --bs-body-bg: transparent;
+}
+
+/* =========================================
+   Theme: Mist Forest / 迷雾森林
+   ========================================= */
+[data-theme="mist-forest"] {
+    --t-primary: #2d5a27;
+    --t-primary-hover: #1b3a16;
+    --t-primary-light: #5c8a52;
+    --t-primary-lighter: #a3c99e;
+    --t-primary-faint: #dcedd9;
+
+    --t-text-main: #1a2f18;
+    --t-text-muted: #4b6348;
+    
+    --t-bg-body: linear-gradient(to bottom right, #2c3e50, #4ca1af); /* Misty dark */
+    --t-bg-panel: rgba(255, 255, 255, 0.85);
+    --t-bg-soft: rgba(240, 248, 240, 0.9);
+
+    --t-border: rgba(45, 90, 39, 0.3);
+    --t-border-light: rgba(45, 90, 39, 0.15);
+    --t-shadow-sm: 0 10px 30px rgba(20, 40, 30, 0.2);
+    --t-shadow-lg: 0 18px 42px rgba(20, 40, 30, 0.3);
+    --t-focus-ring: 0 0 0 0.25rem rgba(45, 90, 39, 0.25);
+}
+
+/* =========================================
+   Theme: Sunset Twilight / 日落黄昏
+   ========================================= */
+[data-theme="sunset"] {
+    --t-primary: #e65100;
+    --t-primary-hover: #bf360c;
+    --t-primary-light: #ff9800;
+    --t-primary-lighter: #ffcc80;
+    --t-primary-faint: #fff3e0;
+
+    --t-text-main: #3e2723;
+    --t-text-muted: #6d4c41;
+
+    --t-bg-body: linear-gradient(135deg, #ff9966 0%, #ff5e62 100%);
+    --t-bg-panel: rgba(255, 250, 245, 0.9);
+    --t-bg-soft: linear-gradient(120deg, #fff3e0, #ffe0b2);
+
+    --t-border: rgba(230, 81, 0, 0.3);
+    --t-border-light: rgba(230, 81, 0, 0.15);
+    --t-shadow-sm: 0 10px 30px rgba(191, 54, 12, 0.15);
+}
+
+/* =========================================
+   Theme: Golden Beach / 黄金沙滩
+   ========================================= */
+[data-theme="golden-beach"] {
+    --t-primary: #fbc02d;
+    --t-primary-hover: #f57f17;
+    --t-primary-light: #fff176;
+    --t-primary-lighter: #fff9c4;
+    --t-primary-faint: #fffde7;
+    
+    /* Make text darker for contrast on yellow */
+    --t-text-main: #5d4037;
+    --t-text-muted: #8d6e63;
+
+    --t-bg-body: linear-gradient(to top, #4facfe 0%, #00f2fe 100%); /* Ocean blue */
+    --t-bg-panel: rgba(255, 253, 231, 0.92); /* Sandy light */
+    --t-bg-soft: #fff8e1;
+
+    --t-border: rgba(251, 192, 45, 0.4);
+    --t-focus-ring: 0 0 0 0.25rem rgba(251, 192, 45, 0.3);
+}
+
+/* =========================================
+   Theme: Cyberpunk / 赛博朋克
+   ========================================= */
+[data-theme="cyberpunk"] {
+    --t-primary: #00ff9f; /* Neon Green */
+    --t-primary-hover: #00cc80;
+    --t-primary-light: #00b8ff; /* Neon Blue */
+    --t-primary-lighter: #bc13fe; /* Neon Purple */
+    --t-primary-faint: rgba(0, 255, 159, 0.1);
+
+    --t-text-main: #e0e0e0;
+    --t-text-muted: #a0a0a0;
+    --t-text-light: #ffffff;
+
+    --t-bg-body: linear-gradient(135deg, #0b0c15 0%, #180c1e 100%);
+    --t-bg-panel: rgba(20, 20, 35, 0.85);
+    --t-bg-panel-opaque: #1b1b2f;
+    --t-bg-soft: rgba(40, 40, 60, 0.8);
+
+    --t-border: rgba(0, 255, 159, 0.4);
+    --t-border-light: rgba(0, 255, 159, 0.2);
+    --t-shadow-sm: 0 0 20px rgba(0, 255, 159, 0.15);
+    --t-shadow-lg: 0 0 40px rgba(0, 184, 255, 0.2);
+    --t-focus-ring: 0 0 0 0.25rem rgba(0, 255, 159, 0.4);
+}
+
+/* =========================================
+   Theme: Aurora / 极光星空
+   ========================================= */
+[data-theme="aurora"] {
+    --t-primary: #00d2ff;
+    --t-primary-hover: #3a7bd5;
+    --t-primary-light: #92effd;
+    --t-primary-lighter: #b6fbff;
+    --t-primary-faint: rgba(0, 210, 255, 0.1);
+
+    --t-text-main: #ffffff;
+    --t-text-muted: #b0c4de;
+    
+    --t-bg-body: linear-gradient(to top, #09203f 0%, #537895 100%);
+    --t-bg-panel: rgba(16, 28, 45, 0.7); /* Glassy dark */
+    --t-bg-panel-opaque: #141e30;
+    --t-bg-soft: linear-gradient(to right, rgba(20, 30, 48, 0.8), rgba(36, 59, 85, 0.8));
+
+    --t-border: rgba(146, 239, 253, 0.3);
+    --t-border-light: rgba(146, 239, 253, 0.15);
+    --t-shadow-lg: 0 0 35px rgba(0, 210, 255, 0.15);
+}
+
+/* Helper Class to enforce theme transition */
+body {
+    transition: background 0.5s ease;
+}
+* {
+    transition-property: background-color, border-color, box-shadow, color;
+    transition-duration: 0.3s;
+    transition-timing-function: ease;
+}
+
+/* 增强表单控件对比度 */
+body input.form-control,
+body textarea.form-control,
+body select.form-select,
+body .form-control,
+body .form-select {
+    background-color: #ffffff !important;
+    color: #1f2f2d !important;
+    border-color: #95b5b0 !important;
+}
+
+body input.form-control:focus,
+body textarea.form-control:focus,
+body select.form-select:focus {
+    background-color: #ffffff !important;
+    color: #1f2f2d !important;
+    border-color: var(--t-primary) !important;
+    box-shadow: var(--t-focus-ring) !important;
+}
+
+body input.form-control::placeholder,
+body textarea.form-control::placeholder {
+    color: #6c757d !important;
+    opacity: 0.7;
+}
+
+/* 按钮颜色增强对比度 */
+body .btn-primary {
+    background-color: var(--t-primary) !important;
+    border-color: var(--t-primary) !important;
+    color: #ffffff !important;
+}
+
+body .btn-primary:hover {
+    background-color: var(--t-primary-hover) !important;
+    border-color: var(--t-primary-hover) !important;
+    color: #ffffff !important;
+}
+
+body .btn-secondary {
+    background-color: #6c757d !important;
+    border-color: #6c757d !important;
+    color: #ffffff !important;
+}
+
+body .btn-outline-primary {
+    color: var(--t-primary) !important;
+    border-color: var(--t-primary) !important;
+}
+
+body .btn-outline-primary:hover {
+    background-color: var(--t-primary) !important;
+    border-color: var(--t-primary) !important;
+    color: #ffffff !important;
+}
+
+body .btn-outline-secondary {
+    color: #6c757d !important;
+    border-color: #6c757d !important;
+}
+
+body .btn-outline-secondary:hover {
+    background-color: #6c757d !important;
+    border-color: #6c757d !important;
+    color: #ffffff !important;
+}
