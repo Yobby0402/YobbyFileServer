@@ -2456,27 +2456,80 @@
                 return;
             }
             
-            // 构建导出数据
-            const exportData = {
-                projects: reportProjects.map(project => ({
-                    ...project,
-                    tasks: (project.tasks || []).filter(task => task.show_in_report !== false)
-                }))
-            };
+            // 构建扁平化的任务列表（用于导出）
+            const flatTasks = [];
+            reportProjects.forEach(project => {
+                const reportTasks = (project.tasks || []).filter(task => task.show_in_report !== false);
+                reportTasks.forEach((task, index) => {
+                    // 构建当前进展内容
+                    let currentProgress = '';
+                    const isCompleted = (task.progress || 0) >= 100;
+                    if (isCompleted) {
+                        if (task.conclusion) {
+                            currentProgress = task.conclusion;
+                        } else {
+                            const comments = task.comments || [];
+                            if (comments.length > 0) {
+                                currentProgress = comments.map(c => c.content).join('\n');
+                            } else {
+                                currentProgress = '已完成';
+                            }
+                        }
+                    } else {
+                        const comments = task.comments || [];
+                        if (comments.length > 0) {
+                            currentProgress = comments.map(c => c.content).join('\n');
+                        } else {
+                            currentProgress = '进行中';
+                        }
+                    }
+                    
+                    flatTasks.push({
+                        ...task,
+                        project_id: project.id,
+                        project_name: project.name || '未命名项目',
+                        project_phase: project.phase || '',
+                        project_color: project.color || '#4facfe',
+                        index: index + 1, // 序号
+                        current_progress: currentProgress,
+                        weekly_plan: task.weekly_plan || '',
+                        status: isCompleted ? '已完成' : '未完成'
+                    });
+                });
+            });
             
-            // 调用导出API（使用现有的导出接口，但需要特殊处理汇报格式）
-            // 暂时使用简单的客户端导出，后续可以改进为服务端导出
-            showAlert('info', '汇报表格Excel导出功能开发中，请使用浏览器的打印功能或截图');
-            return;
+            if (flatTasks.length === 0) {
+                showAlert('warning', '暂无汇报数据可导出');
+                return;
+            }
             
-            // 以下是预留的服务端导出代码
-            const url = '/api/todo/v2/export/excel';
+            // 获取当前表格的列宽
+            const columnWidths = {};
+            const table = refs.reportTable;
+            if (table) {
+                const headers = table.querySelectorAll('thead th');
+                headers.forEach((header, index) => {
+                    const colLetter = String.fromCharCode(65 + index); // A, B, C, ...
+                    // 获取实际渲染的宽度（像素）
+                    const widthPx = header.offsetWidth;
+                    if (widthPx && widthPx > 0) {
+                        // 将像素转换为Excel列宽单位
+                        // Excel列宽单位：1单位 ≈ 7.4像素（根据字体大小调整）
+                        // 为了稍微宽一些，使用 1单位 ≈ 7像素
+                        const excelWidth = widthPx / 7;
+                        columnWidths[colLetter] = Math.max(8, Math.min(excelWidth, 60)); // 限制在8-60之间
+                    }
+                });
+            }
+            
+            // 调用导出API
+            const url = '/api/todo/v2/export/report';
             fetch(url, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    timeRange: 'preview',
-                    previewData: [], // 需要转换为扁平化的任务列表
+                    tasks: flatTasks,
+                    columnWidths: columnWidths, // 传递列宽信息
                     fileName: `汇报表格_${new Date().toISOString().split('T')[0]}.xlsx`
                 })
             })
@@ -2533,6 +2586,734 @@
             }
         }
     }
+
+    // ===== 会议记录（笔记）功能 =====
+    
+    let noteEditor = null;
+    let noteOriginalContent = '';
+    let currentNoteDate = null;
+    let noteList = [];
+    let filteredNoteList = [];
+    let noteSearchKeyword = '';
+    let noteSortMode = 'date_desc';
+
+    // 打开笔记模态框
+    function openMeetingNoteModal() {
+        const modalElement = document.getElementById('meetingNoteModal');
+        if (!modalElement) {
+            console.error('找不到笔记模态框元素');
+            return;
+        }
+
+        // 检查Bootstrap是否可用
+        if (typeof bootstrap === 'undefined' || !bootstrap.Modal) {
+            console.error('Bootstrap未加载');
+            // 尝试使用jQuery Bootstrap（如果存在）
+            if (typeof $ !== 'undefined' && $.fn.modal) {
+                $('#meetingNoteModal').modal('show');
+                resetNoteModal();
+                loadNoteList();
+                const today = new Date().toISOString().split('T')[0];
+                document.getElementById('noteDateInput').value = today;
+                currentNoteDate = today;
+                loadNoteByDate(today);
+                bindNoteEvents();
+                return;
+            } else {
+                showAlert('danger', 'Bootstrap未正确加载，请刷新页面');
+                return;
+            }
+        }
+
+        let modal = bootstrap.Modal.getInstance(modalElement);
+        if (!modal) {
+            try {
+                modal = new bootstrap.Modal(modalElement, {
+                    backdrop: true,
+                    keyboard: true,
+                    focus: true
+                });
+            } catch (e) {
+                console.error('创建Bootstrap Modal失败:', e);
+                showAlert('danger', '无法打开笔记窗口：' + e.message);
+                return;
+            }
+        }
+
+        // 重置状态
+        resetNoteModal();
+        
+        // 加载笔记列表
+        loadNoteList();
+        
+        // 设置今天的日期为默认日期
+        const today = new Date().toISOString().split('T')[0];
+        const dateInput = document.getElementById('noteDateInput');
+        if (dateInput) {
+            dateInput.value = today;
+        }
+        currentNoteDate = today;
+        
+        // 尝试加载今天的笔记
+        loadNoteByDate(today);
+        
+        // 绑定事件
+        bindNoteEvents();
+        
+        try {
+            modal.show();
+        } catch (e) {
+            console.error('显示Modal失败:', e);
+            showAlert('danger', '无法打开笔记窗口：' + e.message);
+        }
+    }
+
+    // 重置笔记模态框
+    function resetNoteModal() {
+        cleanupNoteEditor();
+        currentNoteDate = null;
+        noteOriginalContent = '';
+        const previewMode = document.getElementById('notePreviewMode');
+        const editMode = document.getElementById('noteEditMode');
+        const footer = document.getElementById('noteModalFooter');
+        
+        if (previewMode) previewMode.style.display = 'flex';
+        if (editMode) editMode.style.display = 'none';
+        if (footer) footer.innerHTML = '<button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>';
+    }
+
+    // 清理笔记编辑器
+    function cleanupNoteEditor() {
+        if (noteEditor) {
+            try {
+                const wrapper = noteEditor.getWrapperElement();
+                if (wrapper && wrapper.parentNode) {
+                    wrapper.parentNode.removeChild(wrapper);
+                }
+            } catch (e) {
+                console.warn('清理笔记编辑器失败:', e);
+            }
+            noteEditor = null;
+        }
+        
+        const editorContainer = document.getElementById('noteEditorContainer');
+        if (editorContainer) {
+            const codeMirrorElements = editorContainer.querySelectorAll('.CodeMirror, .CodeMirror-scroll, .CodeMirror-sizer');
+            codeMirrorElements.forEach(el => {
+                try {
+                    el.remove();
+                } catch (e) {
+                    // 忽略错误
+                }
+            });
+            editorContainer.innerHTML = '';
+        }
+    }
+
+    // 加载笔记列表
+    function loadNoteList() {
+        fetch('/api/todo/v2/meeting_notes')
+            .then(response => response.json())
+            .then(result => {
+                if (result.success) {
+                    noteList = result.notes || [];
+                    applyNoteFilterAndSort();
+                }
+            })
+            .catch(error => {
+                console.error('加载笔记列表失败:', error);
+            });
+    }
+
+    // 应用筛选和排序
+    function applyNoteFilterAndSort() {
+        if (!noteSearchKeyword) {
+            // 没有搜索关键词，显示所有笔记
+            filteredNoteList = [...noteList];
+            applyNoteSort();
+            renderNoteList();
+            return;
+        }
+
+        // 有搜索关键词，先搜索日期匹配的
+        const dateMatched = noteList.filter(note => {
+            return note.date && note.date.includes(noteSearchKeyword);
+        });
+
+        // 然后搜索内容匹配的（异步）
+        searchNotesByContent(noteSearchKeyword).then(contentMatchedDates => {
+            // 合并日期匹配和内容匹配的结果
+            const allMatchedDates = new Set();
+            
+            // 添加日期匹配的
+            dateMatched.forEach(note => allMatchedDates.add(note.date));
+            
+            // 添加内容匹配的
+            contentMatchedDates.forEach(date => allMatchedDates.add(date));
+            
+            // 筛选出匹配的笔记
+            filteredNoteList = noteList.filter(note => allMatchedDates.has(note.date));
+            
+            // 在笔记对象中标记是否内容匹配（用于显示）
+            filteredNoteList.forEach(note => {
+                note.contentMatched = contentMatchedDates.includes(note.date);
+            });
+            
+            applyNoteSort();
+            renderNoteList();
+        });
+    }
+
+    // 搜索笔记内容
+    async function searchNotesByContent(keyword) {
+        if (!keyword || !keyword.trim()) {
+            return [];
+        }
+
+        const matchingDates = [];
+        const keywordLower = keyword.toLowerCase().trim();
+        
+        // 并行加载所有笔记内容并搜索
+        const searchPromises = noteList.map(note => {
+            return fetch(`/api/todo/v2/meeting_notes/${note.date}`)
+                .then(response => {
+                    if (!response.ok) {
+                        return null;
+                    }
+                    return response.json();
+                })
+                .then(result => {
+                    if (result && result.success && result.content) {
+                        const content = result.content.toLowerCase();
+                        if (content.includes(keywordLower)) {
+                            matchingDates.push(note.date);
+                        }
+                    }
+                    return null;
+                })
+                .catch(error => {
+                    console.warn(`搜索笔记 ${note.date} 失败:`, error);
+                    return null;
+                });
+        });
+        
+        await Promise.all(searchPromises);
+        return matchingDates;
+    }
+
+    // 应用排序
+    function applyNoteSort() {
+        filteredNoteList.sort((a, b) => {
+            switch (noteSortMode) {
+                case 'date_asc':
+                    return a.date.localeCompare(b.date);
+                case 'date_desc':
+                    return b.date.localeCompare(a.date);
+                case 'update_asc':
+                    const aTime = a.updated_at ? new Date(a.updated_at).getTime() : 0;
+                    const bTime = b.updated_at ? new Date(b.updated_at).getTime() : 0;
+                    return aTime - bTime;
+                case 'update_desc':
+                    const aTime2 = a.updated_at ? new Date(a.updated_at).getTime() : 0;
+                    const bTime2 = b.updated_at ? new Date(b.updated_at).getTime() : 0;
+                    return bTime2 - aTime2;
+                default:
+                    return b.date.localeCompare(a.date);
+            }
+        });
+    }
+
+    // 渲染笔记列表
+    function renderNoteList() {
+        const container = document.getElementById('noteListContainer');
+        if (!container) return;
+
+        if (filteredNoteList.length === 0) {
+            if (noteSearchKeyword) {
+                container.innerHTML = '<p class="text-muted small">未找到匹配的笔记</p>';
+            } else {
+                container.innerHTML = '<p class="text-muted small">暂无笔记</p>';
+            }
+            return;
+        }
+
+        let html = '<div class="list-group">';
+        filteredNoteList.forEach(note => {
+            const date = note.date;
+            const dateObj = new Date(date + 'T00:00:00');
+            const dateStr = dateObj.toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' });
+            const isActive = date === currentNoteDate;
+            const isDateMatched = noteSearchKeyword && date.includes(noteSearchKeyword);
+            const isContentMatched = note.contentMatched === true;
+            const isMatched = isDateMatched || isContentMatched;
+            
+            html += `
+                <div class="list-group-item list-group-item-action ${isActive ? 'active' : ''} ${isMatched ? 'border-primary border-2' : ''}" 
+                     data-date="${date}" 
+                     style="cursor: pointer; ${isActive ? 'background-color: var(--t-primary-faint);' : ''}">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div style="flex: 1;">
+                            <strong>${dateStr}</strong>
+                            <br>
+                            <small class="text-muted">${note.updated_at ? new Date(note.updated_at).toLocaleString('zh-CN') : ''}</small>
+                            ${isMatched ? `<br><small class="text-primary"><i class="fas fa-check-circle"></i> ${isContentMatched ? '内容匹配' : '日期匹配'}</small>` : ''}
+                        </div>
+                        <button type="button" class="btn btn-sm btn-outline-danger" onclick="deleteNote('${date}', event)" title="删除">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </div>
+                </div>
+            `;
+        });
+        html += '</div>';
+
+        container.innerHTML = html;
+
+        // 绑定点击事件
+        container.querySelectorAll('.list-group-item').forEach(item => {
+            item.addEventListener('click', function(e) {
+                if (e.target.closest('.btn')) return; // 忽略删除按钮的点击
+                const date = this.dataset.date;
+                currentNoteDate = date;
+                document.getElementById('noteDateInput').value = date;
+                loadNoteByDate(date);
+                renderNoteList(); // 重新渲染以更新active状态
+            });
+        });
+
+        // 如果有匹配的笔记且当前没有选中，自动选中第一个匹配的
+        if (noteSearchKeyword && filteredNoteList.length > 0 && !currentNoteDate) {
+            const firstMatched = filteredNoteList[0];
+            if (firstMatched) {
+                currentNoteDate = firstMatched.date;
+                document.getElementById('noteDateInput').value = firstMatched.date;
+                loadNoteByDate(firstMatched.date);
+                renderNoteList();
+            }
+        }
+    }
+
+    // 加载指定日期的笔记
+    function loadNoteByDate(dateStr) {
+        fetch(`/api/todo/v2/meeting_notes/${dateStr}`)
+            .then(response => response.json())
+            .then(result => {
+                if (result.success) {
+                    noteOriginalContent = result.content || '';
+                    updateNotePreview(noteOriginalContent);
+                } else {
+                    // 笔记不存在，显示空内容
+                    noteOriginalContent = '';
+                    updateNotePreview('');
+                }
+            })
+            .catch(error => {
+                console.error('加载笔记失败:', error);
+                noteOriginalContent = '';
+                updateNotePreview('');
+            });
+    }
+
+    // 更新笔记预览
+    function updateNotePreview(content) {
+        const previewDiv = document.getElementById('notePreview');
+        if (!previewDiv) return;
+
+        if (!content || !content.trim()) {
+            previewDiv.innerHTML = '<p class="text-muted">暂无内容</p>';
+            return;
+        }
+
+        if (typeof marked !== 'undefined') {
+            try {
+                if (marked.setOptions) {
+                    marked.setOptions({
+                        breaks: true,
+                        gfm: true,
+                        headerIds: false,
+                        mangle: false
+                    });
+                }
+                const html = marked.parse(content);
+                previewDiv.innerHTML = html;
+            } catch (error) {
+                console.error('Markdown渲染失败:', error);
+                previewDiv.innerHTML = '<p class="text-danger">预览渲染失败</p>';
+            }
+        } else {
+            // 使用后端API
+            fetch(`/api/todo/v2/meeting_notes/${currentNoteDate}/preview`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ content: content })
+            })
+            .then(response => response.json())
+            .then(result => {
+                if (result.success) {
+                    previewDiv.innerHTML = result.html;
+                } else {
+                    previewDiv.innerHTML = '<p class="text-danger">预览失败：' + (result.error || '未知错误') + '</p>';
+                }
+            })
+            .catch(error => {
+                previewDiv.innerHTML = '<p class="text-danger">预览失败：' + error.message + '</p>';
+            });
+        }
+    }
+
+    // 切换到编辑模式
+    function switchToNoteEditMode() {
+        const previewMode = document.getElementById('notePreviewMode');
+        const editMode = document.getElementById('noteEditMode');
+        const editorContainer = document.getElementById('noteEditorContainer');
+        const footer = document.getElementById('noteModalFooter');
+
+        if (!previewMode || !editMode || !editorContainer || !footer) {
+            console.error('切换编辑模式失败：找不到必要的DOM元素');
+            return;
+        }
+
+        if (noteEditor) {
+            cleanupNoteEditor();
+        }
+
+        previewMode.style.display = 'none';
+        editMode.style.display = 'flex';
+        footer.innerHTML = `
+            <button type="button" class="btn btn-secondary" id="cancelNoteEditBtn">放弃更改</button>
+            <button type="button" class="btn btn-primary" id="saveNoteBtn">保存</button>
+        `;
+
+        editorContainer.innerHTML = '';
+        const containerDiv = document.createElement('div');
+        containerDiv.id = 'noteCodeMirrorContainer';
+        containerDiv.style.width = '100%';
+        containerDiv.style.height = '100%';
+        containerDiv.style.minHeight = '300px';
+        editorContainer.appendChild(containerDiv);
+
+        const initEditor = () => {
+            if (typeof CodeMirror === 'undefined') {
+                showAlert('danger', '代码编辑器未加载，请刷新页面重试');
+                return;
+            }
+
+            if (editMode.style.display === 'none') {
+                return;
+            }
+
+            const container = document.getElementById('noteCodeMirrorContainer');
+            if (!container || !container.parentNode) {
+                return;
+            }
+
+            if (noteEditor) {
+                cleanupNoteEditor();
+            }
+
+            if (container.querySelector('.CodeMirror')) {
+                container.innerHTML = '';
+            }
+
+            try {
+                noteEditor = CodeMirror(container, {
+                    value: noteOriginalContent || '',
+                    mode: 'markdown',
+                    theme: 'monokai',
+                    lineNumbers: true,
+                    lineWrapping: true,
+                    indentUnit: 2,
+                    tabSize: 2,
+                    autofocus: true,
+                    viewportMargin: Infinity
+                });
+
+                const updateSize = () => {
+                    if (!noteEditor || editMode.style.display === 'none') return;
+                    const modalBody = editorContainer.closest('.modal-body');
+                    if (modalBody) {
+                        const modalBodyHeight = modalBody.offsetHeight;
+                        const footerHeight = 60;
+                        const availableHeight = modalBodyHeight - footerHeight - 100;
+                        noteEditor.setSize('100%', Math.max(availableHeight, 300) + 'px');
+                    } else {
+                        noteEditor.setSize('100%', '400px');
+                    }
+                };
+
+                updateSize();
+                window.addEventListener('resize', updateSize);
+
+                const livePreviewDiv = document.getElementById('noteLivePreview');
+                let previewUpdateTimer = null;
+
+                const updateLivePreview = (markdownText) => {
+                    if (typeof marked === 'undefined') {
+                        fetch(`/api/todo/v2/meeting_notes/${currentNoteDate}/preview`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ content: markdownText })
+                        })
+                        .then(response => response.json())
+                        .then(result => {
+                            if (result.success && livePreviewDiv) {
+                                livePreviewDiv.innerHTML = result.html;
+                            }
+                        })
+                        .catch(error => {
+                            if (livePreviewDiv) {
+                                livePreviewDiv.innerHTML = '<p class="text-danger">预览更新失败</p>';
+                            }
+                        });
+                        return;
+                    }
+
+                    try {
+                        if (livePreviewDiv) {
+                            if (!markdownText || !markdownText.trim()) {
+                                livePreviewDiv.innerHTML = '<p class="text-muted">暂无内容</p>';
+                            } else {
+                                if (marked.setOptions) {
+                                    marked.setOptions({
+                                        breaks: true,
+                                        gfm: true,
+                                        headerIds: false,
+                                        mangle: false
+                                    });
+                                }
+                                const html = marked.parse(markdownText);
+                                livePreviewDiv.innerHTML = html;
+                            }
+                        }
+                    } catch (error) {
+                        console.error('Markdown渲染失败:', error);
+                        if (livePreviewDiv) {
+                            livePreviewDiv.innerHTML = '<p class="text-danger">预览渲染失败</p>';
+                        }
+                    }
+                };
+
+                updateLivePreview(noteOriginalContent);
+
+                noteEditor.on('change', function() {
+                    clearTimeout(previewUpdateTimer);
+                    previewUpdateTimer = setTimeout(() => {
+                        const content = noteEditor.getValue();
+                        updateLivePreview(content);
+                    }, 300);
+                });
+
+                setTimeout(() => {
+                    noteEditor.refresh();
+                }, 100);
+            } catch (error) {
+                console.error('初始化笔记编辑器失败:', error);
+                showAlert('danger', '初始化编辑器失败：' + error.message);
+            }
+        };
+
+        const modalElement = document.getElementById('meetingNoteModal');
+        if (modalElement) {
+            const modal = bootstrap.Modal.getInstance(modalElement);
+            if (modal && modal._isShown) {
+                initEditor();
+            } else {
+                modalElement.addEventListener('shown.bs.modal', initEditor, { once: true });
+            }
+        } else {
+            setTimeout(initEditor, 100);
+        }
+
+        // 绑定保存和取消按钮
+        setTimeout(() => {
+            const saveBtn = document.getElementById('saveNoteBtn');
+            const cancelBtn = document.getElementById('cancelNoteEditBtn');
+            if (saveBtn) {
+                saveBtn.onclick = saveNote;
+            }
+            if (cancelBtn) {
+                cancelBtn.onclick = cancelNoteEdit;
+            }
+        }, 100);
+    }
+
+    // 保存笔记
+    function saveNote() {
+        if (!currentNoteDate) {
+            const dateInput = document.getElementById('noteDateInput');
+            if (dateInput && dateInput.value) {
+                currentNoteDate = dateInput.value;
+            } else {
+                showAlert('warning', '请选择日期');
+                return;
+            }
+        }
+
+        const content = noteEditor ? noteEditor.getValue() : '';
+        
+        fetch('/api/todo/v2/meeting_notes', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                date: currentNoteDate,
+                content: content
+            })
+        })
+        .then(response => response.json())
+        .then(result => {
+            if (result.success) {
+                noteOriginalContent = content;
+                showAlert('success', '笔记保存成功');
+                loadNoteList(); // 刷新列表
+                cancelNoteEdit(); // 退出编辑模式
+            } else {
+                showAlert('danger', '保存失败：' + (result.error || '未知错误'));
+            }
+        })
+        .catch(error => {
+            console.error('保存笔记失败:', error);
+            showAlert('danger', '保存失败：' + error.message);
+        });
+    }
+
+    // 取消编辑
+    function cancelNoteEdit() {
+        const previewMode = document.getElementById('notePreviewMode');
+        const editMode = document.getElementById('noteEditMode');
+        const footer = document.getElementById('noteModalFooter');
+
+        cleanupNoteEditor();
+        
+        previewMode.style.display = 'flex';
+        editMode.style.display = 'none';
+        footer.innerHTML = '<button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>';
+
+        // 恢复原始内容
+        updateNotePreview(noteOriginalContent);
+    }
+
+    // 删除笔记
+    function deleteNote(dateStr, event) {
+        if (event) {
+            event.stopPropagation();
+        }
+
+        if (!confirm(`确定要删除 ${dateStr} 的笔记吗？`)) {
+            return;
+        }
+
+        fetch(`/api/todo/v2/meeting_notes/${dateStr}`, {
+            method: 'DELETE'
+        })
+        .then(response => response.json())
+        .then(result => {
+            if (result.success) {
+                showAlert('success', '笔记已删除');
+                if (currentNoteDate === dateStr) {
+                    currentNoteDate = null;
+                    noteOriginalContent = '';
+                    updateNotePreview('');
+                }
+                loadNoteList();
+            } else {
+                showAlert('danger', '删除失败：' + (result.error || '未知错误'));
+            }
+        })
+        .catch(error => {
+            console.error('删除笔记失败:', error);
+            showAlert('danger', '删除失败：' + error.message);
+        });
+    }
+
+    // 绑定笔记相关事件
+    function bindNoteEvents() {
+        // 新建笔记按钮
+        const newNoteBtn = document.getElementById('newNoteBtn');
+        if (newNoteBtn) {
+            newNoteBtn.onclick = function() {
+                const today = new Date().toISOString().split('T')[0];
+                document.getElementById('noteDateInput').value = today;
+                currentNoteDate = today;
+                noteOriginalContent = '';
+                updateNotePreview('');
+                switchToNoteEditMode();
+            };
+        }
+
+        // 编辑按钮
+        const editNoteBtn = document.getElementById('editNoteBtn');
+        if (editNoteBtn) {
+            editNoteBtn.onclick = switchToNoteEditMode;
+        }
+
+        // 日期输入框变化
+        const dateInput = document.getElementById('noteDateInput');
+        if (dateInput) {
+            dateInput.onchange = function() {
+                const dateStr = this.value;
+                if (dateStr) {
+                    currentNoteDate = dateStr;
+                    loadNoteByDate(dateStr);
+                }
+            };
+        }
+
+        // 搜索输入框
+        const searchInput = document.getElementById('noteSearchInput');
+        const searchBtn = document.getElementById('noteSearchBtn');
+        const clearSearchBtn = document.getElementById('noteClearSearchBtn');
+        
+        if (searchInput) {
+            searchInput.addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') {
+                    performNoteSearch();
+                }
+            });
+        }
+        
+        if (searchBtn) {
+            searchBtn.onclick = performNoteSearch;
+        }
+        
+        if (clearSearchBtn) {
+            clearSearchBtn.onclick = function() {
+                noteSearchKeyword = '';
+                document.getElementById('noteSearchInput').value = '';
+                clearSearchBtn.style.display = 'none';
+                applyNoteFilterAndSort();
+            };
+        }
+
+        // 排序选择框
+        const sortSelect = document.getElementById('noteSortSelect');
+        if (sortSelect) {
+            sortSelect.value = noteSortMode;
+            sortSelect.onchange = function() {
+                noteSortMode = this.value;
+                applyNoteFilterAndSort();
+            };
+        }
+    }
+
+    // 执行笔记搜索
+    function performNoteSearch() {
+        const searchInput = document.getElementById('noteSearchInput');
+        const clearSearchBtn = document.getElementById('noteClearSearchBtn');
+        
+        if (searchInput) {
+            noteSearchKeyword = searchInput.value.trim();
+            if (noteSearchKeyword) {
+                clearSearchBtn.style.display = 'block';
+                applyNoteFilterAndSort();
+            } else {
+                clearSearchBtn.style.display = 'none';
+                applyNoteFilterAndSort();
+            }
+        }
+    }
+
+    // 将deleteNote暴露到全局作用域
+    window.deleteNote = deleteNote;
 
     // ===== 项目描述和链接管理 =====
     
@@ -3422,6 +4203,12 @@
         }
         if (refs.fullscreenReportBtn) {
             refs.fullscreenReportBtn.addEventListener('click', toggleReportFullscreen);
+        }
+        
+        // 初始化会议记录按钮
+        const meetingNoteBtn = document.getElementById('meetingNoteBtn');
+        if (meetingNoteBtn) {
+            meetingNoteBtn.addEventListener('click', openMeetingNoteModal);
         }
         
         // 初始化待完成任务列表折叠状态

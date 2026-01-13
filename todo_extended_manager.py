@@ -33,7 +33,8 @@ class TodoExtendedManager:
         self._data: Dict[str, Any] = {
             "project_descriptions": {},  # project_id -> description_md
             "project_links": {},  # project_id -> [{"id": str, "name": str, "url": str}]
-            "task_links": {}  # task_id -> [{"id": str, "name": str, "url": str}]
+            "task_links": {},  # task_id -> [{"id": str, "name": str, "url": str}]
+            "meeting_notes": {}  # date_str -> {"date": str, "content": str, "created_at": str, "updated_at": str}
         }
         self._load()
 
@@ -50,19 +51,22 @@ class TodoExtendedManager:
                     self._data = {
                         "project_descriptions": data.get("project_descriptions", {}),
                         "project_links": data.get("project_links", {}),
-                        "task_links": data.get("task_links", {})
+                        "task_links": data.get("task_links", {}),
+                        "meeting_notes": data.get("meeting_notes", {})
                     }
                 else:
                     self._data = {
                         "project_descriptions": {},
                         "project_links": {},
-                        "task_links": {}
+                        "task_links": {},
+                        "meeting_notes": {}
                     }
         except Exception:
             self._data = {
                 "project_descriptions": {},
                 "project_links": {},
-                "task_links": {}
+                "task_links": {},
+                "meeting_notes": {}
             }
             self._persist()
 
@@ -197,6 +201,58 @@ class TodoExtendedManager:
             if task_id in self._data["task_links"]:
                 del self._data["task_links"][task_id]
                 self._persist()
+
+    # ===== 会议记录（笔记）相关 =====
+
+    def list_meeting_notes(self) -> List[Dict[str, Any]]:
+        """获取所有会议记录列表，按日期倒序排列"""
+        with self._lock:
+            notes = []
+            for date_str, note_data in self._data["meeting_notes"].items():
+                notes.append({
+                    "date": date_str,
+                    "content": note_data.get("content", ""),
+                    "created_at": note_data.get("created_at", ""),
+                    "updated_at": note_data.get("updated_at", "")
+                })
+            # 按日期倒序排列（最新的在前）
+            notes.sort(key=lambda x: x["date"], reverse=True)
+            return notes
+
+    def get_meeting_note(self, date_str: str) -> Optional[str]:
+        """获取指定日期的会议记录内容"""
+        with self._lock:
+            note_data = self._data["meeting_notes"].get(date_str)
+            if note_data:
+                return note_data.get("content", "")
+            return None
+
+    def set_meeting_note(self, date_str: str, content: str) -> None:
+        """设置指定日期的会议记录"""
+        from datetime import datetime
+        with self._lock:
+            if date_str not in self._data["meeting_notes"]:
+                # 新建笔记
+                self._data["meeting_notes"][date_str] = {
+                    "date": date_str,
+                    "content": content,
+                    "created_at": datetime.now().isoformat(),
+                    "updated_at": datetime.now().isoformat()
+                }
+            else:
+                # 更新笔记
+                self._data["meeting_notes"][date_str]["content"] = content
+                self._data["meeting_notes"][date_str]["updated_at"] = datetime.now().isoformat()
+            self._persist()
+
+    def delete_meeting_note(self, date_str: str) -> bool:
+        """删除指定日期的会议记录"""
+        with self._lock:
+            if date_str in self._data["meeting_notes"]:
+                del self._data["meeting_notes"][date_str]
+                self._persist()
+                return True
+            return False
 
 
 # 全局实例

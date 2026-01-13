@@ -660,6 +660,71 @@ def init_app(app):
             return jsonify({'success': True})
         return jsonify({'success': False, 'error': '链接不存在'}), 404
 
+    @app.route('/api/todo/v2/meeting_notes', methods=['GET', 'POST'])
+    def todo_v2_meeting_notes():
+        """会议记录操作：获取列表、创建/更新"""
+        if not has_todo_access():
+            return jsonify({'success': False, 'error': '未授权'}), 401
+
+        extended_manager = current_app.config['TODO_EXTENDED_MANAGER']
+
+        if request.method == 'GET':
+            # 获取所有笔记列表
+            notes = extended_manager.list_meeting_notes()
+            return jsonify({'success': True, 'notes': notes})
+
+        # POST - 创建或更新笔记
+        payload = request.json or {}
+        date_str = payload.get('date', '').strip()
+        content = payload.get('content', '')
+
+        if not date_str:
+            return jsonify({'success': False, 'error': '日期不能为空'}), 400
+
+        extended_manager.set_meeting_note(date_str, content)
+        return jsonify({'success': True})
+
+    @app.route('/api/todo/v2/meeting_notes/<date_str>', methods=['GET', 'PUT', 'DELETE'])
+    def todo_v2_meeting_note(date_str):
+        """会议记录操作：获取、更新、删除指定日期的笔记"""
+        if not has_todo_access():
+            return jsonify({'success': False, 'error': '未授权'}), 401
+
+        extended_manager = current_app.config['TODO_EXTENDED_MANAGER']
+
+        if request.method == 'GET':
+            content = extended_manager.get_meeting_note(date_str)
+            if content is not None:
+                return jsonify({'success': True, 'content': content})
+            return jsonify({'success': False, 'error': '笔记不存在'}), 404
+
+        if request.method == 'PUT':
+            payload = request.json or {}
+            content = payload.get('content', '')
+            extended_manager.set_meeting_note(date_str, content)
+            return jsonify({'success': True})
+
+        # DELETE
+        success = extended_manager.delete_meeting_note(date_str)
+        if success:
+            return jsonify({'success': True})
+        return jsonify({'success': False, 'error': '笔记不存在'}), 404
+
+    @app.route('/api/todo/v2/meeting_notes/<date_str>/preview', methods=['POST'])
+    def todo_v2_meeting_note_preview(date_str):
+        """预览会议记录的Markdown渲染结果"""
+        if not has_todo_access():
+            return jsonify({'success': False, 'error': '未授权'}), 401
+
+        payload = request.json or {}
+        content = payload.get('content', '')
+        
+        try:
+            html_content = markdown_parser.render(content)
+            return jsonify({'success': True, 'html': html_content})
+        except Exception as exc:
+            return jsonify({'success': False, 'error': str(exc)}), 500
+
     @app.route('/api/todo/v2/file_tree', methods=['GET'])
     def todo_v2_file_tree():
         """获取文件浏览器文件树（用于文件选择器）- 仅加载第一层，支持懒加载"""
@@ -780,6 +845,231 @@ def init_app(app):
             import traceback
             traceback.print_exc()
             return jsonify({'success': False, 'error': str(exc)}), 500
+
+    @app.route('/api/todo/v2/export/report', methods=['POST'])
+    def todo_v2_export_report():
+        """导出汇报表格为Excel文件"""
+        if not has_todo_access():
+            return jsonify({'success': False, 'error': '未授权'}), 401
+
+        try:
+            from flask import send_file
+            from io import BytesIO
+            from datetime import datetime
+            import openpyxl
+            from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+            from openpyxl.utils import get_column_letter
+
+            payload = request.json or {}
+            tasks = payload.get('tasks', [])
+            custom_file_name = payload.get('fileName', f'汇报表格_{datetime.now().strftime("%Y-%m-%d")}.xlsx')
+            column_widths_config = payload.get('columnWidths', {})  # 前端传递的列宽配置
+
+            if not tasks:
+                return jsonify({'success': False, 'error': '汇报数据为空'}), 400
+
+            # 创建Excel工作簿
+            wb = openpyxl.Workbook()
+            if 'Sheet' in wb.sheetnames:
+                wb.remove(wb['Sheet'])
+            
+            ws = wb.create_sheet('汇报表格', 0)
+
+            # 设置表头
+            headers = ['项目名称', '序号', '任务简述', '详细描述', '状态', '当前进展', '本周计划']
+            ws.append(headers)
+            
+            # 启用筛选
+            ws.auto_filter.ref = f"A1:{get_column_letter(len(headers))}1"
+
+            # 设置表头样式
+            header_fill = PatternFill(start_color='D6F2EA', end_color='C8ECE0', fill_type='solid')
+            header_font = Font(bold=True, color='0F433B', size=12)
+            border = Border(
+                left=Side(style='thin'),
+                right=Side(style='thin'),
+                top=Side(style='thin'),
+                bottom=Side(style='thin')
+            )
+
+            for col_idx, header in enumerate(headers, 1):
+                cell = ws.cell(row=1, column=col_idx)
+                cell.value = header
+                cell.fill = header_fill
+                cell.font = header_font
+                cell.alignment = Alignment(horizontal='center', vertical='center')
+                cell.border = border
+
+            # 填充数据
+            current_project_name = None
+            project_name_start_row = None
+            project_name_col_idx = 1
+
+            for row_idx, task in enumerate(tasks, start=2):
+                project_name = task.get('project_name', '未命名项目')
+                project_phase = task.get('project_phase', '')
+                if project_phase:
+                    project_name_display = f"{project_name}\n({project_phase})"
+                else:
+                    project_name_display = project_name
+
+                # 处理项目名称合并
+                if project_name != current_project_name:
+                    if current_project_name is not None and project_name_start_row is not None:
+                        # 合并上一个项目的名称单元格
+                        if row_idx - 1 > project_name_start_row:
+                            ws.merge_cells(
+                                start_row=project_name_start_row,
+                                start_column=project_name_col_idx,
+                                end_row=row_idx - 1,
+                                end_column=project_name_col_idx
+                            )
+                    current_project_name = project_name
+                    project_name_start_row = row_idx
+
+                # 构建当前进展内容
+                current_progress = task.get('current_progress', '')
+                if not current_progress:
+                    is_completed = (task.get('progress') or 0) >= 100
+                    if is_completed:
+                        current_progress = '已完成'
+                    else:
+                        current_progress = '进行中'
+
+                # 填充行数据
+                row_data = [
+                    project_name_display if row_idx == project_name_start_row else '',  # 项目名称（只在第一行显示）
+                    task.get('index', ''),
+                    task.get('summary', ''),
+                    task.get('description', '').replace('\n', ' '),
+                    task.get('status', ''),
+                    current_progress.replace('\n', ' '),
+                    task.get('weekly_plan', '').replace('\n', ' ')
+                ]
+
+                # 计算该行需要的最大行数（用于设置行高）
+                max_lines = 1
+                
+                for col_idx, value in enumerate(row_data, 1):
+                    cell = ws.cell(row=row_idx, column=col_idx)
+                    cell.value = value
+                    cell.border = border
+                    
+                    # 所有单元格：垂直居中，自动换行
+                    if col_idx == 1:  # 项目名称列
+                        cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
+                    elif col_idx == 2:  # 序号列
+                        cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
+                    elif col_idx == 5:  # 状态列
+                        cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
+                    else:  # 其他列（简述、描述、进展、计划）
+                        cell.alignment = Alignment(horizontal='left', vertical='center', wrap_text=True)
+                    
+                    # 更准确地估算该单元格需要的行数
+                    if value:
+                        col_letter = get_column_letter(col_idx)
+                        col_width = column_widths_config.get(col_letter, 20)  # Excel列宽单位
+                        text = str(value)
+                        text_length = len(text)
+                        
+                        # 计算换行符数量
+                        newline_count = text.count('\n')
+                        
+                        # Excel列宽单位转换为字符数：1单位 ≈ 7像素，假设字体大小为11，每个字符约6-7像素宽
+                        # 更准确的估算：列宽单位 * 1.2 ≈ 字符数（因为Excel列宽单位比实际字符宽度大）
+                        chars_per_line = max(1, int(col_width * 1.2))
+                        
+                        # 计算需要的行数：考虑换行符和文本长度
+                        if newline_count > 0:
+                            # 如果有换行符，每行单独计算
+                            lines = text.split('\n')
+                            for line in lines:
+                                line_chars = len(line)
+                                line_count = max(1, (line_chars // chars_per_line) + 1)
+                                max_lines = max(max_lines, line_count)
+                            max_lines += newline_count  # 加上换行符本身
+                        else:
+                            # 没有换行符，根据文本长度计算
+                            estimated_lines = max(1, (text_length // chars_per_line) + 1)
+                            max_lines = max(max_lines, estimated_lines)
+                
+                # 设置行高：基础高度15 + 每行额外15（确保内容完整显示）
+                row_height = 15 + (max_lines - 1) * 15
+                ws.row_dimensions[row_idx].height = min(row_height, 150)  # 最大150，确保内容完整
+
+            # 合并最后一个项目的名称单元格
+            if current_project_name is not None and project_name_start_row is not None:
+                if len(tasks) + 1 > project_name_start_row:
+                    ws.merge_cells(
+                        start_row=project_name_start_row,
+                        start_column=project_name_col_idx,
+                        end_row=len(tasks) + 1,
+                        end_column=project_name_col_idx
+                    )
+
+            # 设置列宽（使用前端传递的列宽，如果没有则根据内容计算）
+            default_column_widths = {
+                'A': 20,  # 项目名称
+                'B': 8,   # 序号
+                'C': 25,  # 任务简述
+                'D': 40,  # 详细描述
+                'E': 12,  # 状态
+                'F': 30,  # 当前进展
+                'G': 30   # 本周计划
+            }
+            
+            # 如果前端没有传递列宽，根据内容计算合适的列宽
+            if not column_widths_config:
+                # 计算每列的最大内容长度
+                max_lengths = {}
+                for task in tasks:
+                    values = [
+                        task.get('project_name', '') + ('\n' + task.get('project_phase', '') if task.get('project_phase') else ''),
+                        str(task.get('index', '')),
+                        task.get('summary', ''),
+                        task.get('description', ''),
+                        task.get('status', ''),
+                        task.get('current_progress', ''),
+                        task.get('weekly_plan', '')
+                    ]
+                    for idx, val in enumerate(values):
+                        col_letter = get_column_letter(idx + 1)
+                        length = len(str(val))
+                        if col_letter not in max_lengths or length > max_lengths[col_letter]:
+                            max_lengths[col_letter] = length
+                
+                # 根据内容长度设置列宽（稍微宽一些）
+                for col_letter in ['A', 'B', 'C', 'D', 'E', 'F', 'G']:
+                    if col_letter in max_lengths:
+                        # 列宽 = 内容长度 * 1.2 + 2（稍微宽一些）
+                        content_width = max_lengths[col_letter] * 1.2 + 2
+                        default_width = default_column_widths.get(col_letter, 20)
+                        column_widths_config[col_letter] = max(default_width, min(content_width, 60))  # 最大60
+            
+            for col_letter, default_width in default_column_widths.items():
+                # 优先使用前端传递的列宽，否则使用计算或默认值
+                width = column_widths_config.get(col_letter, default_width)
+                ws.column_dimensions[col_letter].width = width
+
+            # 设置表头行高
+            ws.row_dimensions[1].height = 25
+
+            # 保存到内存
+            output = BytesIO()
+            wb.save(output)
+            output.seek(0)
+
+            return send_file(
+                output,
+                mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                as_attachment=True,
+                download_name=custom_file_name
+            )
+
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            return jsonify({'success': False, 'error': str(e)}), 500
 
     @app.route('/api/todo/v2/export/excel', methods=['POST'])
     def todo_v2_export_excel():

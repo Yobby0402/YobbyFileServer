@@ -571,6 +571,94 @@
         </div>
     </div>
 
+    <!-- 会议记录（笔记）模态框 -->
+    <div class="modal fade" id="meetingNoteModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered" style="width: 90vw; max-width: 90vw; height: 85vh; max-height: 85vh;">
+            <div class="modal-content" style="height: 100%; display: flex; flex-direction: column;">
+                <div class="modal-header">
+                    <h5 class="modal-title">📝 会议记录</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body" style="flex: 1; overflow: hidden; display: flex; flex-direction: column;">
+                    <!-- 笔记列表区域（左侧） -->
+                    <div style="display: flex; flex: 1; gap: 15px; overflow: hidden;">
+                        <div style="width: 300px; border-right: 1px solid #ddd; display: flex; flex-direction: column; overflow: hidden;">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <h6 class="mb-0">历史笔记</h6>
+                                <button type="button" class="btn btn-sm btn-primary" id="newNoteBtn">
+                                    <i class="fas fa-plus"></i> 新建
+                                </button>
+                            </div>
+                            <!-- 搜索和筛选区域 -->
+                            <div class="mb-2">
+                                <div class="input-group input-group-sm mb-2">
+                                    <input type="text" class="form-control" id="noteSearchInput" placeholder="搜索笔记内容...">
+                                    <button type="button" class="btn btn-outline-secondary" id="noteSearchBtn" title="搜索">
+                                        <i class="fas fa-search"></i>
+                                    </button>
+                                    <button type="button" class="btn btn-outline-secondary" id="noteClearSearchBtn" title="清除搜索" style="display: none;">
+                                        <i class="fas fa-times"></i>
+                                    </button>
+                                </div>
+                                <div class="d-flex gap-2 mb-2">
+                                    <select class="form-select form-select-sm" id="noteSortSelect">
+                                        <option value="date_desc">按日期降序</option>
+                                        <option value="date_asc">按日期升序</option>
+                                        <option value="update_desc">按更新时间降序</option>
+                                        <option value="update_asc">按更新时间升序</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div id="noteListContainer" style="flex: 1; overflow-y: auto;">
+                                <!-- 笔记列表将动态生成 -->
+                            </div>
+                        </div>
+                        
+                        <!-- 编辑/预览区域（右侧） -->
+                        <div style="flex: 1; display: flex; flex-direction: column; overflow: hidden;">
+                            <!-- 日期选择器 -->
+                            <div class="mb-3">
+                                <label class="form-label">日期</label>
+                                <input type="date" class="form-control" id="noteDateInput" required>
+                            </div>
+                            
+                            <!-- 预览模式 -->
+                            <div id="notePreviewMode" style="flex: 1; overflow: auto; display: flex; flex-direction: column;">
+                                <div class="d-flex justify-content-end mb-2">
+                                    <button type="button" class="btn btn-sm btn-primary" id="editNoteBtn">
+                                        <i class="fas fa-edit"></i> 编辑
+                                    </button>
+                                </div>
+                                <div class="markdown-body" id="notePreview" style="flex: 1; padding: 15px; border: 1px solid #ddd; border-radius: 4px; background: #f9f9f9; min-height: 300px;">
+                                    <p class="text-muted">请选择日期或创建新笔记</p>
+                                </div>
+                            </div>
+                            
+                            <!-- 编辑模式 - 分屏模式 -->
+                            <div id="noteEditMode" style="flex: 1; overflow: hidden; display: none; flex-direction: column;">
+                                <div style="display: flex; flex: 1; gap: 10px; overflow: hidden;">
+                                    <!-- 左侧：编辑器 -->
+                                    <div style="flex: 1; display: flex; flex-direction: column; min-width: 0;">
+                                        <div style="font-size: 12px; color: #666; margin-bottom: 5px;">编辑</div>
+                                        <div id="noteEditorContainer" style="flex: 1; overflow: hidden; border: 1px solid #ddd; border-radius: 4px; min-height: 300px;"></div>
+                                    </div>
+                                    <!-- 右侧：实时预览 -->
+                                    <div style="flex: 1; display: flex; flex-direction: column; min-width: 0; border-left: 1px solid #ddd; padding-left: 10px;">
+                                        <div style="font-size: 12px; color: #666; margin-bottom: 5px;">预览</div>
+                                        <div id="noteLivePreview" class="markdown-body" style="flex: 1; overflow-y: auto; padding: 15px; border: 1px solid #ddd; border-radius: 4px; background: #f9f9f9; min-height: 300px;"></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer" id="noteModalFooter">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- 项目链接管理模态框 -->
     <div class="modal fade" id="projectLinksModal" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog modal-lg modal-dialog-centered">
@@ -894,6 +982,10 @@
             🏠
             <span class="tooltip-text">返回主界面</span>
         </a>
+        <button type="button" class="toolbar-btn note-btn" id="meetingNoteBtn" title="会议记录">
+            📝
+            <span class="tooltip-text">会议记录</span>
+        </button>
     </div>
 
     <script src="{{ url_for('static', filename='js/bootstrap.bundle.min.js') }}"></script>
@@ -901,7 +993,7 @@
     <script src="{{ url_for('static', filename='libs/codemirror/lib/codemirror.js') }}"></script>
     <script src="{{ url_for('static', filename='libs/codemirror/mode/markdown/markdown.js') }}"></script>
     <!-- Marked.js 用于前端实时渲染Markdown -->
-    <script src="https://cdn.jsdelivr.net/npm/marked@12.0.0/marked.min.js"></script>
+    <script src="{{ url_for('static', filename='libs/marked/marked.min.js') }}"></script>
     <script src="{{ url_for('static', filename='js/todo_v2.js') }}"></script>
     <script src="{{ url_for('static', filename='js/todo_v2_export.js') }}"></script>
     <script src="{{ url_for('static', filename='js/theme_floater.js') }}"></script>
