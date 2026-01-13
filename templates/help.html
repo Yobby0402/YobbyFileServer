@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>使用帮助 - Yobboy 文件服务器 v3.0</title>
+    <title>使用帮助 - Yobboy 文件服务器 R1</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap.min.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/font-awesome.min.css') }}">
         <!-- Theme System -->
@@ -284,17 +284,18 @@
                         <i class="fas fa-compass"></i> Yobboy 文件服务器 · 使用帮助中心
                     </h1>
                     <p class="mb-3">
-                        欢迎体验 v3.0 —— 全新的茉莉奶白主题、任务时间轴中心、串口持续日志、3D 可视化与离线编辑齐聚一体的局域网文件服务平台。
+                        欢迎体验 R1 (Release V1) —— 功能完善的本地文件管理和协作工具。
+                        集成了文件浏览、在线编辑、任务管理、产品对比、图表编辑、串口调试等多种功能。
                         本页汇总了快速上手、核心功能、管理配置、安全提示与常见问题，帮助你和团队高效协作。
                     </p>
-                    <span class="badge-pill"><i class="fas fa-history"></i> 最后更新：2025-11-11 · 版本 3.0</span>
+                    <span class="badge-pill"><i class="fas fa-history"></i> 最后更新：2026-01-13 · 版本 R1 (Release V1)</span>
                 </div>
                 <div class="d-flex flex-column flex-sm-row gap-3">
                     <a class="btn btn-soft btn-success" href="{{ url_for('serial_tool') }}">
                         <i class="fas fa-bolt"></i> 打开串口调试助手
                     </a>
                     <a class="btn btn-outline-soft" href="{{ url_for('todo_page') }}">
-                        <i class="fas fa-stream"></i> 前往 ToDo 时间轴中心
+                        <i class="fas fa-tasks"></i> 前往 ToDo 任务管理
                     </a>
                 </div>
             </div>
@@ -308,7 +309,8 @@
                 <li><a href="#quick-start"><i class="fas fa-rocket"></i> 快速上手</a></li>
                 <li><a href="#core-features"><i class="fas fa-gem"></i> 核心功能速览</a></li>
                 <li><a href="#file-explorer"><i class="fas fa-folder-open"></i> 文件浏览器</a></li>
-                <li><a href="#todo-center"><i class="fas fa-tasks"></i> ToDo 时间轴中心</a></li>
+                <li><a href="#todo-center"><i class="fas fa-tasks"></i> ToDo 任务管理系统</a></li>
+                <li><a href="#product-compare"><i class="fas fa-balance-scale"></i> 产品对比工具</a></li>
                 <li><a href="#serial-tool"><i class="fas fa-microchip"></i> 串口调试与日志</a></li>
                 <li><a href="#drawio-markdown"><i class="fas fa-pencil-ruler"></i> 编辑与预览</a></li>
                 <li><a href="#share-3d"><i class="fas fa-share-alt"></i> 分享 & 3D 功能</a></li>
@@ -334,7 +336,7 @@
                     <div class="feature-card header">
                         <h3><i class="fas fa-user-lock"></i> 步骤 2 · 登录系统</h3>
                         <ul>
-                            <li>首次访问会自动跳转至登录页面，默认密码：<code>ats123</code>。</li>
+                            <li>首次访问会自动跳转至登录页面，默认密码：<code>password</code>。</li>
                             <li>建议立即通过 <strong>文件 → 设置</strong> 或编辑 <code>config.ini</code> 更改密码。</li>
                         </ul>
                         <div class="warn-box">
@@ -356,16 +358,17 @@
             </section>
 
             <section class="help-section" id="core-features">
-                <h2><i class="fas fa-gem"></i> 核心功能速览 <span>v3.0 全面焕新</span></h2>
+                <h2><i class="fas fa-gem"></i> 核心功能速览 <span>R1 正式版本</span></h2>
                 <div class="divider"></div>
                 <div class="sub-grid">
                     <div class="feature-card">
-                        <h3><i class="fas fa-stream"></i> ToDo 时间轴中心</h3>
+                        <h3><i class="fas fa-tasks"></i> ToDo 任务管理系统</h3>
                         <ul>
-                            <li>双视图时间轴（纵向/横向），配合浮动跳转按钮快速定位。</li>
-                            <li>项目颜色自动继承、随机配色、预计完成时间、分类进度独立。</li>
-                            <li>时间轴卡片支持评论、修改、删除单条记录，历史与评论同步保留。</li>
-                            <li>底部待办概览按“今日/逾期/剩余时间”分组排序，高亮同步。</li>
+                            <li>项目-任务层级结构，支持项目分组、任务排序、进度跟踪。</li>
+                            <li>表格视图、卡片视图和汇报视图三种展示方式。</li>
+                            <li>支持Markdown格式的项目描述和任务详细描述。</li>
+                            <li>评论系统、更新历史记录、Excel导出功能。</li>
+                            <li>待完成概览卡片，按逾期/今日/即将到期分类。</li>
                         </ul>
                     </div>
                     <div class="feature-card">
@@ -382,13 +385,17 @@
                             <li>目录树浏览、实时搜索、类型过滤、面包屑导航。</li>
                             <li>在线预览 Markdown、PDF、视频音频、3D GLTF/OBJ/STL、Draw.io 等。</li>
                             <li>内置 CodeMirror，支持 100+ 语言语法高亮与快捷键编辑。</li>
+                            <li>文件上传、新建文件/文件夹/Draw.io图表。</li>
+                            <li>分享链接生成，支持密码保护和过期时间设置。</li>
                         </ul>
                     </div>
                     <div class="feature-card">
-                        <h3><i class="fas fa-share-alt"></i> 分享 & 协作工具</h3>
+                        <h3><i class="fas fa-balance-scale"></i> 产品对比工具</h3>
                         <ul>
-                            <li>一键生成分享链接，支持密码、访问次数、有效期控制，并提供访问统计。</li>
-                            <li>3D Viewer、Draw.io、Markdown 等均可嵌入分享页离线预览。</li>
+                            <li>产品参数对比和可视化分析工具。</li>
+                            <li>自定义产品属性、通用参数配置、雷达图可视化对比。</li>
+                            <li>智能分析最优产品和参数排序功能。</li>
+                            <li>归属分类和颜色标识，支持多产品对比。</li>
                         </ul>
                     </div>
                 </div>
@@ -428,41 +435,52 @@
                         <div class="code-block">
 [settings]
 root_dir = C:\your\workspace
-password = ats123
+password = password
 admin_password = admin123
 close_to_tray = true
+port = 5000
                         </div>
                     </div>
                 </div>
             </section>
 
             <section class="help-section" id="todo-center">
-                <h2><i class="fas fa-tasks"></i> ToDo 时间轴中心 <span>项目进度可视化</span></h2>
+                <h2><i class="fas fa-tasks"></i> ToDo 任务管理系统 <span>项目进度可视化</span></h2>
                 <div class="divider"></div>
                 <div class="section-grid">
                     <div class="feature-card">
                         <h3><i class="fas fa-search"></i> 搜索与筛选</h3>
                         <ul>
-                            <li>支持标题、项目、标签、分类等关键词模糊搜索。</li>
-                            <li>项目筛选下拉框自动列出历史项目，颜色随项目继承。</li>
-                            <li>新建 ToDo 时可随机生成茉莉配色，或沿用当前项目颜色。</li>
+                            <li>支持按项目名称、任务简述、描述搜索。</li>
+                            <li>项目筛选下拉框可选择特定项目或查看全部项目。</li>
+                            <li>支持表格视图、卡片视图和汇报视图三种展示方式。</li>
                         </ul>
                     </div>
                     <div class="feature-card">
-                        <h3><i class="fas fa-comments"></i> 时间轴操作</h3>
+                        <h3><i class="fas fa-tasks"></i> 项目管理</h3>
                         <ul>
-                            <li>每条记录支持 <strong>评论 / 修改 / 单条删除</strong>。</li>
-                            <li>评论历史与进度变更会追加到同一 ToDo 的时间轴。</li>
-                            <li>横向模式带有中心线，滚轮自动切换为横向滚动。</li>
-                            <li>右下角浮动按钮可一键跳转到时间轴顶部或待办概览。</li>
+                            <li>创建、编辑、删除项目，设置项目主题色和描述。</li>
+                            <li>项目表格可折叠展开，显示项目名称、创建时间、任务数、整体进度、项目阶段。</li>
+                            <li>项目描述支持Markdown编辑和预览。</li>
+                            <li>为项目添加外部链接或文件浏览器链接。</li>
                         </ul>
                     </div>
                     <div class="feature-card">
-                        <h3><i class="fas fa-chart-line"></i> 待办概览</h3>
+                        <h3><i class="fas fa-list"></i> 任务管理</h3>
                         <ul>
-                            <li>按“今日目标 / 逾期 / 剩余时间排序 / 无截止”自动分组。</li>
-                            <li>点击任意待办条目，同步高亮时间轴对应卡片。</li>
-                            <li>面板固定一屏高度，可独立滚动查看全部任务。</li>
+                            <li>创建、编辑、删除任务，设置优先级、进度、预计完成时间。</li>
+                            <li>任务支持拖拽排序调整任务顺序。</li>
+                            <li>任务详细描述支持展开/折叠，支持Markdown格式。</li>
+                            <li>评论系统：为任务添加评论，记录进展和补充说明。</li>
+                            <li>更新历史：记录每次任务更新的时间和变更内容。</li>
+                        </ul>
+                    </div>
+                    <div class="feature-card">
+                        <h3><i class="fas fa-chart-line"></i> 待完成概览与导出</h3>
+                        <ul>
+                            <li>卡片方式展示待完成任务，按逾期/今日/即将到期分类。</li>
+                            <li>支持灵活配置的Excel导出，包括时间范围、列选择等。</li>
+                            <li>汇报视图：选择展示到汇报页的项目和任务，展示所有任务的简述。</li>
                         </ul>
                     </div>
                 </div>
@@ -524,6 +542,45 @@ close_to_tray = true
                             <li>Markdown-it 渲染引擎，支持表格/脚注/任务列表。</li>
                             <li>CodeMirror 编辑器：行号、折叠、查找替换、快捷键齐全。</li>
                             <li>自动识别 UTF-8 / GBK 编码，保存前提醒未保存修改。</li>
+                        </ul>
+                    </div>
+                </div>
+            </section>
+
+            <section class="help-section" id="product-compare">
+                <h2><i class="fas fa-balance-scale"></i> 产品对比工具 <span>参数对比与可视化分析</span></h2>
+                <div class="divider"></div>
+                <div class="section-grid">
+                    <div class="feature-card">
+                        <h3><i class="fas fa-cog"></i> 属性管理</h3>
+                        <ul>
+                            <li>定义产品属性列表，支持通用参数（数值型）和普通属性（文本型）。</li>
+                            <li>为通用参数设置单位、方向（越大越好/越小越好）。</li>
+                            <li>支持拖拽调整属性顺序。</li>
+                        </ul>
+                    </div>
+                    <div class="feature-card">
+                        <h3><i class="fas fa-box"></i> 产品管理</h3>
+                        <ul>
+                            <li>添加、编辑、删除产品，设置归属和颜色。</li>
+                            <li>产品按归属自动分类，每个归属可自定义颜色。</li>
+                            <li>为产品添加外部URL、本地文件路径或分享链接。</li>
+                        </ul>
+                    </div>
+                    <div class="feature-card">
+                        <h3><i class="fas fa-chart-pie"></i> 雷达图对比</h3>
+                        <ul>
+                            <li>基于Chart.js的雷达图，支持多产品叠加对比。</li>
+                            <li>每个参数独立归一化，基于所有产品的最大最小值。</li>
+                            <li>智能分析：自动识别每个参数的最优产品，统计最优项数量。</li>
+                        </ul>
+                    </div>
+                    <div class="feature-card">
+                        <h3><i class="fas fa-sort"></i> 参数排序</h3>
+                        <ul>
+                            <li>按任意通用参数对产品进行排序，支持升序/降序。</li>
+                            <li>支持创建多个对比文件，分别管理不同的产品对比场景。</li>
+                            <li>所有数据保存在本地JSON文件，支持导入导出。</li>
                         </ul>
                     </div>
                 </div>
@@ -627,7 +684,7 @@ close_to_tray = true
                     <div class="feature-card">
                         <h3><i class="fas fa-server"></i> 服务器无法启动？</h3>
                         <ul>
-                            <li>端口 5000 是否被占用？可修改 <code>config.ini</code> 中的 <code>port</code>。</li>
+                            <li>端口是否被占用（默认5000）？可在GUI设置中修改端口，或编辑 <code>config.ini</code> 中的 <code>port</code>。</li>
                             <li>检查日志窗口或 <code>logs</code> 目录获取错误栈。</li>
                             <li>Windows 上请确保未被防火墙阻止。</li>
                         </ul>
@@ -637,7 +694,7 @@ close_to_tray = true
                         <ul>
                             <li>确认服务器已启动并显示访问地址。</li>
                             <li>客户端与服务器需在同一网段。</li>
-                            <li>防火墙需允许 5000 端口，或使用 <code>localhost</code> 访问。</li>
+                            <li>防火墙需允许服务器端口（默认5000），或使用 <code>localhost</code> 访问。</li>
                         </ul>
                     </div>
                     <div class="feature-card">

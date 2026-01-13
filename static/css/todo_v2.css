@@ -1636,6 +1636,7 @@ input:checked + .slider:before {
     text-align: left;
     font-weight: 600;
     color: var(--jasmine-green-700);
+    border: 1px solid rgba(95, 191, 174, 0.3);
     border-bottom: 2px solid rgba(95, 191, 174, 0.3);
     white-space: nowrap;
     position: relative;
@@ -1658,8 +1659,12 @@ input:checked + .slider:before {
 }
 
 .report-table tbody tr {
-    border-bottom: 1px solid rgba(148, 163, 184, 0.1);
     transition: background-color 0.2s ease;
+}
+
+.report-table tbody tr td {
+    border: 1px solid rgba(148, 163, 184, 0.2);
+    border-top: none;
 }
 
 .report-table tbody tr:hover {
@@ -1676,6 +1681,7 @@ input:checked + .slider:before {
     vertical-align: top;
     overflow-wrap: break-word;
     word-wrap: break-word;
+    border-bottom: 1px solid rgba(148, 163, 184, 0.1);
 }
 
 .report-project-name {

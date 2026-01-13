@@ -65,25 +65,60 @@ a:focus {
     box-shadow: 0 6px 16px rgba(0, 0, 0, 0.15);
 }
 
-.btn-outline-primary,
-.btn-outline-success {
+.btn-outline-primary {
     color: var(--t-primary);
     border-color: var(--t-primary);
 }
 
 .btn-outline-primary:hover,
-.btn-outline-primary:focus,
-.btn-outline-success:hover,
-.btn-outline-success:focus {
+.btn-outline-primary:focus {
     background: var(--t-primary);
     color: #fff;
     border-color: var(--t-primary);
 }
 
+.btn-outline-success {
+    color: var(--t-success);
+    border-color: var(--t-success);
+}
+
+.btn-outline-success:hover,
+.btn-outline-success:focus {
+    background: var(--t-success);
+    color: #fff;
+    border-color: var(--t-success);
+}
+
+.btn-info {
+    background: linear-gradient(120deg, var(--t-info), var(--t-info-hover));
+    border: none;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    color: #fff;
+}
+
+.btn-warning {
+    background: linear-gradient(120deg, var(--t-warning), var(--t-warning-hover));
+    border: none;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    color: #fff;
+}
+
+.btn-danger {
+    background: linear-gradient(120deg, var(--t-danger), var(--t-danger-hover));
+    border: none;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    color: #fff;
+}
+
+.btn-secondary {
+    background: linear-gradient(120deg, var(--t-secondary), var(--t-secondary-hover));
+    border: none;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    color: #fff;
+}
+
 .btn-success {
-    /* Map success to primary for unity, or define a success var? 
-       Using primary for now to keep theme consistent */
-    background: linear-gradient(120deg, var(--t-primary), var(--t-primary-light));
+    background: linear-gradient(120deg, var(--t-success), var(--t-success-hover));
     border: none;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
     color: #fff;

@@ -7,6 +7,9 @@
     <title>Yobboy文件服务器</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap.min.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/font-awesome.min.css') }}">
+    <!-- Theme System - 必须在其他样式之前引入 -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/themes.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/app_style.css') }}">
     <style>
         * {
             margin: 0;
@@ -18,12 +21,53 @@
             font-family: 'Microsoft YaHei', Arial, sans-serif;
             height: 100vh;
             overflow: hidden;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: transparent !important;
+            position: relative;
+        }
+
+        /* 动态背景效果 */
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(
+                90deg,
+                var(--t-primary) 0%,
+                var(--t-primary-light) 16.66%,
+                var(--t-primary-lighter) 33.33%,
+                var(--t-primary-faint) 50%,
+                var(--t-primary-lighter) 66.66%,
+                var(--t-primary-light) 83.33%,
+                var(--t-primary) 100%
+            );
+            background-size: 400% 100%;
+            animation: gradientShift 20s ease infinite;
+            z-index: 0;
+            pointer-events: none;
+        }
+
+        @keyframes gradientShift {
+            0% {
+                background-position: 0% 50%;
+            }
+            50% {
+                background-position: 100% 50%;
+            }
+            100% {
+                background-position: 0% 50%;
+            }
         }
 
         .main-container {
             display: flex;
             height: 100vh;
+            position: relative;
+            z-index: 1;
         }
 
         .choice-section {
@@ -36,14 +80,16 @@
             transition: all 0.3s ease;
             position: relative;
             overflow: hidden;
+            background: transparent;
         }
 
         .choice-section:hover {
             transform: scale(1.02);
+            z-index: 2;
         }
 
         .choice-section:hover::before {
-            opacity: 0.1;
+            opacity: 0.15;
         }
 
         .choice-section::before {
@@ -58,24 +104,12 @@
             transition: opacity 0.3s ease;
         }
 
-        .file-browser {
-            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
-        }
-
-        .drawio-editor {
-            background: linear-gradient(135deg, #fa709a 0%, #fee140 100%);
-        }
-
-        .serial-tool {
-            background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);
-        }
-
-        .todo-board {
-            background: linear-gradient(135deg, #fbc2eb 0%, #a6c1ee 100%);
-        }
-
+        .file-browser,
+        .drawio-editor,
+        .serial-tool,
+        .todo-board,
         .product-compare {
-            background: linear-gradient(135deg, #a8edea 0%, #fed6e3 100%);
+            background: transparent;
         }
 
         .choice-content {
@@ -112,9 +146,7 @@
         }
 
         .divider {
-            width: 2px;
-            background: rgba(255, 255, 255, 0.3);
-            position: relative;
+            display: none;
         }
 
         .footer {
@@ -182,12 +214,12 @@
         }
 
         .top-btn {
-            color: white;
+            color: var(--t-text-light);
             text-decoration: none;
-            background: rgba(0, 0, 0, 0.3);
+            background: linear-gradient(135deg, var(--t-primary), var(--t-primary-light));
             padding: 10px 20px;
             border-radius: 20px;
-            transition: background 0.3s ease;
+            transition: all 0.3s ease;
             cursor: pointer;
             position: relative;
             display: flex;
@@ -198,12 +230,15 @@
             font-size: 1rem;
             outline: none;
             height: 44px;
+            box-shadow: var(--t-shadow-sm);
         }
 
         .top-btn:hover {
-            background: rgba(0, 0, 0, 0.6);
-            color: white;
+            background: linear-gradient(135deg, var(--t-primary-hover), var(--t-primary));
+            color: var(--t-text-light);
             text-decoration: none;
+            transform: translateY(-2px);
+            box-shadow: var(--t-shadow-lg);
         }
 
         /* Dropdown logic */
@@ -215,7 +250,7 @@
             position: absolute;
             top: 110%;
             right: 0;
-            background: rgba(0, 0, 0, 0.85);
+            background: var(--t-bg-panel-opaque);
             border-radius: 12px;
             padding: 10px 0;
             min-width: 160px;
@@ -223,8 +258,8 @@
             visibility: hidden;
             transform: translateY(10px);
             transition: all 0.3s cubic-bezier(0.165, 0.84, 0.44, 1);
-            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
-            border: 1px solid rgba(255, 255, 255, 0.1);
+            box-shadow: var(--t-shadow-lg);
+            border: 1px solid var(--t-border-light);
         }
 
         .theme-wrapper:hover .theme-dropdown-menu {
@@ -236,28 +271,23 @@
         .theme-item {
             display: block;
             padding: 10px 20px;
-            color: rgba(255, 255, 255, 0.9);
+            color: var(--t-text-main);
             text-decoration: none;
             cursor: pointer;
-            transition: background 0.2s;
+            transition: background 0.2s, color 0.2s;
             text-align: left;
             font-size: 0.95rem;
             white-space: nowrap;
         }
 
         .theme-item:hover {
-            background: rgba(255, 255, 255, 0.15);
-            color: white;
+            background: var(--t-primary-faint);
+            color: var(--t-primary);
         }
 
         @media (max-width: 768px) {
             .main-container {
                 flex-direction: column;
-            }
-
-            .divider {
-                width: 100%;
-                height: 2px;
             }
 
             .choice-title {
@@ -282,16 +312,50 @@
     </style>
     <script>
         // Inline setup for choice page
+        // 确保在DOM加载完成后设置主题
         window.setTheme = function (themeName) {
             document.body.setAttribute('data-theme', themeName);
             localStorage.setItem('site_theme', themeName);
+            // 触发自定义事件，通知其他组件主题已更改
+            window.dispatchEvent(new CustomEvent('themechanged', { detail: { theme: themeName } }));
         };
+        
+        // 页面加载时应用保存的主题
         (function () {
             const savedTheme = localStorage.getItem('site_theme') || 'jasmine';
             document.body.setAttribute('data-theme', savedTheme);
         })();
     </script>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/themes.css') }}">
+    <style>
+        /* 确保动态背景覆盖themes.css的样式 */
+        body {
+            background: transparent !important;
+        }
+        body::before {
+            content: '' !important;
+            position: fixed !important;
+            top: 0 !important;
+            left: 0 !important;
+            right: 0 !important;
+            bottom: 0 !important;
+            width: 100% !important;
+            height: 100% !important;
+            background: linear-gradient(
+                90deg,
+                var(--t-primary) 0%,
+                var(--t-primary-light) 16.66%,
+                var(--t-primary-lighter) 33.33%,
+                var(--t-primary-faint) 50%,
+                var(--t-primary-lighter) 66.66%,
+                var(--t-primary-light) 83.33%,
+                var(--t-primary) 100%
+            ) !important;
+            background-size: 400% 100% !important;
+            animation: gradientShift 20s ease infinite !important;
+            z-index: 0 !important;
+            pointer-events: none !important;
+        }
+    </style>
     <!-- Load app_style but need to be careful with overrides. choice.html is custom. -->
 </head>
 
@@ -309,6 +373,20 @@
                 <div class="theme-item" onclick="setTheme('golden-beach')">🏖️ 黄金沙滩</div>
                 <div class="theme-item" onclick="setTheme('cyberpunk')">🌃 赛博朋克</div>
                 <div class="theme-item" onclick="setTheme('aurora')">🌌 极光星空</div>
+                <div class="theme-item" onclick="setTheme('mint-fresh')">🌿 薄荷清新</div>
+                <div class="theme-item" onclick="setTheme('cherry-blossom')">🌸 樱花飞舞</div>
+                <div class="theme-item" onclick="setTheme('sky-azure')">☁️ 天空湛蓝</div>
+                <div class="theme-item" onclick="setTheme('lavender-field')">💜 薰衣草田</div>
+                <div class="theme-item" onclick="setTheme('bamboo-grove')">🎋 竹林深处</div>
+                <div class="theme-item" onclick="setTheme('morning-mist')">🌫️ 晨雾朦胧</div>
+                <div class="theme-item" onclick="setTheme('ocean-shallow')">🌊 浅海湛蓝</div>
+                <div class="theme-item" onclick="setTheme('tea-garden')">🍵 茶园时光</div>
+                <div class="theme-item" onclick="setTheme('tech-blue')">💻 科技之光</div>
+                <div class="theme-item" onclick="setTheme('cloud-light')">☁️ 云淡风轻</div>
+                <div class="theme-item" onclick="setTheme('rose-whisper')">🌹 玫瑰轻语</div>
+                <div class="theme-item" onclick="setTheme('orange-warmth')">🍊 橙意暖暖</div>
+                <div class="theme-item" onclick="setTheme('purple-dream')">💭 淡紫梦境</div>
+                <div class="theme-item" onclick="setTheme('lake-reflection')">🏞️ 湖光山色</div>
             </div>
         </div>
 
@@ -331,8 +409,6 @@
             </div>
         </div>
 
-        <div class="divider"></div>
-
         <div class="choice-section todo-board" onclick="window.location.href='/todo/v2'">
             <div class="choice-content">
                 <span class="choice-icon">📝</span>
@@ -344,8 +420,6 @@
                 </p>
             </div>
         </div>
-
-        <div class="divider"></div>
 
         <div class="choice-section product-compare" onclick="window.location.href='/product_compare'">
             <div class="choice-content">
@@ -359,8 +433,6 @@
             </div>
         </div>
 
-        <div class="divider"></div>
-
         <div class="choice-section drawio-editor" onclick="window.location.href='/drawio_main'">
             <div class="choice-content">
                 <span class="choice-icon">📊</span>
@@ -372,8 +444,6 @@
                 </p>
             </div>
         </div>
-
-        <div class="divider"></div>
 
         <div class="choice-section serial-tool" onclick="window.location.href='/serial_tool'">
             <div class="choice-content">

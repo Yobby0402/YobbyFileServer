@@ -118,7 +118,12 @@ connection_logger.addHandler(file_handler)
 connection_logger.propagate = False
 
 
-def get_local_ips():
+# IP地址缓存（避免重复查询）
+_ip_cache = None
+_ip_cache_time = 0
+_ip_cache_ttl = 300  # 缓存5分钟
+
+def get_local_ips(verbose=True, use_cache=True):
     """
     获取本机所有 IPv4 地址，智能排序优先返回真实可用的局域网IP
     优先级：
@@ -126,7 +131,21 @@ def get_local_ips():
     2. 常见局域网段的IP（10.x, 172.16-31.x, 192.168.x）
     3. 其他非虚拟网络的IP
     4. 排除虚拟网络接口（VMware、VirtualBox、Docker等）
+    
+    Args:
+        verbose: 是否打印详细调试信息（默认True）
+        use_cache: 是否使用缓存（默认True，5分钟内复用结果）
     """
+    global _ip_cache, _ip_cache_time
+    
+    # 检查缓存
+    if use_cache and _ip_cache is not None:
+        import time
+        if time.time() - _ip_cache_time < _ip_cache_ttl:
+            if verbose:
+                print(f"[网络] 使用缓存的IP地址列表（{len(_ip_cache)}个地址）")
+            return _ip_cache.copy()
+    
     ip_list = []
     default_ip = None
     
@@ -146,11 +165,14 @@ def get_local_ips():
     # 1. 首先尝试获取默认路由的IP（最可靠的真实网卡IP）
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.settimeout(1)  # 设置超时，避免长时间阻塞
             s.connect(("8.8.8.8", 80))
             default_ip = s.getsockname()[0]
-            print(f"[网络] 默认路由IP（推荐）: {default_ip}")
+            if verbose:
+                print(f"[网络] 默认路由IP（推荐）: {default_ip}")
     except Exception as e:
-        print(f"[网络] 无法获取默认路由IP: {e}")
+        if verbose:
+            print(f"[网络] 无法获取默认路由IP: {e}")
     
     # 2. 获取所有网络接口的IP地址
     try:
@@ -163,7 +185,8 @@ def get_local_ips():
                 if ip != '127.0.0.1' and not ip.startswith('127.'):
                     ip_list.append(ip)
     except Exception as e:
-        print(f"[网络] 获取主机名IP时出错: {e}")
+        if verbose:
+            print(f"[网络] 获取主机名IP时出错: {e}")
     
     # 3. 智能排序IP地址
     def ip_priority(ip):
@@ -181,21 +204,27 @@ def get_local_ips():
             # 常见局域网段
             if ip.startswith('192.168.'):
                 # 提取第三段数字，避免虚拟网络段
-                third_octet = int(ip.split('.')[2])
-                # 常见的真实局域网第三段通常是 0-20 或者较大的数（如100+）
-                if third_octet <= 20 or third_octet >= 100:
-                    return 1  # 高优先级真实局域网
-                else:
-                    return 3  # 可能是特殊配置的局域网
+                try:
+                    third_octet = int(ip.split('.')[2])
+                    # 常见的真实局域网第三段通常是 0-20 或者较大的数（如100+）
+                    if third_octet <= 20 or third_octet >= 100:
+                        return 1  # 高优先级真实局域网
+                    else:
+                        return 3  # 可能是特殊配置的局域网
+                except (ValueError, IndexError):
+                    return 3
             elif ip.startswith('10.'):
                 return 2  # 10.x.x.x 段
             elif ip.startswith('172.'):
                 # 172.16.0.0 - 172.31.255.255 是私有地址
-                second_octet = int(ip.split('.')[1])
-                if 16 <= second_octet <= 31:
-                    return 2  # 私有局域网
-                else:
-                    return 4  # 其他172段（可能是虚拟网络）
+                try:
+                    second_octet = int(ip.split('.')[1])
+                    if 16 <= second_octet <= 31:
+                        return 2  # 私有局域网
+                    else:
+                        return 4  # 其他172段（可能是虚拟网络）
+                except (ValueError, IndexError):
+                    return 4
         
         # 低优先级：已知的虚拟网络
         return 10
@@ -210,23 +239,30 @@ def get_local_ips():
     # 按优先级排序
     ip_list.sort(key=ip_priority)
     
-    # 打印所有找到的IP及其优先级（便于调试）
-    print("[网络] 找到的所有IP地址（按优先级排序）:")
-    for ip in ip_list:
-        priority = ip_priority(ip)
-        # 使用ASCII字符替代Unicode字符，避免Windows控制台编码问题
-        if priority <= 2:
-            status = "[推荐]"
-        elif priority >= 10:
-            status = "[虚拟网络]"
-        else:
-            status = "[可用]"
-        
-        try:
-            print(f"  {status} {ip} (优先级: {priority})")
-        except UnicodeEncodeError:
-            # 如果仍然有编码问题，使用纯ASCII输出
-            print(f"  {status} {ip} (priority: {priority})")
+    # 打印所有找到的IP及其优先级（仅在verbose模式下）
+    if verbose:
+        print("[网络] 找到的所有IP地址（按优先级排序）:")
+        for ip in ip_list:
+            priority = ip_priority(ip)
+            # 使用ASCII字符替代Unicode字符，避免Windows控制台编码问题
+            if priority <= 2:
+                status = "[推荐]"
+            elif priority >= 10:
+                status = "[虚拟网络]"
+            else:
+                status = "[可用]"
+            
+            try:
+                print(f"  {status} {ip} (优先级: {priority})")
+            except UnicodeEncodeError:
+                # 如果仍然有编码问题，使用纯ASCII输出
+                print(f"  {status} {ip} (priority: {priority})")
+    
+    # 更新缓存
+    if use_cache:
+        import time
+        _ip_cache = ip_list.copy()
+        _ip_cache_time = time.time()
     
     return ip_list
 
@@ -266,11 +302,12 @@ def create_app():
 
     routes.init_app(app)
     
-    # 初始化 SocketIO（不指定 async_mode，让其自动选择）
+    # 初始化 SocketIO（显式使用 threading 模式以加快启动速度）
     socketio = SocketIO(app, 
                       cors_allowed_origins="*", 
                       logger=False,
                       engineio_logger=False,
+                      async_mode='threading',  # 显式指定 threading 模式，避免自动检测延迟
                       ping_timeout=60,
                       ping_interval=25)
     init_serial_socketio(socketio)
@@ -471,15 +508,17 @@ def load_or_create_config(app):
         if 'settings' in config:
             settings = config['settings']
             root_dir = settings.get('root_dir', app.config['DEFAULT_ROOT_DIR'])
-            password = settings.get('password', 'ats123')
+            password = settings.get('password', 'password')
             admin_password = settings.get('admin_password', 'admin123')  # 管理员密码
             close_to_tray = settings.get('close_to_tray', 'false').lower() == 'true'  # 关闭到托盘
+            port = int(settings.get('port', '5000'))  # 服务器端口
             
             # 保存配置到app中（即使路径不存在也保留用户设置）
             app.config['ROOT_DIR'] = os.path.normpath(root_dir) if root_dir else app.config['DEFAULT_ROOT_DIR']
             app.config['PASSWORD'] = password
             app.config['ADMIN_PASSWORD'] = admin_password
             app.config['CLOSE_TO_TRAY'] = close_to_tray
+            app.config['PORT'] = port
             
             # 检查路径是否有效（仅警告，不修改配置）
             if not os.path.isdir(app.config['ROOT_DIR']):
@@ -491,17 +530,19 @@ def load_or_create_config(app):
             # 配置文件格式错误，使用默认值并保存
             print("[警告] 配置文件格式错误，使用默认配置")
             app.config['ROOT_DIR'] = app.config['DEFAULT_ROOT_DIR']
-            app.config['PASSWORD'] = 'ats123'
+            app.config['PASSWORD'] = 'password'
             app.config['ADMIN_PASSWORD'] = 'admin123'
             app.config['CLOSE_TO_TRAY'] = False
+            app.config['PORT'] = 5000
             save_config(app)
     else:
         # 配置文件不存在，创建默认配置
         print("配置文件不存在，创建默认配置")
         app.config['ROOT_DIR'] = app.config['DEFAULT_ROOT_DIR']
-        app.config['PASSWORD'] = 'ats123'
+        app.config['PASSWORD'] = 'password'
         app.config['ADMIN_PASSWORD'] = 'admin123'
         app.config['CLOSE_TO_TRAY'] = False
+        app.config['PORT'] = 5000
         save_config(app)
 
 
@@ -513,7 +554,8 @@ def save_config(app):
         'root_dir': app.config['ROOT_DIR'],
         'password': app.config['PASSWORD'],
         'admin_password': app.config.get('ADMIN_PASSWORD', 'admin123'),
-        'close_to_tray': str(app.config.get('CLOSE_TO_TRAY', False)).lower()
+        'close_to_tray': str(app.config.get('CLOSE_TO_TRAY', False)).lower(),
+        'port': str(app.config.get('PORT', 5000))
     }
     with open(config_file, 'w', encoding='utf-8') as f:
         config.write(f)
@@ -527,7 +569,7 @@ class LogMessageReceiver(QObject):
 
 class SettingsDialog(QDialog):
     """设置对话框，用于配置根目录和密码"""
-    def __init__(self, parent=None, current_root='', current_password='', current_admin_password='', current_close_to_tray=False):
+    def __init__(self, parent=None, current_root='', current_password='', current_admin_password='', current_close_to_tray=False, current_port=5000):
         super().__init__(parent)
         self.setWindowTitle("服务器设置")
         self.setMinimumWidth(500)
@@ -535,10 +577,12 @@ class SettingsDialog(QDialog):
         self.current_password = current_password
         self.current_admin_password = current_admin_password
         self.current_close_to_tray = current_close_to_tray
+        self.current_port = current_port
         self.new_root = current_root
         self.new_password = current_password
         self.new_admin_password = current_admin_password
         self.new_close_to_tray = current_close_to_tray
+        self.new_port = current_port
         
         # 设置窗口样式
         self.setStyleSheet("""
@@ -712,6 +756,24 @@ class SettingsDialog(QDialog):
         """)
         form_layout.addRow("", close_hint)
         
+        # 服务器端口设置
+        port_label = QLabel("服务器端口：")
+        self.port_edit = QLineEdit(str(self.current_port))
+        self.port_edit.setPlaceholderText("输入端口号（默认: 5000）")
+        form_layout.addRow(port_label, self.port_edit)
+        
+        # 端口说明
+        port_hint = QLabel("🌐 修改端口后需要重启服务器才能生效（范围: 1-65535）")
+        port_hint.setStyleSheet("""
+            font-size: 9pt;
+            color: #3498db;
+            font-weight: normal;
+            padding: 5px;
+            background: #e3f2fd;
+            border-radius: 4px;
+        """)
+        form_layout.addRow("", port_hint)
+        
         layout.addLayout(form_layout)
         
         # 按钮区域
@@ -754,6 +816,17 @@ class SettingsDialog(QDialog):
         self.new_admin_password = self.admin_password_edit.text()
         self.new_close_to_tray = self.close_to_tray_checkbox.isChecked()
         
+        # 验证端口
+        try:
+            port_value = int(self.port_edit.text().strip())
+            if port_value < 1 or port_value > 65535:
+                QMessageBox.warning(self, "错误", "端口号必须在 1-65535 之间")
+                return
+            self.new_port = port_value
+        except ValueError:
+            QMessageBox.warning(self, "错误", "端口号必须是有效的数字")
+            return
+        
         if not self.new_root or not os.path.exists(self.new_root):
             QMessageBox.warning(self, "错误", "请选择有效的根目录")
             return
@@ -787,7 +860,7 @@ class SettingsDialog(QDialog):
     
     def get_settings(self):
         """获取设置"""
-        return self.new_root, self.new_password, self.new_admin_password, self.new_close_to_tray
+        return self.new_root, self.new_password, self.new_admin_password, self.new_close_to_tray, self.new_port
 
 
 class FlaskServerProcess(QProcess):
@@ -906,9 +979,11 @@ class MainWindow(QMainWindow):
         self.log_timer.start(100)
 
         self.is_server_running = False
+        self.server_port = 5000  # 默认端口，将从配置中读取
         self.create_menu_bar()
         self.create_widgets()
         self.create_tray_icon()
+        self.load_server_port_config()  # 加载端口配置
         self.update_server_info("未运行")
 
     def create_menu_bar(self):
@@ -1300,12 +1375,13 @@ class MainWindow(QMainWindow):
         self.status_label.setText(f"{icon} <b>状态:</b> {status}")
         
         if addresses:
-            addr_text = "<br>".join([f"  🌐 <a href='http://{ip}:5000' style='color: #0066cc; text-decoration: none;'>{ip}:5000</a>" for ip in addresses])
+            port = self.server_port
+            addr_text = "<br>".join([f"  🌐 <a href='http://{ip}:{port}' style='color: #0066cc; text-decoration: none;'>{ip}:{port}</a>" for ip in addresses])
             self.address_label.setText(f"<b>访问地址:</b><br>{addr_text}")
             self.address_label.setOpenExternalLinks(True)
             self.address_label.setTextFormat(Qt.RichText)
             # 更新托盘图标提示
-            tray_tooltip = f"Yobboy文件服务器\n状态: {status}\n地址: {addresses[0]}:5000"
+            tray_tooltip = f"Yobboy文件服务器\n状态: {status}\n地址: {addresses[0]}:{port}"
             self.tray_icon.setToolTip(tray_tooltip)
         else:
             self.address_label.setText("访问地址: 未启动")
@@ -1349,7 +1425,8 @@ class MainWindow(QMainWindow):
         for line in lines:
             self.log_receiver.message.emit(line)
             if "Running on" in line and "http://" in line:
-                local_ips = get_local_ips()
+                # 使用缓存，避免重复查询IP地址
+                local_ips = get_local_ips(verbose=False, use_cache=True)
                 self.update_server_info("运行中", local_ips)
 
     def handle_stderr(self):
@@ -1464,12 +1541,13 @@ class MainWindow(QMainWindow):
             else:
                 return
         
-        # 获取本地IP地址
-        local_ips = get_local_ips()
+        # 获取本地IP地址（使用缓存）
+        local_ips = get_local_ips(verbose=False, use_cache=True)
+        port = self.server_port
         if local_ips:
-            help_url = f"http://{local_ips[0]}:5000/help"
+            help_url = f"http://{local_ips[0]}:{port}/help"
         else:
-            help_url = "http://127.0.0.1:5000/help"
+            help_url = f"http://127.0.0.1:{port}/help"
         
         # 在浏览器中打开帮助页面
         try:
@@ -1507,14 +1585,15 @@ class MainWindow(QMainWindow):
         app = create_app()
         load_or_create_config(app)
         current_root = app.config.get('ROOT_DIR', os.path.expanduser('~'))
-        current_password = app.config.get('PASSWORD', 'ats123')
+        current_password = app.config.get('PASSWORD', 'password')
         current_admin_password = app.config.get('ADMIN_PASSWORD', 'admin123')
         current_close_to_tray = app.config.get('CLOSE_TO_TRAY', False)
+        current_port = app.config.get('PORT', 5000)
         
         # 显示设置对话框
-        dialog = SettingsDialog(self, current_root, current_password, current_admin_password, current_close_to_tray)
+        dialog = SettingsDialog(self, current_root, current_password, current_admin_password, current_close_to_tray, current_port)
         if dialog.exec_() == QDialog.Accepted:
-            new_root, new_password, new_admin_password, new_close_to_tray = dialog.get_settings()
+            new_root, new_password, new_admin_password, new_close_to_tray, new_port = dialog.get_settings()
             
             # 保存配置
             try:
@@ -1523,7 +1602,8 @@ class MainWindow(QMainWindow):
                     'root_dir': new_root,
                     'password': new_password,
                     'admin_password': new_admin_password,
-                    'close_to_tray': str(new_close_to_tray).lower()
+                    'close_to_tray': str(new_close_to_tray).lower(),
+                    'port': str(new_port)
                 }
                 config_file = get_config_path()
                 
@@ -1544,6 +1624,7 @@ class MainWindow(QMainWindow):
                     f"根目录: {new_root}\n"
                     f"登录密码: {'*' * len(new_password)} (已加密显示)\n"
                     f"管理员密码: {'*' * len(new_admin_password)} (已加密显示)\n"
+                    f"服务器端口: {new_port}\n"
                     f"关闭行为: {close_behavior_text}\n\n"
                     f"您可以重新启动服务器使用新配置。"
                 )
@@ -1552,12 +1633,15 @@ class MainWindow(QMainWindow):
                 print(f"根目录: {new_root}")
                 print(f"登录密码长度: {len(new_password)}")
                 print(f"管理员密码长度: {len(new_admin_password)}")
+                print(f"服务器端口: {new_port}")
                 print(f"关闭行为: {close_behavior_text}")
                 
                 # 更新主窗口的关闭行为配置
                 self.close_to_tray = new_close_to_tray
+                self.server_port = new_port  # 更新端口配置
                 self.update_quit_behavior()  # 立即更新QApplication行为
                 print(f"[配置更新] 关闭行为已更新: {'最小化到托盘' if new_close_to_tray else '直接退出'}")
+                print(f"[配置更新] 服务器端口已更新: {new_port}（需要重启服务器生效）")
                 
             except Exception as e:
                 import traceback
@@ -1576,6 +1660,17 @@ class MainWindow(QMainWindow):
         except Exception as e:
             print(f"[警告] 加载关闭行为配置失败: {e}")
             self.close_to_tray = False
+    
+    def load_server_port_config(self):
+        """加载服务器端口配置"""
+        try:
+            app = create_app()
+            load_or_create_config(app)
+            self.server_port = app.config.get('PORT', 5000)
+            print(f"[配置] 服务器端口: {self.server_port}")
+        except Exception as e:
+            print(f"[警告] 加载端口配置失败: {e}")
+            self.server_port = 5000
     
     def update_quit_behavior(self):
         """根据配置更新QApplication的退出行为"""
@@ -1671,7 +1766,7 @@ def run_flask_app(info_file_path=None):
     # === 配置信息结束 ===
     
     host = "0.0.0.0"
-    port = 5000
+    port = application.config.get('PORT', 5000)
     local_ips = get_local_ips()
     print(f" * Running on all addresses ({host})")
     for ip in local_ips:
@@ -1682,10 +1777,12 @@ def run_flask_app(info_file_path=None):
     # 当从GUI启动时（有info_file_path参数），将debug设为False以避免冲突
     debug = False if info_file_path else True
     # 使用 socketio.run 而不是 app.run
+    # 添加 use_reloader=False 以加快启动速度（避免自动检测和重载机制）
     application.socketio.run(application, 
                             host=host, 
                             port=port, 
-                            debug=debug, 
+                            debug=debug,
+                            use_reloader=False,  # 禁用自动重载，加快启动
                             allow_unsafe_werkzeug=True,
                             log_output=False)
 

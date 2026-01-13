@@ -4,9 +4,11 @@
     <title>登录 - 文件服务器</title>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="stylesheet" href="/static/css/bootstrap.min.css">
-    <link rel="stylesheet" href="/static/css/font-awesome.min.css">
-    <link rel="stylesheet" href="/static/css/jasmine_base.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap.min.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/font-awesome.min.css') }}">
+    <!-- Theme System -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/themes.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/app_style.css') }}">
     <style>
         body {
             font-family: "Source Han Sans CN", "Microsoft YaHei", "PingFang SC", Arial, sans-serif;
@@ -14,32 +16,32 @@
             justify-content: center;
             align-items: center;
             min-height: 100vh;
-            background: var(--jasmine-gradient-main);
+            background: var(--t-bg-body);
             margin: 0;
         }
         .login-card {
-            background: var(--jasmine-panel-gradient);
+            background: var(--t-bg-panel);
             padding: 44px 40px;
             border-radius: 20px;
-            box-shadow: var(--jasmine-shadow-lg);
+            box-shadow: var(--t-shadow-lg);
             text-align: center;
             width: 100%;
             max-width: 420px;
-            border: 1px solid rgba(95, 191, 174, 0.18);
+            border: 1px solid var(--t-border-light);
             backdrop-filter: blur(8px);
             transition: transform 0.25s ease, box-shadow 0.25s ease;
         }
         .login-card:hover {
             transform: translateY(-4px);
-            box-shadow: 0 22px 48px rgba(30, 114, 96, 0.22);
+            box-shadow: 0 22px 48px rgba(0, 0, 0, 0.25);
         }
         .login-icon {
             font-size: 48px;
-            color: var(--jasmine-green-600);
+            color: var(--t-primary);
             margin-bottom: 20px;
         }
         h1 {
-            color: var(--jasmine-green-700);
+            color: var(--t-primary-hover);
             margin-bottom: 28px;
             font-weight: 700;
         }
@@ -49,13 +51,20 @@
         }
         .form-label {
             font-weight: 600;
-            color: var(--jasmine-muted);
+            color: var(--t-text-muted);
             margin-bottom: 6px;
         }
         .form-control {
             border-radius: 14px;
             padding: 12px 16px;
             font-size: 16px;
+            background-color: #ffffff !important;
+            color: var(--t-text-main) !important;
+            border-color: var(--t-border) !important;
+        }
+        .form-control:focus {
+            border-color: var(--t-primary) !important;
+            box-shadow: var(--t-focus-ring) !important;
         }
         .btn-primary {
             width: 100%;
@@ -73,9 +82,9 @@
             padding: 12px;
         }
         .alert-danger {
-            background-color: rgba(240, 124, 130, 0.1);
-            border-color: rgba(240, 124, 130, 0.25);
-            color: #b3393f;
+            background-color: rgba(231, 76, 60, 0.1);
+            border-color: rgba(231, 76, 60, 0.25);
+            color: var(--t-danger);
         }
         @media (max-width: 576px) {
             .login-card {

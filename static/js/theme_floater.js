@@ -26,13 +26,27 @@
     // 3. Inject Floating Button
     const floaterHTML = `
     <div id="theme-floater" class="theme-floater">
-        <div class="theme-menu" id="theme-floater-menu">
+                <div class="theme-menu" id="theme-floater-menu">
             <div class="theme-option" onclick="setTheme('jasmine')">🍃 茉莉奶白</div>
             <div class="theme-option" onclick="setTheme('mist-forest')">🌲 迷雾森林</div>
             <div class="theme-option" onclick="setTheme('sunset')">🌅 日落黄昏</div>
             <div class="theme-option" onclick="setTheme('golden-beach')">🏖️ 黄金沙滩</div>
             <div class="theme-option" onclick="setTheme('cyberpunk')">🌃 赛博朋克</div>
             <div class="theme-option" onclick="setTheme('aurora')">🌌 极光星空</div>
+            <div class="theme-option" onclick="setTheme('mint-fresh')">🌿 薄荷清新</div>
+            <div class="theme-option" onclick="setTheme('cherry-blossom')">🌸 樱花飞舞</div>
+            <div class="theme-option" onclick="setTheme('sky-azure')">☁️ 天空湛蓝</div>
+            <div class="theme-option" onclick="setTheme('lavender-field')">💜 薰衣草田</div>
+            <div class="theme-option" onclick="setTheme('bamboo-grove')">🎋 竹林深处</div>
+            <div class="theme-option" onclick="setTheme('morning-mist')">🌫️ 晨雾朦胧</div>
+            <div class="theme-option" onclick="setTheme('ocean-shallow')">🌊 浅海湛蓝</div>
+            <div class="theme-option" onclick="setTheme('tea-garden')">🍵 茶园时光</div>
+            <div class="theme-option" onclick="setTheme('tech-blue')">💻 科技之光</div>
+            <div class="theme-option" onclick="setTheme('cloud-light')">☁️ 云淡风轻</div>
+            <div class="theme-option" onclick="setTheme('rose-whisper')">🌹 玫瑰轻语</div>
+            <div class="theme-option" onclick="setTheme('orange-warmth')">🍊 橙意暖暖</div>
+            <div class="theme-option" onclick="setTheme('purple-dream')">💭 淡紫梦境</div>
+            <div class="theme-option" onclick="setTheme('lake-reflection')">🏞️ 湖光山色</div>
         </div>
         <button class="theme-btn" id="theme-floater-btn" title="切换主题">
             <i class="fa fa-paint-brush"></i>
@@ -142,7 +156,8 @@
         const themeBtn = document.createElement('button');
         themeBtn.className = 'toolbar-btn';
         themeBtn.style.background = 'linear-gradient(135deg, #FF9800, #F44336)';
-        themeBtn.innerHTML = '<i class="fa fa-paint-brush"></i>';
+        // 使用emoji图标，与其他按钮保持一致
+        themeBtn.innerHTML = '🎨';
         themeBtn.title = '切换主题';
         themeBtn.onclick = (e) => {
             e.stopPropagation();
@@ -159,6 +174,20 @@
                     <div class="theme-option" onclick="setTheme('golden-beach')">🏖️ 黄金沙滩</div>
                     <div class="theme-option" onclick="setTheme('cyberpunk')">🌃 赛博朋克</div>
                     <div class="theme-option" onclick="setTheme('aurora')">🌌 极光星空</div>
+                    <div class="theme-option" onclick="setTheme('mint-fresh')">🌿 薄荷清新</div>
+                    <div class="theme-option" onclick="setTheme('cherry-blossom')">🌸 樱花飞舞</div>
+                    <div class="theme-option" onclick="setTheme('sky-azure')">☁️ 天空湛蓝</div>
+                    <div class="theme-option" onclick="setTheme('lavender-field')">💜 薰衣草田</div>
+                    <div class="theme-option" onclick="setTheme('bamboo-grove')">🎋 竹林深处</div>
+                    <div class="theme-option" onclick="setTheme('morning-mist')">🌫️ 晨雾朦胧</div>
+                    <div class="theme-option" onclick="setTheme('ocean-shallow')">🌊 浅海湛蓝</div>
+                    <div class="theme-option" onclick="setTheme('tea-garden')">🍵 茶园时光</div>
+                    <div class="theme-option" onclick="setTheme('tech-blue')">💻 科技之光</div>
+                    <div class="theme-option" onclick="setTheme('cloud-light')">☁️ 云淡风轻</div>
+                    <div class="theme-option" onclick="setTheme('rose-whisper')">🌹 玫瑰轻语</div>
+                    <div class="theme-option" onclick="setTheme('orange-warmth')">🍊 橙意暖暖</div>
+                    <div class="theme-option" onclick="setTheme('purple-dream')">💭 淡紫梦境</div>
+                    <div class="theme-option" onclick="setTheme('lake-reflection')">🏞️ 湖光山色</div>
                 `;
                 document.body.appendChild(themeMenu);
                 

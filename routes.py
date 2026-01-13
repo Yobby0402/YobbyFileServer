@@ -183,20 +183,6 @@ def init_app(app):
         
         return render_template('choice.html')
 
-    @app.route('/todo')
-    def todo_page():
-        """ToDo 主界面（需登录）"""
-        if not is_logged_in():
-            return redirect(url_for('login'))
-
-        session.pop('todo_direct_access', None)
-        return render_template('todo.html', direct_access=False)
-
-    @app.route('/todo/direct')
-    def todo_direct():
-        """ToDo 后门入口（免登录）"""
-        session['todo_direct_access'] = True
-        return render_template('todo.html', direct_access=True)
 
     @app.route('/todo/v2')
     def todo_v2_page():

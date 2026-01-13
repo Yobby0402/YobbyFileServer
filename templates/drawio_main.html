@@ -33,7 +33,7 @@
             height: 60px;
             border-radius: 50%;
             border: none;
-            background: linear-gradient(135deg, var(--jasmine-green-600) 0%, var(--jasmine-green-400) 100%);
+            background: linear-gradient(135deg, var(--t-primary) 0%, var(--t-primary-light) 100%);
             color: white;
             font-size: 24px;
             cursor: pointer;
@@ -64,9 +64,9 @@
         
         .toolbar-btn.back-btn {
             background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);
-            width: 50px;
-            height: 50px;
-            font-size: 20px;
+            width: 60px;
+            height: 60px;
+            font-size: 24px;
         }
         
         .toolbar-btn .tooltip-text {
@@ -110,7 +110,7 @@
             left: 50%;
             transform: translateX(-50%);
             z-index: 10001;
-            background: linear-gradient(135deg, var(--jasmine-green-600) 0%, var(--jasmine-green-400) 100%);
+            background: linear-gradient(135deg, var(--t-primary) 0%, var(--t-primary-light) 100%);
             color: white;
             padding: 15px 30px;
             border-radius: 30px;
@@ -219,7 +219,7 @@
         
         .modal-content input:focus {
             outline: none;
-            border-color: var(--jasmine-green-600);
+            border-color: var(--t-primary);
         }
         
         .modal-buttons {
@@ -238,7 +238,7 @@
         }
         
         .modal-buttons .btn-primary {
-            background: var(--jasmine-green-600);
+            background: var(--t-primary);
             color: white;
         }
         
@@ -280,10 +280,10 @@
             📥
             <span class="tooltip-text">下载</span>
         </button>
-        <button id="back-btn" class="toolbar-btn back-btn" title="返回">
-            ←
-            <span class="tooltip-text">返回</span>
-        </button>
+        <a href="{{ url_for('index') }}" class="toolbar-btn back-btn" title="返回主界面">
+            🏠
+            <span class="tooltip-text">返回主界面</span>
+        </a>
     </div>
     
     <!-- 隐藏的文件输入 -->
@@ -481,7 +481,19 @@
             document.getElementById('upload-btn').addEventListener('click', openLocalFile);
             // save-btn已移除，使用Ctrl+S保存
             document.getElementById('download-btn').addEventListener('click', downloadFile);
-            document.getElementById('back-btn').addEventListener('click', goBack);
+            // back-btn已改为链接形式，绑定点击事件以检查未保存的更改
+            const backBtn = document.querySelector('.back-btn');
+            if (backBtn) {
+                backBtn.addEventListener('click', function(e) {
+                    if (isModified) {
+                        e.preventDefault();
+                        if (confirm('您有未保存的更改，确定要离开吗？')) {
+                            window.location.href = '{{ url_for("index") }}';
+                        }
+                    }
+                    // 如果没有未保存的更改，链接会正常跳转
+                });
+            }
             
             // 绑定文件输入事件
             document.getElementById('file-input').addEventListener('change', handleFileSelect);
@@ -967,14 +979,14 @@
             }, 5000);
         }
         
-        // 返回
+        // 返回（已改为链接形式，此函数保留以防其他地方调用）
         function goBack() {
             if (isModified) {
                 if (confirm('您有未保存的更改，确定要离开吗？')) {
-                    window.location.href = '{{ url_for("file_browser") }}';
+                    window.location.href = '{{ url_for("index") }}';
                 }
             } else {
-                window.location.href = '{{ url_for("file_browser") }}';
+                window.location.href = '{{ url_for("index") }}';
             }
         }
         

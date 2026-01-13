@@ -10,7 +10,7 @@ body {
     font-family: 'Microsoft YaHei', 'Segoe UI', Arial, sans-serif;
     height: 100vh;
     overflow: hidden;
-    background: var(--jasmine-gradient-main);
+    background: var(--t-bg-body);
 }
 
 .main-container {
@@ -54,15 +54,15 @@ body {
 /* 卡片样式 */
 .card {
     border-radius: 16px;
-    box-shadow: var(--jasmine-shadow-sm);
-    border: 1px solid rgba(95, 191, 174, 0.18);
-    background: var(--jasmine-panel-gradient);
+    box-shadow: var(--t-shadow-sm);
+    border: 1px solid var(--t-border-light);
+    background: var(--t-bg-panel);
     backdrop-filter: blur(4px);
 }
 
 .card-header {
-    background: linear-gradient(135deg, var(--jasmine-green-600), var(--jasmine-green-400));
-    color: #fdfdf8;
+    background: linear-gradient(135deg, var(--t-primary), var(--t-primary-light));
+    color: var(--t-text-light);
     font-weight: bold;
     border-radius: 16px 16px 0 0 !important;
     border: none;
@@ -109,8 +109,8 @@ body {
 }
 
 .port-item.active {
-    background: rgba(214, 242, 234, 0.45);
-    border-left: 4px solid var(--jasmine-green-500);
+    background: var(--t-primary-faint);
+    border-left: 4px solid var(--t-primary);
 }
 
 .port-item .port-info {
@@ -142,13 +142,13 @@ body {
 }
 
 .status-indicator.connected {
-    background: #28a745;
-    box-shadow: 0 0 8px rgba(40, 167, 69, 0.5);
+    background: var(--t-success);
+    box-shadow: 0 0 8px rgba(21, 132, 103, 0.5);
     animation: pulse 2s infinite;
 }
 
 .status-indicator.disconnected {
-    background: #dc3545;
+    background: var(--t-danger);
 }
 
 @keyframes pulse {
@@ -626,8 +626,8 @@ textarea.form-control {
 }
 
 .modal-header {
-    background: linear-gradient(135deg, var(--jasmine-green-600), var(--jasmine-green-400));
-    color: #fdfdf8;
+    background: linear-gradient(135deg, var(--t-primary), var(--t-primary-light));
+    color: var(--t-text-light);
     border-radius: 12px 12px 0 0;
     border: none;
 }

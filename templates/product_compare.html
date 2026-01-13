@@ -302,6 +302,67 @@
             padding: 20px;
             min-height: 400px;
         }
+        
+        /* 浮动工具栏样式 */
+        .floating-toolbar {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            z-index: 10000;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        
+        .toolbar-btn {
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            border: none;
+            background: linear-gradient(135deg, var(--t-primary), var(--t-primary-light));
+            color: white;
+            font-size: 24px;
+            cursor: pointer;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            text-decoration: none;
+        }
+        
+        .toolbar-btn:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+        }
+        
+        .toolbar-btn:active {
+            transform: translateY(-1px);
+        }
+        
+        .toolbar-btn.back-btn {
+            background: linear-gradient(135deg, var(--t-primary-light), var(--t-primary-lighter));
+            color: var(--t-text-main);
+        }
+        
+        .toolbar-btn .tooltip-text {
+            position: absolute;
+            right: 70px;
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 14px;
+            white-space: nowrap;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s ease;
+        }
+        
+        .toolbar-btn:hover .tooltip-text {
+            opacity: 1;
+        }
     </style>
     <script>
         (function() {
@@ -324,9 +385,6 @@
                 </button>
                 <button type="button" class="btn btn-success" id="saveFileBtn" style="display: none;">
                     <i class="fas fa-save"></i> 保存
-                </button>
-                <button type="button" class="btn btn-outline-secondary" onclick="window.location.href='/'">
-                    <i class="fas fa-home"></i> 返回
                 </button>
             </div>
         </div>
@@ -530,9 +588,17 @@
         </div>
     </div>
 
+    <!-- 浮动工具栏 -->
+    <div class="floating-toolbar">
+        <a href="{{ url_for('index') }}" class="toolbar-btn back-btn" title="返回主界面">
+            🏠
+            <span class="tooltip-text">返回主界面</span>
+        </a>
+    </div>
+
     <script src="{{ url_for('static', filename='js/bootstrap.bundle.min.js') }}"></script>
     <script src="{{ url_for('static', filename='js/product_compare.js') }}"></script>
-<script src="{{ url_for('static', filename='js/theme_floater.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/theme_floater.js') }}"></script>
 </body>
 </html>
 

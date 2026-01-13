@@ -2541,28 +2541,33 @@
     let currentTaskIdForLinks = null;
     let currentLinkId = null;
     let isEditingLink = false;
-    let descriptionEditor = null;
     
+    // 项目描述编辑器相关变量 - 完全按照文件浏览器的实现方式
+    let descriptionEditor = null;
     let descriptionOriginalContent = '';
     
+    // 项目描述编辑器 - 完全重构，参考文件浏览器的实现
     function openProjectDescriptionModal(projectId) {
         currentProjectIdForDescription = projectId;
         const modalElement = document.getElementById('projectDescriptionModal');
+        
+        // 获取或创建模态框实例
         let modal = bootstrap.Modal.getInstance(modalElement);
         if (!modal) {
             modal = new bootstrap.Modal(modalElement);
         }
         
+        // 重置到预览模式
         const previewMode = document.getElementById('descriptionPreviewMode');
         const editMode = document.getElementById('descriptionEditMode');
-        const previewDiv = document.getElementById('projectDescriptionPreview');
-        const editorContainer = document.getElementById('projectDescriptionEditorContainer');
         const footer = document.getElementById('descriptionModalFooter');
         
-        // 默认显示预览模式
         previewMode.style.display = 'flex';
         editMode.style.display = 'none';
         footer.innerHTML = '<button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>';
+        
+        // 清理旧的编辑器
+        cleanupDescriptionEditor();
         
         // 加载项目描述
         fetch(`/api/todo/v2/projects/${projectId}/description`)
@@ -2570,48 +2575,69 @@
             .then(result => {
                 if (result.success) {
                     descriptionOriginalContent = result.description || '';
-                    updateDescriptionPreviewContent(descriptionOriginalContent);
+                    updateDescriptionPreview(descriptionOriginalContent);
                 }
             })
             .catch(error => {
+                console.error('加载项目描述失败:', error);
                 showAlert('danger', '加载项目描述失败：' + error.message);
             });
         
-        // 绑定编辑按钮（每次打开模态框时重新绑定，确保事件处理器正确）
+        // 绑定编辑按钮
         const editBtn = document.getElementById('editDescriptionBtn');
         if (editBtn) {
-            // 移除旧的事件监听器
-            editBtn.replaceWith(editBtn.cloneNode(true));
-            const newEditBtn = document.getElementById('editDescriptionBtn');
-            newEditBtn.onclick = (e) => {
+            editBtn.onclick = function(e) {
                 e.preventDefault();
                 e.stopPropagation();
-                enterEditMode();
+                switchToEditMode();
             };
         }
         
-        // 清理旧的编辑器实例
+        // 显示模态框
+        modal.show();
+    }
+    
+    // 清理编辑器 - 完全按照文件浏览器的方式，确保彻底清理
+    function cleanupDescriptionEditor() {
         if (descriptionEditor) {
             try {
-                descriptionEditor.toTextArea();
+                const wrapper = descriptionEditor.getWrapperElement();
+                if (wrapper && wrapper.parentNode) {
+                    wrapper.parentNode.removeChild(wrapper);
+                }
             } catch (e) {
-                // 忽略错误
+                console.warn('清理编辑器失败:', e);
             }
             descriptionEditor = null;
         }
         
-        modal.show();
+        // 额外清理：确保容器中没有任何CodeMirror残留元素
+        const editorContainer = document.getElementById('projectDescriptionEditorContainer');
+        if (editorContainer) {
+            // 移除所有CodeMirror相关的元素
+            const codeMirrorElements = editorContainer.querySelectorAll('.CodeMirror, .CodeMirror-scroll, .CodeMirror-sizer');
+            codeMirrorElements.forEach(el => {
+                try {
+                    el.remove();
+                } catch (e) {
+                    // 忽略错误
+                }
+            });
+            // 清空容器
+            editorContainer.innerHTML = '';
+        }
     }
     
-    function updateDescriptionPreviewContent(content) {
+    // 更新预览内容
+    function updateDescriptionPreview(content) {
         const previewDiv = document.getElementById('projectDescriptionPreview');
+        if (!previewDiv) return;
         
         if (!content || !content.trim()) {
             previewDiv.innerHTML = '<p class="text-muted">暂无描述内容</p>';
             return;
         }
         
-        // 调用API渲染Markdown
         fetch(`/api/todo/v2/projects/${currentProjectIdForDescription}/description/preview`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -2630,180 +2656,232 @@
         });
     }
     
-    function enterEditMode() {
+    // 切换到编辑模式 - 完全按照文件浏览器的方式，确保只初始化一次
+    function switchToEditMode() {
         const previewMode = document.getElementById('descriptionPreviewMode');
         const editMode = document.getElementById('descriptionEditMode');
         const editorContainer = document.getElementById('projectDescriptionEditorContainer');
         const footer = document.getElementById('descriptionModalFooter');
         
-        // 切换到编辑模式（确保显示）
+        if (!previewMode || !editMode || !editorContainer || !footer) {
+            console.error('切换编辑模式失败：找不到必要的DOM元素');
+            return;
+        }
+        
+        // 如果已经有编辑器实例，先清理
+        if (descriptionEditor) {
+            cleanupDescriptionEditor();
+        }
+        
+        // 切换到编辑模式UI
         previewMode.style.display = 'none';
         editMode.style.display = 'flex';
-        editMode.style.visibility = 'visible';
-        
-        // 更新footer按钮（使用setAttribute确保按钮存在）
         footer.innerHTML = `
             <button type="button" class="btn btn-secondary" id="cancelEditBtn">放弃更改</button>
             <button type="button" class="btn btn-primary" id="saveDescriptionBtn">保存并退出</button>
         `;
         
-        // 强制显示编辑模式（防止被隐藏）
-        setTimeout(() => {
-            if (editMode) {
-                editMode.style.display = 'flex';
-                editMode.style.visibility = 'visible';
-            }
-        }, 10);
+        // 确保容器完全清空（移除所有可能的残留元素）
+        editorContainer.innerHTML = '';
         
-        // 清理旧的编辑器实例和所有CodeMirror元素
-        if (descriptionEditor) {
-            try {
-                const wrapper = descriptionEditor.getWrapperElement();
-                if (wrapper && wrapper.parentNode) {
-                    wrapper.parentNode.removeChild(wrapper);
-                } else {
-                    descriptionEditor.toTextArea();
-                }
-            } catch (e) {
+        // 创建CodeMirror容器div（完全按照文件浏览器的方式）
+        const containerDiv = document.createElement('div');
+        containerDiv.id = 'descriptionCodeMirrorContainer';
+        containerDiv.style.width = '100%';
+        containerDiv.style.height = '100%';
+        containerDiv.style.minHeight = '300px';
+        editorContainer.appendChild(containerDiv);
+        
+        // 等待模态框完全显示后再初始化（使用模态框事件）
+        const modalElement = document.getElementById('projectDescriptionModal');
+        const initEditor = () => {
+            if (typeof CodeMirror === 'undefined') {
+                showAlert('danger', '代码编辑器未加载，请刷新页面重试');
+                return;
+            }
+            
+            // 再次检查编辑模式是否仍然显示
+            if (editMode.style.display === 'none') {
+                return;
+            }
+            
+            const container = document.getElementById('descriptionCodeMirrorContainer');
+            if (!container || !container.parentNode) {
+                return;
+            }
+            
+            // 再次确保没有已存在的编辑器实例
+            if (descriptionEditor) {
+                cleanupDescriptionEditor();
+            }
+            
+            // 检查容器中是否已经有CodeMirror元素
+            if (container.querySelector('.CodeMirror')) {
+                container.innerHTML = '';
+            }
+            
                 try {
-                    descriptionEditor.toTextArea();
-                } catch (e2) {
-                    console.warn('清理旧编辑器实例失败:', e2);
-                }
-            }
-            descriptionEditor = null;
-        }
-        
-        // 清理所有可能的遗留元素
-        while (editorContainer.firstChild) {
-            editorContainer.removeChild(editorContainer.firstChild);
-        }
-        
-        // 创建新的textarea
-        const textarea = document.createElement('textarea');
-        textarea.id = 'projectDescriptionTextarea';
-        textarea.placeholder = '使用Markdown格式编写项目描述...';
-        textarea.style.width = '100%';
-        textarea.style.minHeight = '300px';
-        textarea.value = descriptionOriginalContent;
-        editorContainer.appendChild(textarea);
-        
-        // 等待DOM更新和模态框完全显示
-        setTimeout(() => {
-            try {
-                if (typeof CodeMirror === 'undefined') {
-                    console.error('CodeMirror未加载');
-                    showAlert('danger', '代码编辑器未加载，请刷新页面重试');
-                    return;
-                }
-                
-                const textareaEl = document.getElementById('projectDescriptionTextarea');
-                if (!textareaEl) {
-                    console.error('textarea元素不存在');
-                    showAlert('danger', '编辑器初始化失败：textarea元素不存在');
-                    return;
-                }
-                
-                descriptionEditor = CodeMirror.fromTextArea(textareaEl, {
+                // 初始化CodeMirror - 完全按照文件浏览器的方式
+                descriptionEditor = CodeMirror(container, {
+                    value: descriptionOriginalContent || '',
                     mode: 'markdown',
                     theme: 'monokai',
                     lineNumbers: true,
                     lineWrapping: true,
                     indentUnit: 2,
                     tabSize: 2,
-                    autofocus: true
+                    autofocus: true,
+                    viewportMargin: Infinity
                 });
-                    
-                    if (!descriptionEditor) {
-                        console.error('CodeMirror初始化失败');
+                
+                // 计算合适的高度
+                const updateSize = () => {
+                    if (!descriptionEditor || editMode.style.display === 'none') return;
+                    const modalBody = editorContainer.closest('.modal-body');
+                    if (modalBody) {
+                        const modalBodyHeight = modalBody.offsetHeight;
+                        const footerHeight = 60;
+                        const availableHeight = modalBodyHeight - footerHeight - 50;
+                        descriptionEditor.setSize('100%', Math.max(availableHeight, 300) + 'px');
+                    } else {
+                        descriptionEditor.setSize('100%', '400px');
+                    }
+                };
+                
+                updateSize();
+                
+                // 实时预览功能 - 使用前端Markdown渲染
+                const livePreviewDiv = document.getElementById('descriptionLivePreview');
+                let previewUpdateTimer = null;
+                
+                // 实时更新预览的函数（使用防抖）
+                const updateLivePreview = (markdownText) => {
+                    if (typeof marked === 'undefined') {
+                        // 如果没有marked.js，使用后端API
+                        fetch(`/api/todo/v2/projects/${currentProjectIdForDescription}/description/preview`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ description: markdownText })
+                        })
+                        .then(response => response.json())
+                        .then(result => {
+                            if (result.success && livePreviewDiv) {
+                                livePreviewDiv.innerHTML = result.html;
+                            }
+                        })
+                        .catch(error => {
+                            if (livePreviewDiv) {
+                                livePreviewDiv.innerHTML = '<p class="text-danger">预览更新失败</p>';
+                            }
+                        });
                         return;
                     }
                     
-                    // 设置编辑器高度
-                    const updateEditorHeight = () => {
-                        if (!descriptionEditor) return;
-                        const modalBody = editorContainer.closest('.modal-body');
-                        if (!modalBody) return;
-                        const footerHeight = 60;
-                        const availableHeight = modalBody.offsetHeight - footerHeight - 50;
-                        descriptionEditor.setSize('100%', Math.max(availableHeight, 300) + 'px');
-                    };
-                    
-                    // 等待一帧后设置高度
-                    requestAnimationFrame(() => {
-                        updateEditorHeight();
-                        if (descriptionEditor) {
-                            descriptionEditor.refresh();
-                            descriptionEditor.focus();
+                    // 使用前端marked.js实时渲染（配置以支持扩展语法）
+                    try {
+                        if (livePreviewDiv) {
+                            if (!markdownText || !markdownText.trim()) {
+                                livePreviewDiv.innerHTML = '<p class="text-muted">暂无内容</p>';
+                            } else {
+                                // 配置marked.js支持扩展语法（与后端markdown-it保持一致）
+                                if (typeof marked !== 'undefined' && marked.setOptions) {
+                                    marked.setOptions({
+                                        breaks: true,        // 支持换行（与后端一致）
+                                        gfm: true,          // 启用GitHub Flavored Markdown（支持表格、任务列表等）
+                                        headerIds: false,   // 禁用自动生成header ID（可选）
+                                        mangle: false       // 不混淆邮箱地址（可选）
+                                    });
+                                }
+                                const html = marked.parse(markdownText);
+                                livePreviewDiv.innerHTML = html;
+                            }
                         }
-                    });
-                    
-                    // 监听窗口大小变化
-                    const resizeHandler = () => {
-                        if (descriptionEditor && editMode.style.display !== 'none') {
-                            updateEditorHeight();
-                            descriptionEditor.refresh();
+                    } catch (error) {
+                        console.error('Markdown渲染失败:', error);
+                        if (livePreviewDiv) {
+                            livePreviewDiv.innerHTML = '<p class="text-danger">预览渲染失败</p>';
                         }
-                    };
-                    window.addEventListener('resize', resizeHandler);
-                    
-                    // 绑定按钮事件
-                    const cancelBtn = document.getElementById('cancelEditBtn');
-                    const saveBtn = document.getElementById('saveDescriptionBtn');
-                    if (cancelBtn) cancelBtn.onclick = cancelEdit;
-                    if (saveBtn) saveBtn.onclick = saveAndExitEdit;
+                    }
+                };
+                
+                // 初始预览
+                updateLivePreview(descriptionOriginalContent);
+                
+                // 监听编辑器内容变化，实时更新预览（使用防抖300ms）
+                descriptionEditor.on('change', function() {
+                    clearTimeout(previewUpdateTimer);
+                    previewUpdateTimer = setTimeout(() => {
+                        const content = descriptionEditor.getValue();
+                        updateLivePreview(content);
+                    }, 300);
+                });
+                
+                // 强制刷新编辑器布局（完全按照文件浏览器的方式）
+                setTimeout(() => {
+                    if (descriptionEditor && editMode.style.display === 'flex') {
+                        updateSize();
+                        descriptionEditor.refresh();
+                        descriptionEditor.focus();
+                    }
+                }, 150);
+                
+                // 绑定按钮事件
+                const cancelBtn = document.getElementById('cancelEditBtn');
+                const saveBtn = document.getElementById('saveDescriptionBtn');
+                if (cancelBtn) {
+                    cancelBtn.onclick = cancelEdit;
+                }
+                if (saveBtn) {
+                    saveBtn.onclick = saveDescription;
+                }
             } catch (error) {
-                console.error('初始化CodeMirror编辑器失败:', error);
+                console.error('初始化编辑器失败:', error);
                 showAlert('danger', '初始化编辑器失败：' + error.message);
             }
-        }, 100);
+        };
+        
+        // 如果模态框已经显示，直接初始化；否则等待显示事件
+        if (modalElement && modalElement.classList.contains('show')) {
+            setTimeout(initEditor, 100);
+        } else {
+            const onShown = () => {
+                setTimeout(initEditor, 100);
+                modalElement.removeEventListener('shown.bs.modal', onShown);
+            };
+            modalElement.addEventListener('shown.bs.modal', onShown);
+        }
     }
     
+    // 取消编辑
     function cancelEdit() {
+        cleanupDescriptionEditor();
+        
         const previewMode = document.getElementById('descriptionPreviewMode');
         const editMode = document.getElementById('descriptionEditMode');
         const footer = document.getElementById('descriptionModalFooter');
         
-        if (!previewMode || !editMode || !footer) {
-            console.error('取消编辑时找不到必要的DOM元素');
-            return;
-        }
-        
-        // 先清理编辑器
-        if (descriptionEditor) {
-            try {
-                descriptionEditor.toTextArea();
-            } catch (e) {
-                console.warn('清理编辑器失败:', e);
-            }
-            descriptionEditor = null;
-        }
-        
-        // 恢复预览模式（强制显示）
         editMode.style.display = 'none';
         previewMode.style.display = 'flex';
         footer.innerHTML = '<button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>';
         
-        // 恢复原始内容预览
-        updateDescriptionPreviewContent(descriptionOriginalContent);
+        // 恢复预览
+        updateDescriptionPreview(descriptionOriginalContent);
         
-                    // 重新绑定编辑按钮
-                    const editBtn = document.getElementById('editDescriptionBtn');
-                    if (editBtn) {
-                        editBtn.replaceWith(editBtn.cloneNode(true));
-                        const newEditBtn = document.getElementById('editDescriptionBtn');
-                        if (newEditBtn) {
-                            newEditBtn.onclick = (e) => {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                enterEditMode(e);
-                            };
-                        }
-                    }
+        // 重新绑定编辑按钮
+        const editBtn = document.getElementById('editDescriptionBtn');
+        if (editBtn) {
+            editBtn.onclick = function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                switchToEditMode();
+            };
+        }
     }
     
-    function saveAndExitEdit() {
+    // 保存描述
+    function saveDescription() {
         if (!descriptionEditor) return;
+        
         const description = descriptionEditor.getValue();
         
         fetch(`/api/todo/v2/projects/${currentProjectIdForDescription}/description`, {
@@ -2818,6 +2896,8 @@
                 showAlert('success', '项目描述已保存');
                 
                 // 退出编辑模式
+                cleanupDescriptionEditor();
+                
                 const previewMode = document.getElementById('descriptionPreviewMode');
                 const editMode = document.getElementById('descriptionEditMode');
                 const footer = document.getElementById('descriptionModalFooter');
@@ -2827,12 +2907,16 @@
                 footer.innerHTML = '<button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>';
                 
                 // 更新预览
-                updateDescriptionPreviewContent(description);
+                updateDescriptionPreview(description);
                 
-                // 清理编辑器
-                if (descriptionEditor) {
-                    descriptionEditor.toTextArea();
-                    descriptionEditor = null;
+                // 重新绑定编辑按钮
+                const editBtn = document.getElementById('editDescriptionBtn');
+                if (editBtn) {
+                    editBtn.onclick = function(e) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        switchToEditMode();
+                    };
                 }
             } else {
                 showAlert('danger', '保存失败：' + (result.error || '未知错误'));
@@ -3049,33 +3133,17 @@
                 // 保存当前输入的引用，确保回调函数能访问到正确的元素
                 const currentUrlInput = document.getElementById('linkUrlInput');
                 const currentNameInput = document.getElementById('linkNameInput');
-                openFileSelector((filePath, fileName) => {
+                openFolderSelector((folderPath, folderName) => {
                     // 回调时重新获取输入框元素（确保引用有效）
                     const urlInput = document.getElementById('linkUrlInput');
                     const nameInput = document.getElementById('linkNameInput');
                     
-                    if (urlInput && filePath) {
-                        // 文件路径需要转换为目录路径（文件浏览器的path参数是目录路径）
-                        // 如果路径包含文件名，提取目录部分
-                        let dirPath = filePath;
-                        if (filePath && !filePath.endsWith('/')) {
-                            // 移除文件名，只保留目录路径
-                            const lastSlash = filePath.lastIndexOf('/');
-                            if (lastSlash > 0) {
-                                dirPath = filePath.substring(0, lastSlash);
-                            } else {
-                                dirPath = ''; // 根目录
-                            }
-                        }
-                        // 文件浏览器使用目录路径，文件会在预览中自动显示
-                        urlInput.value = `/file_browser?path=${encodeURIComponent(dirPath)}`;
+                    if (urlInput && folderPath !== undefined) {
+                        // 文件夹路径直接用于文件浏览器
+                        urlInput.value = `/file_browser?path=${encodeURIComponent(folderPath)}`;
                     }
-                    if (nameInput && fileName && !nameInput.value.trim()) {
-                        nameInput.value = fileName;
-                    }
-                    const fileSelectorModal = bootstrap.Modal.getInstance(document.getElementById('fileSelectorModal'));
-                    if (fileSelectorModal) {
-                        fileSelectorModal.hide();
+                    if (nameInput && folderName && !nameInput.value.trim()) {
+                        nameInput.value = folderName;
                     }
                 });
             };
@@ -3090,12 +3158,25 @@
         modal.show();
     }
     
-    function openFileSelector(onSelect) {
+    // 完全重构的文件夹选择器（动态刷新模式）
+    let currentFolderPath = ''; // 当前显示的文件夹路径
+    let folderSelectorCallback = null; // 选择文件夹的回调函数
+    
+    function openFolderSelector(onSelect) {
+        folderSelectorCallback = onSelect;
+        currentFolderPath = ''; // 重置为根目录
+        
         const modalElement = document.getElementById('fileSelectorModal');
         if (!modalElement) {
-            console.error('文件选择器模态框不存在');
-            showAlert('danger', '文件选择器模态框不存在');
+            console.error('文件夹选择器模态框不存在');
+            showAlert('danger', '文件夹选择器模态框不存在');
             return;
+        }
+        
+        // 更新模态框标题
+        const modalTitle = modalElement.querySelector('.modal-title');
+        if (modalTitle) {
+            modalTitle.textContent = '选择文件夹';
         }
         
         let modal = bootstrap.Modal.getInstance(modalElement);
@@ -3114,12 +3195,32 @@
             return;
         }
         
-        container.innerHTML = '<div class="text-center py-3"><div class="spinner-border spinner-border-sm" role="status"></div><span class="ms-2">正在加载文件列表...</span></div>';
+        // 显示加载状态
+        container.innerHTML = '<div class="text-center py-3"><div class="spinner-border spinner-border-sm" role="status"></div><span class="ms-2">正在加载文件夹列表...</span></div>';
         
+        // 显示模态框
         modal.show();
         
-        // 加载文件树
-        fetch('/api/todo/v2/file_tree')
+        // 加载根目录
+        loadFolderContent('');
+    }
+    
+    // 加载文件夹内容
+    function loadFolderContent(folderPath) {
+        currentFolderPath = folderPath;
+        const container = document.getElementById('fileTreeContainer');
+        if (!container) return;
+        
+        // 显示加载状态
+        container.innerHTML = '<div class="text-center py-3"><div class="spinner-border spinner-border-sm" role="status"></div><span class="ms-2">正在加载...</span></div>';
+        
+        // 构建API URL
+        const apiUrl = folderPath 
+            ? `/api/todo/v2/file_tree/${encodeURIComponent(folderPath)}`
+            : '/api/todo/v2/file_tree';
+        
+        // 获取文件夹内容
+        fetch(apiUrl)
             .then(response => {
                 if (!response.ok) {
                     return response.json().then(err => Promise.reject(err));
@@ -3127,264 +3228,103 @@
                 return response.json();
             })
             .then(result => {
-                console.log('文件树加载结果:', result);
                 if (result.success) {
-                    renderFileTree(container, result.tree, onSelect);
+                    renderFolderContent(container, result.tree, folderPath);
                 } else {
                     container.innerHTML = '<div class="alert alert-danger">加载失败：' + (result.error || '未知错误') + '</div>';
                 }
             })
             .catch(error => {
-                console.error('文件树加载错误:', error);
+                console.error('加载文件夹失败:', error);
                 container.innerHTML = '<div class="alert alert-danger">加载失败：' + (error.error || error.message || '未知错误') + '</div>';
             });
     }
     
-    function renderFileTree(container, tree, onSelect) {
+    // 渲染文件夹内容
+    function renderFolderContent(container, tree, currentPath) {
         if (!tree || tree.length === 0) {
-            container.innerHTML = '<p class="text-muted text-center py-3">暂无文件</p>';
+            container.innerHTML = '<p class="text-muted text-center py-3">该文件夹为空</p>';
             return;
         }
         
-        let html = '<ul class="list-group list-group-flush">';
+        // 构建面包屑导航
+        let breadcrumbHtml = '<nav aria-label="breadcrumb" class="mb-3"><ol class="breadcrumb">';
+        const pathParts = currentPath ? currentPath.split('/').filter(p => p) : [];
         
-        function renderNode(node, level = 0) {
-            const indent = level * 20;
-            const isDir = node.is_dir;
-            const icon = isDir ? '<i class="fas fa-folder text-warning"></i>' : '<i class="fas fa-file text-info"></i>';
-            const nodeId = `tree-node-${Math.random().toString(36).substr(2, 9)}`;
-            
-            html += `<li class="list-group-item" style="padding-left: ${indent + 15}px; cursor: pointer;" data-path="${escapeHtml(node.path)}" data-is-dir="${isDir}">`;
-            
-            // 如果是目录且有子项（包括未加载的），显示toggle按钮
-            const hasChildren = node.has_children || (node.children && node.children.length > 0);
-            if (isDir && hasChildren) {
-                const loadState = (node.children && node.children.length > 0) ? 'loaded' : 'lazy';
-                html += `<span class="tree-toggle me-2" data-target="${nodeId}" data-path="${escapeHtml(node.path)}" data-load-state="${loadState}"><i class="fas fa-chevron-right"></i></span>`;
-            } else {
-                html += '<span class="me-2" style="width: 16px; display: inline-block;"></span>';
-            }
-            
-            html += `${icon} <span>${escapeHtml(node.name)}</span>`;
-            html += '</li>';
-            
-            // 只渲染已经加载的子节点
-            if (isDir && node.children && node.children.length > 0) {
-                html += `<ul class="list-group list-group-flush" id="${nodeId}" style="display: none;">`;
-                node.children.forEach(child => renderNode(child, level + 1));
-                html += '</ul>';
-            }
+        // 根目录
+        breadcrumbHtml += '<li class="breadcrumb-item"><a href="#" class="folder-nav-link" data-path="">根目录</a></li>';
+        
+        // 路径各部分
+        let currentPathAccum = '';
+        pathParts.forEach((part, index) => {
+            currentPathAccum += (currentPathAccum ? '/' : '') + part;
+            breadcrumbHtml += `<li class="breadcrumb-item"><a href="#" class="folder-nav-link" data-path="${escapeHtml(currentPathAccum)}">${escapeHtml(part)}</a></li>`;
+        });
+        
+        breadcrumbHtml += '</ol></nav>';
+        
+        // 构建文件/文件夹列表
+        let listHtml = '<ul class="list-group">';
+        
+        // 只显示文件夹（因为我们要选择文件夹）
+        const folders = tree.filter(node => node.is_dir);
+        
+        if (folders.length === 0) {
+            listHtml += '<li class="list-group-item text-muted text-center">该文件夹下没有子文件夹</li>';
+        } else {
+            folders.forEach(node => {
+                const folderPath = node.path;
+                listHtml += `
+                    <li class="list-group-item folder-item" style="cursor: pointer;" data-path="${escapeHtml(folderPath)}">
+                        <i class="fas fa-folder text-warning me-2"></i>
+                        <span>${escapeHtml(node.name)}</span>
+                        <i class="fas fa-chevron-right float-end mt-1"></i>
+                    </li>
+                `;
+            });
         }
         
-        tree.forEach(node => renderNode(node));
-        html += '</ul>';
+        listHtml += '</ul>';
         
-        container.innerHTML = html;
+        container.innerHTML = breadcrumbHtml + listHtml;
         
-        // 绑定toggle按钮点击事件（支持懒加载）
-        container.querySelectorAll('.tree-toggle').forEach(toggle => {
-            toggle.addEventListener('click', function(e) {
+        // 绑定事件：面包屑导航
+        container.querySelectorAll('.folder-nav-link').forEach(link => {
+            link.addEventListener('click', function(e) {
                 e.preventDefault();
-                e.stopPropagation();
-                
-                const targetId = toggle.dataset.target;
-                const loadState = toggle.dataset.loadState;
-                const folderPath = toggle.dataset.path;
-                const target = document.getElementById(targetId);
-                const icon = toggle.querySelector('i');
-                
-                if (!target || target.style.display !== 'none') {
-                    // 折叠已展开的目录
-                    if (target) {
-                        target.style.display = 'none';
-                        icon.classList.remove('fa-chevron-down');
-                        icon.classList.add('fa-chevron-right');
-                    }
-                    return;
-                }
-                
-                // 展开目录
-                if (loadState === 'lazy' && folderPath) {
-                    // 懒加载：先显示加载提示
-                    const loadingHtml = `<li class="list-group-item" style="padding-left: 30px; color: #999;"><i class="fas fa-spinner fa-spin me-2"></i>加载中...</li>`;
-                    const tempDiv = document.createElement('div');
-                    tempDiv.innerHTML = `<ul class="list-group list-group-flush" id="${targetId}" style="display: block;">${loadingHtml}</ul>`;
-                    if (target.parentNode) {
-                        target.parentNode.insertBefore(tempDiv.firstChild, target.nextSibling);
-                        target.remove();
-                    }
-                    
-                    // 加载子目录
-                    fetch(`/api/todo/v2/file_tree/${encodeURIComponent(folderPath)}`)
-                        .then(response => response.json())
-                        .then(result => {
-                            const actualTarget = document.getElementById(targetId);
-                            if (!actualTarget) return;
-                            
-                            if (result.success && result.tree && result.tree.length > 0) {
-                                // 渲染子节点
-                                let childHtml = '';
-                                result.tree.forEach(childNode => {
-                                    const childIndent = 20;
-                                    const childIsDir = childNode.is_dir;
-                                    const childHasChildren = childNode.has_children || (childNode.children && childNode.children.length > 0);
-                                    const childIcon = childIsDir ? '<i class="fas fa-folder text-warning"></i>' : '<i class="fas fa-file text-info"></i>';
-                                    const childNodeId = `tree-node-${Math.random().toString(36).substr(2, 9)}`;
-                                    
-                                    childHtml += `<li class="list-group-item" style="padding-left: ${childIndent + 15}px; cursor: pointer;" data-path="${escapeHtml(childNode.path)}" data-is-dir="${childIsDir}">`;
-                                    if (childIsDir && childHasChildren) {
-                                        const childLoadState = (childNode.children && childNode.children.length > 0) ? 'loaded' : 'lazy';
-                                        childHtml += `<span class="tree-toggle me-2" data-target="${childNodeId}" data-path="${escapeHtml(childNode.path)}" data-load-state="${childLoadState}"><i class="fas fa-chevron-right"></i></span>`;
-                                    } else {
-                                        childHtml += '<span class="me-2" style="width: 16px; display: inline-block;"></span>';
-                                    }
-                                    childHtml += `${childIcon} <span>${escapeHtml(childNode.name)}</span></li>`;
-                                });
-                                actualTarget.innerHTML = childHtml;
-                                
-                                // 重新绑定事件（递归绑定新加载的节点）
-                                bindTreeEvents(actualTarget, onSelect);
-                            } else {
-                                actualTarget.innerHTML = '<li class="list-group-item text-muted" style="padding-left: 30px;">暂无文件</li>';
-                            }
-                            
-                            // 更新toggle状态
-                            toggle.dataset.loadState = 'loaded';
-                            icon.classList.remove('fa-chevron-right');
-                            icon.classList.add('fa-chevron-down');
-                        })
-                        .catch(error => {
-                            const actualTarget = document.getElementById(targetId);
-                            if (actualTarget) {
-                                actualTarget.innerHTML = '<li class="list-group-item text-danger" style="padding-left: 30px;">加载失败: ' + (error.error || error.message || '未知错误') + '</li>';
-                            }
-                        });
-                } else {
-                    // 已加载：直接显示
-                    target.style.display = 'block';
-                    icon.classList.remove('fa-chevron-right');
-                    icon.classList.add('fa-chevron-down');
-                }
-            });
-        });
-        
-        // 绑定文件选择事件
-        container.querySelectorAll('[data-is-dir="false"]').forEach(item => {
-            item.addEventListener('click', function(e) {
-                e.preventDefault();
-                e.stopPropagation();
                 const path = this.dataset.path;
-                const nameSpan = this.querySelector('span:last-child');
-                const name = nameSpan ? nameSpan.textContent.trim() : '';
-                if (onSelect && path) {
-                    onSelect(path, name);
-                }
+                loadFolderContent(path);
             });
         });
         
-        // 绑定目录项点击事件（不点击toggle时）
-        container.querySelectorAll('[data-is-dir="true"]').forEach(item => {
-            item.addEventListener('click', function(e) {
-                // 如果点击的不是toggle，不处理（目录只能通过toggle展开）
-                if (!e.target.closest('.tree-toggle')) {
-                    e.stopPropagation();
-                }
-            });
-        });
-    }
-    
-    // 辅助函数：绑定树节点事件（用于懒加载后的节点）
-    function bindTreeEvents(container, onSelect) {
-        // 绑定toggle按钮
-        container.querySelectorAll('.tree-toggle').forEach(toggle => {
-            toggle.addEventListener('click', function(e) {
-                e.preventDefault();
-                e.stopPropagation();
-                
-                const targetId = toggle.dataset.target;
-                const loadState = toggle.dataset.loadState;
-                const folderPath = toggle.dataset.path;
-                const target = document.getElementById(targetId);
-                const icon = toggle.querySelector('i');
-                
-                if (!target || target.style.display !== 'none') {
-                    if (target) {
-                        target.style.display = 'none';
-                        icon.classList.remove('fa-chevron-down');
-                        icon.classList.add('fa-chevron-right');
-                    }
-                    return;
-                }
-                
-                if (loadState === 'lazy' && folderPath) {
-                    const loadingHtml = `<li class="list-group-item" style="padding-left: 30px; color: #999;"><i class="fas fa-spinner fa-spin me-2"></i>加载中...</li>`;
-                    const tempDiv = document.createElement('div');
-                    tempDiv.innerHTML = `<ul class="list-group list-group-flush" id="${targetId}" style="display: block;">${loadingHtml}</ul>`;
-                    if (target.parentNode) {
-                        target.parentNode.insertBefore(tempDiv.firstChild, target.nextSibling);
-                        target.remove();
-                    }
-                    
-                    fetch(`/api/todo/v2/file_tree/${encodeURIComponent(folderPath)}`)
-                        .then(response => response.json())
-                        .then(result => {
-                            const actualTarget = document.getElementById(targetId);
-                            if (!actualTarget) return;
-                            
-                            if (result.success && result.tree && result.tree.length > 0) {
-                                let childHtml = '';
-                                result.tree.forEach(childNode => {
-                                    const childIndent = 20;
-                                    const childIsDir = childNode.is_dir;
-                                    const childHasChildren = childNode.has_children || (childNode.children && childNode.children.length > 0);
-                                    const childIcon = childIsDir ? '<i class="fas fa-folder text-warning"></i>' : '<i class="fas fa-file text-info"></i>';
-                                    const childNodeId = `tree-node-${Math.random().toString(36).substr(2, 9)}`;
-                                    
-                                    childHtml += `<li class="list-group-item" style="padding-left: ${childIndent + 15}px; cursor: pointer;" data-path="${escapeHtml(childNode.path)}" data-is-dir="${childIsDir}">`;
-                                    if (childIsDir && childHasChildren) {
-                                        const childLoadState = (childNode.children && childNode.children.length > 0) ? 'loaded' : 'lazy';
-                                        childHtml += `<span class="tree-toggle me-2" data-target="${childNodeId}" data-path="${escapeHtml(childNode.path)}" data-load-state="${childLoadState}"><i class="fas fa-chevron-right"></i></span>`;
-                                    } else {
-                                        childHtml += '<span class="me-2" style="width: 16px; display: inline-block;"></span>';
-                                    }
-                                    childHtml += `${childIcon} <span>${escapeHtml(childNode.name)}</span></li>`;
-                                });
-                                actualTarget.innerHTML = childHtml;
-                                bindTreeEvents(actualTarget, onSelect);
-                            } else {
-                                actualTarget.innerHTML = '<li class="list-group-item text-muted" style="padding-left: 30px;">暂无文件</li>';
-                            }
-                            
-                            toggle.dataset.loadState = 'loaded';
-                            icon.classList.remove('fa-chevron-right');
-                            icon.classList.add('fa-chevron-down');
-                        })
-                        .catch(error => {
-                            const actualTarget = document.getElementById(targetId);
-                            if (actualTarget) {
-                                actualTarget.innerHTML = '<li class="list-group-item text-danger" style="padding-left: 30px;">加载失败</li>';
-                            }
-                        });
-                } else {
-                    target.style.display = 'block';
-                    icon.classList.remove('fa-chevron-right');
-                    icon.classList.add('fa-chevron-down');
-                }
-            });
-        });
-        
-        // 绑定文件选择事件
-        container.querySelectorAll('[data-is-dir="false"]').forEach(item => {
+        // 绑定事件：文件夹项点击
+        container.querySelectorAll('.folder-item').forEach(item => {
             item.addEventListener('click', function(e) {
                 e.preventDefault();
-                e.stopPropagation();
                 const path = this.dataset.path;
-                const nameSpan = this.querySelector('span:last-child');
-                const name = nameSpan ? nameSpan.textContent.trim() : '';
-                if (onSelect && path) {
-                    onSelect(path, name);
-                }
+                
+                // 进入子文件夹
+                loadFolderContent(path);
             });
+        });
+        
+        // 添加选择当前文件夹的按钮
+        const selectCurrentBtn = document.createElement('div');
+        selectCurrentBtn.className = 'mt-3';
+        const currentFolderName = currentPath ? pathParts[pathParts.length - 1] : '根目录';
+        selectCurrentBtn.innerHTML = `
+            <button type="button" class="btn btn-primary w-100" id="selectCurrentFolderBtn">
+                <i class="fas fa-check me-2"></i>选择当前文件夹: ${escapeHtml(currentFolderName)}
+            </button>
+        `;
+        container.appendChild(selectCurrentBtn);
+        
+        // 绑定选择按钮
+        document.getElementById('selectCurrentFolderBtn').addEventListener('click', function() {
+            if (folderSelectorCallback) {
+                folderSelectorCallback(currentPath || '', currentFolderName);
+                bootstrap.Modal.getInstance(document.getElementById('fileSelectorModal')).hide();
+            }
         });
     }
     

@@ -10,6 +10,81 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/themes.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/app_style.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/serial_tool.css') }}">
+    <style>
+        /* 导航栏主题化 */
+        .navbar {
+            background: linear-gradient(135deg, var(--t-primary), var(--t-primary-light)) !important;
+            border-bottom: 1px solid var(--t-border);
+        }
+        .navbar-brand, .navbar-text {
+            color: var(--t-text-light) !important;
+        }
+        .navbar-brand:hover {
+            color: var(--t-text-light) !important;
+            opacity: 0.9;
+        }
+        
+        /* 浮动工具栏样式 */
+        .floating-toolbar {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            z-index: 10000;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        
+        .toolbar-btn {
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            border: none;
+            background: linear-gradient(135deg, var(--t-primary), var(--t-primary-light));
+            color: white;
+            font-size: 24px;
+            cursor: pointer;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            text-decoration: none;
+        }
+        
+        .toolbar-btn:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+        }
+        
+        .toolbar-btn:active {
+            transform: translateY(-1px);
+        }
+        
+        .toolbar-btn.back-btn {
+            background: linear-gradient(135deg, var(--t-primary-light), var(--t-primary-lighter));
+            color: var(--t-text-main);
+        }
+        
+        .toolbar-btn .tooltip-text {
+            position: absolute;
+            right: 70px;
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 14px;
+            white-space: nowrap;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s ease;
+        }
+        
+        .toolbar-btn:hover .tooltip-text {
+            opacity: 1;
+        }
+    </style>
     <script>
         (function() {
             const savedTheme = localStorage.getItem('site_theme') || 'jasmine';
@@ -88,7 +163,7 @@
                 <div class="card" id="portConfigCard" style="display: none;">
                     <div class="card-header">
                         <strong>串口配置</strong>
-                        <span class="badge bg-success float-end" id="currentPortName">-</span>
+                        <span class="badge float-end" id="currentPortName" style="background: var(--t-success); color: white;">-</span>
                     </div>
                     <div class="card-body">
                         <div class="mb-3">
@@ -508,8 +583,16 @@
 
     <script src="{{ url_for('static', filename='js/bootstrap.bundle.min.js') }}"></script>
     <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <!-- 浮动工具栏 -->
+    <div class="floating-toolbar">
+        <a href="{{ url_for('index') }}" class="toolbar-btn back-btn" title="返回主界面">
+            🏠
+            <span class="tooltip-text">返回主界面</span>
+        </a>
+    </div>
+    
     <script src="{{ url_for('static', filename='js/serial_tool.js') }}?v={{ range(1, 99999) | random }}"></script>
-<script src="{{ url_for('static', filename='js/theme_floater.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/theme_floater.js') }}"></script>
 </body>
 </html>
 

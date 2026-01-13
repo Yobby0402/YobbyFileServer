@@ -11,11 +11,17 @@
     <style>
         body {
             padding: 20px;
-            background: #f5f7fa;
+            background: var(--t-bg-body);
         }
         .card {
             margin-bottom: 20px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            box-shadow: var(--t-shadow-sm);
+            background: var(--t-bg-panel);
+            border: 1px solid var(--t-border-light);
+        }
+        .card-header {
+            background: linear-gradient(135deg, var(--t-primary), var(--t-primary-light));
+            color: var(--t-text-light);
         }
         .result-item {
             padding: 10px;
@@ -24,20 +30,24 @@
             font-family: 'Consolas', monospace;
         }
         .result-ok {
-            background: #d4edda;
-            color: #155724;
+            background: rgba(21, 132, 103, 0.1);
+            color: var(--t-success);
+            border: 1px solid rgba(21, 132, 103, 0.2);
         }
         .result-error {
-            background: #f8d7da;
-            color: #721c24;
+            background: rgba(231, 76, 60, 0.1);
+            color: var(--t-danger);
+            border: 1px solid rgba(231, 76, 60, 0.2);
         }
         .result-warning {
-            background: #fff3cd;
-            color: #856404;
+            background: rgba(243, 156, 18, 0.1);
+            color: var(--t-warning);
+            border: 1px solid rgba(243, 156, 18, 0.2);
         }
         .result-info {
-            background: #d1ecf1;
-            color: #0c5460;
+            background: rgba(74, 144, 226, 0.1);
+            color: var(--t-info);
+            border: 1px solid rgba(74, 144, 226, 0.2);
         }
     </style>
     <script>
@@ -53,7 +63,7 @@
         <p class="text-muted">检测浏览器对 Web Serial API 的支持情况</p>
         
         <div class="card">
-            <div class="card-header bg-primary text-white">
+            <div class="card-header">
                 <strong>诊断结果</strong>
             </div>
             <div class="card-body" id="diagnosticResults">
@@ -62,7 +72,7 @@
         </div>
         
         <div class="card">
-            <div class="card-header bg-info text-white">
+            <div class="card-header">
                 <strong>浏览器信息</strong>
             </div>
             <div class="card-body">
@@ -71,7 +81,7 @@
         </div>
         
         <div class="card">
-            <div class="card-header bg-success text-white">
+            <div class="card-header">
                 <strong>测试串口连接</strong>
             </div>
             <div class="card-body">
@@ -81,7 +91,7 @@
         </div>
         
         <div class="card">
-            <div class="card-header bg-warning text-dark">
+            <div class="card-header">
                 <strong>解决方案</strong>
             </div>
             <div class="card-body">
