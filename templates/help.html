@@ -288,7 +288,7 @@
                         集成了文件浏览、在线编辑、任务管理、产品对比、图表编辑、串口调试等多种功能。
                         本页汇总了快速上手、核心功能、管理配置、安全提示与常见问题，帮助你和团队高效协作。
                     </p>
-                    <span class="badge-pill"><i class="fas fa-history"></i> 最后更新：2026-01-13 · 版本 R1.1</span>
+                    <span class="badge-pill"><i class="fas fa-history"></i> 最后更新：2026-01-20 · 版本 R1.2</span>
                 </div>
                 <div class="d-flex flex-column flex-sm-row gap-3">
                     <a class="btn btn-soft btn-success" href="{{ url_for('serial_tool') }}">
@@ -309,6 +309,7 @@
                 <li><a href="#quick-start"><i class="fas fa-rocket"></i> 快速上手</a></li>
                 <li><a href="#core-features"><i class="fas fa-gem"></i> 核心功能速览</a></li>
                 <li><a href="#file-explorer"><i class="fas fa-folder-open"></i> 文件浏览器</a></li>
+                <li><a href="#git-integration"><i class="fab fa-git-alt"></i> Git版本控制集成</a></li>
                 <li><a href="#todo-center"><i class="fas fa-tasks"></i> ToDo 任务管理系统</a></li>
                 <li><a href="#product-compare"><i class="fas fa-balance-scale"></i> 产品对比工具</a></li>
                 <li><a href="#serial-tool"><i class="fas fa-microchip"></i> 串口调试与日志</a></li>
@@ -440,6 +441,145 @@ admin_password = admin123
 close_to_tray = true
 port = 5000
                         </div>
+                    </div>
+                </div>
+            </section>
+
+            <section class="help-section" id="git-integration">
+                <h2><i class="fab fa-git-alt"></i> Git版本控制集成 <span>仓库管理 + 在线编辑</span></h2>
+                <div class="divider"></div>
+                <div class="section-grid">
+                    <div class="feature-card">
+                        <h3><i class="fas fa-cog"></i> 启用与配置</h3>
+                        <ul>
+                            <li><strong>启用Git功能：</strong>在GUI界面点击 <strong>"文件 → 设置"</strong>，勾选"启用Git功能"。</li>
+                            <li><strong>设置Git工作目录：</strong>选择Git工作目录，系统会扫描该目录下的所有Git仓库。</li>
+                            <li><strong>配置Git服务器：</strong>点击"管理Git服务器配置"按钮，添加Git服务器信息（SSH密钥、服务器地址、认证方式等）。</li>
+                            <li><strong>配置外部软件：</strong>设置外部软件路径（如VSCode的code.exe），用于打开仓库。</li>
+                            <li><strong>保存并重启：</strong>保存设置后需要重启服务器才能使配置生效。</li>
+                        </ul>
+                        <div class="warn-box">
+                            <i class="fas fa-shield-alt mt-1"></i>
+                            <div>
+                                <strong>安全提示：</strong>Git服务器配置（SSH密钥、服务器地址等）仅在PyQt5 GUI中设置，不会在Web界面显示，防止敏感信息泄露。
+                            </div>
+                        </div>
+                    </div>
+                    <div class="feature-card">
+                        <h3><i class="fas fa-list"></i> Git视图与仓库列表</h3>
+                        <ul>
+                            <li><strong>切换Git视图：</strong>在文件浏览器顶部，点击"Git"按钮切换到Git视图（仅当启用Git功能时显示）。</li>
+                            <li><strong>仓库列表：</strong>系统会自动扫描Git工作目录，显示所有Git仓库及其状态。</li>
+                            <li><strong>仓库状态：</strong>每个仓库显示分支名称、远程地址、工作区状态（干净/有修改/有未提交更改）。</li>
+                            <li><strong>进入仓库：</strong>点击仓库名称或图标进入仓库，可以浏览文件、编辑文件、执行Git操作。</li>
+                            <li><strong>克隆仓库：</strong>点击"克隆仓库"按钮，可以从远程服务器克隆仓库到本地。</li>
+                        </ul>
+                    </div>
+                    <div class="feature-card">
+                        <h3><i class="fas fa-download"></i> 克隆仓库</h3>
+                        <ul>
+                            <li><strong>选择仓库：</strong>在"选择仓库"标签页，搜索并选择要克隆的远程仓库（支持Gitolite服务器的info命令）。</li>
+                            <li><strong>手动输入：</strong>在"手动输入"标签页，可以输入仓库路径（如 <code>project/repo</code>）或完整URL（如 <code>git@hostname:project/repo.git</code>）。</li>
+                            <li><strong>克隆到本地：</strong>系统会自动将仓库克隆到Git工作目录，克隆过程中显示实时进度。</li>
+                            <li><strong>自动清理：</strong>如果目标目录已存在，系统会尝试自动清理后再克隆。</li>
+                        </ul>
+                    </div>
+                    <div class="feature-card">
+                        <h3><i class="fas fa-arrow-down"></i> 拉取 (Pull)</h3>
+                        <ul>
+                            <li><strong>作用：</strong>从远程仓库下载最新的更改到本地仓库。</li>
+                            <li><strong>使用场景：</strong></li>
+                            <ul>
+                                <li>开始工作前，获取远程的最新代码</li>
+                                <li>多人协作时，同步其他人的更改</li>
+                                <li>在其他地方修改了代码，需要同步到当前工作区</li>
+                            </ul>
+                            <li><strong>注意事项：</strong>如果有未提交的本地更改，拉取可能会产生冲突，需要先处理冲突。</li>
+                        </ul>
+                    </div>
+                    <div class="feature-card">
+                        <h3><i class="fas fa-arrow-up"></i> 推送 (Push)</h3>
+                        <ul>
+                            <li><strong>作用：</strong>将本地的提交上传到远程仓库。</li>
+                            <li><strong>使用场景：</strong></li>
+                            <ul>
+                                <li>完成本地修改并提交后，推送到远程仓库</li>
+                                <li>分享你的代码更改给团队成员</li>
+                                <li>备份本地代码到远程仓库</li>
+                            </ul>
+                            <li><strong>注意事项：</strong></li>
+                            <ul>
+                                <li>推送前必须先提交（Commit）更改，并填写提交信息</li>
+                                <li>如果远程有新的提交，需要先拉取并合并</li>
+                                <li>推送只会推送已提交的更改，未提交的更改不会推送</li>
+                            </ul>
+                        </ul>
+                    </div>
+                    <div class="feature-card">
+                        <h3><i class="fas fa-sync-alt"></i> 同步 (Sync)</h3>
+                        <ul>
+                            <li><strong>作用：</strong>先拉取远程更改，再推送本地更改。相当于执行"拉取"+"推送"。</li>
+                            <li><strong>使用场景：</strong></li>
+                            <ul>
+                                <li>确保本地和远程仓库完全同步</li>
+                                <li>在推送前自动获取远程最新更改</li>
+                                <li>快速同步本地和远程仓库</li>
+                            </ul>
+                            <li><strong>注意事项：</strong>同步会先拉取，如果有冲突需要先解决冲突，然后才能推送。</li>
+                        </ul>
+                    </div>
+                    <div class="feature-card">
+                        <h3><i class="fas fa-check-circle"></i> 提交 (Commit)</h3>
+                        <ul>
+                            <li><strong>作用：</strong>将工作区的更改保存到本地仓库，并添加提交信息说明。</li>
+                            <li><strong>使用场景：</strong></li>
+                            <ul>
+                                <li>完成一部分功能后，保存更改</li>
+                                <li>修复bug后，记录修复内容</li>
+                                <li>准备推送前，必须先提交更改</li>
+                            </ul>
+                            <li><strong>提交信息：</strong>应该清晰描述本次更改的内容，便于后续查看历史记录。</li>
+                            <li><strong>注意事项：</strong>提交只保存到本地，不会上传到远程。需要推送才能将更改上传到远程仓库。</li>
+                        </ul>
+                    </div>
+                    <div class="feature-card">
+                        <h3><i class="fas fa-edit"></i> 文件编辑与预览</h3>
+                        <ul>
+                            <li><strong>在线编辑：</strong>进入仓库后，点击文件可以预览，点击"编辑文件"按钮可以编辑文件。</li>
+                            <li><strong>语法高亮：</strong>代码文件支持100+种语言的语法高亮（使用CodeMirror）。</li>
+                            <li><strong>Markdown分屏：</strong>Markdown文件支持分屏预览模式，左侧编辑右侧实时预览。</li>
+                            <li><strong>保存更改：</strong>编辑完成后点击"保存"按钮，更改会保存到本地文件系统。</li>
+                            <li><strong>状态检测：</strong>保存后系统会自动检测文件状态（修改、暂存、未跟踪），并更新UI显示。</li>
+                            <li><strong>提交更改：</strong>编辑并保存后，需要使用"提交"按钮将更改提交到Git仓库。</li>
+                        </ul>
+                    </div>
+                    <div class="feature-card">
+                        <h3><i class="fas fa-history"></i> 历史与分支管理</h3>
+                        <ul>
+                            <li><strong>查看历史：</strong>点击"历史"按钮可以查看仓库的提交历史记录，包括提交信息、作者、时间等。</li>
+                            <li><strong>分支管理：</strong>在仓库操作栏中，可以查看当前分支，并切换到其他分支。</li>
+                            <li><strong>打Tag：</strong>点击"打Tag"按钮可以为当前提交创建标签，通常用于标记版本（如 v1.0.0）。</li>
+                            <li><strong>状态监控：</strong>系统每30秒自动刷新仓库状态，显示最新的分支、远程地址、工作区状态。</li>
+                        </ul>
+                    </div>
+                    <div class="feature-card">
+                        <h3><i class="fas fa-tools"></i> 仓库管理工具</h3>
+                        <ul>
+                            <li><strong>删除仓库：</strong>在仓库列表中，点击"删除"按钮可以删除本地仓库（需要确认）。</li>
+                            <li><strong>打开文件浏览器：</strong>点击"打开文件浏览器"按钮可以在系统文件浏览器中打开仓库目录（仅限本机访问）。</li>
+                            <li><strong>用外部软件打开：</strong>点击"用外部软件打开"按钮可以使用配置的外部软件（如VSCode）打开仓库（仅限本机访问）。</li>
+                            <li><strong>调试工具：</strong>点击"调试"按钮可以执行Git命令并查看输出，用于排查问题。</li>
+                            <li><strong>帮助页面：</strong>点击"帮助"按钮可以查看Git操作的详细说明和使用建议。</li>
+                        </ul>
+                    </div>
+                    <div class="feature-card">
+                        <h3><i class="fas fa-lightbulb"></i> 工作流程建议</h3>
+                        <ol>
+                            <li><strong>开始工作前：</strong>先执行"拉取"，获取最新代码</li>
+                            <li><strong>修改文件：</strong>在仓库中编辑文件并保存</li>
+                            <li><strong>提交更改：</strong>填写提交信息并提交更改到本地仓库</li>
+                            <li><strong>推送到远程：</strong>执行"推送"或"同步"将更改上传到远程仓库</li>
+                        </ol>
                     </div>
                 </div>
             </section>

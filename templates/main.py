@@ -301,9 +301,6 @@ def create_app():
     def before_request():
         log_connection_info()
 
-    # 先加载配置，再初始化路由（这样路由初始化时能读取到正确的配置）
-    load_or_create_config(app)
-    
     routes.init_app(app)
     
     # 初始化 SocketIO（显式使用 threading 模式以加快启动速度）
@@ -517,8 +514,6 @@ def load_or_create_config(app):
             close_to_tray = settings.get('close_to_tray', 'false').lower() == 'true'  # 关闭到托盘
             port = int(settings.get('port', '5000'))  # 服务器端口
             git_enabled = settings.get('git_enabled', 'false').lower() == 'true'  # Git功能开关
-            git_workdir = settings.get('git_workdir', '')  # Git工作目录
-            git_external_app_path = settings.get('git_external_app_path', '')  # Git外部软件路径（如VSCode）
             
             # 保存配置到app中（即使路径不存在也保留用户设置）
             app.config['ROOT_DIR'] = os.path.normpath(root_dir) if root_dir else app.config['DEFAULT_ROOT_DIR']
@@ -527,8 +522,6 @@ def load_or_create_config(app):
             app.config['CLOSE_TO_TRAY'] = close_to_tray
             app.config['PORT'] = port
             app.config['GIT_ENABLED'] = git_enabled
-            app.config['GIT_WORKDIR'] = os.path.normpath(git_workdir) if git_workdir else ''
-            app.config['GIT_EXTERNAL_APP_PATH'] = git_external_app_path if git_external_app_path else ''
             
             # 检查路径是否有效（仅警告，不修改配置）
             if not os.path.isdir(app.config['ROOT_DIR']):
@@ -536,8 +529,6 @@ def load_or_create_config(app):
                 print(f"  请通过设置界面修改根目录，或手动创建该目录")
             
             print(f"[OK] 配置已加载: 根目录={app.config['ROOT_DIR']}, 密码长度={len(password)}, 管理员密码已设置")
-            print(f"[配置] Git功能开关: {git_enabled} (从配置文件读取: {settings.get('git_enabled', 'false')})")
-            print(f"[配置] Git工作目录: {app.config['GIT_WORKDIR'] if app.config['GIT_WORKDIR'] else '未设置'}")
         else:
             # 配置文件格式错误，使用默认值并保存
             print("[警告] 配置文件格式错误，使用默认配置")
@@ -547,7 +538,6 @@ def load_or_create_config(app):
             app.config['CLOSE_TO_TRAY'] = False
             app.config['PORT'] = 5000
             app.config['GIT_ENABLED'] = False
-            app.config['GIT_WORKDIR'] = ''
             save_config(app)
     else:
         # 配置文件不存在，创建默认配置
@@ -558,7 +548,6 @@ def load_or_create_config(app):
         app.config['CLOSE_TO_TRAY'] = False
         app.config['PORT'] = 5000
         app.config['GIT_ENABLED'] = False
-        app.config['GIT_WORKDIR'] = ''
         save_config(app)
 
 
@@ -572,9 +561,7 @@ def save_config(app):
         'admin_password': app.config.get('ADMIN_PASSWORD', 'admin123'),
         'close_to_tray': str(app.config.get('CLOSE_TO_TRAY', False)).lower(),
         'port': str(app.config.get('PORT', 5000)),
-        'git_enabled': str(app.config.get('GIT_ENABLED', False)).lower(),
-        'git_workdir': app.config.get('GIT_WORKDIR', ''),
-        'git_external_app_path': app.config.get('GIT_EXTERNAL_APP_PATH', '')
+        'git_enabled': str(app.config.get('GIT_ENABLED', False)).lower()
     }
     with open(config_file, 'w', encoding='utf-8') as f:
         config.write(f)
@@ -922,45 +909,16 @@ class GitConfigEditDialog(QDialog):
         
         # 服务器地址
         server_label = QLabel("服务器地址：")
-        server_widget = QWidget()
-        server_layout = QHBoxLayout(server_widget)
-        server_layout.setContentsMargins(0, 0, 0, 0)
-        server_layout.setSpacing(10)
-        
         self.server_edit = QLineEdit()
-        self.server_edit.setPlaceholderText("例如: git@example.com:username/ 或 git@example.com:username/repo.git")
-        server_layout.addWidget(self.server_edit, 1)
-        
-        # 添加帮助按钮
-        help_button = QPushButton("❓ 如何确认SSH地址?")
-        help_button.setObjectName("browseButton")
-        help_button.setToolTip("查看SSH地址格式说明")
-        help_button.clicked.connect(self.show_ssh_address_help)
-        server_layout.addWidget(help_button)
-        
-        form_layout.addRow(server_label, server_widget)
+        self.server_edit.setPlaceholderText("例如: git@example.com:user/repo.git 或 https://example.com/user/repo.git")
+        form_layout.addRow(server_label, self.server_edit)
         
         # 认证类型
         auth_label = QLabel("认证方式：")
-        auth_widget = QWidget()
-        auth_layout = QHBoxLayout(auth_widget)
-        auth_layout.setContentsMargins(0, 0, 0, 0)
-        auth_layout.setSpacing(10)
-        
         self.auth_type_combo = QComboBox()
         self.auth_type_combo.addItems(["SSH", "HTTPS"])
         self.auth_type_combo.currentTextChanged.connect(self.on_auth_type_changed)
-        auth_layout.addWidget(self.auth_type_combo, 1)
-        
-        # 添加"转换为SSH"按钮（当选择SSH认证时显示）
-        self.convert_to_ssh_button = QPushButton("🔄 从HTTPS转换")
-        self.convert_to_ssh_button.setObjectName("browseButton")
-        self.convert_to_ssh_button.setToolTip("将HTTP/HTTPS地址转换为SSH格式")
-        self.convert_to_ssh_button.clicked.connect(self.convert_http_to_ssh)
-        self.convert_to_ssh_button.setVisible(False)
-        auth_layout.addWidget(self.convert_to_ssh_button)
-        
-        form_layout.addRow(auth_label, auth_widget)
+        form_layout.addRow(auth_label, self.auth_type_combo)
         
         # SSH密钥路径（SSH认证）
         self.ssh_key_label = QLabel("SSH密钥路径：")
@@ -1046,97 +1004,12 @@ class GitConfigEditDialog(QDialog):
         self.ssh_key_label.setVisible(ssh_visible)
         self.ssh_key_widget.setVisible(ssh_visible)
         
-        # 显示/隐藏转换按钮
-        server_url = self.server_edit.text().strip()
-        is_http_url = server_url.startswith(('http://', 'https://'))
-        self.convert_to_ssh_button.setVisible(ssh_visible and is_http_url)
-        
         # HTTPS认证
         https_visible = (auth_type == 'https')
         self.username_label.setVisible(https_visible)
         self.username_edit.setVisible(https_visible)
         self.password_label.setVisible(https_visible)
         self.password_edit.setVisible(https_visible)
-        
-        # 监听服务器地址变化，动态显示转换按钮
-        if not hasattr(self, '_server_edit_connected'):
-            self.server_edit.textChanged.connect(self.on_server_url_changed)
-            self._server_edit_connected = True
-    
-    def on_server_url_changed(self):
-        """服务器地址改变时的处理"""
-        if self.auth_type_combo.currentText().lower() == 'ssh':
-            server_url = self.server_edit.text().strip()
-            is_http_url = server_url.startswith(('http://', 'https://'))
-            self.convert_to_ssh_button.setVisible(is_http_url)
-    
-    def convert_http_to_ssh(self):
-        """将HTTP/HTTPS地址转换为SSH格式"""
-        server_url = self.server_edit.text().strip()
-        
-        if not server_url.startswith(('http://', 'https://')):
-            QMessageBox.information(self, "提示", "当前地址不是HTTP/HTTPS格式，无需转换")
-            return
-        
-        try:
-            from urllib.parse import urlparse
-            
-            parsed = urlparse(server_url)
-            hostname = parsed.hostname or 'localhost'
-            port = parsed.port
-            path = parsed.path.lstrip('/')
-            
-            # 移除.git后缀（如果有），稍后会重新添加
-            if path.endswith('.git'):
-                path = path[:-4]
-            
-            # 移除尾部的斜杠
-            path = path.rstrip('/')
-            
-            # 如果路径为空，提示用户需要手动输入
-            if not path:
-                QMessageBox.warning(
-                    self,
-                    "转换提示",
-                    f"无法从URL中提取仓库路径。\n\n"
-                    f"请手动输入SSH地址，格式为：\n"
-                    f"  git@{hostname}:username/repo.git\n\n"
-                    f"或者：\n"
-                    f"  ssh://git@{hostname}/username/repo.git"
-                )
-                return
-            
-            # 构建SSH地址（使用冒号格式，更常用）
-            ssh_url = f"git@{hostname}:{path}.git"
-            
-            # 如果有非标准端口，使用ssh://格式
-            if port and port != 22:
-                ssh_url = f"ssh://git@{hostname}:{port}/{path}.git"
-            
-            reply = QMessageBox.question(
-                self,
-                "地址转换",
-                f"将HTTP/HTTPS地址转换为SSH格式：\n\n"
-                f"原地址：{server_url}\n\n"
-                f"转换后：{ssh_url}\n\n"
-                f"⚠️ 请确认仓库路径是否正确（{path}）\n\n"
-                f"是否应用此转换？",
-                QMessageBox.Yes | QMessageBox.No
-            )
-            
-            if reply == QMessageBox.Yes:
-                self.server_edit.setText(ssh_url)
-                # 更新转换按钮的显示状态
-                self.on_server_url_changed()
-        
-        except Exception as e:
-            QMessageBox.warning(
-                self,
-                "转换失败",
-                f"无法自动转换地址：{str(e)}\n\n"
-                f"请手动输入SSH地址，格式为：\n"
-                f"  git@hostname:username/repo.git"
-            )
     
     def browse_ssh_key(self):
         """浏览选择SSH密钥文件"""
@@ -1162,94 +1035,6 @@ class GitConfigEditDialog(QDialog):
                 if reply == QMessageBox.No:
                     return
             self.ssh_key_edit.setText(file_path)
-    
-    def show_ssh_address_help(self):
-        """显示SSH地址格式帮助"""
-        help_text = """
-<h3>📋 如何确认Git服务器的SSH地址？</h3>
-
-<h4>方法一：在Git服务器网站上查看</h4>
-<p>大多数Git服务器（如GitLab、GitHub、Gitea等）会在仓库页面提供SSH地址：</p>
-<ol>
-  <li>登录Git服务器网站</li>
-  <li>打开要克隆的仓库</li>
-  <li>点击"Clone"或"克隆"按钮</li>
-  <li>选择"Clone with SSH"或"使用SSH克隆"</li>
-  <li>复制显示的SSH地址（格式如：git@example.com:user/repo.git）</li>
-</ol>
-
-<h4>方法二：从HTTP/HTTPS地址推导</h4>
-<p>如果您知道HTTP/HTTPS地址，可以按以下规则转换：</p>
-<ul>
-  <li><b>HTTPS格式：</b> <code>https://example.com/username/repo.git</code></li>
-  <li><b>SSH格式（方式1）：</b> <code>git@example.com:username/repo.git</code></li>
-  <li><b>SSH格式（方式2）：</b> <code>ssh://git@example.com/username/repo.git</code></li>
-</ul>
-<p><b>转换规则：</b></p>
-<ol>
-  <li>将 <code>https://</code> 或 <code>http://</code> 替换为 <code>git@</code></li>
-  <li>将第一个斜杠后的路径改为冒号分隔格式</li>
-  <li>例如：<code>https://example.com/user/repo</code> → <code>git@example.com:user/repo.git</code></li>
-</ol>
-
-<h4>方法三：常见Git服务器的SSH地址格式</h4>
-<table style="width:100%; border-collapse: collapse;">
-<tr style="background: #f0f0f0;">
-  <th style="padding: 8px; border: 1px solid #ddd;">服务器类型</th>
-  <th style="padding: 8px; border: 1px solid #ddd;">SSH地址格式示例</th>
-</tr>
-<tr>
-  <td style="padding: 8px; border: 1px solid #ddd;"><b>GitLab</b></td>
-  <td style="padding: 8px; border: 1px solid #ddd;"><code>git@gitlab.example.com:username/repo.git</code></td>
-</tr>
-<tr>
-  <td style="padding: 8px; border: 1px solid #ddd;"><b>GitHub</b></td>
-  <td style="padding: 8px; border: 1px solid #ddd;"><code>git@github.com:username/repo.git</code></td>
-</tr>
-<tr>
-  <td style="padding: 8px; border: 1px solid #ddd;"><b>Gitea</b></td>
-  <td style="padding: 8px; border: 1px solid #ddd;"><code>git@gitea.example.com:username/repo.git</code></td>
-</tr>
-<tr>
-  <td style="padding: 8px; border: 1px solid #ddd;"><b>自建服务器</b></td>
-  <td style="padding: 8px; border: 1px solid #ddd;"><code>git@example.com:user/repo.git</code></td>
-</tr>
-</table>
-
-<h4>方法四：测试SSH连接</h4>
-<p>在命令行中测试SSH连接（Windows PowerShell或Git Bash）：</p>
-<pre style="background: #f5f5f5; padding: 10px; border-radius: 4px;">
-# 测试SSH连接（替换为您的服务器地址）
-ssh -T git@example.com
-
-# 如果连接成功，通常会显示欢迎信息或确认消息
-# 如果失败，会显示错误信息，帮助您诊断问题
-</pre>
-
-<h4>⚠️ 重要提示</h4>
-<ul>
-  <li>SSH地址通常以 <code>git@</code> 开头</li>
-  <li>SSH地址使用冒号 <code>:</code> 分隔主机名和路径</li>
-  <li>SSH地址通常以 <code>.git</code> 结尾</li>
-  <li>确保您的公钥（.pub文件）已添加到Git服务器的SSH Keys设置中</li>
-  <li>如果服务器使用非标准SSH端口，格式为：<code>ssh://git@host:port/path.git</code></li>
-</ul>
-
-<h4>💡 服务器地址示例</h4>
-<p>假设您的服务器地址是 <code>example.com</code>，仓库路径是 <code>/username/repo.git</code>，SSH地址可能是：</p>
-<ul>
-  <li><code>git@example.com:username/repo.git</code></li>
-  <li>或 <code>ssh://git@example.com/username/repo.git</code></li>
-</ul>
-<p>建议在Git服务器网站上查看准确的SSH地址格式。</p>
-"""
-        
-        msg_box = QMessageBox(self)
-        msg_box.setWindowTitle("SSH地址格式帮助")
-        msg_box.setTextFormat(Qt.RichText)
-        msg_box.setText(help_text)
-        msg_box.setStandardButtons(QMessageBox.Ok)
-        msg_box.exec_()
     
     def load_config(self, config):
         """加载配置到表单"""
@@ -1294,11 +1079,8 @@ ssh -T git@example.com
                 "配置警告",
                 f"您选择了SSH认证方式，但提供的URL是HTTP/HTTPS格式：\n{server_url}\n\n"
                 f"SSH认证需要使用SSH格式的URL，例如：\n"
-                f"  - git@example.com:username/ (基础URL，可访问所有仓库)\n"
-                f"  - git@example.com:username/repo.git (特定仓库)\n"
+                f"  - git@example.com:username/repo.git\n"
                 f"  - ssh://git@example.com/username/repo.git\n\n"
-                f"💡 提示：如果输入基础URL（末尾带斜杠），克隆时只需输入仓库名\n"
-                f"例如：配置 git@example.com:username/，克隆时输入 repo-name 即可\n\n"
                 f"如果您需要使用HTTP/HTTPS URL，请将认证方式改为HTTPS。\n\n"
                 f"是否继续保存此配置？",
                 QMessageBox.Yes | QMessageBox.No
@@ -1431,7 +1213,7 @@ ssh -T git@example.com
 
 class SettingsDialog(QDialog):
     """设置对话框，用于配置根目录和密码"""
-    def __init__(self, parent=None, current_root='', current_password='', current_admin_password='', current_close_to_tray=False, current_port=5000, current_git_enabled=False, current_git_workdir='', current_git_external_app_path=''):
+    def __init__(self, parent=None, current_root='', current_password='', current_admin_password='', current_close_to_tray=False, current_port=5000, current_git_enabled=False):
         super().__init__(parent)
         self.setWindowTitle("服务器设置")
         self.setMinimumWidth(500)
@@ -1441,16 +1223,12 @@ class SettingsDialog(QDialog):
         self.current_close_to_tray = current_close_to_tray
         self.current_port = current_port
         self.current_git_enabled = current_git_enabled
-        self.current_git_workdir = current_git_workdir
-        self.current_git_external_app_path = current_git_external_app_path
         self.new_root = current_root
         self.new_password = current_password
         self.new_admin_password = current_admin_password
         self.new_close_to_tray = current_close_to_tray
         self.new_port = current_port
         self.new_git_enabled = current_git_enabled
-        self.new_git_workdir = current_git_workdir
-        self.new_git_external_app_path = current_git_external_app_path
         
         # 设置窗口样式
         self.setStyleSheet("""
@@ -1672,74 +1450,6 @@ class SettingsDialog(QDialog):
         """)
         form_layout.addRow("", git_hint)
         
-        # Git工作目录设置（仅在启用Git时显示）
-        self.git_workdir_label = QLabel("Git工作目录：")
-        git_workdir_widget = QWidget()
-        git_workdir_layout = QHBoxLayout(git_workdir_widget)
-        git_workdir_layout.setContentsMargins(0, 0, 0, 0)
-        git_workdir_layout.setSpacing(10)
-        
-        self.git_workdir_edit = QLineEdit(self.current_git_workdir)
-        self.git_workdir_edit.setPlaceholderText("选择Git工作目录（用于扫描Git仓库）...")
-        git_workdir_layout.addWidget(self.git_workdir_edit, 1)
-        
-        git_workdir_browse_button = QPushButton("📁 浏览")
-        git_workdir_browse_button.setObjectName("browseButton")
-        git_workdir_browse_button.clicked.connect(self.browse_git_workdir)
-        git_workdir_layout.addWidget(git_workdir_browse_button)
-        
-        form_layout.addRow(self.git_workdir_label, git_workdir_widget)
-        self.git_workdir_label.setVisible(self.current_git_enabled)
-        git_workdir_widget.setVisible(self.current_git_enabled)
-        
-        # Git工作目录说明
-        git_workdir_hint = QLabel("📂 Git视图将仅扫描此目录下的Git仓库")
-        git_workdir_hint.setStyleSheet("""
-            font-size: 9pt;
-            color: #3498db;
-            font-weight: normal;
-            padding: 5px;
-            background: #e3f2fd;
-            border-radius: 4px;
-        """)
-        form_layout.addRow("", git_workdir_hint)
-        git_workdir_hint.setVisible(self.current_git_enabled)
-        self.git_workdir_hint = git_workdir_hint
-        
-        # Git外部软件路径设置（仅在启用Git时显示）
-        self.git_external_app_label = QLabel("外部软件路径：")
-        git_external_app_widget = QWidget()
-        git_external_app_layout = QHBoxLayout(git_external_app_widget)
-        git_external_app_layout.setContentsMargins(0, 0, 0, 0)
-        git_external_app_layout.setSpacing(10)
-        
-        self.git_external_app_edit = QLineEdit(self.current_git_external_app_path)
-        self.git_external_app_edit.setPlaceholderText("选择外部软件路径（如VSCode: code.exe）...")
-        git_external_app_layout.addWidget(self.git_external_app_edit, 1)
-        
-        git_external_app_browse_button = QPushButton("📁 浏览")
-        git_external_app_browse_button.setObjectName("browseButton")
-        git_external_app_browse_button.clicked.connect(self.browse_git_external_app)
-        git_external_app_layout.addWidget(git_external_app_browse_button)
-        
-        form_layout.addRow(self.git_external_app_label, git_external_app_widget)
-        self.git_external_app_label.setVisible(self.current_git_enabled)
-        git_external_app_widget.setVisible(self.current_git_enabled)
-        
-        # Git外部软件路径说明
-        git_external_app_hint = QLabel("💻 用于在仓库页面中\"用软件打开\"功能（如VSCode、IntelliJ IDEA等）")
-        git_external_app_hint.setStyleSheet("""
-            font-size: 9pt;
-            color: #3498db;
-            font-weight: normal;
-            padding: 5px;
-            background: #e3f2fd;
-            border-radius: 4px;
-        """)
-        form_layout.addRow("", git_external_app_hint)
-        git_external_app_hint.setVisible(self.current_git_enabled)
-        self.git_external_app_hint = git_external_app_hint
-        
         # Git配置管理按钮（仅在启用Git时显示）
         self.git_config_button = QPushButton("⚙️ 管理Git服务器配置")
         self.git_config_button.setStyleSheet("""
@@ -1761,15 +1471,10 @@ class SettingsDialog(QDialog):
         self.git_config_button.setEnabled(self.current_git_enabled)
         form_layout.addRow("", self.git_config_button)
         
-        # 当Git开关状态改变时，启用/禁用相关控件
-        def on_git_enabled_changed(state):
-            enabled = (state == Qt.Checked)
-            self.git_config_button.setEnabled(enabled)
-            self.git_workdir_label.setVisible(enabled)
-            git_workdir_widget.setVisible(enabled)
-            self.git_workdir_hint.setVisible(enabled)
-        
-        self.git_enabled_checkbox.stateChanged.connect(on_git_enabled_changed)
+        # 当Git开关状态改变时，启用/禁用配置按钮
+        self.git_enabled_checkbox.stateChanged.connect(
+            lambda state: self.git_config_button.setEnabled(state == Qt.Checked)
+        )
         
         layout.addLayout(form_layout)
         
@@ -1805,53 +1510,6 @@ class SettingsDialog(QDialog):
             self.root_edit.setText(directory)
             self.new_root = directory
     
-    def browse_git_workdir(self):
-        """浏览选择Git工作目录"""
-        directory = QFileDialog.getExistingDirectory(
-            self, 
-            "选择Git工作目录（用于扫描Git仓库）",
-            self.git_workdir_edit.text() or self.root_edit.text() or os.path.expanduser("~"),
-            QFileDialog.ShowDirsOnly | QFileDialog.DontResolveSymlinks
-        )
-        
-        if directory:
-            self.git_workdir_edit.setText(directory)
-            self.new_git_workdir = directory
-    
-    def browse_git_external_app(self):
-        """浏览选择外部软件路径（如VSCode）"""
-        import platform
-        system = platform.system()
-        
-        if system == 'Windows':
-            # Windows: 选择.exe文件
-            file_path, _ = QFileDialog.getOpenFileName(
-                self, 
-                "选择外部软件（如VSCode）", 
-                self.git_external_app_edit.text() or os.path.expanduser("~"),
-                "可执行文件 (*.exe);;所有文件 (*.*)"
-            )
-        elif system == 'Darwin':  # macOS
-            # macOS: 选择.app包
-            file_path, _ = QFileDialog.getOpenFileName(
-                self, 
-                "选择外部软件（如VSCode）", 
-                self.git_external_app_edit.text() or "/Applications",
-                "应用程序 (*.app);;所有文件 (*.*)"
-            )
-        else:  # Linux
-            # Linux: 选择任何文件
-            file_path, _ = QFileDialog.getOpenFileName(
-                self, 
-                "选择外部软件（如VSCode）", 
-                self.git_external_app_edit.text() or os.path.expanduser("~"),
-                "所有文件 (*.*)"
-            )
-        
-        if file_path:
-            self.git_external_app_edit.setText(file_path)
-            self.new_git_external_app_path = file_path
-    
     def accept(self):
         """确认保存"""
         # 验证输入
@@ -1860,8 +1518,6 @@ class SettingsDialog(QDialog):
         self.new_admin_password = self.admin_password_edit.text()
         self.new_close_to_tray = self.close_to_tray_checkbox.isChecked()
         self.new_git_enabled = self.git_enabled_checkbox.isChecked()
-        self.new_git_workdir = self.git_workdir_edit.text().strip()
-        self.new_git_external_app_path = self.git_external_app_edit.text().strip()
         
         # 验证端口
         try:
@@ -1912,7 +1568,7 @@ class SettingsDialog(QDialog):
     
     def get_settings(self):
         """获取设置"""
-        return self.new_root, self.new_password, self.new_admin_password, self.new_close_to_tray, self.new_port, self.new_git_enabled, self.new_git_workdir, self.new_git_external_app_path
+        return self.new_root, self.new_password, self.new_admin_password, self.new_close_to_tray, self.new_port, self.new_git_enabled
 
 
 class FlaskServerProcess(QProcess):
@@ -2642,13 +2298,11 @@ class MainWindow(QMainWindow):
         current_close_to_tray = app.config.get('CLOSE_TO_TRAY', False)
         current_port = app.config.get('PORT', 5000)
         current_git_enabled = app.config.get('GIT_ENABLED', False)
-        current_git_workdir = app.config.get('GIT_WORKDIR', '')
-        current_git_external_app_path = app.config.get('GIT_EXTERNAL_APP_PATH', '')
         
         # 显示设置对话框
-        dialog = SettingsDialog(self, current_root, current_password, current_admin_password, current_close_to_tray, current_port, current_git_enabled, current_git_workdir, current_git_external_app_path)
+        dialog = SettingsDialog(self, current_root, current_password, current_admin_password, current_close_to_tray, current_port, current_git_enabled)
         if dialog.exec_() == QDialog.Accepted:
-            new_root, new_password, new_admin_password, new_close_to_tray, new_port, new_git_enabled, new_git_workdir, new_git_external_app_path = dialog.get_settings()
+            new_root, new_password, new_admin_password, new_close_to_tray, new_port, new_git_enabled = dialog.get_settings()
             
             # 保存配置
             try:
@@ -2659,9 +2313,7 @@ class MainWindow(QMainWindow):
                     'admin_password': new_admin_password,
                     'close_to_tray': str(new_close_to_tray).lower(),
                     'port': str(new_port),
-                    'git_enabled': str(new_git_enabled).lower(),
-                    'git_workdir': new_git_workdir,
-                    'git_external_app_path': new_git_external_app_path
+                    'git_enabled': str(new_git_enabled).lower()
                 }
                 config_file = get_config_path()
                 
@@ -2675,7 +2327,6 @@ class MainWindow(QMainWindow):
                 
                 close_behavior_text = "最小化到托盘" if new_close_to_tray else "直接退出程序"
                 git_enabled_text = "已启用" if new_git_enabled else "已禁用"
-                git_workdir_text = new_git_workdir if new_git_workdir else "未设置"
                 
                 QMessageBox.information(
                     self, "保存成功", 
@@ -2686,8 +2337,7 @@ class MainWindow(QMainWindow):
                     f"管理员密码: {'*' * len(new_admin_password)} (已加密显示)\n"
                     f"服务器端口: {new_port}\n"
                     f"关闭行为: {close_behavior_text}\n"
-                    f"Git功能: {git_enabled_text}\n"
-                    f"{'Git工作目录: ' + git_workdir_text if new_git_enabled else ''}\n\n"
+                    f"Git功能: {git_enabled_text}\n\n"
                     f"您可以重新启动服务器使用新配置。"
                 )
                 
@@ -2816,8 +2466,8 @@ class MainWindow(QMainWindow):
 
 def run_flask_app(info_file_path=None):
     """运行 Flask 应用"""
-    # 注意：load_or_create_config 现在在 create_app() 中调用
     application = create_app()
+    load_or_create_config(application)
     
     # === 显示加载的配置信息 ===
     print("=" * 60)
@@ -2826,9 +2476,6 @@ def run_flask_app(info_file_path=None):
     print(f"根目录: {application.config.get('ROOT_DIR')}")
     print(f"登录密码: {application.config.get('PASSWORD')}")
     print(f"密码长度: {len(application.config.get('PASSWORD', ''))}")
-    print(f"Git功能: {'已启用' if application.config.get('GIT_ENABLED') else '已禁用'}")
-    print(f"Git工作目录: {application.config.get('GIT_WORKDIR', '未设置')}")
-    print(f"Git外部软件路径: {application.config.get('GIT_EXTERNAL_APP_PATH', '未设置')}")
     print("=" * 60)
     # === 配置信息结束 ===
     

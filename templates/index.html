@@ -244,6 +244,8 @@
             color: #1e7e34;
         }
 
+
+
         /* 预览区域样式 */
         #previewSection {
             padding: 25px;
@@ -613,6 +615,68 @@
         /* 编辑模式下，预览内容区域不需要padding */
         .preview-content.editing-mode {
             padding: 0 !important;
+        }
+
+        /* Markdown分屏编辑模式 */
+        .preview-content.markdown-split-mode {
+            display: flex;
+            flex-direction: row;
+            height: calc(100vh - 400px);
+            min-height: 500px;
+            gap: 0;
+            padding: 0 !important;
+        }
+
+        .markdown-editor-pane {
+            flex: 1;
+            height: 100%;
+            border-right: 2px solid rgba(95, 191, 174, 0.3);
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .markdown-editor-pane #codeMirrorContainer {
+            flex: 1;
+            height: 100%;
+        }
+
+        .markdown-preview-pane {
+            flex: 1;
+            height: 100%;
+            overflow-y: auto;
+            background: var(--t-bg-panel);
+            padding: 20px;
+        }
+
+        .markdown-preview-pane .markdown-body {
+            font-size: 14px;
+            line-height: 1.6;
+            max-width: 100%;
+            margin: 0;
+            padding: 0;
+        }
+
+        .markdown-preview-pane .markdown-body table {
+            border-collapse: collapse;
+            width: 100%;
+            margin: 16px 0;
+        }
+
+        .markdown-preview-pane .markdown-body table th,
+        .markdown-preview-pane .markdown-body table td {
+            border: 1px solid #dfe2e5;
+            padding: 6px 13px;
+        }
+
+        .markdown-preview-pane .markdown-body table th {
+            background-color: #f6f8fa;
+            font-weight: 600;
+        }
+
+        .markdown-preview-pane .markdown-body img {
+            max-width: 100%;
+            height: auto;
         }
 
         /* 通知动画 */
@@ -1024,6 +1088,9 @@
                                     <button type="button" class="btn btn-sm btn-outline-primary view-toggle-btn" id="favoritesViewToggle" data-view="favorites">
                                         <i class="fas fa-star"></i> 收藏
                                     </button>
+                                    <button type="button" class="btn btn-sm btn-outline-primary view-toggle-btn" id="gitViewToggle" data-view="git" style="display: none;">
+                                        <i class="fab fa-git-alt"></i> Git
+                                    </button>
                                 </div>
                                 <a href="{{ url_for('manage_shares') }}" class="btn btn-sm btn-success header-btn">
                                     <i class="fas fa-share-nodes"></i> 管理分享
@@ -1202,7 +1269,7 @@
                                     {% endif %}
                                     <!-- 渲染目录 -->
                                     {% for item in directories %}
-                                    <li class="file-item" data-type="folder" data-name="{{ item.name.lower() }}">
+                                    <li class="file-item" data-type="folder" data-name="{{ item.name.lower() }}" data-path="{{ item.path }}">
                                         <span class="file-icon">
                                             <i class="fas fa-folder" style="color: #ffc107;"></i>
                                         </span>
@@ -1321,6 +1388,137 @@
                                         <ul class="file-list" id="favoritesFilesListContent">
                                             <!-- 收藏文件将通过JavaScript动态加载 -->
                                         </ul>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Git视图 -->
+                            <div id="gitView" class="view-container" style="display: none;">
+                                <!-- 仓库列表视图 -->
+                                <div id="gitReposListView">
+                                    <div style="margin-bottom: 15px; display: flex; justify-content: space-between; align-items: center;">
+                                        <h4 style="margin: 0;">
+                                            <i class="fab fa-git-alt"></i> Git工作区
+                                        </h4>
+                                        <div style="display: flex; gap: 10px;">
+                                            <button type="button" class="btn btn-sm btn-success" onclick="showCloneRepoModal()">
+                                                <i class="fas fa-download"></i> 克隆仓库
+                                            </button>
+                                            <button type="button" class="btn btn-sm btn-outline-primary" onclick="refreshGitRepos()">
+                                                <i class="fas fa-sync-alt"></i> 刷新
+                                            </button>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- Git仓库列表 -->
+                                    <div id="gitReposList" class="file-list-container">
+                                        <div class="text-center py-5 text-muted">
+                                            <i class="fab fa-git-alt text-3xl mb-3"></i>
+                                            <p>正在加载Git仓库列表...</p>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <!-- 仓库内容视图（进入仓库后显示） -->
+                                <div id="gitRepoContentView" style="display: none;">
+                                    <!-- Git仓库面包屑导航（替换标准面包屑） -->
+                                    <div id="gitBreadcrumbContainer" style="
+                                        margin: 20px 0;
+                                        padding: 10px;
+                                        background: #f8f9fa;
+                                        border-radius: 4px;
+                                        white-space: nowrap;
+                                        overflow-x: auto;
+                                        display: none;
+                                    ">
+                                        <div style="display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                                            <!-- 返回仓库列表按钮 -->
+                                            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="backToGitReposList()" title="返回仓库列表">
+                                                <i class="fas fa-arrow-left"></i> 仓库列表
+                                            </button>
+                                            
+                                            <!-- 仓库名称 -->
+                                            <span style="padding: 6px 12px; background: #28a745; color: white; border-radius: 4px; font-weight: bold;" id="gitBreadcrumbRepoName">
+                                                <i class="fab fa-git-alt"></i> 仓库名称
+                                            </span>
+                                            
+                                            <!-- 路径导航 -->
+                                            <span id="gitBreadcrumbPath" style="display: inline-flex; align-items: center; gap: 4px;">
+                                                <!-- 动态生成路径面包屑 -->
+                                            </span>
+                                            
+                                            <!-- 分支选择下拉菜单 -->
+                                            <div class="dropdown" style="margin-right: 5px;">
+                                                <button class="btn btn-sm btn-outline-primary dropdown-toggle" type="button" id="gitBranchDropdown" data-bs-toggle="dropdown" aria-expanded="false" title="切换分支">
+                                                    <i class="fas fa-code-branch"></i> <span id="gitCurrentBranchDisplay">加载中...</span>
+                                                </button>
+                                                <ul class="dropdown-menu" aria-labelledby="gitBranchDropdown" id="gitBranchDropdownMenu">
+                                                    <li><div class="dropdown-item-text"><i class="fas fa-spinner fa-spin"></i> 加载分支列表...</div></li>
+                                                </ul>
+                                            </div>
+                                            
+                                            <!-- Git操作按钮组 -->
+                                            <div style="display: flex; gap: 5px; margin-left: auto;">
+                                                <button type="button" class="btn btn-sm btn-warning" onclick="showGitCommitModal()" id="gitCommitBtn" title="提交更改">
+                                                    <i class="fas fa-check"></i> 提交 <span id="gitUncommittedCount" class="badge bg-danger" style="display: none;">0</span>
+                                                </button>
+                                                <button type="button" class="btn btn-sm btn-primary" onclick="gitPullCurrentRepo()" id="gitPullBtn" title="从远程拉取">
+                                                    <i class="fas fa-arrow-down"></i> 拉取
+                                                </button>
+                                                <button type="button" class="btn btn-sm btn-success" onclick="gitPushCurrentRepo()" id="gitPushBtn" title="推送到远程">
+                                                    <i class="fas fa-arrow-up"></i> 推送
+                                                </button>
+                                                <button type="button" class="btn btn-sm btn-warning" onclick="gitSyncCurrentRepo()" id="gitSyncBtn" title="同步（拉取+推送）">
+                                                    <i class="fas fa-sync-alt"></i> 同步
+                                                </button>
+                                                <button type="button" class="btn btn-sm btn-info" onclick="showCreateTagModal()" id="gitTagBtn" title="创建标签">
+                                                    <i class="fas fa-tag"></i> 打Tag
+                                                </button>
+                                                <button type="button" class="btn btn-sm btn-outline-info" onclick="showGitHistory()" id="gitHistoryBtn" title="查看提交历史">
+                                                    <i class="fas fa-history"></i> 历史
+                                                </button>
+                                                <button type="button" class="btn btn-sm btn-secondary" onclick="showGitRepoModal(currentGitRepoPath)" id="gitMoreBtn" title="更多操作">
+                                                    <i class="fas fa-tools"></i> 更多
+                                                </button>
+                                                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="showGitHelpModal()" id="gitHelpBtn" title="Git操作帮助">
+                                                    <i class="fas fa-question-circle"></i> 帮助
+                                                </button>
+                                                <button type="button" class="btn btn-sm btn-outline-warning" onclick="showGitDebugModal()" id="gitDebugBtn" title="Git调试工具">
+                                                    <i class="fas fa-terminal"></i> 调试
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- 仓库状态信息 -->
+                                    <div id="gitRepoStatusInfo" class="alert alert-info" style="margin-bottom: 15px;">
+                                        <i class="fas fa-spinner fa-spin"></i> 正在加载仓库状态...
+                                    </div>
+                                    
+                                    <!-- 仓库文件列表 -->
+                                    <div id="gitRepoFileList" class="file-list-container">
+                                        <div class="text-center py-5 text-muted">
+                                            <i class="fas fa-spinner fa-spin text-3xl mb-3"></i>
+                                            <p>正在加载文件列表...</p>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- 提交历史视图（初始隐藏） -->
+                                    <div id="gitHistoryView" style="display: none;">
+                                        <div style="margin-bottom: 15px; display: flex; justify-content: space-between; align-items: center;">
+                                            <h5 style="margin: 0;">
+                                                <i class="fas fa-history"></i> 提交历史
+                                            </h5>
+                                            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="showGitFileList()">
+                                                <i class="fas fa-arrow-left"></i> 返回文件列表
+                                            </button>
+                                        </div>
+                                        <div id="gitHistoryList" class="file-list-container">
+                                            <div class="text-center py-5 text-muted">
+                                                <i class="fas fa-spinner fa-spin text-3xl mb-3"></i>
+                                                <p>正在加载提交历史...</p>
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -1885,15 +2083,31 @@
                     // 获取文件扩展名
                     const ext = filename.split('.').pop().toLowerCase();
                     const mode = modeMap[ext] || 'text/plain';
+                    const isMarkdown = (ext === 'md' || ext === 'markdown');
 
                     // 给预览区域添加编辑模式标记
                     previewContent.classList.add('editing-mode');
+                    if (isMarkdown) {
+                        previewContent.classList.add('markdown-split-mode');
+                    }
 
-                    // 创建CodeMirror编辑器容器
-                    previewContent.innerHTML = '<div id="codeMirrorContainer"></div>';
+                    // 创建编辑器容器（Markdown使用分屏，其他文件使用全屏）
+                    if (isMarkdown) {
+                        previewContent.innerHTML = `
+                            <div class="markdown-editor-pane">
+                                <div id="codeMirrorContainer"></div>
+                            </div>
+                            <div class="markdown-preview-pane">
+                                <div id="markdownLivePreview" class="markdown-body"></div>
+                            </div>
+                        `;
+                    } else {
+                        previewContent.innerHTML = '<div id="codeMirrorContainer"></div>';
+                    }
 
                     // 初始化CodeMirror
-                    codeMirrorInstance = CodeMirror(document.getElementById('codeMirrorContainer'), {
+                    const editorContainer = document.getElementById('codeMirrorContainer');
+                    codeMirrorInstance = CodeMirror(editorContainer, {
                         value: content,
                         mode: mode,
                         theme: 'monokai',
@@ -1916,8 +2130,22 @@
                         viewportMargin: Infinity
                     });
 
-                    // 设置编辑器占满整个区域
-                    codeMirrorInstance.setSize('100%', '100%');
+                    // 设置编辑器大小
+                    if (isMarkdown) {
+                        // Markdown分屏模式：编辑器占左侧一半
+                        const updateEditorSize = () => {
+                            const pane = editorContainer.closest('.markdown-editor-pane');
+                            if (pane) {
+                                const paneHeight = pane.offsetHeight;
+                                codeMirrorInstance.setSize('100%', paneHeight + 'px');
+                            }
+                        };
+                        updateEditorSize();
+                        window.addEventListener('resize', updateEditorSize);
+                    } else {
+                        // 其他文件：编辑器占满整个区域
+                        codeMirrorInstance.setSize('100%', '100%');
+                    }
 
                     // 强制刷新编辑器布局
                     setTimeout(() => {
@@ -1926,6 +2154,36 @@
 
                     // 保存原始内容
                     codeMirrorInstance.originalContent = content;
+
+                    // Markdown实时预览功能
+                    if (isMarkdown && typeof marked !== 'undefined') {
+                        const previewDiv = document.getElementById('markdownLivePreview');
+                        let previewUpdateTimer = null;
+
+                        const updatePreview = (markdownContent) => {
+                            try {
+                                const html = marked.parse(markdownContent);
+                                previewDiv.innerHTML = html;
+                            } catch (error) {
+                                console.error('Markdown渲染错误:', error);
+                                previewDiv.innerHTML = '<p style="color: red;">预览渲染错误: ' + error.message + '</p>';
+                            }
+                        };
+
+                        // 初始预览
+                        updatePreview(content);
+
+                        // 监听编辑器内容变化，实时更新预览（防抖）
+                        codeMirrorInstance.on('change', (cm) => {
+                            if (previewUpdateTimer) {
+                                clearTimeout(previewUpdateTimer);
+                            }
+                            previewUpdateTimer = setTimeout(() => {
+                                const newContent = cm.getValue();
+                                updatePreview(newContent);
+                            }, 300); // 300ms防抖
+                        });
+                    }
 
                     // 聚焦编辑器
                     codeMirrorInstance.focus();
@@ -2044,6 +2302,7 @@
             };
 
             // 取消内联编辑
+            // 取消内联编辑
             window.cancelInlineEdit = function () {
                 if (!codeMirrorInstance) {
                     exitEditMode();
@@ -2071,6 +2330,7 @@
                 const previewContent = document.querySelector('.preview-content');
                 if (previewContent) {
                     previewContent.classList.remove('editing-mode');
+                    previewContent.classList.remove('markdown-split-mode');
                 }
 
                 // 销毁CodeMirror实例
@@ -2429,12 +2689,14 @@
             });
 
             // ===================
-            // 收藏功能
+            // 视图切换功能
             // ===================
             const fileViewToggle = document.getElementById('fileViewToggle');
             const favoritesViewToggle = document.getElementById('favoritesViewToggle');
+            const gitViewToggle = document.getElementById('gitViewToggle');
             const fileView = document.getElementById('fileView');
             const favoritesView = document.getElementById('favoritesView');
+            const gitView = document.getElementById('gitView');
             const favoritesGroupsList = document.getElementById('favoritesGroupsList');
             const favoritesFilesList = document.getElementById('favoritesFilesList');
             const backToGroupsBtn = document.getElementById('backToGroupsBtn');
@@ -2443,18 +2705,29 @@
 
             // 切换视图
             function switchView(view) {
+                // 隐藏所有视图
+                fileView.style.display = 'none';
+                favoritesView.style.display = 'none';
+                gitView.style.display = 'none';
+                
+                // 移除所有活动状态
+                fileViewToggle.classList.remove('active');
+                favoritesViewToggle.classList.remove('active');
+                if (gitViewToggle) gitViewToggle.classList.remove('active');
+                
+                // 显示选中的视图
                 if (view === 'favorites') {
-                    fileView.style.display = 'none';
                     favoritesView.style.display = 'block';
                     favoritesGroupsList.style.display = 'block';
                     favoritesFilesList.style.display = 'none';
-                    fileViewToggle.classList.remove('active');
                     favoritesViewToggle.classList.add('active');
+                } else if (view === 'git') {
+                    gitView.style.display = 'block';
+                    if (gitViewToggle) gitViewToggle.classList.add('active');
+                    refreshGitRepos(); // 刷新Git仓库列表
                 } else {
                     fileView.style.display = 'block';
-                    favoritesView.style.display = 'none';
                     fileViewToggle.classList.add('active');
-                    favoritesViewToggle.classList.remove('active');
                 }
             }
 
@@ -2469,6 +2742,16 @@
                     switchView('favorites');
                 });
             }
+
+            if (gitViewToggle) {
+                gitViewToggle.addEventListener('click', function() {
+                    switchView('git');
+                });
+            }
+            
+            // ===================
+            // 收藏功能
+            // ===================
 
             // 点击收藏分组
             document.addEventListener('click', function(e) {
@@ -2765,6 +3048,485 @@
         </div>
     </div>
 
+    <!-- Git操作模态框 -->
+    <div class="modal fade" id="gitModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="fab fa-git-alt"></i> Git操作</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <!-- Git状态显示 -->
+                    <div id="gitStatusSection" style="margin-bottom: 20px;">
+                        <h6><i class="fas fa-info-circle"></i> 仓库状态</h6>
+                        <div id="gitStatusInfo" class="alert alert-info">
+                            <i class="fas fa-spinner fa-spin"></i> 正在检测Git状态...
+                        </div>
+                    </div>
+
+                    <!-- Git操作按钮组 -->
+                    <div id="gitActionsSection" style="display: none;">
+                        <h6><i class="fas fa-tools"></i> 操作</h6>
+                        <div class="d-grid gap-2">
+                            <!-- 初始化/克隆操作 -->
+                            <div id="gitInitSection" style="display: none;">
+                                <button type="button" class="btn btn-primary btn-sm mb-2" onclick="gitInitRepo()">
+                                    <i class="fas fa-plus-circle"></i> 初始化Git仓库
+                                </button>
+                                <button type="button" class="btn btn-success btn-sm mb-2" onclick="showGitCloneModal()">
+                                    <i class="fas fa-download"></i> 克隆远程仓库
+                                </button>
+                            </div>
+                            
+                            <!-- 同步操作 -->
+                            <div id="gitSyncSection" style="display: none;">
+                                <div class="btn-group w-100 mb-2" role="group">
+                                    <button type="button" class="btn btn-primary" onclick="gitPull()">
+                                        <i class="fas fa-arrow-down"></i> 拉取 (Pull)
+                                    </button>
+                                    <button type="button" class="btn btn-success" onclick="gitPush()">
+                                        <i class="fas fa-arrow-up"></i> 推送 (Push)
+                                    </button>
+                                </div>
+                            </div>
+                            
+                            <!-- 提交操作 -->
+                            <div id="gitCommitSection" style="display: none;">
+                                <div class="mb-2">
+                                    <label class="form-label">提交信息</label>
+                                    <textarea class="form-control" id="gitCommitMessage" rows="3" 
+                                        placeholder="请输入提交信息..."></textarea>
+                                </div>
+                                <button type="button" class="btn btn-warning btn-sm w-100 mb-2" onclick="gitCommit()">
+                                    <i class="fas fa-check"></i> 提交更改
+                                </button>
+                            </div>
+                            
+                            <!-- 标签和分支操作 -->
+                            <div id="gitAdvancedSection" style="display: none;">
+                                <div class="btn-group w-100 mb-2" role="group">
+                                    <button type="button" class="btn btn-outline-info" onclick="showGitTagModal()">
+                                        <i class="fas fa-tag"></i> 标签
+                                    </button>
+                                    <button type="button" class="btn btn-outline-secondary" onclick="showGitBranchModal()">
+                                        <i class="fas fa-code-branch"></i> 分支
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+                    <button type="button" class="btn btn-primary" onclick="refreshGitStatus()">
+                        <i class="fas fa-sync-alt"></i> 刷新状态
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Git克隆模态框 -->
+    <div class="modal fade" id="gitCloneModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="fas fa-download"></i> 克隆远程仓库</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">选择已配置的服务器（可选）</label>
+                        <select class="form-select" id="gitCloneConfigSelect">
+                            <option value="">手动输入URL</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">远程仓库URL</label>
+                        <input type="text" class="form-control" id="gitCloneUrl" 
+                            placeholder="例如: https://github.com/user/repo.git 或 git@git.example.com:user/repo.git">
+                        <div class="form-text">如果选择了已配置的服务器，URL可以是相对路径（如：user/repo.git）</div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="button" class="btn btn-primary" onclick="gitClone()">克隆</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Git视图克隆仓库模态框 -->
+    <div class="modal fade" id="cloneRepoModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="fas fa-download"></i> 从远程服务器克隆仓库</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <!-- 切换标签页 -->
+                    <ul class="nav nav-tabs mb-3" role="tablist">
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link active" id="selectRepoTab" data-bs-toggle="tab" data-bs-target="#selectRepoPanel" type="button" role="tab" onclick="loadRemoteRepos()">
+                                <i class="fas fa-list"></i> 选择仓库
+                            </button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link" id="manualInputTab" data-bs-toggle="tab" data-bs-target="#manualInputPanel" type="button" role="tab">
+                                <i class="fas fa-keyboard"></i> 手动输入
+                            </button>
+                        </li>
+                    </ul>
+                    
+                    <div class="tab-content">
+                        <!-- 选择仓库面板 -->
+                        <div class="tab-pane fade show active" id="selectRepoPanel" role="tabpanel">
+                            <div class="mb-3">
+                                <label class="form-label">搜索路径（可选）</label>
+                                <div class="input-group">
+                                    <input type="text" class="form-control" id="remoteRepoSearchPath" 
+                                        placeholder="例如: group1, group2">
+                                    <button class="btn btn-outline-primary" type="button" onclick="loadRemoteRepos()">
+                                        <i class="fas fa-search"></i> 搜索
+                                    </button>
+                                </div>
+                                <div class="form-text">留空将搜索所有路径，或输入路径前缀来限制搜索范围（如: group1 或 group2）</div>
+                            </div>
+                            
+                            <div id="remoteReposList" style="max-height: 400px; overflow-y: auto; border: 1px solid #dee2e6; border-radius: 4px; padding: 10px; min-height: 150px;">
+                                <div class="text-center text-muted py-3">
+                                    <i class="fas fa-spinner fa-spin"></i> 正在加载远程仓库列表...
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- 手动输入面板 -->
+                        <div class="tab-pane fade" id="manualInputPanel" role="tabpanel">
+                            <div class="mb-3">
+                                <label class="form-label">仓库路径或完整URL <span class="text-danger">*</span></label>
+                                <input type="text" class="form-control" id="cloneRepoName" 
+                                    placeholder="例如: repo-name, group/repo-name, git@hostname:group/repo.git">
+                                <div class="form-text">
+                                    💡 支持三种输入方式：<br>
+                                    1. <strong>相对路径</strong>：输入仓库名（如 "repo-name"），系统将使用已配置的基础URL自动组合<br>
+                                    2. <strong>带路径的仓库</strong>：输入 "group/repo-name"，系统将组合为完整地址<br>
+                                    3. <strong>完整URL</strong>：输入完整Git地址（如 "git@hostname:group/repo.git"），可直接克隆其他服务器的仓库
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- 进度显示区域 -->
+                    <div id="cloneProgressArea" style="display: none; margin-top: 15px;">
+                        <div class="mb-2">
+                            <strong>克隆进度：</strong>
+                            <span id="cloneProgressMessage">准备中...</span>
+                        </div>
+                        <div class="progress" style="height: 25px;">
+                            <div id="cloneProgressBar" class="progress-bar progress-bar-striped progress-bar-animated" 
+                                role="progressbar" style="width: 0%">
+                                0%
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" id="cloneRepoCancelBtn">取消</button>
+                    <button type="button" class="btn btn-primary" onclick="startCloneRepo()" id="cloneRepoStartBtn">
+                        <i class="fas fa-download"></i> 开始克隆
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Git帮助模态框 -->
+    <div class="modal fade" id="gitHelpModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="fas fa-question-circle"></i> Git操作帮助</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body" style="max-height: 70vh; overflow-y: auto;">
+                    <div class="mb-4">
+                        <h6><i class="fas fa-arrow-down text-primary"></i> 拉取 (Pull)</h6>
+                        <p><strong>作用：</strong>从远程仓库下载最新的更改到本地仓库。</p>
+                        <p><strong>使用场景：</strong></p>
+                        <ul>
+                            <li>开始工作前，获取远程的最新代码</li>
+                            <li>多人协作时，同步其他人的更改</li>
+                            <li>在其他地方修改了代码，需要同步到当前工作区</li>
+                        </ul>
+                        <p><strong>注意事项：</strong>如果有未提交的本地更改，拉取可能会产生冲突，需要先处理冲突。</p>
+                    </div>
+                    
+                    <div class="mb-4">
+                        <h6><i class="fas fa-arrow-up text-success"></i> 推送 (Push)</h6>
+                        <p><strong>作用：</strong>将本地的提交上传到远程仓库。</p>
+                        <p><strong>使用场景：</strong></p>
+                        <ul>
+                            <li>完成本地修改并提交后，推送到远程仓库</li>
+                            <li>分享你的代码更改给团队成员</li>
+                            <li>备份本地代码到远程仓库</li>
+                        </ul>
+                        <p><strong>注意事项：</strong></p>
+                        <ul>
+                            <li>推送前必须先提交（Commit）更改，并填写提交信息</li>
+                            <li>如果远程有新的提交，需要先拉取并合并</li>
+                            <li>推送只会推送已提交的更改，未提交的更改不会推送</li>
+                        </ul>
+                    </div>
+                    
+                    <div class="mb-4">
+                        <h6><i class="fas fa-sync-alt text-warning"></i> 同步 (Sync)</h6>
+                        <p><strong>作用：</strong>先拉取远程更改，再推送本地更改。相当于执行"拉取"+"推送"。</p>
+                        <p><strong>使用场景：</strong></p>
+                        <ul>
+                            <li>确保本地和远程仓库完全同步</li>
+                            <li>在推送前自动获取远程最新更改</li>
+                            <li>快速同步本地和远程仓库</li>
+                        </ul>
+                        <p><strong>注意事项：</strong>同步会先拉取，如果有冲突需要先解决冲突，然后才能推送。</p>
+                    </div>
+                    
+                    <div class="mb-4">
+                        <h6><i class="fas fa-tag text-info"></i> 打Tag</h6>
+                        <p><strong>作用：</strong>为特定的提交创建一个标签，通常用于标记版本（如 v1.0.0）。</p>
+                        <p><strong>使用场景：</strong></p>
+                        <ul>
+                            <li>标记重要的版本发布</li>
+                            <li>标记里程碑式的提交</li>
+                            <li>方便后续回退到特定版本</li>
+                        </ul>
+                    </div>
+                    
+                    <div class="mb-4">
+                        <h6><i class="fas fa-history text-info"></i> 历史</h6>
+                        <p><strong>作用：</strong>查看仓库的提交历史记录。</p>
+                        <p><strong>使用场景：</strong></p>
+                        <ul>
+                            <li>查看代码的修改历史</li>
+                            <li>了解每次提交的更改内容</li>
+                            <li>查找特定版本的提交</li>
+                        </ul>
+                    </div>
+                    
+                    <div class="mb-4">
+                        <h6><i class="fas fa-check-circle text-warning"></i> 提交 (Commit)</h6>
+                        <p><strong>作用：</strong>将工作区的更改保存到本地仓库，并添加提交信息说明。</p>
+                        <p><strong>使用场景：</strong></p>
+                        <ul>
+                            <li>完成一部分功能后，保存更改</li>
+                            <li>修复bug后，记录修复内容</li>
+                            <li>准备推送前，必须先提交更改</li>
+                        </ul>
+                        <p><strong>注意事项：</strong></p>
+                        <ul>
+                            <li>提交信息应该清晰描述本次更改的内容</li>
+                            <li>提交只保存到本地，不会上传到远程</li>
+                            <li>提交后可以随时查看和回退</li>
+                        </ul>
+                    </div>
+                    
+                    <div class="alert alert-info">
+                        <h6><i class="fas fa-lightbulb"></i> 工作流程建议</h6>
+                        <ol>
+                            <li><strong>开始工作前：</strong>先执行"拉取"，获取最新代码</li>
+                            <li><strong>修改文件：</strong>编辑文件并保存</li>
+                            <li><strong>提交更改：</strong>填写提交信息并提交</li>
+                            <li><strong>推送到远程：</strong>执行"推送"或"同步"</li>
+                        </ol>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Git调试工具模态框 -->
+    <div class="modal fade" id="gitDebugModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="fas fa-terminal"></i> Git调试工具</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="alert alert-warning">
+                        <i class="fas fa-exclamation-triangle"></i> <strong>警告：</strong>此功能允许直接执行Git命令，请谨慎使用。错误的命令可能导致数据丢失。
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">Git命令</label>
+                        <div class="input-group">
+                            <span class="input-group-text"><i class="fas fa-terminal"></i> git</span>
+                            <input type="text" class="form-control" id="gitDebugCommand" 
+                                placeholder="例如: status, log --oneline, branch -a" 
+                                onkeypress="if(event.key === 'Enter') executeGitCommand()">
+                        </div>
+                        <div class="form-text">输入Git命令（不需要输入"git"前缀）</div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">执行结果</label>
+                        <div id="gitDebugOutput" 
+                            style="background: #1e1e1e; color: #d4d4d4; padding: 15px; border-radius: 4px; font-family: 'Consolas', 'Courier New', monospace; font-size: 13px; min-height: 300px; max-height: 500px; overflow-y: auto; white-space: pre-wrap; word-wrap: break-word;">
+                            <div class="text-muted">等待执行命令...</div>
+                        </div>
+                    </div>
+                    
+                    <div class="d-flex gap-2">
+                        <button type="button" class="btn btn-primary" onclick="executeGitCommand()">
+                            <i class="fas fa-play"></i> 执行命令
+                        </button>
+                        <button type="button" class="btn btn-secondary" onclick="clearGitDebugOutput()">
+                            <i class="fas fa-eraser"></i> 清空输出
+                        </button>
+                        <button type="button" class="btn btn-outline-info" onclick="insertGitCommand('status')">
+                            <i class="fas fa-info-circle"></i> status
+                        </button>
+                        <button type="button" class="btn btn-outline-info" onclick="insertGitCommand('log --oneline -10')">
+                            <i class="fas fa-list"></i> log
+                        </button>
+                        <button type="button" class="btn btn-outline-info" onclick="insertGitCommand('branch -a')">
+                            <i class="fas fa-code-branch"></i> branch
+                        </button>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Git提交模态框（用于推送前提交） -->
+    <div class="modal fade" id="gitCommitBeforePushModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="fas fa-exclamation-triangle text-warning"></i> 需要先提交更改</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="alert alert-warning">
+                        <i class="fas fa-info-circle"></i> 检测到有未提交的更改，推送前需要先提交这些更改。
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">提交信息 <span class="text-danger">*</span></label>
+                        <textarea class="form-control" id="gitCommitMessageForPush" rows="4" 
+                            placeholder="请输入提交信息，描述本次更改的内容..."></textarea>
+                        <div class="form-text">提交信息应该清晰描述本次更改的内容</div>
+                    </div>
+                    <div id="gitUncommittedFiles" class="mb-3">
+                        <label class="form-label">未提交的文件：</label>
+                        <div id="gitUncommittedFilesList" class="list-group" style="max-height: 200px; overflow-y: auto;">
+                            <div class="text-muted">加载中...</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="button" class="btn btn-warning" onclick="commitAndPush()">
+                        <i class="fas fa-check"></i> 提交并推送
+                    </button>
+                    <button type="button" class="btn btn-primary" onclick="commitOnly()">
+                        <i class="fas fa-save"></i> 仅提交
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Git提交模态框（主提交按钮） -->
+    <div class="modal fade" id="gitCommitModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="fas fa-check-circle text-success"></i> 提交更改</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">提交信息 <span class="text-danger">*</span></label>
+                        <textarea class="form-control" id="gitCommitMessageMain" rows="4" 
+                            placeholder="请输入提交信息，描述本次更改的内容..."></textarea>
+                        <div class="form-text">提交信息应该清晰描述本次更改的内容</div>
+                    </div>
+                    <div id="gitCommitFiles" class="mb-3">
+                        <label class="form-label">待提交的文件：</label>
+                        <div id="gitCommitFilesList" class="list-group" style="max-height: 200px; overflow-y: auto;">
+                            <div class="text-muted">加载中...</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="button" class="btn btn-warning" onclick="performGitCommit()">
+                        <i class="fas fa-check"></i> 提交更改
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Git标签模态框 -->
+    <div class="modal fade" id="gitTagModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="fas fa-tag"></i> 标签管理</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div id="gitTagList" class="mb-3">
+                        <label class="form-label">现有标签</label>
+                        <div id="gitTagsContainer" class="list-group" style="max-height: 200px; overflow-y: auto;">
+                            <div class="text-center text-muted py-3">加载中...</div>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">创建新标签</label>
+                        <input type="text" class="form-control" id="gitNewTagName" placeholder="标签名称">
+                        <input type="text" class="form-control mt-2" id="gitNewTagMessage" placeholder="标签信息（可选）">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+                    <button type="button" class="btn btn-primary" onclick="gitCreateTag()">创建标签</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Git分支模态框 -->
+    <div class="modal fade" id="gitBranchModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="fas fa-code-branch"></i> 分支管理</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div id="gitBranchList" class="mb-3">
+                        <label class="form-label">分支列表</label>
+                        <div id="gitBranchesContainer" class="list-group" style="max-height: 300px; overflow-y: auto;">
+                            <div class="text-center text-muted py-3">加载中...</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script>
         // 显示模态框函数
         function showNewFileModal() {
@@ -2920,6 +3682,2849 @@
                     document.getElementById('uploadButton').disabled = false;
                 });
         }
+
+        // ========== Git功能相关代码 ==========
+        let currentGitPath = '{{ current_path or "" }}';
+        let gitEnabled = false;
+
+        // 检查Git功能是否启用并显示/隐藏Git视图选项卡
+        function checkGitEnabled() {
+            // 使用专门的config/status端点来检查Git启用状态
+            fetch('/api/git/config/status')
+                .then(response => {
+                    if (!response.ok) {
+                        // 如果响应不成功，返回默认值
+                        return { git_enabled: false, has_manager: false };
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    const gitViewToggle = document.getElementById('gitViewToggle');
+                    
+                    // 检查git_enabled字段
+                    if (data && data.git_enabled === true) {
+                        // Git功能已启用
+                        gitEnabled = true;
+                        if (gitViewToggle) {
+                            gitViewToggle.style.display = '';
+                            gitViewToggle.style.visibility = 'visible';
+                        }
+                        console.log('[Git] Git功能已启用，显示Git视图按钮', {
+                            git_enabled: data.git_enabled,
+                            has_manager: data.has_manager,
+                            git_workdir: data.git_workdir
+                        });
+                    } else {
+                        // Git功能未启用
+                        gitEnabled = false;
+                        if (gitViewToggle) {
+                            gitViewToggle.style.display = 'none';
+                        }
+                        console.log('[Git] Git功能未启用，隐藏Git视图按钮', data);
+                    }
+                })
+                .catch(() => {
+                    gitEnabled = false;
+                    const gitViewToggle = document.getElementById('gitViewToggle');
+                    if (gitViewToggle) gitViewToggle.style.display = 'none';
+                });
+        }
+        
+        // 刷新Git仓库列表
+        function refreshGitRepos() {
+            const gitReposList = document.getElementById('gitReposList');
+            if (!gitReposList) return;
+            
+            gitReposList.innerHTML = '<div class="text-center py-5 text-muted"><i class="fas fa-spinner fa-spin text-3xl mb-3"></i><p>正在加载Git仓库列表...</p></div>';
+            
+            fetch('/api/git/repos/list')
+                .then(response => {
+                    if (response.status === 403 || response.status === 404) {
+                        return response.json().catch(() => ({success: false, error: 'Git功能未启用'}));
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (!data || !data.success) {
+                        gitReposList.innerHTML = `
+                            <div class="text-center py-5 text-muted">
+                                <i class="fab fa-git-alt text-3xl mb-3"></i>
+                                <p>${data && data.error ? data.error : 'Git功能未启用或未配置Git工作目录'}</p>
+                                <p class="small mt-2">请在服务器设置中配置Git工作目录</p>
+                            </div>
+                        `;
+                        return;
+                    }
+                    
+                    const repos = data.repos || [];
+                    if (repos.length === 0) {
+                        gitReposList.innerHTML = `
+                            <div class="text-center py-5 text-muted">
+                                <i class="fab fa-git-alt text-3xl mb-3"></i>
+                                <p>未找到Git仓库</p>
+                                <p class="small mt-2">Git工作目录: ${data.workdir || '未设置'}</p>
+                            </div>
+                        `;
+                        return;
+                    }
+                    
+                    let html = '<ul class="file-list">';
+                    repos.forEach(repo => {
+                        // 检查仓库是否有效
+                        const isRepoValid = repo.is_repo !== false;  // 默认true，只有明确为false时才无效
+                        const hasError = repo.error;
+                        
+                        if (!isRepoValid || hasError) {
+                            // 显示有问题的仓库，但不可点击
+                            html += `
+                                <li class="file-item git-repo-item" data-path="${repo.path}" style="opacity: 0.6;">
+                                    <span class="file-icon">
+                                        <i class="fab fa-git-alt" style="color: #dc3545;"></i>
+                                    </span>
+                                    <div style="flex: 1;">
+                                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                                            <span class="file-link" style="color: #6c757d; cursor: default;">
+                                                ${repo.name}
+                                            </span>
+                                            <span class="badge bg-danger" style="margin-left: 10px;">
+                                                <i class="fas fa-exclamation-triangle"></i> 无效
+                                            </span>
+                                        </div>
+                                        <div class="text-muted small mt-1">
+                                            <i class="fas fa-folder"></i> ${repo.path}
+                                        </div>
+                                        <div class="text-danger small mt-1">
+                                            <i class="fas fa-exclamation-circle"></i> 
+                                            ${hasError ? repo.error : '不是有效的Git仓库'}
+                                        </div>
+                                    </div>
+                                </li>
+                            `;
+                            return;  // 跳过这个仓库
+                        }
+                        
+                        const statusIcon = repo.has_changes ? 'fa-circle' : 'fa-check-circle';
+                        const statusColor = repo.has_changes ? '#ffc107' : '#28a745';
+                        const remoteUrl = repo.remote || '未配置';
+                        const remoteInfo = repo.remote_detected ? 
+                            `<i class="fas fa-check-circle text-success" title="已检测到远程地址"></i> ${remoteUrl}` :
+                            `<i class="fas fa-plus-circle text-info" title="自动生成的远程地址"></i> ${remoteUrl}`;
+                        // 转义路径中的特殊字符，避免JavaScript字符串问题
+                        const safePath = (repo.path || '').replace(/\\/g, '/').replace(/'/g, "\\'");
+                        html += `
+                            <li class="file-item git-repo-item" data-repo-path="${repo.path.replace(/"/g, '&quot;')}" data-repo-name="${repo.name.replace(/"/g, '&quot;')}" style="cursor: pointer;" onclick="enterGitRepoFromElement(this)">
+                                <span class="file-icon">
+                                    <i class="fab fa-git-alt" style="color: #f14e32;"></i>
+                                </span>
+                                <div style="flex: 1;">
+                                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                                        <a href="#" class="file-link git-repo-link" data-repo-path="${repo.path.replace(/"/g, '&quot;')}" data-repo-name="${repo.name.replace(/"/g, '&quot;')}" onclick="event.stopPropagation(); enterGitRepoFromElement(this);">
+                                            ${repo.name}
+                                        </a>
+                                        <span class="badge bg-${repo.has_changes ? 'warning' : 'success'}" style="margin-left: 10px;">
+                                            <i class="fas ${statusIcon}"></i> ${repo.has_changes ? '有变更' : '干净'}
+                                        </span>
+                                    </div>
+                                    <div class="text-muted small mt-1">
+                                        <i class="fas fa-folder"></i> ${repo.path}
+                                        ${repo.branch && repo.branch !== 'unknown' ? ` | <i class="fas fa-code-branch"></i> ${repo.branch}` : ''}
+                                    </div>
+                                    <div class="text-muted small mt-1">
+                                        <i class="fas fa-cloud"></i> ${remoteInfo}
+                                    </div>
+                                </div>
+                                <div class="git-repo-actions" style="margin-left: 10px; display: flex; gap: 5px;" onclick="event.stopPropagation();">
+                                    <button class="btn btn-sm btn-outline-primary" onclick="event.stopPropagation(); openRepoInExplorer('${safePath}', event)" title="在文件浏览器中打开">
+                                        <i class="fas fa-folder-open"></i>
+                                    </button>
+                                    <button class="btn btn-sm btn-outline-info" onclick="event.stopPropagation(); openRepoWithApp('${safePath}', event)" title="用软件打开（如VSCode）">
+                                        <i class="fas fa-code"></i>
+                                    </button>
+                                    <button class="btn btn-sm btn-outline-secondary" onclick="event.stopPropagation(); const btn = event.target.closest('.git-repo-item'); const path = btn ? btn.getAttribute('data-repo-path') : '${repo.path.replace(/'/g, "\\'")}'; showGitRepoModal(path);" title="更多操作">
+                                        <i class="fas fa-tools"></i>
+                                    </button>
+                                    <button class="btn btn-sm btn-danger" onclick="deleteGitRepo('${safePath}', '${repo.name.replace(/'/g, "\\'")}', event)" title="删除仓库">
+                                        <i class="fas fa-trash"></i>
+                                    </button>
+                                </div>
+                            </li>
+                        `;
+                    });
+                    html += '</ul>';
+                    gitReposList.innerHTML = html;
+                })
+                .catch(error => {
+                    gitReposList.innerHTML = `
+                        <div class="text-center py-5 text-danger">
+                            <i class="fas fa-exclamation-triangle text-3xl mb-3"></i>
+                            <p>加载失败: ${error.message || '未知错误'}</p>
+                        </div>
+                    `;
+                });
+        }
+        
+        // Git仓库相关变量
+        let currentGitRepoPath = ''; // 当前Git仓库路径
+        let currentGitRepoFilePath = ''; // 当前Git仓库内的文件路径
+        
+        // 删除Git仓库
+        // 在文件浏览器中打开仓库
+        function openRepoInExplorer(repoPath, event) {
+            if (event) {
+                event.stopPropagation();
+            }
+            
+            fetch('/api/git/repos/open_explorer', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    repo_path: repoPath
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // 可以显示一个提示
+                    console.log('[Git] 已在文件浏览器中打开:', repoPath);
+                } else {
+                    alert('打开文件浏览器失败: ' + (data.error || '未知错误'));
+                }
+            })
+            .catch(error => {
+                console.error('[Git] 打开文件浏览器时出错:', error);
+                alert('打开文件浏览器时出错: ' + error.message);
+            });
+        }
+        
+        // 用软件打开仓库
+        function openRepoWithApp(repoPath, event) {
+            if (event) {
+                event.stopPropagation();
+            }
+            
+            fetch('/api/git/repos/open_with_app', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    repo_path: repoPath
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // 可以显示一个提示
+                    console.log('[Git] 已用软件打开:', repoPath);
+                } else {
+                    alert('用软件打开失败: ' + (data.error || '未知错误') + '\n\n提示：请在设置中配置外部软件路径（如VSCode路径）。');
+                }
+            })
+            .catch(error => {
+                console.error('[Git] 用软件打开时出错:', error);
+                alert('用软件打开时出错: ' + error.message);
+            });
+        }
+        
+        function deleteGitRepo(repoPath, repoName, event) {
+            if (event) {
+                event.stopPropagation();
+            }
+            
+            if (!confirm(`确定要删除仓库 "${repoName}" 吗？\n\n此操作将删除本地仓库目录及其所有内容，且无法恢复。\n\n路径: ${repoPath}`)) {
+                return;
+            }
+            
+            fetch('/api/git/repos/delete', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ repo_path: repoPath })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    alert('仓库已删除');
+                    refreshGitRepos();
+                } else {
+                    alert('删除失败: ' + (data.error || '未知错误'));
+                }
+            })
+            .catch(error => {
+                alert('操作失败: ' + error.message);
+            });
+        }
+        
+        // 进入Git仓库
+        // 从元素获取路径并进入仓库
+        function enterGitRepoFromElement(element) {
+            const repoPath = element.getAttribute('data-repo-path') || element.closest('.git-repo-item')?.getAttribute('data-repo-path');
+            const repoName = element.getAttribute('data-repo-name') || element.closest('.git-repo-item')?.getAttribute('data-repo-name');
+            
+            if (!repoPath) {
+                console.error('无法获取仓库路径');
+                alert('无法获取仓库路径');
+                return;
+            }
+            
+            enterGitRepo(repoPath, repoName || '未知仓库');
+        }
+        
+        function enterGitRepo(repoPath, repoName) {
+            // 确保路径正确（处理可能的转义问题）
+            currentGitRepoPath = repoPath;
+            currentGitRepoFilePath = '';
+            
+            console.log('[Git前端] 进入仓库:', {repoPath, repoName});
+            
+            // 隐藏标准面包屑导航，显示Git面包屑导航
+            const standardBreadcrumb = document.querySelector('div[style*="margin: 20px 0"][style*="padding: 10px"][style*="background: #f8f9fa"]');
+            if (standardBreadcrumb && !standardBreadcrumb.id) {  // 确保不是Git面包屑
+                standardBreadcrumb.style.display = 'none';
+            }
+            const gitBreadcrumb = document.getElementById('gitBreadcrumbContainer');
+            if (gitBreadcrumb) {
+                gitBreadcrumb.style.display = 'block';
+            }
+            
+            // 切换视图
+            document.getElementById('gitReposListView').style.display = 'none';
+            document.getElementById('gitRepoContentView').style.display = 'block';
+            
+            // 更新仓库名称（Git面包屑中）
+            const repoNameEl = document.getElementById('gitBreadcrumbRepoName');
+            if (repoNameEl) {
+                repoNameEl.innerHTML = `<i class="fab fa-git-alt"></i> ${repoName || '未知仓库'}`;
+            }
+            
+            // 更新面包屑路径
+            updateGitBreadcrumb(repoPath, '');
+            
+            // 加载仓库状态和文件列表
+            loadGitRepoStatus();
+            loadGitRepoFiles(repoPath);
+            
+            // 启动自动刷新
+            startGitStatusAutoRefresh();
+        }
+        
+        // 返回仓库列表
+        function backToGitReposList() {
+            // 停止自动刷新
+            stopGitStatusAutoRefresh();
+            
+            currentGitRepoPath = '';
+            currentGitRepoFilePath = '';
+            
+            // 显示标准面包屑导航，隐藏Git面包屑导航
+            const standardBreadcrumb = document.querySelector('div[style*="margin: 20px 0"][style*="padding: 10px"][style*="background: #f8f9fa"]');
+            if (standardBreadcrumb) {
+                standardBreadcrumb.style.display = 'block';
+            }
+            const gitBreadcrumb = document.getElementById('gitBreadcrumbContainer');
+            if (gitBreadcrumb) {
+                gitBreadcrumb.style.display = 'none';
+            }
+            
+            // 切换视图
+            document.getElementById('gitReposListView').style.display = 'block';
+            document.getElementById('gitRepoContentView').style.display = 'none';
+        }
+        
+        // 加载Git仓库状态
+        function loadGitRepoStatus() {
+            if (!currentGitRepoPath) return;
+            
+            const statusInfo = document.getElementById('gitRepoStatusInfo');
+            if (!statusInfo) return;
+            
+            // 确保路径正确编码
+            const encodedPath = encodeURIComponent(currentGitRepoPath);
+            console.log('[Git前端] 获取仓库状态:', {original: currentGitRepoPath, encoded: encodedPath});
+            
+            fetch(`/api/git/status?path=${encodedPath}`)
+                .then(response => {
+                    if (response.status === 403 || response.status === 404) {
+                        return response.json().catch(() => ({success: false, error: 'Git功能未启用'}));
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (!data || !data.success) {
+                        statusInfo.className = 'alert alert-warning';
+                        statusInfo.innerHTML = `<i class="fas fa-exclamation-triangle"></i> 无法获取仓库状态: ${data && data.error ? data.error : '未知错误'}`;
+                        return;
+                    }
+                    
+                    const status = data.status || {};
+                    const hasChanges = status.has_changes || false;
+                    const branch = status.branch || '未知';
+                    const remote = status.remote_url || '未配置';
+                    const modifiedFiles = status.modified_files || [];
+                    const untrackedFiles = status.untracked_files || [];
+                    const stagedFiles = status.staged_files || [];  // 获取暂存文件列表
+                    const totalUncommitted = modifiedFiles.length + untrackedFiles.length + stagedFiles.length;  // 包含暂存文件
+                    
+                    // 更新分支显示
+                    const branchDisplay = document.getElementById('gitCurrentBranchDisplay');
+                    if (branchDisplay) {
+                        branchDisplay.textContent = branch;
+                    }
+                    
+                    // 更新未提交文件计数
+                    const uncommittedCount = document.getElementById('gitUncommittedCount');
+                    if (uncommittedCount) {
+                        if (totalUncommitted > 0) {
+                            uncommittedCount.textContent = totalUncommitted;
+                            uncommittedCount.style.display = 'inline';
+                        } else {
+                            uncommittedCount.style.display = 'none';
+                        }
+                    }
+                    
+                    // 更新提交按钮状态
+                    const commitBtn = document.getElementById('gitCommitBtn');
+                    if (commitBtn) {
+                        commitBtn.disabled = totalUncommitted === 0;
+                        if (totalUncommitted === 0) {
+                            commitBtn.classList.add('disabled');
+                        } else {
+                            commitBtn.classList.remove('disabled');
+                        }
+                    }
+                    
+                    // 存储状态信息供后续使用
+                    window.currentGitStatus = status;
+                    
+                    if (hasChanges) {
+                        statusInfo.className = 'alert alert-warning';
+                        let filesList = '';
+                        if (stagedFiles.length > 0) {
+                            filesList += '<div class="mt-2"><strong>已暂存:</strong> ';
+                            filesList += stagedFiles.slice(0, 5).map(f => `<code>${escapeHtml(f)}</code>`).join(', ');
+                            if (stagedFiles.length > 5) {
+                                filesList += ` <span class="text-muted">等 ${stagedFiles.length} 个文件</span>`;
+                            }
+                            filesList += '</div>';
+                        }
+                        if (modifiedFiles.length > 0) {
+                            filesList += '<div class="mt-1"><strong>已修改:</strong> ';
+                            filesList += modifiedFiles.slice(0, 5).map(f => `<code>${escapeHtml(f)}</code>`).join(', ');
+                            if (modifiedFiles.length > 5) {
+                                filesList += ` <span class="text-muted">等 ${modifiedFiles.length} 个文件</span>`;
+                            }
+                            filesList += '</div>';
+                        }
+                        if (untrackedFiles.length > 0) {
+                            filesList += '<div class="mt-1"><strong>未跟踪:</strong> ';
+                            filesList += untrackedFiles.slice(0, 5).map(f => `<code>${escapeHtml(f)}</code>`).join(', ');
+                            if (untrackedFiles.length > 5) {
+                                filesList += ` <span class="text-muted">等 ${untrackedFiles.length} 个文件</span>`;
+                            }
+                            filesList += '</div>';
+                        }
+                        statusInfo.innerHTML = `
+                            <i class="fas fa-exclamation-circle"></i> 
+                            <strong>当前分支:</strong> ${branch} | 
+                            <strong>未提交更改:</strong> ${totalUncommitted} 个文件 | 
+                            <strong>远程:</strong> ${remote}
+                            ${filesList}
+                        `;
+                    } else {
+                        statusInfo.className = 'alert alert-success';
+                        statusInfo.innerHTML = `
+                            <i class="fas fa-check-circle"></i> 
+                            <strong>当前分支:</strong> ${branch} | 
+                            <strong>状态:</strong> 工作区干净 | 
+                            <strong>远程:</strong> ${remote}
+                        `;
+                    }
+                    
+                    // 加载分支列表
+                    loadGitBranchesDropdown();
+                })
+                .catch(error => {
+                    statusInfo.className = 'alert alert-danger';
+                    statusInfo.innerHTML = `<i class="fas fa-exclamation-triangle"></i> 加载状态失败: ${error.message || '未知错误'}`;
+                });
+        }
+        
+        // 自动刷新Git状态（每30秒）
+        let gitStatusRefreshInterval = null;
+        function startGitStatusAutoRefresh() {
+            // 清除现有的定时器
+            if (gitStatusRefreshInterval) {
+                clearInterval(gitStatusRefreshInterval);
+            }
+            // 设置新的定时器
+            gitStatusRefreshInterval = setInterval(() => {
+                if (currentGitRepoPath && document.getElementById('gitRepoContentView').style.display !== 'none') {
+                    loadGitRepoStatus();
+                }
+            }, 30000); // 30秒刷新一次
+        }
+        
+        function stopGitStatusAutoRefresh() {
+            if (gitStatusRefreshInterval) {
+                clearInterval(gitStatusRefreshInterval);
+                gitStatusRefreshInterval = null;
+            }
+        }
+        
+        // 加载分支下拉菜单
+        function loadGitBranchesDropdown() {
+            if (!currentGitRepoPath) return;
+            
+            const dropdownMenu = document.getElementById('gitBranchDropdownMenu');
+            if (!dropdownMenu) return;
+            
+            dropdownMenu.innerHTML = '<li><div class="dropdown-item-text"><i class="fas fa-spinner fa-spin"></i> 加载中...</div></li>';
+            
+            fetch(`/api/git/branch/list?path=${encodeURIComponent(currentGitRepoPath)}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data && data.success && data.branches && data.branches.length > 0) {
+                        dropdownMenu.innerHTML = '';
+                        data.branches.forEach(branch => {
+                            const isCurrent = branch === data.current;
+                            const li = document.createElement('li');
+                            li.innerHTML = `
+                                <a class="dropdown-item ${isCurrent ? 'active' : ''}" href="#" onclick="switchGitBranch('${branch.replace(/'/g, "\\'")}'); return false;">
+                                    ${isCurrent ? '<i class="fas fa-check"></i> ' : ''}${escapeHtml(branch)}
+                                </a>
+                            `;
+                            dropdownMenu.appendChild(li);
+                        });
+                    } else {
+                        dropdownMenu.innerHTML = '<li><div class="dropdown-item-text text-muted">暂无分支</div></li>';
+                    }
+                })
+                .catch(error => {
+                    dropdownMenu.innerHTML = '<li><div class="dropdown-item-text text-danger">加载失败</div></li>';
+                    console.error('加载分支列表失败:', error);
+                });
+        }
+        
+        // 切换Git分支
+        function switchGitBranch(branchName) {
+            if (!currentGitRepoPath || !branchName) return;
+            if (!confirm(`确定要切换到分支 "${branchName}" 吗？`)) return;
+            
+            fetch('/api/git/branch/checkout', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    path: currentGitRepoPath,
+                    branch_name: branchName
+                })
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data && data.success) {
+                        alert('切换分支成功！');
+                        // 重新加载状态和文件
+                        loadGitRepoStatus();
+                        loadGitRepoFiles(currentGitRepoPath);
+                        loadGitBranchesDropdown();
+                    } else {
+                        alert('切换分支失败: ' + (data && data.error ? data.error : '未知错误'));
+                    }
+                })
+                .catch(error => {
+                    alert('切换分支失败: ' + error.message);
+                    console.error('切换分支失败:', error);
+                });
+        }
+        
+        // 显示Git提交模态框
+        function showGitCommitModal() {
+            if (!currentGitRepoPath) {
+                alert('未选择仓库');
+                return;
+            }
+            
+            // 获取未提交的文件列表
+            const filesList = document.getElementById('gitCommitFilesList');
+            if (filesList) {
+                filesList.innerHTML = '<div class="text-muted">加载中...</div>';
+            }
+            
+            // 加载状态以获取文件列表
+            fetch(`/api/git/status?path=${encodeURIComponent(currentGitRepoPath)}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data && data.success && data.status) {
+                        const status = data.status;
+                        const modifiedFiles = status.modified_files || [];
+                        const untrackedFiles = status.untracked_files || [];
+                        const stagedFiles = status.staged_files || [];
+                        const allFiles = [...stagedFiles, ...modifiedFiles, ...untrackedFiles];
+                        
+                        if (filesList) {
+                            if (allFiles.length > 0) {
+                                filesList.innerHTML = '';
+                                allFiles.forEach(file => {
+                                    const item = document.createElement('div');
+                                    item.className = 'list-group-item';
+                                    const isStaged = stagedFiles.includes(file);
+                                    const isModified = modifiedFiles.includes(file);
+                                    const isUntracked = untrackedFiles.includes(file);
+                                    
+                                    let icon = 'file';
+                                    let iconColor = 'text-primary';
+                                    if (isStaged) {
+                                        icon = 'check-circle';
+                                        iconColor = 'text-success';
+                                    } else if (isModified) {
+                                        icon = 'edit';
+                                        iconColor = 'text-warning';
+                                    } else if (isUntracked) {
+                                        icon = 'plus';
+                                        iconColor = 'text-info';
+                                    }
+                                    
+                                    item.innerHTML = `
+                                        <i class="fas fa-${icon} ${iconColor}"></i>
+                                        <code>${escapeHtml(file)}</code>
+                                        ${isStaged ? '<span class="badge bg-success ms-2">已暂存</span>' : ''}
+                                    `;
+                                    filesList.appendChild(item);
+                                });
+                            } else {
+                                filesList.innerHTML = '<div class="text-muted text-center py-2">没有待提交的文件</div>';
+                            }
+                        }
+                    }
+                })
+                .catch(error => {
+                    console.error('加载文件列表失败:', error);
+                    if (filesList) {
+                        filesList.innerHTML = '<div class="text-danger">加载文件列表失败</div>';
+                    }
+                });
+            
+            // 显示模态框
+            const modalEl = document.getElementById('gitCommitModal');
+            if (modalEl) {
+                try {
+                    if (typeof bootstrap !== 'undefined' && bootstrap.Modal) {
+                        let modal = bootstrap.Modal.getInstance(modalEl);
+                        if (!modal) {
+                            modal = new bootstrap.Modal(modalEl);
+                        }
+                        modal.show();
+                    }
+                } catch (error) {
+                    console.error('显示提交模态框失败:', error);
+                }
+            }
+            
+            // 清空提交信息
+            const messageInput = document.getElementById('gitCommitMessageMain');
+            if (messageInput) {
+                messageInput.value = '';
+            }
+        }
+        
+        // 执行Git提交
+        function performGitCommit() {
+            if (!currentGitRepoPath) {
+                alert('未选择仓库');
+                return;
+            }
+            
+            const messageInput = document.getElementById('gitCommitMessageMain');
+            const message = messageInput ? messageInput.value.trim() : '';
+            
+            if (!message) {
+                alert('请输入提交信息');
+                return;
+            }
+            
+            if (!confirm('确定要提交这些更改吗？')) return;
+            
+            const btn = document.getElementById('gitCommitBtn');
+            const originalHtml = btn ? btn.innerHTML : '';
+            if (btn) {
+                btn.disabled = true;
+                btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 提交中...';
+            }
+            
+            fetch('/api/git/commit', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    path: currentGitRepoPath,
+                    message: message
+                })
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (btn) {
+                        btn.disabled = false;
+                        btn.innerHTML = originalHtml;
+                    }
+                    
+                    if (data && data.success) {
+                        alert('提交成功！');
+                        // 关闭模态框
+                        const modalEl = document.getElementById('gitCommitModal');
+                        if (modalEl && typeof bootstrap !== 'undefined' && bootstrap.Modal) {
+                            const modal = bootstrap.Modal.getInstance(modalEl);
+                            if (modal) modal.hide();
+                        }
+                        // 重新加载状态
+                        loadGitRepoStatus();
+                    } else {
+                        alert('提交失败: ' + (data && data.error ? data.error : '未知错误'));
+                    }
+                })
+                .catch(error => {
+                    if (btn) {
+                        btn.disabled = false;
+                        btn.innerHTML = originalHtml;
+                    }
+                    alert('提交失败: ' + error.message);
+                    console.error('提交失败:', error);
+                });
+        }
+        
+        // 加载Git仓库文件列表
+        function loadGitRepoFiles(path, subPath = '') {
+            // 直接使用Git文件列表API
+            loadGitRepoFilesDirect(path, subPath);
+        }
+        
+        // 直接加载Git仓库文件（使用Git文件列表API）
+        function loadGitRepoFilesDirect(repoPath, subPath = '') {
+            const fileList = document.getElementById('gitRepoFileList');
+            if (!fileList) return;
+            
+            fileList.innerHTML = '<div class="text-center py-5 text-muted"><i class="fas fa-spinner fa-spin text-3xl mb-3"></i><p>正在加载文件列表...</p></div>';
+            
+            // 使用Git文件列表API - 确保路径正确编码
+            const encodedRepoPath = encodeURIComponent(repoPath);
+            const encodedSubPath = subPath ? encodeURIComponent(subPath) : '';
+            const apiUrl = `/api/git/repo/files?repo_path=${encodedRepoPath}${encodedSubPath ? '&sub_path=' + encodedSubPath : ''}`;
+            console.log('[Git前端] 获取仓库文件列表:', {repoPath, encodedRepoPath, subPath, encodedSubPath});
+            fetch(apiUrl)
+                .then(response => {
+                    if (response.status === 403 || response.status === 404) {
+                        return response.json().catch(() => ({success: false, error: 'Git功能未启用'}));
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (!data || !data.success) {
+                        fileList.innerHTML = `<div class="text-center py-5 text-danger"><i class="fas fa-exclamation-triangle"></i> ${data && data.error ? data.error : '加载失败'}</div>`;
+                        return;
+                    }
+                    
+                    const items = data.items || [];
+                    let html = '<ul class="file-list">';
+                    
+                    // 如果有子路径，显示返回上级按钮
+                    if (subPath) {
+                        const pathParts = subPath.split('/').filter(p => p);
+                        pathParts.pop(); // 移除最后一部分
+                        const parentPath = pathParts.join('/');
+                        // 使用data属性避免路径转义问题
+                        html += `
+                            <li class="file-item git-repo-file-item" 
+                                data-repo-path="${repoPath.replace(/"/g, '&quot;')}" 
+                                data-sub-path="${parentPath.replace(/"/g, '&quot;')}"
+                                data-is-back="true"
+                                style="cursor: pointer;" 
+                                onclick="handleGitFileItemClickFromElement(this)">
+                                <span class="file-icon"><i class="fas fa-arrow-left"></i></span>
+                                <a href="#" class="file-link" onclick="event.preventDefault(); handleGitFileItemClickFromElement(this);">.. (返回上级)</a>
+                            </li>
+                        `;
+                    }
+                    
+                    // 显示目录和文件
+                    items.forEach(item => {
+                        const itemName = item.name || '';
+                        const itemPath = item.path || (subPath ? `${subPath}/${itemName}` : itemName);
+                        const icon = item.is_dir ? 'fa-folder' : 'fa-file';
+                        const iconColor = item.is_dir ? '#ffc107' : '#6c757d';
+                        
+                        // 使用data属性存储路径，避免onclick中的转义问题
+                        html += `
+                            <li class="file-item git-repo-file-item" 
+                                data-repo-path="${repoPath.replace(/"/g, '&quot;')}" 
+                                data-item-path="${itemPath.replace(/"/g, '&quot;')}" 
+                                data-is-dir="${item.is_dir}"
+                                data-sub-path="${subPath.replace(/"/g, '&quot;')}"
+                                style="cursor: pointer;" 
+                                onclick="handleGitFileItemClickFromElement(this)">
+                                <span class="file-icon"><i class="fas ${icon}" style="color: ${iconColor};"></i></span>
+                                <a href="#" class="file-link" onclick="event.preventDefault(); handleGitFileItemClickFromElement(this);">${itemName}</a>
+                            </li>
+                        `;
+                    });
+                    
+                    html += '</ul>';
+                    fileList.innerHTML = html;
+                })
+                .catch(error => {
+                    fileList.innerHTML = `<div class="text-center py-5 text-danger"><i class="fas fa-exclamation-triangle"></i> 加载失败: ${error.message || '未知错误'}</div>`;
+                });
+        }
+        
+        // 处理Git文件项点击
+        // 从元素获取路径并处理点击
+        function handleGitFileItemClickFromElement(element) {
+            const item = element.closest('.git-repo-file-item') || element;
+            const repoPath = item.getAttribute('data-repo-path');
+            const itemPath = item.getAttribute('data-item-path');
+            const subPath = item.getAttribute('data-sub-path');
+            const isBack = item.getAttribute('data-is-back') === 'true';
+            const isDirStr = item.getAttribute('data-is-dir');
+            const isDir = isDirStr === 'true' || isDirStr === true;
+            
+            console.log('[Git前端] 处理文件项点击:', {repoPath, itemPath, subPath, isBack, isDir});
+            
+            if (!repoPath) {
+                console.error('无法获取仓库路径');
+                return;
+            }
+            
+            // 如果是返回上级按钮
+            if (isBack) {
+                const parentPath = subPath || '';
+                console.log('[Git前端] 返回上级:', {repoPath, parentPath});
+                currentGitRepoFilePath = parentPath;
+                loadGitRepoFiles(repoPath, parentPath);
+                updateGitBreadcrumb(repoPath, parentPath);
+                return;
+            }
+            
+            if (!itemPath) {
+                console.error('无法获取文件路径');
+                return;
+            }
+            
+            handleGitFileItemClick(repoPath, itemPath, isDir);
+        }
+        
+        function handleGitFileItemClick(repoPath, itemPath, isDir) {
+            if (isDir) {
+                // 进入目录
+                currentGitRepoFilePath = itemPath;
+                loadGitRepoFiles(repoPath, itemPath);
+                updateGitBreadcrumb(repoPath, itemPath);
+            } else {
+                // 在下方预览区域显示文件，而不是新窗口
+                const filename = itemPath.split('/').pop() || itemPath.split('\\').pop() || itemPath;
+                showGitFilePreview(repoPath, itemPath, filename);
+            }
+        }
+        
+        // 更新Git仓库面包屑导航
+        function updateGitBreadcrumb(repoPath, subPath) {
+            const breadcrumbPathEl = document.getElementById('gitBreadcrumbPath');
+            if (!breadcrumbPathEl) return;
+            
+            if (!subPath || subPath === '') {
+                // 根目录，只显示仓库名
+                breadcrumbPathEl.innerHTML = '';
+                return;
+            }
+            
+            // 标准化路径（统一使用正斜杠）
+            const normalizedSubPath = subPath.replace(/\\/g, '/');
+            const normalizedRepoPath = repoPath.replace(/\\/g, '/');
+            
+            // 分割路径
+            const pathParts = normalizedSubPath.split('/').filter(p => p);
+            let html = '';
+            
+            // 构建路径面包屑
+            let currentPath = '';
+            pathParts.forEach((part, index) => {
+                if (index > 0) {
+                    html += '<span style="margin: 0 4px; color: #666;">/</span>';
+                }
+                
+                currentPath += (currentPath ? '/' : '') + part;
+                const isLast = index === pathParts.length - 1;
+                
+                // 转义路径，避免JavaScript字符串问题
+                const safeRepoPath = normalizedRepoPath.replace(/'/g, "\\'").replace(/"/g, '&quot;');
+                const safeCurrentPath = currentPath.replace(/'/g, "\\'").replace(/"/g, '&quot;');
+                const safePart = part.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, "&#39;");
+                
+                if (isLast) {
+                    // 当前目录
+                    html += `<span style="padding: 4px 8px; background: #e9ecef; color: #333; border-radius: 4px; font-size: 13px;">${safePart}</span>`;
+                } else {
+                    // 可点击的父目录 - 使用data属性避免onclick中的路径问题
+                    html += `<a href="#" class="git-breadcrumb-link" 
+                        data-repo-path="${safeRepoPath}" 
+                        data-sub-path="${safeCurrentPath}"
+                        style="padding: 4px 8px; background: #007bff; color: white; text-decoration: none; border-radius: 4px; font-size: 13px; cursor: pointer;">${safePart}</a>`;
+                }
+            });
+            
+            breadcrumbPathEl.innerHTML = html;
+            
+            // 为面包屑链接添加事件监听器（避免onclick中的转义问题）
+            breadcrumbPathEl.querySelectorAll('.git-breadcrumb-link').forEach(link => {
+                link.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    const repoPath = this.getAttribute('data-repo-path');
+                    const subPath = this.getAttribute('data-sub-path');
+                    if (repoPath && subPath !== null) {
+                        console.log('[Git前端] 面包屑导航点击:', {repoPath, subPath});
+                        loadGitRepoFiles(repoPath, subPath);
+                        updateGitBreadcrumb(repoPath, subPath);
+                    }
+                });
+            });
+        }
+        
+        // 显示Git仓库中的文件预览
+        function showGitFilePreview(repoPath, itemPath, filename) {
+            // 存储当前Git仓库信息，用于编辑和保存
+            window.currentGitRepoPath = repoPath;
+            window.currentGitFilePath = itemPath;
+            
+            const previewTitle = document.getElementById('previewTitle');
+            const previewContent = document.querySelector('.preview-content');
+            const noPreviewPlaceholder = document.querySelector('.no-preview-placeholder');
+            
+            if (!previewTitle || !previewContent) {
+                console.error('预览区域元素不存在');
+                return;
+            }
+            
+            previewTitle.textContent = `文件预览: ${filename}`;
+            previewContent.innerHTML = '<div class="spinner-container"><div class="spinner"></div></div>';
+            
+            if (noPreviewPlaceholder) {
+                noPreviewPlaceholder.style.display = 'none';
+            }
+            
+            // 滚动到预览区域
+            const previewSection = document.getElementById('previewSection');
+            if (previewSection) {
+                previewSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+            
+            // 调用预览API，传递Git仓库路径和文件路径
+            fetch('/get_preview_content', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ 
+                    filepath: itemPath,
+                    git_root: repoPath  // Git仓库根路径
+                })
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.error) {
+                        previewContent.innerHTML = `<div class="alert alert-danger mt-3" role="alert">
+                            <i class="fas fa-exclamation-circle"></i> 预览失败: ${data.error}
+                        </div>`;
+                    } else {
+                        previewContent.innerHTML = data.content_html;
+                        
+                        // 如果是drawio文件，在header中添加编辑按钮
+                        if (data.file_type === 'drawio') {
+                            previewTitle.innerHTML = `
+                                <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+                                    <span>文件预览: ${filename}</span>
+                                    <a href="/drawio_main?filepath=${encodeURIComponent(itemPath)}&root=${encodeURIComponent(repoPath)}" 
+                                       class="btn btn-sm btn-primary" 
+                                       target="_blank" 
+                                       style="font-size: 0.9rem;">
+                                        ✏️ 编辑图表
+                                    </a>
+                                </div>
+                            `;
+                        }
+                        
+                        // 如果是可编辑的文本文件，在header中添加编辑按钮
+                        const editableExts = ['md', 'markdown', 'txt', 'py', 'js', 'html', 'css', 'scss', 'less', 'json', 'xml', 'yaml', 'yml', 'php', 'java', 'c', 'cpp', 'cs', 'go', 'rb', 'sh', 'bat', 'sql', 'ts', 'tsx', 'jsx', 'ini', 'conf', 'cfg', 'log', 'rst', 'vue', 'rs', 'swift', 'kt'];
+                        const fileExt = filename.split('.').pop()?.toLowerCase();
+                        if (editableExts.includes(fileExt)) {
+                            // 使用data属性存储路径，避免字符串转义问题（特别是\t等转义字符）
+                            const editBtnId = 'git-edit-btn-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
+                            previewTitle.innerHTML = `
+                                <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+                                    <span>文件预览: ${filename}</span>
+                                    <button id="${editBtnId}" 
+                                       class="btn btn-sm btn-primary git-edit-file-btn" 
+                                       data-item-path="${itemPath.replace(/"/g, '&quot;')}"
+                                       data-repo-path="${repoPath.replace(/"/g, '&quot;')}"
+                                       data-filename="${filename.replace(/"/g, '&quot;')}"
+                                       style="font-size: 0.9rem;">
+                                        ✏️ 编辑文件
+                                    </button>
+                                </div>
+                            `;
+                            
+                            // 为编辑按钮添加事件监听器
+                            const editBtn = document.getElementById(editBtnId);
+                            if (editBtn) {
+                                editBtn.addEventListener('click', function() {
+                                    const itemPath = this.getAttribute('data-item-path');
+                                    const repoPath = this.getAttribute('data-repo-path');
+                                    const filename = this.getAttribute('data-filename');
+                                    openGitFileEditor(itemPath, filename, repoPath);
+                                });
+                            }
+                        }
+                    }
+                })
+                .catch(error => {
+                    console.error('预览文件失败:', error);
+                    previewContent.innerHTML = `<div class="alert alert-danger mt-3" role="alert">
+                        <i class="fas fa-exclamation-circle"></i> 预览失败: ${error.message || '未知错误'}
+                    </div>`;
+                });
+        }
+        
+        // 打开Git文件编辑器
+        async function openGitFileEditor(itemPath, filename, repoPath) {
+            try {
+                // 确保路径正确（处理可能的转义字符问题）
+                // 将路径中的反斜杠统一转换为正斜杠，避免\t等转义字符问题
+                const normalizedItemPath = itemPath ? itemPath.replace(/\\/g, '/') : itemPath;
+                const normalizedRepoPath = repoPath ? repoPath.replace(/\\/g, '/') : repoPath;
+                
+                console.log('[Git前端] 打开编辑器:', {
+                    original: {itemPath, repoPath},
+                    normalized: {itemPath: normalizedItemPath, repoPath: normalizedRepoPath}
+                });
+                
+                // 调用API获取文件内容（使用Git仓库路径）
+                const contentResponse = await fetch('/get_git_file_content', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        filepath: normalizedItemPath,
+                        git_root: normalizedRepoPath
+                    })
+                });
+                
+                if (!contentResponse.ok) {
+                    // 尝试解析JSON错误信息
+                    let errorMsg = '无法加载文件内容';
+                    try {
+                        const errorText = await contentResponse.text();
+                        try {
+                            const errorData = JSON.parse(errorText);
+                            errorMsg = errorData.error || errorMsg;
+                        } catch {
+                            errorMsg = errorText || errorMsg;
+                        }
+                    } catch {
+                        errorMsg = `HTTP ${contentResponse.status}: ${contentResponse.statusText}`;
+                    }
+                    console.error('[Git前端] 加载文件内容失败:', errorMsg, {itemPath, repoPath, status: contentResponse.status});
+                    throw new Error(errorMsg);
+                }
+                
+                const content = await contentResponse.text();
+                
+                // 切换到编辑模式
+                if (typeof window.isEditMode !== 'undefined') {
+                    window.isEditMode = true;
+                }
+                if (typeof window.currentEditFile !== 'undefined') {
+                    window.currentEditFile = itemPath;
+                    window.currentEditGitRoot = repoPath;
+                }
+                if (typeof window.currentEditFilename !== 'undefined') {
+                    window.currentEditFilename = filename;
+                }
+                
+                const previewTitle = document.getElementById('previewTitle');
+                const previewContent = document.querySelector('.preview-content');
+                
+                // 更新标题，添加编辑工具栏
+                previewTitle.innerHTML = `
+                    <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+                        <span>编辑文件: ${filename}</span>
+                        <div>
+                            <button onclick="saveGitFileEditor()" class="btn btn-sm btn-success" style="margin-right: 5px;">
+                                <i class="fas fa-save"></i> 保存
+                            </button>
+                            <button onclick="cancelGitFileEditor()" class="btn btn-sm btn-secondary">
+                                <i class="fas fa-times"></i> 取消
+                            </button>
+                        </div>
+                    </div>
+                `;
+                
+                // 获取文件扩展名，判断是否为Markdown
+                const fileExt = filename.split('.').pop()?.toLowerCase();
+                const isMarkdown = (fileExt === 'md' || fileExt === 'markdown');
+                
+                // 给预览区域添加编辑模式标记
+                previewContent.classList.add('editing-mode');
+                if (isMarkdown) {
+                    previewContent.classList.add('markdown-split-mode');
+                }
+                
+                // 创建编辑器
+                // 检查是否有CodeMirror可用
+                const hasCodeMirror = typeof CodeMirror !== 'undefined' || (typeof window !== 'undefined' && window.CodeMirror);
+                
+                if (hasCodeMirror) {
+                    // 创建编辑器容器（Markdown使用分屏，其他文件使用全屏）
+                    if (isMarkdown) {
+                        previewContent.innerHTML = `
+                            <div class="markdown-editor-pane">
+                                <div id="codeEditorContainer"></div>
+                            </div>
+                            <div class="markdown-preview-pane">
+                                <div id="markdownLivePreview" class="markdown-body"></div>
+                            </div>
+                        `;
+                    } else {
+                        previewContent.innerHTML = '<div id="codeEditorContainer" style="height: 100%;"></div>';
+                    }
+                    
+                    // 确定文件类型和模式
+                    const modeMap = {
+                        'js': 'javascript',
+                        'ts': 'typescript',
+                        'py': 'python',
+                        'html': 'htmlmixed',
+                        'css': 'css',
+                        'json': {name: 'javascript', json: true},
+                        'xml': 'xml',
+                        'md': 'markdown',
+                        'markdown': 'markdown',
+                        'yaml': 'yaml',
+                        'yml': 'yaml'
+                    };
+                    
+                    const mode = modeMap[fileExt] || 'text/plain';
+                    
+                    // 清理之前的实例
+                    if (window.codeMirrorInstance) {
+                        try {
+                            window.codeMirrorInstance.toTextArea();
+                        } catch (e) {
+                            console.warn('清理CodeMirror实例失败:', e);
+                        }
+                        window.codeMirrorInstance = null;
+                    }
+                    
+                    const cmInstance = CodeMirror || window.CodeMirror;
+                    const editorContainer = document.getElementById('codeEditorContainer');
+                    window.codeMirrorInstance = cmInstance(editorContainer, {
+                        value: content,
+                        mode: mode,
+                        theme: 'monokai',
+                        lineNumbers: true,
+                        lineWrapping: true,
+                        matchBrackets: true,
+                        autoCloseBrackets: true,
+                        foldGutter: true,
+                        gutters: ["CodeMirror-linenumbers", "CodeMirror-foldgutter"],
+                        extraKeys: {
+                            "Ctrl-S": function (cm) {
+                                saveGitFileEditor();
+                            },
+                            "Esc": function (cm) {
+                                cancelGitFileEditor();
+                            },
+                            "Ctrl-F": "findPersistent",
+                            "Ctrl-H": "replace"
+                        },
+                        viewportMargin: Infinity,
+                        autofocus: true
+                    });
+                    
+                    // 设置编辑器大小
+                    if (isMarkdown) {
+                        // Markdown分屏模式：编辑器占左侧一半
+                        const updateEditorSize = () => {
+                            const pane = editorContainer.closest('.markdown-editor-pane');
+                            if (pane) {
+                                const paneHeight = pane.offsetHeight || 600;
+                                window.codeMirrorInstance.setSize('100%', paneHeight + 'px');
+                            }
+                        };
+                        updateEditorSize();
+                        const resizeHandler = () => updateEditorSize();
+                        window.addEventListener('resize', resizeHandler);
+                        // 存储resize handler以便后续清理
+                        window.gitEditorResizeHandler = resizeHandler;
+                        
+                        // Markdown实时预览
+                        const previewEl = document.getElementById('markdownLivePreview');
+                        const updatePreview = () => {
+                            if (previewEl && typeof window.markdownIt !== 'undefined') {
+                                const markdownText = window.codeMirrorInstance.getValue();
+                                previewEl.innerHTML = window.markdownIt.render(markdownText);
+                            } else if (previewEl && typeof marked !== 'undefined') {
+                                const markdownText = window.codeMirrorInstance.getValue();
+                                previewEl.innerHTML = marked.parse(markdownText);
+                            }
+                        };
+                        
+                        window.codeMirrorInstance.on('change', updatePreview);
+                        updatePreview(); // 初始预览
+                    } else {
+                        // 其他文件：编辑器占满整个区域
+                        const updateEditorSize = () => {
+                            const container = previewContent;
+                            const containerHeight = container.offsetHeight || 600;
+                            window.codeMirrorInstance.setSize('100%', containerHeight + 'px');
+                        };
+                        updateEditorSize();
+                        const resizeHandler = () => updateEditorSize();
+                        window.addEventListener('resize', resizeHandler);
+                        window.gitEditorResizeHandler = resizeHandler;
+                    }
+                    
+                    // 强制刷新编辑器布局
+                    setTimeout(() => {
+                        window.codeMirrorInstance.refresh();
+                    }, 100);
+                } else {
+                    // 如果CodeMirror未加载，使用textarea
+                    const escapedContent = content.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+                    if (isMarkdown) {
+                        previewContent.innerHTML = `
+                            <div style="display: flex; height: 600px;">
+                                <div style="flex: 1; padding: 10px; border-right: 1px solid #ddd;">
+                                    <textarea id="gitFileEditor" style="width: 100%; height: 100%; font-family: monospace; border: none; resize: none; outline: none;">${escapedContent}</textarea>
+                                </div>
+                                <div style="flex: 1; padding: 10px; overflow-y: auto;">
+                                    <div id="markdownLivePreview" class="markdown-body"></div>
+                                </div>
+                            </div>
+                        `;
+                    } else {
+                        previewContent.innerHTML = `
+                            <textarea id="gitFileEditor" style="width: 100%; height: 600px; font-family: monospace; padding: 10px; border: 1px solid #ddd; resize: vertical;">${escapedContent}</textarea>
+                        `;
+                    }
+                }
+                
+                // 滚动到编辑器
+                const previewSection = document.getElementById('previewSection');
+                if (previewSection) {
+                    previewSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+            } catch (error) {
+                console.error('[Git前端] 打开编辑器失败:', error);
+                alert('打开编辑器失败: ' + error.message);
+            }
+        }
+        
+        // 保存Git文件编辑器内容
+        async function saveGitFileEditor() {
+            // 保存文件后刷新Git状态，以便提交按钮可以启用
+            try {
+                const content = window.codeMirrorInstance ? 
+                    window.codeMirrorInstance.getValue() : 
+                    (document.getElementById('gitFileEditor') ? document.getElementById('gitFileEditor').value : '');
+                
+                const filepath = window.currentEditFile || window.currentGitFilePath;
+                const git_root = window.currentEditGitRoot || window.currentGitRepoPath;
+                
+                if (!filepath || !git_root) {
+                    alert('文件信息丢失，请重新打开文件');
+                    return;
+                }
+                
+                const response = await fetch('/save_git_file', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        filepath: filepath,
+                        git_root: git_root,
+                        content: content
+                    })
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    alert('保存成功！');
+                    
+                    // 刷新Git仓库状态（显示未同步状态）
+                    if (window.currentGitRepoPath) {
+                        loadGitRepoStatus();
+                    }
+                    
+                    // 退出编辑模式，重新预览文件
+                    cancelGitFileEditor();
+                } else {
+                    alert('保存失败: ' + (result.error || '未知错误'));
+                }
+            } catch (error) {
+                console.error('[Git前端] 保存文件失败:', error);
+                alert('保存失败: ' + error.message);
+            }
+        }
+        
+        // 取消Git文件编辑器
+        function cancelGitFileEditor() {
+            // 清理resize handler
+            if (window.gitEditorResizeHandler) {
+                window.removeEventListener('resize', window.gitEditorResizeHandler);
+                window.gitEditorResizeHandler = null;
+            }
+            
+            if (window.codeMirrorInstance) {
+                try {
+                    window.codeMirrorInstance.toTextArea();
+                } catch (e) {
+                    console.warn('清理CodeMirror实例失败:', e);
+                }
+                window.codeMirrorInstance = null;
+            }
+            
+            // 移除编辑模式标记
+            const previewContent = document.querySelector('.preview-content');
+            if (previewContent) {
+                previewContent.classList.remove('editing-mode', 'markdown-split-mode');
+            }
+            
+            window.isEditMode = false;
+            window.currentEditFile = null;
+            window.currentEditGitRoot = null;
+            
+            // 重新加载预览
+            if (window.currentGitRepoPath && window.currentGitFilePath) {
+                const filename = window.currentGitFilePath.split('/').pop() || window.currentGitFilePath.split('\\').pop();
+                showGitFilePreview(window.currentGitRepoPath, window.currentGitFilePath, filename);
+            }
+        }
+        
+        // 附加文件列表事件处理器（用于解析的HTML）
+        function attachGitFileListHandlers(repoPath, subPath) {
+            const fileItems = document.querySelectorAll('#gitRepoFileList .file-item');
+            fileItems.forEach(item => {
+                const link = item.querySelector('.file-link');
+                if (link) {
+                    const itemPath = link.getAttribute('data-path') || link.textContent.trim();
+                    const isDir = item.querySelector('.fa-folder') !== null;
+                    
+                    item.addEventListener('click', (e) => {
+                        e.preventDefault();
+                        handleGitFileItemClick(repoPath, itemPath, isDir);
+                    });
+                }
+            });
+        }
+        
+        // Git操作：拉取
+        function gitPullCurrentRepo() {
+            if (!currentGitRepoPath) {
+                alert('未选择仓库');
+                return;
+            }
+            
+            if (!confirm('确定要拉取远程更改吗？')) return;
+            
+            const btn = document.getElementById('gitPullBtn');
+            const originalHtml = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 拉取中...';
+            
+            fetch('/api/git/pull', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({path: currentGitRepoPath})
+            })
+                .then(response => {
+                    // 检查响应状态
+                    if (!response.ok) {
+                        return response.json().catch(() => {
+                            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                        });
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    btn.disabled = false;
+                    btn.innerHTML = originalHtml;
+                    
+                    if (data && data.success) {
+                        alert('拉取成功！');
+                        loadGitRepoStatus();
+                        loadGitRepoFiles(currentGitRepoPath, currentGitRepoFilePath);
+                    } else {
+                        const errorMsg = (data && data.error) ? data.error : (data && data.message) ? data.message : '未知错误';
+                        console.error('拉取失败详情:', data);
+                        alert('拉取失败: ' + errorMsg);
+                    }
+                })
+                .catch(error => {
+                    btn.disabled = false;
+                    btn.innerHTML = originalHtml;
+                    console.error('拉取操作异常:', error);
+                    alert('拉取失败: ' + (error.message || error.toString() || '网络错误或服务器无响应'));
+                });
+        }
+        
+        // Git操作：推送
+        function gitPushCurrentRepo() {
+            if (!currentGitRepoPath) {
+                alert('未选择仓库');
+                return;
+            }
+            
+            // 先检查是否有未提交的更改
+            checkUncommittedChanges().then(hasChanges => {
+                if (hasChanges) {
+                    // 有未提交的更改，显示提交模态框
+                    showCommitBeforePushModal();
+                } else {
+                    // 没有未提交的更改，直接推送
+                    performPush();
+                }
+            }).catch(error => {
+                console.error('检查未提交更改失败:', error);
+                // 如果检查失败，仍然尝试推送
+                if (confirm('无法检查未提交更改，确定要继续推送吗？')) {
+                    performPush();
+                }
+            });
+        }
+        
+        // 检查是否有未提交的更改
+        function checkUncommittedChanges() {
+            return fetch(`/api/git/status?path=${encodeURIComponent(currentGitRepoPath)}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data && data.success && data.status) {
+                        const status = data.status;
+                        const hasChanges = status.has_changes || 
+                                         (status.staged_files && status.staged_files.length > 0) ||
+                                         (status.modified_files && status.modified_files.length > 0) ||
+                                         (status.untracked_files && status.untracked_files.length > 0);
+                        return hasChanges;
+                    }
+                    return false;
+                });
+        }
+        
+        // 显示提交模态框（推送前）
+        function showCommitBeforePushModal() {
+            // 获取未提交的文件列表
+            fetch(`/api/git/status?path=${encodeURIComponent(currentGitRepoPath)}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data && data.success && data.status) {
+                        const status = data.status;
+                        const files = [
+                            ...(status.staged_files || []),
+                            ...(status.modified_files || []),
+                            ...(status.untracked_files || [])
+                        ];
+                        
+                        const filesListEl = document.getElementById('gitUncommittedFilesList');
+                        if (files.length > 0) {
+                            filesListEl.innerHTML = files.map(file => 
+                                `<div class="list-group-item">${file}</div>`
+                            ).join('');
+                        } else {
+                            filesListEl.innerHTML = '<div class="text-muted">无未提交文件</div>';
+                        }
+                        
+                        const modal = new bootstrap.Modal(document.getElementById('gitCommitBeforePushModal'));
+                        modal.show();
+                    }
+                })
+                .catch(error => {
+                    console.error('获取未提交文件列表失败:', error);
+                    const modal = new bootstrap.Modal(document.getElementById('gitCommitBeforePushModal'));
+                    modal.show();
+                });
+        }
+        
+        // 提交并推送
+        function commitAndPush() {
+            const message = document.getElementById('gitCommitMessageForPush').value.trim();
+            if (!message) {
+                alert('请输入提交信息');
+                return;
+            }
+            
+            // 先提交
+            commitChanges(message).then(success => {
+                if (success) {
+                    // 提交成功后推送
+                    performPush();
+                    // 关闭模态框
+                    const modal = bootstrap.Modal.getInstance(document.getElementById('gitCommitBeforePushModal'));
+                    if (modal) modal.hide();
+                }
+            });
+        }
+        
+        // 仅提交
+        function commitOnly() {
+            const message = document.getElementById('gitCommitMessageForPush').value.trim();
+            if (!message) {
+                alert('请输入提交信息');
+                return;
+            }
+            
+            commitChanges(message).then(success => {
+                if (success) {
+                    // 关闭模态框
+                    const modal = bootstrap.Modal.getInstance(document.getElementById('gitCommitBeforePushModal'));
+                    if (modal) modal.hide();
+                    // 刷新状态
+                    loadGitRepoStatus();
+                }
+            });
+        }
+        
+        // 提交更改
+        function commitChanges(message) {
+            return fetch('/api/git/commit', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    path: currentGitRepoPath,
+                    message: message
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data && data.success) {
+                    alert('提交成功！');
+                    loadGitRepoStatus();
+                    return true;
+                } else {
+                    alert('提交失败: ' + (data.error || '未知错误'));
+                    return false;
+                }
+            })
+            .catch(error => {
+                console.error('提交失败:', error);
+                alert('提交失败: ' + error.message);
+                return false;
+            });
+        }
+        
+        // 执行推送
+        function performPush() {
+            if (!confirm('确定要推送到远程仓库吗？')) return;
+            
+            const btn = document.getElementById('gitPushBtn');
+            const originalHtml = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 推送中...';
+            
+            fetch('/api/git/push', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({path: currentGitRepoPath})
+            })
+                .then(response => {
+                    // 检查响应状态
+                    if (!response.ok) {
+                        return response.json().catch(() => {
+                            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                        });
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    btn.disabled = false;
+                    btn.innerHTML = originalHtml;
+                    
+                    if (data && data.success) {
+                        alert('推送成功！');
+                        loadGitRepoStatus();
+                    } else {
+                        const errorMsg = (data && data.error) ? data.error : (data && data.message) ? data.message : '未知错误';
+                        console.error('推送失败详情:', data);
+                        alert('推送失败: ' + errorMsg);
+                    }
+                })
+                .catch(error => {
+                    btn.disabled = false;
+                    btn.innerHTML = originalHtml;
+                    console.error('推送操作异常:', error);
+                    alert('推送失败: ' + (error.message || error.toString() || '网络错误或服务器无响应'));
+                });
+        }
+        
+        // Git操作：同步（先拉取再推送）
+        function gitSyncCurrentRepo() {
+            if (!currentGitRepoPath) {
+                alert('未选择仓库');
+                return;
+            }
+            
+            if (!confirm('同步将先拉取远程更改，再推送本地更改。确定继续吗？')) return;
+            
+            const btn = document.getElementById('gitSyncBtn');
+            const originalHtml = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 同步中...';
+            
+            // 先拉取
+            fetch('/api/git/pull', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({path: currentGitRepoPath})
+            })
+                .then(response => {
+                    if (!response.ok) {
+                        return response.json().catch(() => {
+                            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                        });
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (!data || !data.success) {
+                        btn.disabled = false;
+                        btn.innerHTML = originalHtml;
+                        const errorMsg = (data && data.error) ? data.error : (data && data.message) ? data.message : '未知错误';
+                        console.error('拉取失败详情:', data);
+                        alert('拉取失败: ' + errorMsg);
+                        return;
+                    }
+                    
+                    // 拉取成功后推送
+                    return fetch('/api/git/push', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({path: currentGitRepoPath})
+                    });
+                })
+                .then(response => {
+                    if (!response) return null;
+                    if (!response.ok) {
+                        return response.json().catch(() => {
+                            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                        });
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    btn.disabled = false;
+                    btn.innerHTML = originalHtml;
+                    
+                    if (data && data.success) {
+                        alert('同步成功！');
+                        loadGitRepoStatus();
+                        loadGitRepoFiles(currentGitRepoPath, currentGitRepoFilePath);
+                    } else if (data) {
+                        const errorMsg = (data && data.error) ? data.error : (data && data.message) ? data.message : '未知错误';
+                        console.error('推送失败详情:', data);
+                        alert('推送失败: ' + errorMsg);
+                    }
+                })
+                .catch(error => {
+                    btn.disabled = false;
+                    btn.innerHTML = originalHtml;
+                    console.error('同步操作异常:', error);
+                    alert('同步失败: ' + (error.message || error.toString() || '网络错误或服务器无响应'));
+                });
+        }
+        
+        // Git操作：显示创建Tag模态框
+        // 显示Git帮助模态框
+        function showGitHelpModal() {
+            const modalEl = document.getElementById('gitHelpModal');
+            if (!modalEl) {
+                console.error('帮助模态框未找到');
+                alert('帮助模态框未找到，请刷新页面重试');
+                return;
+            }
+            try {
+                // 检查Bootstrap是否可用
+                if (typeof bootstrap !== 'undefined' && bootstrap.Modal) {
+                    // 检查是否已有实例
+                    let modal = bootstrap.Modal.getInstance(modalEl);
+                    if (!modal) {
+                        modal = new bootstrap.Modal(modalEl, {
+                            backdrop: true,
+                            keyboard: true
+                        });
+                    }
+                    modal.show();
+                } else {
+                    // 降级方案：使用jQuery
+                    if (typeof $ !== 'undefined' && $.fn.modal) {
+                        $('#gitHelpModal').modal('show');
+                    } else {
+                        // 最简单的降级方案
+                        modalEl.style.display = 'block';
+                        modalEl.classList.add('show');
+                        document.body.classList.add('modal-open');
+                        const backdrop = document.createElement('div');
+                        backdrop.className = 'modal-backdrop fade show';
+                        backdrop.id = 'gitHelpModalBackdrop';
+                        document.body.appendChild(backdrop);
+                        // 点击背景关闭
+                        backdrop.onclick = function() {
+                            modalEl.style.display = 'none';
+                            modalEl.classList.remove('show');
+                            document.body.classList.remove('modal-open');
+                            backdrop.remove();
+                        };
+                    }
+                }
+            } catch (error) {
+                console.error('显示帮助模态框失败:', error);
+                alert('显示帮助页面失败: ' + error.message);
+            }
+        }
+        
+        // 显示Git调试工具模态框
+        function showGitDebugModal() {
+            if (!currentGitRepoPath) {
+                alert('请先选择一个Git仓库');
+                return;
+            }
+            const modalEl = document.getElementById('gitDebugModal');
+            if (!modalEl) {
+                console.error('调试模态框未找到');
+                alert('调试模态框未找到，请刷新页面重试');
+                return;
+            }
+            try {
+                // 检查Bootstrap是否可用
+                if (typeof bootstrap !== 'undefined' && bootstrap.Modal) {
+                    // 检查是否已有实例
+                    let modal = bootstrap.Modal.getInstance(modalEl);
+                    if (!modal) {
+                        modal = new bootstrap.Modal(modalEl, {
+                            backdrop: true,
+                            keyboard: true
+                        });
+                    }
+                    modal.show();
+                } else {
+                    // 降级方案：使用jQuery
+                    if (typeof $ !== 'undefined' && $.fn.modal) {
+                        $('#gitDebugModal').modal('show');
+                    } else {
+                        // 最简单的降级方案
+                        modalEl.style.display = 'block';
+                        modalEl.classList.add('show');
+                        document.body.classList.add('modal-open');
+                        const backdrop = document.createElement('div');
+                        backdrop.className = 'modal-backdrop fade show';
+                        backdrop.id = 'gitDebugModalBackdrop';
+                        document.body.appendChild(backdrop);
+                        // 点击背景关闭
+                        backdrop.onclick = function() {
+                            modalEl.style.display = 'none';
+                            modalEl.classList.remove('show');
+                            document.body.classList.remove('modal-open');
+                            backdrop.remove();
+                        };
+                    }
+                }
+                // 清空输出
+                const outputEl = document.getElementById('gitDebugOutput');
+                if (outputEl) {
+                    outputEl.innerHTML = '<div class="text-muted">等待执行命令...</div>';
+                }
+            } catch (error) {
+                console.error('显示调试模态框失败:', error);
+                alert('显示调试工具失败: ' + error.message);
+            }
+        }
+        
+        // 执行Git命令
+        function executeGitCommand() {
+            if (!currentGitRepoPath) {
+                alert('请先选择一个Git仓库');
+                return;
+            }
+            
+            const command = document.getElementById('gitDebugCommand').value.trim();
+            if (!command) {
+                alert('请输入Git命令');
+                return;
+            }
+            
+            const outputEl = document.getElementById('gitDebugOutput');
+            outputEl.innerHTML = '<div class="text-info">执行中: git ' + escapeHtml(command) + '...</div>';
+            
+            fetch('/api/git/execute', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    path: currentGitRepoPath,
+                    command: command
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data && data.success) {
+                    const output = data.output || '';
+                    const error = data.error || '';
+                    let html = '<div class="text-success">命令执行成功</div>\n';
+                    if (output) {
+                        html += '<div class="text-white">' + escapeHtml(output) + '</div>';
+                    }
+                    if (error) {
+                        html += '<div class="text-warning">警告: ' + escapeHtml(error) + '</div>';
+                    }
+                    outputEl.innerHTML = html;
+                } else {
+                    const error = data.error || '未知错误';
+                    outputEl.innerHTML = '<div class="text-danger">执行失败: ' + escapeHtml(error) + '</div>';
+                }
+            })
+            .catch(error => {
+                outputEl.innerHTML = '<div class="text-danger">网络错误: ' + escapeHtml(error.message) + '</div>';
+            });
+        }
+        
+        // 清空调试输出
+        function clearGitDebugOutput() {
+            document.getElementById('gitDebugOutput').innerHTML = '<div class="text-muted">等待执行命令...</div>';
+        }
+        
+        // 插入常用Git命令
+        function insertGitCommand(cmd) {
+            document.getElementById('gitDebugCommand').value = cmd;
+        }
+        
+        // HTML转义函数
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+        
+        function showCreateTagModal() {
+            if (!currentGitRepoPath) {
+                alert('未选择仓库');
+                return;
+            }
+            
+            // 使用现有的gitModal，但只显示tag相关部分
+            currentGitPath = currentGitRepoPath;
+            const modal = new bootstrap.Modal(document.getElementById('gitModal'));
+            modal.show();
+            
+            // 切换到tag标签页
+            const tagTab = document.querySelector('#gitModal [data-bs-toggle="tab"][href="#gitTagTab"]');
+            if (tagTab) tagTab.click();
+        }
+        
+        // 显示Git提交历史
+        function showGitHistory() {
+            if (!currentGitRepoPath) {
+                alert('未选择仓库');
+                return;
+            }
+            
+            // 隐藏文件列表，显示历史视图
+            document.getElementById('gitRepoFileList').style.display = 'none';
+            document.getElementById('gitHistoryView').style.display = 'block';
+            
+            // 加载提交历史
+            loadGitHistory();
+        }
+        
+        // 返回文件列表
+        function showGitFileList() {
+            document.getElementById('gitHistoryView').style.display = 'none';
+            document.getElementById('gitRepoFileList').style.display = 'block';
+        }
+        
+        // 加载Git提交历史
+        function loadGitHistory() {
+            if (!currentGitRepoPath) return;
+            
+            const historyList = document.getElementById('gitHistoryList');
+            if (!historyList) return;
+            
+            historyList.innerHTML = '<div class="text-center py-5 text-muted"><i class="fas fa-spinner fa-spin text-3xl mb-3"></i><p>正在加载提交历史...</p></div>';
+            
+            fetch(`/api/git/history?path=${encodeURIComponent(currentGitRepoPath)}&limit=100`)
+                .then(response => {
+                    if (response.status === 403 || response.status === 404) {
+                        return response.json().catch(() => ({success: false, error: 'Git功能未启用'}));
+                    }
+                    if (!response.ok) {
+                        return response.json().catch(() => ({success: false, error: `HTTP ${response.status}: ${response.statusText}`}));
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (!data || !data.success) {
+                        historyList.innerHTML = `<div class="text-center py-5 text-danger"><i class="fas fa-exclamation-triangle"></i> ${data && data.error ? data.error : '加载失败'}</div>`;
+                        return;
+                    }
+                    
+                    const commits = data.commits || [];
+                    if (commits.length === 0) {
+                        historyList.innerHTML = '<div class="text-center py-5 text-muted"><i class="fas fa-info-circle"></i> 暂无提交历史</div>';
+                        return;
+                    }
+                    
+                    let html = '<div class="list-group">';
+                    commits.forEach(commit => {
+                        const date = commit.date ? new Date(commit.date).toLocaleString('zh-CN') : '未知时间';
+                        const stats = commit.stats || {};
+                        const filesChanged = stats.files_changed || 0;
+                        const insertions = stats.insertions || 0;
+                        const deletions = stats.deletions || 0;
+                        
+                        html += `
+                            <div class="list-group-item">
+                                <div class="d-flex w-100 justify-content-between mb-2">
+                                    <h6 class="mb-1">
+                                        <code style="font-size: 0.85em; background: #f8f9fa; padding: 2px 6px; border-radius: 3px;">${commit.hash || 'N/A'}</code>
+                                        ${commit.message ? commit.message.split('\n')[0] : '无提交信息'}
+                                    </h6>
+                                    <small class="text-muted">${date}</small>
+                                </div>
+                                <div class="mb-2">
+                                    <small class="text-muted">
+                                        <i class="fas fa-user"></i> ${commit.author || '未知'} 
+                                        ${commit.author_email ? `<${commit.author_email}>` : ''}
+                                    </small>
+                                </div>
+                                ${filesChanged > 0 ? `
+                                    <div class="small">
+                                        <span class="badge bg-info">${filesChanged} 个文件</span>
+                                        <span class="badge bg-success">+${insertions}</span>
+                                        <span class="badge bg-danger">-${deletions}</span>
+                                    </div>
+                                ` : ''}
+                            </div>
+                        `;
+                    });
+                    html += '</div>';
+                    
+                    historyList.innerHTML = html;
+                })
+                .catch(error => {
+                    console.error('加载提交历史失败:', error);
+                    historyList.innerHTML = `<div class="text-center py-5 text-danger"><i class="fas fa-exclamation-triangle"></i> 加载失败: ${error.message || '未知错误'}</div>`;
+                });
+        }
+        
+        // 显示Git仓库操作模态框
+        function showGitRepoModal(repoPath) {
+            currentGitPath = repoPath;
+            const modal = new bootstrap.Modal(document.getElementById('gitModal'));
+            modal.show();
+            refreshGitStatus();
+        }
+        
+        // 显示克隆仓库模态框
+        function showCloneRepoModal() {
+            // 重置表单
+            document.getElementById('cloneRepoName').value = '';
+            document.getElementById('remoteRepoSearchPath').value = '';
+            document.getElementById('cloneProgressArea').style.display = 'none';
+            document.getElementById('cloneProgressBar').style.width = '0%';
+            document.getElementById('cloneProgressBar').textContent = '0%';
+            document.getElementById('cloneRepoStartBtn').disabled = false;
+            document.getElementById('cloneRepoCancelBtn').disabled = false;
+            
+            // 切换到选择仓库标签页
+            const selectRepoTab = document.getElementById('selectRepoTab');
+            const manualInputTab = document.getElementById('manualInputTab');
+            const selectRepoPanel = document.getElementById('selectRepoPanel');
+            const manualInputPanel = document.getElementById('manualInputPanel');
+            
+            selectRepoTab.classList.add('active');
+            manualInputTab.classList.remove('active');
+            selectRepoPanel.classList.add('show', 'active');
+            manualInputPanel.classList.remove('show', 'active');
+            
+            const modal = new bootstrap.Modal(document.getElementById('cloneRepoModal'));
+            modal.show();
+            
+            // 自动加载远程仓库列表
+            loadRemoteRepos();
+        }
+        
+        // 加载远程仓库列表
+        function loadRemoteRepos() {
+            const reposListDiv = document.getElementById('remoteReposList');
+            if (!reposListDiv) return;
+            
+            const searchPath = document.getElementById('remoteRepoSearchPath').value.trim();
+            reposListDiv.innerHTML = '<div class="text-center text-muted py-3"><i class="fas fa-spinner fa-spin"></i> 正在加载远程仓库列表...</div>';
+            
+            fetch('/api/git/remote/repos/list', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ base_path: searchPath })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (!data.success) {
+                    reposListDiv.innerHTML = `
+                        <div class="text-center text-danger py-3">
+                            <i class="fas fa-exclamation-triangle"></i> 加载失败: ${data.error || '未知错误'}
+                        </div>
+                    `;
+                    return;
+                }
+                
+                const repos = data.repos || [];
+                
+                if (repos.length === 0) {
+                    let message = data.message || '未找到仓库';
+                    reposListDiv.innerHTML = `
+                        <div class="text-center text-muted py-3">
+                            <i class="fas fa-inbox"></i> ${message}
+                            ${searchPath ? `<br><small>搜索路径: ${searchPath}</small>` : ''}
+                        </div>
+                    `;
+                    return;
+                }
+                
+                // 显示仓库列表
+                let html = '<div class="list-group">';
+                repos.forEach(repo => {
+                    const repoName = repo.name || repo.path || '未知仓库';
+                    const repoPath = repo.path || repo.full_url || '';
+                    html += `
+                        <a href="#" class="list-group-item list-group-item-action" onclick="selectRemoteRepo('${repoPath.replace(/'/g, "\\'")}', event)">
+                            <div class="d-flex w-100 justify-content-between align-items-center">
+                                <div>
+                                    <h6 class="mb-1"><i class="fab fa-git-alt text-danger"></i> ${repoName}</h6>
+                                    <small class="text-muted">${repoPath}</small>
+                                </div>
+                                <i class="fas fa-chevron-right text-muted"></i>
+                            </div>
+                        </a>
+                    `;
+                });
+                html += '</div>';
+                reposListDiv.innerHTML = html;
+            })
+            .catch(error => {
+                reposListDiv.innerHTML = `
+                    <div class="text-center text-danger py-3">
+                        <i class="fas fa-exclamation-triangle"></i> 加载失败: ${error.message || '网络错误'}
+                    </div>
+                `;
+            });
+        }
+        
+        // 选择远程仓库
+        function selectRemoteRepo(repoPath, event) {
+            if (event) {
+                event.preventDefault();
+            }
+            
+            // 提取仓库路径（去掉.git后缀和完整URL中的主机名部分）
+            let repoName = repoPath;
+            if (repoPath.includes(':')) {
+                // git@hostname:path/repo.git -> path/repo.git
+                repoName = repoPath.split(':', 1)[1] || repoPath.split(':')[1];
+            }
+            if (repoName.endsWith('.git')) {
+                repoName = repoName.slice(0, -4);
+            }
+            
+            // 切换到手动输入标签页并填入仓库名
+            document.getElementById('cloneRepoName').value = repoName;
+            
+            // 切换标签页
+            const manualInputTab = document.getElementById('manualInputTab');
+            const selectRepoPanel = document.getElementById('selectRepoPanel');
+            const manualInputPanel = document.getElementById('manualInputPanel');
+            
+            manualInputTab.click();
+        }
+        
+        // 开始克隆仓库
+        let cloneProgressInterval = null;
+        let currentCloneProgressId = null;
+        
+        function startCloneRepo() {
+            // 检查是否在手动输入标签页，如果是，获取输入值；否则获取选中的仓库
+            const activeTab = document.querySelector('#cloneRepoModal .nav-link.active');
+            let repoName = '';
+            
+            if (activeTab && activeTab.id === 'manualInputTab') {
+                repoName = document.getElementById('cloneRepoName').value.trim();
+            } else {
+                // 如果是从选择仓库标签页，应该已经有值了
+                repoName = document.getElementById('cloneRepoName').value.trim();
+            }
+            
+            if (!repoName) {
+                alert('请选择仓库或输入仓库名称');
+                return;
+            }
+            
+            // 禁用按钮
+            document.getElementById('cloneRepoStartBtn').disabled = true;
+            document.getElementById('cloneRepoCancelBtn').disabled = true;
+            
+            // 显示进度区域
+            document.getElementById('cloneProgressArea').style.display = 'block';
+            document.getElementById('cloneProgressBar').style.width = '0%';
+            document.getElementById('cloneProgressBar').textContent = '0%';
+            document.getElementById('cloneProgressMessage').textContent = '开始克隆...';
+            
+            // 启动克隆
+            fetch('/api/git/clone_from_remote', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ repo_name: repoName })
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        currentCloneProgressId = data.progress_id;
+                        
+                        // 开始轮询进度
+                        cloneProgressInterval = setInterval(() => {
+                            checkCloneProgress(currentCloneProgressId);
+                        }, 500); // 每500ms检查一次进度
+                    } else {
+                        alert('启动克隆失败: ' + data.error);
+                        document.getElementById('cloneRepoStartBtn').disabled = false;
+                        document.getElementById('cloneRepoCancelBtn').disabled = false;
+                    }
+                })
+                .catch(error => {
+                    alert('操作失败: ' + error);
+                    document.getElementById('cloneRepoStartBtn').disabled = false;
+                    document.getElementById('cloneRepoCancelBtn').disabled = false;
+                });
+        }
+        
+        // 检查克隆进度
+        function checkCloneProgress(progressId) {
+            fetch('/api/git/clone/progress/' + progressId)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success && data.progress) {
+                        const progress = data.progress;
+                        const progressBar = document.getElementById('cloneProgressBar');
+                        const progressMessage = document.getElementById('cloneProgressMessage');
+                        
+                        // 更新进度条
+                        if (progress.status === 'completed') {
+                            progressBar.style.width = '100%';
+                            progressBar.textContent = '100%';
+                            progressBar.classList.remove('progress-bar-animated');
+                            progressBar.classList.remove('progress-bar-striped');
+                            progressBar.classList.add('bg-success');
+                            progressMessage.textContent = '克隆完成！';
+                            
+                            // 停止轮询
+                            if (cloneProgressInterval) {
+                                clearInterval(cloneProgressInterval);
+                                cloneProgressInterval = null;
+                            }
+                            
+                            // 3秒后关闭模态框并刷新列表
+                            setTimeout(() => {
+                                const modal = bootstrap.Modal.getInstance(document.getElementById('cloneRepoModal'));
+                                modal.hide();
+                                refreshGitRepos();
+                            }, 3000);
+                        } else if (progress.status === 'failed') {
+                            progressBar.classList.remove('progress-bar-animated');
+                            progressBar.classList.remove('progress-bar-striped');
+                            progressBar.classList.add('bg-danger');
+                            progressMessage.textContent = '克隆失败: ' + (progress.error || '未知错误');
+                            
+                            // 停止轮询
+                            if (cloneProgressInterval) {
+                                clearInterval(cloneProgressInterval);
+                                cloneProgressInterval = null;
+                            }
+                            
+                            // 恢复按钮
+                            document.getElementById('cloneRepoStartBtn').disabled = false;
+                            document.getElementById('cloneRepoCancelBtn').disabled = false;
+                        } else {
+                            // 更新进度
+                            const progressPercent = progress.progress || 0;
+                            progressBar.style.width = progressPercent + '%';
+                            progressBar.textContent = progressPercent + '%';
+                            progressMessage.textContent = progress.message || '克隆中...';
+                        }
+                    } else {
+                        // 如果进度信息不存在，可能是任务已完成或被清理
+                        if (cloneProgressInterval) {
+                            clearInterval(cloneProgressInterval);
+                            cloneProgressInterval = null;
+                        }
+                    }
+                })
+                .catch(error => {
+                    console.error('检查进度失败:', error);
+                });
+        }
+        
+        // 清理进度轮询（当模态框关闭时）
+        document.addEventListener('DOMContentLoaded', function() {
+            const cloneModal = document.getElementById('cloneRepoModal');
+            if (cloneModal) {
+                cloneModal.addEventListener('hidden.bs.modal', function() {
+                    if (cloneProgressInterval) {
+                        clearInterval(cloneProgressInterval);
+                        cloneProgressInterval = null;
+                    }
+                    currentCloneProgressId = null;
+                });
+            }
+        });
+
+        // 显示Git操作模态框
+        function showGitModal(path) {
+            if (path) {
+                currentGitPath = path;
+            }
+            const modal = new bootstrap.Modal(document.getElementById('gitModal'));
+            modal.show();
+            refreshGitStatus();
+        }
+
+        // 刷新Git状态
+        function refreshGitStatus() {
+            const statusInfo = document.getElementById('gitStatusInfo');
+            if (!statusInfo) return;
+            
+            statusInfo.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 正在检测Git状态...';
+            statusInfo.className = 'alert alert-info';
+            
+            fetch('/api/git/check?path=' + encodeURIComponent(currentGitPath))
+                .then(response => {
+                    if (response.status === 403 || response.status === 404) {
+                        return response.json().catch(() => ({success: false, error: 'Git功能未启用'}));
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (!data || !data.success) {
+                        statusInfo.className = 'alert alert-warning';
+                        statusInfo.innerHTML = '<i class="fas fa-exclamation-triangle"></i> ' + (data ? (data.error || '无法检测Git状态') : 'Git功能未启用');
+                        
+                        const initSection = document.getElementById('gitInitSection');
+                        const syncSection = document.getElementById('gitSyncSection');
+                        const commitSection = document.getElementById('gitCommitSection');
+                        const advancedSection = document.getElementById('gitAdvancedSection');
+                        const actionsSection = document.getElementById('gitActionsSection');
+                        
+                        if (initSection) initSection.style.display = 'block';
+                        if (syncSection) syncSection.style.display = 'none';
+                        if (commitSection) commitSection.style.display = 'none';
+                        if (advancedSection) advancedSection.style.display = 'none';
+                        if (actionsSection) actionsSection.style.display = 'block';
+                        return;
+                    }
+                    
+                    if (data.is_repo) {
+                        // 是Git仓库
+                        let statusHtml = '<strong>✓ Git仓库</strong><br>';
+                        statusHtml += '<small>分支: <code>' + (data.branch || '无') + '</code></small><br>';
+                        if (data.remote_url) {
+                            statusHtml += '<small>远程: <code>' + data.remote_url + '</code></small><br>';
+                        }
+                        if (data.has_changes) {
+                            statusInfo.className = 'alert alert-warning';
+                            statusHtml += '<small class="text-warning">有未提交的更改</small>';
+                            if (data.modified_files && data.modified_files.length > 0) {
+                                statusHtml += '<br><small>修改: ' + data.modified_files.length + ' 个文件</small>';
+                            }
+                            if (data.untracked_files && data.untracked_files.length > 0) {
+                                statusHtml += '<br><small>未跟踪: ' + data.untracked_files.length + ' 个文件</small>';
+                            }
+                        } else {
+                            statusInfo.className = 'alert alert-success';
+                            statusHtml += '<small class="text-success">工作区干净</small>';
+                        }
+                        statusInfo.innerHTML = statusHtml;
+                        
+                        const initSection = document.getElementById('gitInitSection');
+                        const syncSection = document.getElementById('gitSyncSection');
+                        const commitSection = document.getElementById('gitCommitSection');
+                        const advancedSection = document.getElementById('gitAdvancedSection');
+                        const actionsSection = document.getElementById('gitActionsSection');
+                        
+                        if (initSection) initSection.style.display = 'none';
+                        if (syncSection) syncSection.style.display = 'block';
+                        if (commitSection) commitSection.style.display = data.has_changes ? 'block' : 'none';
+                        if (advancedSection) advancedSection.style.display = 'block';
+                        if (actionsSection) actionsSection.style.display = 'block';
+                    } else {
+                        // 不是Git仓库
+                        statusInfo.className = 'alert alert-secondary';
+                        statusInfo.innerHTML = '<i class="fas fa-info-circle"></i> 当前目录不是Git仓库<br><small>您可以初始化新仓库或克隆远程仓库</small>';
+                        
+                        const initSection = document.getElementById('gitInitSection');
+                        const syncSection = document.getElementById('gitSyncSection');
+                        const commitSection = document.getElementById('gitCommitSection');
+                        const advancedSection = document.getElementById('gitAdvancedSection');
+                        const actionsSection = document.getElementById('gitActionsSection');
+                        
+                        if (initSection) initSection.style.display = 'block';
+                        if (syncSection) syncSection.style.display = 'none';
+                        if (commitSection) commitSection.style.display = 'none';
+                        if (advancedSection) advancedSection.style.display = 'none';
+                        if (actionsSection) actionsSection.style.display = 'block';
+                    }
+                })
+                .catch(error => {
+                    statusInfo.className = 'alert alert-danger';
+                    statusInfo.innerHTML = '<i class="fas fa-times-circle"></i> 错误: ' + error;
+                });
+        }
+
+        // Git操作函数
+        function gitInitRepo() {
+            if (!confirm('确定要初始化Git仓库吗？')) return;
+            
+            fetch('/api/git/init', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ path: currentGitPath })
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        alert('Git仓库初始化成功！');
+                        refreshGitStatus();
+                        location.reload();
+                    } else {
+                        alert('初始化失败: ' + data.error);
+                    }
+                })
+                .catch(error => alert('操作失败: ' + error));
+        }
+
+        function showGitCloneModal() {
+            loadGitConfigsForClone();
+            const modal = new bootstrap.Modal(document.getElementById('gitCloneModal'));
+            modal.show();
+        }
+
+        // 加载Git配置用于克隆选择
+        function loadGitConfigsForClone() {
+            const select = document.getElementById('gitCloneConfigSelect');
+            select.innerHTML = '<option value="">手动输入URL</option>';
+            
+            fetch('/api/git/config/list')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success && data.configs) {
+                        data.configs.forEach(config => {
+                            const option = document.createElement('option');
+                            option.value = config.id;
+                            option.textContent = config.name + ' (' + config.server_url + ')';
+                            option.setAttribute('data-server-url', config.server_url);
+                            select.appendChild(option);
+                        });
+                    }
+                })
+                .catch(() => {});
+            
+            // 当选择配置时，更新URL提示
+            select.addEventListener('change', function() {
+                const selectedOption = this.options[this.selectedIndex];
+                const serverUrl = selectedOption.getAttribute('data-server-url');
+                const urlInput = document.getElementById('gitCloneUrl');
+                if (serverUrl && this.value) {
+                    urlInput.placeholder = '例如: user/repo.git (将使用服务器: ' + serverUrl + ')';
+                } else {
+                    urlInput.placeholder = '例如: https://github.com/user/repo.git 或 git@git.example.com:user/repo.git';
+                }
+            });
+        }
+
+        function gitClone() {
+            const url = document.getElementById('gitCloneUrl').value.trim();
+            if (!url) {
+                alert('请输入远程仓库URL');
+                return;
+            }
+            
+            const configId = document.getElementById('gitCloneConfigSelect').value;
+            
+            const modal = bootstrap.Modal.getInstance(document.getElementById('gitCloneModal'));
+            modal.hide();
+            
+            if (!confirm('确定要克隆仓库到当前目录吗？')) return;
+            
+            fetch('/api/git/clone', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    path: currentGitPath, 
+                    remote_url: url,
+                    config_id: configId || null
+                })
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        alert('克隆成功！');
+                        location.reload();
+                    } else {
+                        alert('克隆失败: ' + data.error);
+                    }
+                })
+                .catch(error => alert('操作失败: ' + error));
+        }
+
+        function gitPull() {
+            if (!confirm('确定要从远程拉取更新吗？')) return;
+            
+            fetch('/api/git/pull', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ path: currentGitPath })
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        alert('拉取成功！');
+                        refreshGitStatus();
+                        location.reload();
+                    } else {
+                        alert('拉取失败: ' + data.error);
+                    }
+                })
+                .catch(error => alert('操作失败: ' + error));
+        }
+
+        function gitPush() {
+            if (!confirm('确定要推送到远程仓库吗？')) return;
+            
+            fetch('/api/git/push', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ path: currentGitPath })
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        alert('推送成功！');
+                        refreshGitStatus();
+                    } else {
+                        alert('推送失败: ' + data.error);
+                    }
+                })
+                .catch(error => alert('操作失败: ' + error));
+        }
+
+        function gitCommit() {
+            const message = document.getElementById('gitCommitMessage').value.trim();
+            if (!message) {
+                alert('请输入提交信息');
+                return;
+            }
+            
+            if (!confirm('确定要提交更改吗？')) return;
+            
+            fetch('/api/git/commit', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ path: currentGitPath, message: message })
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        alert('提交成功！提交哈希: ' + (data.commit_hash || ''));
+                        document.getElementById('gitCommitMessage').value = '';
+                        refreshGitStatus();
+                    } else {
+                        alert('提交失败: ' + data.error);
+                    }
+                })
+                .catch(error => alert('操作失败: ' + error));
+        }
+
+        function showGitTagModal() {
+            const modal = new bootstrap.Modal(document.getElementById('gitTagModal'));
+            modal.show();
+            loadGitTags();
+        }
+
+        function loadGitTags() {
+            const container = document.getElementById('gitTagsContainer');
+            container.innerHTML = '<div class="text-center text-muted py-3">加载中...</div>';
+            
+            fetch('/api/git/tag/list?path=' + encodeURIComponent(currentGitPath))
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success && data.tags && data.tags.length > 0) {
+                        container.innerHTML = '';
+                        data.tags.forEach(tag => {
+                            const item = document.createElement('div');
+                            item.className = 'list-group-item';
+                            item.textContent = tag;
+                            container.appendChild(item);
+                        });
+                    } else {
+                        container.innerHTML = '<div class="text-center text-muted py-3">暂无标签</div>';
+                    }
+                })
+                .catch(error => {
+                    container.innerHTML = '<div class="text-center text-danger py-3">加载失败: ' + error + '</div>';
+                });
+        }
+
+        function gitCreateTag() {
+            const tagName = document.getElementById('gitNewTagName').value.trim();
+            if (!tagName) {
+                alert('请输入标签名称');
+                return;
+            }
+            
+            const message = document.getElementById('gitNewTagMessage').value.trim();
+            
+            fetch('/api/git/tag/create', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    path: currentGitPath, 
+                    tag_name: tagName,
+                    message: message || null
+                })
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        alert('标签创建成功！');
+                        document.getElementById('gitNewTagName').value = '';
+                        document.getElementById('gitNewTagMessage').value = '';
+                        loadGitTags();
+                    } else {
+                        alert('创建失败: ' + data.error);
+                    }
+                })
+                .catch(error => alert('操作失败: ' + error));
+        }
+
+        function showGitBranchModal() {
+            const modal = new bootstrap.Modal(document.getElementById('gitBranchModal'));
+            modal.show();
+            loadGitBranches();
+        }
+
+        function loadGitBranches() {
+            const container = document.getElementById('gitBranchesContainer');
+            container.innerHTML = '<div class="text-center text-muted py-3">加载中...</div>';
+            
+            fetch('/api/git/branch/list?path=' + encodeURIComponent(currentGitPath))
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success && data.branches && data.branches.length > 0) {
+                        container.innerHTML = '';
+                        data.branches.forEach(branch => {
+                            const item = document.createElement('div');
+                            item.className = 'list-group-item d-flex justify-content-between align-items-center';
+                            const isCurrent = branch === data.current;
+                            item.innerHTML = `
+                                <span>${branch} ${isCurrent ? '<span class="badge bg-primary">当前</span>' : ''}</span>
+                                ${!isCurrent ? '<button class="btn btn-sm btn-outline-primary" onclick="gitCheckoutBranch(\'' + branch + '\')">切换</button>' : ''}
+                            `;
+                            container.appendChild(item);
+                        });
+                    } else {
+                        container.innerHTML = '<div class="text-center text-muted py-3">暂无分支</div>';
+                    }
+                })
+                .catch(error => {
+                    container.innerHTML = '<div class="text-center text-danger py-3">加载失败: ' + error + '</div>';
+                });
+        }
+
+        function gitCheckoutBranch(branchName) {
+            if (!confirm('确定要切换到分支 "' + branchName + '" 吗？')) return;
+            
+            fetch('/api/git/branch/checkout', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ path: currentGitPath, branch_name: branchName })
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        alert('切换分支成功！');
+                        loadGitBranches();
+                        location.reload();
+                    } else {
+                        alert('切换失败: ' + data.error);
+                    }
+                })
+                .catch(error => alert('操作失败: ' + error));
+        }
+
+        // Git配置管理
+        function showGitConfigModal() {
+            const modal = document.getElementById('gitConfigModal');
+            if (!modal) return;
+            const bsModal = new bootstrap.Modal(modal);
+            bsModal.show();
+            loadGitConfigs();
+        }
+
+        function loadGitConfigs() {
+            const container = document.getElementById('gitConfigsList');
+            if (!container) return;
+            
+            container.innerHTML = '<div class="text-center text-muted py-3">加载中...</div>';
+            
+            fetch('/api/git/config/list')
+                .then(response => {
+                    if (response.status === 403 || response.status === 404) {
+                        container.innerHTML = '<div class="text-center text-warning py-3">Git功能未启用</div>';
+                        return null;
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (!data) return;
+                    
+                    if (data.success && data.configs && data.configs.length > 0) {
+                        container.innerHTML = '';
+                        data.configs.forEach(config => {
+                            const item = document.createElement('div');
+                            item.className = 'list-group-item';
+                            item.innerHTML = `
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <div>
+                                        <h6 class="mb-1">${config.name || '未命名配置'}</h6>
+                                        <small class="text-muted">${config.server_url || ''}</small><br>
+                                        <small class="text-muted">认证: ${config.auth_type === 'ssh' ? 'SSH密钥' : 'HTTPS'}</small>
+                                    </div>
+                                    <div>
+                                        <button class="btn btn-sm btn-outline-primary" onclick="editGitConfig('${config.id}')">
+                                            <i class="fas fa-edit"></i> 编辑
+                                        </button>
+                                    </div>
+                                </div>
+                            `;
+                            container.appendChild(item);
+                        });
+                    } else {
+                        container.innerHTML = '<div class="text-center text-muted py-3">暂无配置，点击"添加新配置"创建</div>';
+                    }
+                })
+                .catch(error => {
+                    container.innerHTML = '<div class="text-center text-danger py-3">加载失败: ' + error + '</div>';
+                });
+        }
+
+        function showAddGitConfigModal() {
+            document.getElementById('gitConfigEditTitle').innerHTML = '<i class="fas fa-plus"></i> 添加Git配置';
+            document.getElementById('gitConfigEditId').value = '';
+            document.getElementById('gitConfigName').value = '';
+            document.getElementById('gitConfigServerUrl').value = '';
+            document.getElementById('gitConfigAuthType').value = 'ssh';
+            document.getElementById('gitConfigSshKeyPath').value = '';
+            document.getElementById('gitConfigUsername').value = '';
+            document.getElementById('gitConfigPassword').value = '';
+            document.getElementById('gitConfigGitUserName').value = '';
+            document.getElementById('gitConfigGitUserEmail').value = '';
+            const deleteBtn = document.getElementById('gitConfigDeleteBtn');
+            if (deleteBtn) deleteBtn.style.display = 'none';
+            
+            toggleAuthFields();
+            
+            const modalEl = document.getElementById('gitConfigEditModal');
+            if (modalEl) {
+                const modal = new bootstrap.Modal(modalEl);
+                modal.show();
+            }
+        }
+
+        function editGitConfig(configId) {
+            fetch('/api/git/config/list')
+                .then(response => {
+                    if (response.status === 403 || response.status === 404) {
+                        alert('Git功能未启用');
+                        return null;
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (!data) return;
+                    
+                    if (data.success && data.configs) {
+                        const config = data.configs.find(c => c.id === configId);
+                        if (config) {
+                            const titleEl = document.getElementById('gitConfigEditTitle');
+                            const idEl = document.getElementById('gitConfigEditId');
+                            const nameEl = document.getElementById('gitConfigName');
+                            const urlEl = document.getElementById('gitConfigServerUrl');
+                            const authTypeEl = document.getElementById('gitConfigAuthType');
+                            const sshKeyEl = document.getElementById('gitConfigSshKeyPath');
+                            const usernameEl = document.getElementById('gitConfigUsername');
+                            const passwordEl = document.getElementById('gitConfigPassword');
+                            const gitNameEl = document.getElementById('gitConfigGitUserName');
+                            const gitEmailEl = document.getElementById('gitConfigGitUserEmail');
+                            const deleteBtn = document.getElementById('gitConfigDeleteBtn');
+                            
+                            if (titleEl) titleEl.innerHTML = '<i class="fas fa-edit"></i> 编辑Git配置';
+                            if (idEl) idEl.value = config.id;
+                            if (nameEl) nameEl.value = config.name || '';
+                            if (urlEl) urlEl.value = config.server_url || '';
+                            if (authTypeEl) authTypeEl.value = config.auth_type || 'ssh';
+                            if (sshKeyEl) sshKeyEl.value = config.ssh_key_path || '';
+                            if (usernameEl) usernameEl.value = config.username || '';
+                            if (passwordEl) passwordEl.value = ''; // 不显示密码
+                            if (gitNameEl) gitNameEl.value = config.git_user_name || '';
+                            if (gitEmailEl) gitEmailEl.value = config.git_user_email || '';
+                            if (deleteBtn) deleteBtn.style.display = 'inline-block';
+                            
+                            toggleAuthFields();
+                            
+                            const modalEl = document.getElementById('gitConfigEditModal');
+                            if (modalEl) {
+                                const modal = new bootstrap.Modal(modalEl);
+                                modal.show();
+                            }
+                        }
+                    }
+                })
+                .catch(error => alert('加载配置失败: ' + error));
+        }
+
+        function toggleAuthFields() {
+            const authTypeEl = document.getElementById('gitConfigAuthType');
+            if (!authTypeEl) return;
+            
+            const authType = authTypeEl.value;
+            const sshFields = document.getElementById('sshAuthFields');
+            const httpsFields = document.getElementById('httpsAuthFields');
+            
+            if (authType === 'ssh') {
+                if (sshFields) sshFields.style.display = 'block';
+                if (httpsFields) httpsFields.style.display = 'none';
+            } else {
+                if (sshFields) sshFields.style.display = 'none';
+                if (httpsFields) httpsFields.style.display = 'block';
+            }
+        }
+
+        function saveGitConfig() {
+            const configIdEl = document.getElementById('gitConfigEditId');
+            const nameEl = document.getElementById('gitConfigName');
+            const serverUrlEl = document.getElementById('gitConfigServerUrl');
+            const authTypeEl = document.getElementById('gitConfigAuthType');
+            
+            if (!nameEl || !serverUrlEl || !authTypeEl) {
+                alert('表单元素不存在');
+                return;
+            }
+            
+            const configId = configIdEl ? configIdEl.value : '';
+            const name = nameEl.value.trim();
+            const serverUrl = serverUrlEl.value.trim();
+            const authType = authTypeEl.value;
+            
+            if (!name || !serverUrl) {
+                alert('请填写配置名称和服务器地址');
+                return;
+            }
+            
+            const config = {
+                name: name,
+                server_url: serverUrl,
+                auth_type: authType,
+                git_user_name: (document.getElementById('gitConfigGitUserName') || {value: ''}).value.trim(),
+                git_user_email: (document.getElementById('gitConfigGitUserEmail') || {value: ''}).value.trim()
+            };
+            
+            if (authType === 'ssh') {
+                const sshKeyPathEl = document.getElementById('gitConfigSshKeyPath');
+                const sshKeyPath = sshKeyPathEl ? sshKeyPathEl.value.trim() : '';
+                if (!sshKeyPath) {
+                    alert('请填写SSH密钥路径');
+                    return;
+                }
+                config.ssh_key_path = sshKeyPath;
+            } else {
+                const usernameEl = document.getElementById('gitConfigUsername');
+                const passwordEl = document.getElementById('gitConfigPassword');
+                config.username = usernameEl ? usernameEl.value.trim() : '';
+                const password = passwordEl ? passwordEl.value.trim() : '';
+                if (password) {
+                    config.password_encrypted = btoa(password); // 简单base64编码
+                }
+            }
+            
+            fetch('/api/git/config/save', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    config_id: configId || null,
+                    config: config
+                })
+            })
+                .then(response => {
+                    if (response.status === 403 || response.status === 404) {
+                        return {success: false, error: 'Git功能未启用'};
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (data.success) {
+                        alert('配置保存成功！');
+                        const modalEl = document.getElementById('gitConfigEditModal');
+                        if (modalEl) {
+                            const modal = bootstrap.Modal.getInstance(modalEl);
+                            if (modal) modal.hide();
+                        }
+                        loadGitConfigs();
+                    } else {
+                        alert('保存失败: ' + (data.error || '未知错误'));
+                    }
+                })
+                .catch(error => alert('操作失败: ' + error));
+        }
+
+        function deleteGitConfig() {
+            const configId = document.getElementById('gitConfigEditId').value;
+            if (!configId) return;
+            
+            if (!confirm('确定要删除这个配置吗？')) return;
+            
+            fetch('/api/git/config/delete', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ config_id: configId })
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        alert('配置删除成功！');
+                        const modal = bootstrap.Modal.getInstance(document.getElementById('gitConfigEditModal'));
+                        modal.hide();
+                        loadGitConfigs();
+                    } else {
+                        alert('删除失败: ' + data.error);
+                    }
+                })
+                .catch(error => alert('操作失败: ' + error));
+        }
+
+        // 页面加载时检查Git功能
+        document.addEventListener('DOMContentLoaded', function() {
+            checkGitEnabled();
+            
+        });
     </script>
     <script>
         // Theme Management
@@ -2934,7 +6539,9 @@
             setTheme(savedTheme);
         });
     </script>
-<script src="{{ url_for('static', filename='js/theme_floater.js') }}"></script>
+    <!-- Marked.js 用于Markdown实时预览 -->
+    <script src="{{ url_for('static', filename='libs/marked/marked.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/theme_floater.js') }}"></script>
 </body>
 
 </html>

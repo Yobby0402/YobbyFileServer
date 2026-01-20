@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>测试 Mermaid</title>
+    <script src="file:///f:/Work/YobboyFileServer/static/mermaid/mermaid.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+        }
+        .mermaid {
+            margin: 20px 0;
+            padding: 10px;
+            background-color: #f9f9f9;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <h1>直接测试 Mermaid 渲染</h1>
+    <div class="mermaid">
+        flowchart TD
+            A[开始] --> B{条件判断}
+            B -->|是| C[处理逻辑1]
+            B -->|否| D[处理逻辑2]
+            C --> E[结束]
+            D --> E
+    </div>
+    
+    <script>
+        console.log('开始初始化Mermaid...');
+        console.log('Mermaid 版本:', mermaid.version || '未知');
+        
+        // 配置Mermaid
+        mermaid.initialize({
+            startOnLoad: true,
+            securityLevel: 'loose',
+            logLevel: 1
+        });
+        
+        console.log('Mermaid 初始化完成');
+        
+        // 手动触发渲染
+        setTimeout(function() {
+            console.log('手动触发渲染');
+            try {
+                const blocks = document.querySelectorAll('.mermaid');
+                console.log('找到 ' + blocks.length + ' 个Mermaid块');
+                mermaid.init(undefined, blocks);
+                console.log('渲染完成');
+            } catch (e) {
+                console.error('渲染错误:', e);
+                // 尝试手动渲染
+                try {
+                    console.log('尝试手动渲染...');
+                    const block = document.querySelector('.mermaid');
+                    if (block) {
+                        const content = block.textContent;
+                        console.log('图表内容:', content);
+                        mermaid.render('test-chart', content, function(svgCode) {
+                            console.log('手动渲染成功，生成SVG');
+                            block.innerHTML = svgCode;
+                        });
+                    }
+                } catch (manualError) {
+                    console.error('手动渲染也失败:', manualError);
+                }
+            }
+        }, 1000);
+    </script>
+</body>
+</html>

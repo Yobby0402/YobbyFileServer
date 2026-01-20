@@ -8,3 +8,7 @@ flask-socketio>=5.3.0
 python-socketio>=5.10.0
 pyserial>=3.5
 openpyxl>=3.1.0
+
+# Git功能（可选）
+# 如需使用Git集成功能，请在设置中启用Git功能，然后安装：
+# pip install GitPython>=3.1.40

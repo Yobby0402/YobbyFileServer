@@ -5,8 +5,9 @@ import re
 import configparser
 import json
 from datetime import datetime
+from typing import Optional
 # 确保在文件顶部添加必要的导入
-from flask import Flask, render_template, request, redirect, url_for, session, jsonify, send_from_directory, send_file, make_response, abort, current_app
+from flask import Flask, render_template, request, redirect, url_for, session, jsonify, send_from_directory, send_file, make_response, abort, current_app, Response
 import markdown
 from markdown_it import MarkdownIt
 from mdit_py_plugins import tasklists, deflist, footnote
@@ -17,6 +18,30 @@ from todo_manager import todo_manager
 from todo_extended_manager import todo_extended_manager
 from serial_manager import serial_manager
 from product_compare_manager import product_compare_manager
+
+# 日志输出函数（统一输出到标准输出，GUI会捕获）
+def log_message(message, level='INFO'):
+    """输出日志消息到标准输出（会被GUI捕获）"""
+    prefix = {
+        'INFO': '[Git]',
+        'DEBUG': '[Git-DEBUG]',
+        'WARNING': '[Git-WARNING]',
+        'ERROR': '[Git-ERROR]'
+    }.get(level, '[Git]')
+    
+    # 确保输出到标准输出，使用UTF-8编码
+    try:
+        message_str = f"{prefix} {message}\n"
+        sys.stdout.write(message_str)
+        sys.stdout.flush()
+    except Exception:
+        # 如果编码失败，尝试使用错误替换
+        try:
+            message_str = f"{prefix} {message}\n".encode('utf-8', errors='replace').decode('utf-8', errors='replace')
+            sys.stdout.write(message_str)
+            sys.stdout.flush()
+        except Exception:
+            pass  # 如果都失败了，忽略
 
 # 检查用户是否已登录的函数
 def is_logged_in():
@@ -170,6 +195,89 @@ def init_app(app):
 
     # 初始化Draw.io静态文件目录（静默检查，不影响运行）
     # Draw.io是可选功能，不存在也不影响文件浏览器功能
+    
+    # 检查Git功能是否启用
+    git_enabled = app.config.get('GIT_ENABLED', False)
+    
+    if git_enabled:
+        # 尝试加载Git模块
+        try:
+            from git_manager import GitManager
+            from git_config_manager import GitConfigManager
+            from git_routes import register_git_routes
+            
+            git_manager = GitManager()
+            git_config_manager = GitConfigManager()
+            
+            app.config['GIT_MANAGER'] = git_manager
+            app.config['GIT_CONFIG_MANAGER'] = git_config_manager
+            
+            # 注册Git路由
+            register_git_routes(app)
+            
+            print("[OK] Git功能已启用")
+        except ImportError as e:
+            print(f"[警告] Git功能启用失败: {e}")
+            print("  请安装GitPython: pip install GitPython")
+            app.config['GIT_ENABLED'] = False
+        except Exception as e:
+            print(f"[错误] Git功能初始化失败: {e}")
+            app.config['GIT_ENABLED'] = False
+    else:
+        print("[信息] Git功能已禁用（可在设置中启用）")
+        # 即使Git功能未启用，也注册所有Git路由返回403，避免404错误
+        # 注意：/api/git/status 不在这个列表中，因为它需要总是可用来检查Git状态
+        git_routes = [
+            '/api/git/check',
+            '/api/git/init',
+            '/api/git/clone',
+            '/api/git/pull',
+            '/api/git/push',
+            '/api/git/commit',
+            '/api/git/tag/create',
+            '/api/git/tag/list',
+            '/api/git/branch/list',
+            '/api/git/branch/checkout',
+            '/api/git/config/list',
+            '/api/git/config/save',
+            '/api/git/config/delete',
+            '/api/git/config/set_default',
+            '/api/git/config/test',
+            '/api/git/repos/list'
+        ]
+        
+        def create_disabled_route(route_path, methods=['GET', 'POST']):
+            def disabled_handler():
+                return jsonify({'success': False, 'error': 'Git功能未启用', 'git_enabled': False}), 403
+            disabled_handler.__name__ = f"git_disabled_{route_path.replace('/', '_').replace('-', '_')}"
+            return disabled_handler
+        
+        for route_path in git_routes:
+            # 根据路由确定方法
+            if route_path in ['/api/git/check', '/api/git/tag/list', 
+                            '/api/git/branch/list', '/api/git/config/list', '/api/git/repos/list']:
+                methods_list = ['GET']
+            else:
+                methods_list = ['POST']
+            
+            handler = create_disabled_route(route_path, methods_list)
+            app.route(route_path, methods=methods_list)(handler)
+    
+    # 添加一个简单的API端点来检查Git启用状态（这个端点总是可用的，无论Git是否启用）
+    # 注意：路径使用 /api/git/config/status 避免与 git_routes.py 中的 /api/git/status 冲突
+    @app.route('/api/git/config/status', methods=['GET'])
+    def git_config_status():
+        """检查Git功能启用状态"""
+        git_enabled = app.config.get('GIT_ENABLED', False)
+        has_manager = 'GIT_MANAGER' in app.config
+        git_workdir = app.config.get('GIT_WORKDIR', '')
+        
+        return jsonify({
+            'git_enabled': git_enabled,
+            'has_manager': has_manager,
+            'git_workdir': git_workdir,
+            'workdir_exists': os.path.exists(git_workdir) if git_workdir else False
+        })
     
     def has_todo_access():
         return is_logged_in() or session.get('todo_direct_access')
@@ -2354,14 +2462,37 @@ def init_app(app):
     def view_file_compat():
         """兼容的文件预览路由，接受path参数"""
         filepath = request.args.get('path', '')
+        root = request.args.get('root', '')  # 支持root参数，用于Git仓库文件预览
+        
         if filepath:
-            # 不再重定向，直接处理文件预览逻辑
-            root_dir = current_app.config.get('ROOT_DIR')
-            if not root_dir:
-                # 如果没有设置ROOT_DIR，尝试在当前目录查找
-                full_path = os.path.join(os.getcwd(), filepath)
+            # 如果有root参数，使用root作为基础路径（用于Git仓库文件）
+            if root:
+                try:
+                    if os.path.isabs(root):
+                        base_path = os.path.normpath(root)
+                    else:
+                        # 如果是相对路径，尝试使用Git工作目录
+                        git_workdir = current_app.config.get('GIT_WORKDIR', '')
+                        if git_workdir and os.path.exists(git_workdir):
+                            base_path = os.path.normpath(os.path.join(git_workdir, root))
+                        else:
+                            root_dir = current_app.config.get('ROOT_DIR')
+                            base_path = os.path.normpath(os.path.join(root_dir or os.getcwd(), root))
+                    
+                    full_path = os.path.normpath(os.path.join(base_path, filepath))
+                    # 验证路径安全性
+                    if not full_path.startswith(base_path):
+                        return render_template('view_file.html', filename=filepath, filepath=filepath, file_type='text', content="<p>无效的文件路径</p>", back_url=url_for('index'))
+                except Exception:
+                    return render_template('view_file.html', filename=filepath, filepath=filepath, file_type='text', content="<p>文件路径无效</p>", back_url=url_for('index'))
             else:
-                full_path = os.path.join(root_dir, filepath)
+                # 不再重定向，直接处理文件预览逻辑
+                root_dir = current_app.config.get('ROOT_DIR')
+                if not root_dir:
+                    # 如果没有设置ROOT_DIR，尝试在当前目录查找
+                    full_path = os.path.join(os.getcwd(), filepath)
+                else:
+                    full_path = os.path.join(root_dir, filepath)
                 
             try:
                 full_path = os.path.normpath(full_path)
@@ -2665,23 +2796,49 @@ def init_app(app):
         
         data = request.get_json()
         filepath = data.get('filepath')
+        git_root = data.get('git_root')  # Git仓库根路径（可选）
         
         if not filepath:
             return jsonify({'error': '文件路径不能为空'}), 400
         
-        root_dir = current_app.config.get('ROOT_DIR')
-        if not root_dir:
-            # 如果没有设置ROOT_DIR，尝试在当前目录查找
-            root_dir = os.getcwd()
-        
-        # 安全检查：防止路径遍历
-        try:
-            full_path = os.path.join(root_dir, filepath)
-            full_path = os.path.normpath(full_path)
-            if not full_path.startswith(os.path.normpath(root_dir)):
-                return jsonify({'error': '访问被拒绝'}), 403
-        except Exception:
-            return jsonify({'error': '路径解析错误'}), 400
+        # 如果提供了Git仓库根路径，使用Git工作目录
+        if git_root:
+            git_workdir = current_app.config.get('GIT_WORKDIR', '')
+            if git_workdir:
+                # 构建完整路径
+                if os.path.isabs(git_root):
+                    repo_root = os.path.normpath(git_root)
+                else:
+                    repo_root = os.path.normpath(os.path.join(git_workdir, git_root))
+                
+                # 验证路径在Git工作目录内
+                git_workdir_norm = os.path.normpath(git_workdir)
+                if not repo_root.startswith(git_workdir_norm):
+                    return jsonify({'error': 'Git仓库路径不在工作目录内'}), 403
+                
+                # 构建文件完整路径
+                full_path = os.path.normpath(os.path.join(repo_root, filepath))
+                
+                # 再次验证路径安全性（防止路径遍历）
+                if not full_path.startswith(repo_root):
+                    return jsonify({'error': '访问被拒绝：路径遍历检测'}), 403
+            else:
+                return jsonify({'error': 'Git工作目录未设置'}), 400
+        else:
+            # 使用默认的ROOT_DIR
+            root_dir = current_app.config.get('ROOT_DIR')
+            if not root_dir:
+                # 如果没有设置ROOT_DIR，尝试在当前目录查找
+                root_dir = os.getcwd()
+            
+            # 安全检查：防止路径遍历
+            try:
+                full_path = os.path.join(root_dir, filepath)
+                full_path = os.path.normpath(full_path)
+                if not full_path.startswith(os.path.normpath(root_dir)):
+                    return jsonify({'error': '访问被拒绝'}), 403
+            except Exception:
+                return jsonify({'error': '路径解析错误'}), 400
         
         if not os.path.exists(full_path) or os.path.isdir(full_path):
             return jsonify({'error': '文件不存在'}), 404
@@ -3908,6 +4065,198 @@ def init_app(app):
                 return '无法读取文件：编码不支持', 400
         except Exception as e:
             return f'读取文件失败: {str(e)}', 500
+    
+    @app.route('/get_git_file_content', methods=['POST'])
+    def get_git_file_content():
+        """获取Git仓库中的文件内容用于编辑"""
+        if not is_logged_in():
+            return jsonify({'success': False, 'error': '未登录'}), 401
+        
+        data = request.get_json()
+        filepath = data.get('filepath', '').strip()
+        git_root = data.get('git_root', '').strip()
+        
+        log_message(f"获取Git文件内容: filepath={filepath}, git_root={git_root}")
+        
+        if not filepath:
+            return jsonify({'success': False, 'error': '文件路径不能为空'}), 400
+        
+        if not git_root:
+            return jsonify({'success': False, 'error': 'Git仓库根路径不能为空'}), 400
+        
+        # 处理Git仓库路径
+        git_workdir = current_app.config.get('GIT_WORKDIR', '')
+        if not git_workdir:
+            log_message("错误: Git工作目录未设置", 'ERROR')
+            return jsonify({'success': False, 'error': 'Git工作目录未设置'}), 400
+        
+        # 标准化路径（统一使用正斜杠，避免\t等转义字符问题）
+        # 先替换反斜杠为正斜杠，避免\t被解释为制表符
+        git_root_normalized = git_root.replace('\\', '/')
+        filepath_normalized = filepath.replace('\\', '/')
+        
+        log_message(f"标准化后的路径: git_root={git_root_normalized}, filepath={filepath_normalized}")
+        
+        # 处理git_root路径
+        if git_root_normalized.startswith('/') or (len(git_root_normalized) > 1 and git_root_normalized[1] == ':'):
+            # 绝对路径（Unix风格或Windows风格）
+            # Windows路径如 F:/Work/GitDict/test
+            if git_root_normalized[1] == ':':
+                # Windows绝对路径，转换为系统路径格式
+                repo_root = os.path.normpath(git_root_normalized.replace('/', '\\'))
+            else:
+                # Unix绝对路径
+                repo_root = os.path.normpath(git_root_normalized)
+        else:
+            # 相对路径，相对于Git工作目录
+            repo_root = os.path.normpath(os.path.join(git_workdir, git_root_normalized.replace('/', os.sep)))
+        
+        git_workdir_norm = os.path.normpath(git_workdir)
+        if not repo_root.startswith(git_workdir_norm):
+            log_message(f"错误: Git仓库路径不在工作目录内: {repo_root} (工作目录: {git_workdir_norm})", 'ERROR')
+            return jsonify({'success': False, 'error': f'Git仓库路径不在工作目录内: {repo_root}'}), 403
+        
+        # 构建完整文件路径
+        # filepath可能是相对路径（相对于仓库根）
+        if filepath_normalized.startswith('/') or (len(filepath_normalized) > 1 and filepath_normalized[1] == ':'):
+            # 绝对路径
+            if filepath_normalized[1] == ':':
+                # Windows绝对路径
+                filepath_norm = os.path.normpath(filepath_normalized.replace('/', '\\'))
+            else:
+                # Unix绝对路径
+                filepath_norm = os.path.normpath(filepath_normalized)
+            
+            if not filepath_norm.startswith(repo_root):
+                log_message(f"错误: 文件路径不在仓库内: {filepath_norm} (仓库: {repo_root})", 'ERROR')
+                return jsonify({'success': False, 'error': '访问被拒绝：文件路径不在仓库内'}), 403
+            full_path = filepath_norm
+        else:
+            # 相对路径，相对于仓库根
+            full_path = os.path.normpath(os.path.join(repo_root, filepath_normalized.replace('/', os.sep)))
+        
+        # 再次验证路径在仓库内（防止路径遍历）
+        if not full_path.startswith(repo_root):
+            log_message(f"错误: 路径遍历检测失败: {full_path} (仓库根: {repo_root})", 'ERROR')
+            return jsonify({'success': False, 'error': '访问被拒绝：路径遍历检测'}), 403
+        
+        log_message(f"解析后的文件路径: {full_path}")
+        
+        if not os.path.exists(full_path):
+            log_message(f"错误: 文件不存在: {full_path}", 'ERROR')
+            return jsonify({'success': False, 'error': f'文件不存在: {full_path}'}), 404
+        
+        if not os.path.isfile(full_path):
+            log_message(f"错误: 路径不是文件: {full_path}", 'ERROR')
+            return jsonify({'success': False, 'error': f'路径不是文件: {full_path}'}), 400
+        
+        try:
+            # 尝试以UTF-8读取
+            with open(full_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            # 返回纯文本内容，不是JSON
+            return Response(content, mimetype='text/plain; charset=utf-8')
+        except UnicodeDecodeError:
+            # 尝试GBK
+            try:
+                with open(full_path, 'r', encoding='gbk') as f:
+                    content = f.read()
+                return Response(content, mimetype='text/plain; charset=utf-8')
+            except Exception as e:
+                return jsonify({'success': False, 'error': f'无法读取文件：编码不支持 ({str(e)})'}), 400
+        except Exception as e:
+            import traceback
+            log_message(f"读取Git文件失败: {str(e)}\n{traceback.format_exc()}", 'ERROR')
+            return jsonify({'success': False, 'error': f'读取文件失败: {str(e)}'}), 500
+    
+    @app.route('/save_git_file', methods=['POST'])
+    def save_git_file():
+        """保存Git仓库中的文件内容"""
+        if not is_logged_in():
+            return jsonify({'success': False, 'error': '未登录'}), 401
+        
+        data = request.get_json()
+        filepath = data.get('filepath', '').strip()
+        git_root = data.get('git_root', '').strip()
+        content = data.get('content')
+        
+        log_message(f"保存Git文件: filepath={filepath}, git_root={git_root}, content_length={len(content) if content else 0}")
+        
+        if not filepath:
+            return jsonify({'success': False, 'error': '文件路径不能为空'}), 400
+        
+        if not git_root:
+            return jsonify({'success': False, 'error': 'Git仓库根路径不能为空'}), 400
+        
+        if content is None:
+            return jsonify({'success': False, 'error': '文件内容不能为空'}), 400
+        
+        # 处理Git仓库路径
+        git_workdir = current_app.config.get('GIT_WORKDIR', '')
+        if not git_workdir:
+            return jsonify({'success': False, 'error': 'Git工作目录未设置'}), 400
+        
+        # 标准化路径（统一使用正斜杠，避免\t等转义字符问题）
+        git_root_normalized = git_root.replace('\\', '/')
+        filepath_normalized = filepath.replace('\\', '/')
+        
+        log_message(f"标准化后的路径: git_root={git_root_normalized}, filepath={filepath_normalized}")
+        
+        # 处理git_root路径
+        if git_root_normalized.startswith('/') or (len(git_root_normalized) > 1 and git_root_normalized[1] == ':'):
+            # 绝对路径
+            if git_root_normalized[1] == ':':
+                # Windows绝对路径
+                repo_root = os.path.normpath(git_root_normalized.replace('/', '\\'))
+            else:
+                # Unix绝对路径
+                repo_root = os.path.normpath(git_root_normalized)
+        else:
+            # 相对路径
+            repo_root = os.path.normpath(os.path.join(git_workdir, git_root_normalized.replace('/', os.sep)))
+        
+        git_workdir_norm = os.path.normpath(git_workdir)
+        if not repo_root.startswith(git_workdir_norm):
+            log_message(f"错误: Git仓库路径不在工作目录内: {repo_root} (工作目录: {git_workdir_norm})", 'ERROR')
+            return jsonify({'success': False, 'error': f'Git仓库路径不在工作目录内: {repo_root}'}), 403
+        
+        # 构建完整文件路径
+        if filepath_normalized.startswith('/') or (len(filepath_normalized) > 1 and filepath_normalized[1] == ':'):
+            # 绝对路径
+            if filepath_normalized[1] == ':':
+                full_path = os.path.normpath(filepath_normalized.replace('/', '\\'))
+            else:
+                full_path = os.path.normpath(filepath_normalized)
+            
+            if not full_path.startswith(repo_root):
+                log_message(f"错误: 文件路径不在仓库内: {full_path} (仓库: {repo_root})", 'ERROR')
+                return jsonify({'success': False, 'error': '访问被拒绝：文件路径不在仓库内'}), 403
+        else:
+            # 相对路径
+            full_path = os.path.normpath(os.path.join(repo_root, filepath_normalized.replace('/', os.sep)))
+        
+        # 再次验证路径在仓库内（防止路径遍历）
+        if not full_path.startswith(repo_root):
+            log_message(f"错误: 路径遍历检测失败: {full_path} (仓库根: {repo_root})", 'ERROR')
+            return jsonify({'success': False, 'error': '访问被拒绝：路径遍历检测'}), 403
+        
+        log_message(f"解析后的文件路径: {full_path}")
+        
+        if not os.path.exists(full_path):
+            log_message(f"错误: 文件不存在: {full_path}", 'ERROR')
+            return jsonify({'success': False, 'error': f'文件不存在: {full_path}'}), 404
+        
+        if not os.path.isfile(full_path):
+            log_message(f"错误: 路径不是文件: {full_path}", 'ERROR')
+            return jsonify({'success': False, 'error': f'路径不是文件: {full_path}'}), 400
+        
+        try:
+            # 保存文件（使用UTF-8编码）
+            with open(full_path, 'w', encoding='utf-8') as f:
+                f.write(content)
+            return jsonify({'success': True})
+        except Exception as e:
+            return jsonify({'success': False, 'error': f'保存文件失败: {str(e)}'}), 500
     
     @app.route('/save_file', methods=['POST'])
     def save_file():
