@@ -5,6 +5,8 @@ Git相关路由
 """
 import os
 import sys
+import platform
+import subprocess
 import threading
 from typing import Optional, Dict
 from flask import request, jsonify, current_app, session
@@ -16,6 +18,33 @@ _git_clone_progress: Dict[str, dict] = {}
 _progress_lock = threading.Lock()
 
 # 日志输出函数（统一输出到标准输出，GUI会捕获）
+def _get_subprocess_kwargs():
+    """
+    获取subprocess.run的额外参数，用于在Windows下隐藏控制台窗口
+    
+    Returns:
+        dict: 包含creationflags的字典（Windows）或空字典（其他平台）
+    """
+    kwargs = {}
+    if platform.system() == 'Windows':
+        kwargs['creationflags'] = subprocess.CREATE_NO_WINDOW
+    return kwargs
+
+def _run_subprocess(*args, **kwargs):
+    """
+    运行subprocess.run，在Windows下自动隐藏控制台窗口
+    
+    Args:
+        *args: subprocess.run的位置参数
+        **kwargs: subprocess.run的关键字参数
+        
+    Returns:
+        subprocess.CompletedProcess: subprocess.run的返回值
+    """
+    # 合并Windows特定的参数
+    kwargs.update(_get_subprocess_kwargs())
+    return subprocess.run(*args, **kwargs)
+
 def log_message(message, level='INFO'):
     """输出日志消息到标准输出（会被GUI捕获）"""
     prefix = {
@@ -237,7 +266,7 @@ def register_git_routes(app):
             
             # 执行Git命令
             git_cmd = ['git'] + command.split()
-            result = subprocess.run(
+            result = _run_subprocess(
                 git_cmd,
                 cwd=full_path,
                 capture_output=True,
@@ -744,9 +773,9 @@ def register_git_routes(app):
                 if system == 'Windows':
                     os.startfile(repo_path_norm)
                 elif system == 'Darwin':  # macOS
-                    subprocess.run(['open', repo_path_norm])
+                    _run_subprocess(['open', repo_path_norm])
                 else:  # Linux
-                    subprocess.run(['xdg-open', repo_path_norm])
+                    _run_subprocess(['xdg-open', repo_path_norm])
                 
                 log_message(f"已在文件浏览器中打开: {repo_path_norm}", 'INFO')
                 return jsonify({'success': True, 'message': '已在文件浏览器中打开'})

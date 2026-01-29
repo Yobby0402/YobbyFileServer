@@ -1768,6 +1768,10 @@ class SettingsDialog(QDialog):
             self.git_workdir_label.setVisible(enabled)
             git_workdir_widget.setVisible(enabled)
             self.git_workdir_hint.setVisible(enabled)
+            # 更新外部软件路径控件的可见性
+            self.git_external_app_label.setVisible(enabled)
+            git_external_app_widget.setVisible(enabled)
+            self.git_external_app_hint.setVisible(enabled)
         
         self.git_enabled_checkbox.stateChanged.connect(on_git_enabled_changed)
         

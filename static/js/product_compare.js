@@ -43,6 +43,7 @@ function loadFileList() {
         .then(data => {
             if (data.success) {
                 const select = document.getElementById('fileSelector');
+                const prevValue = select.value;
                 select.innerHTML = '<option value="">-- 选择对比文件 --</option>';
                 data.files.forEach(file => {
                     const option = document.createElement('option');
@@ -52,6 +53,11 @@ function loadFileList() {
                     option.textContent = `${file.name} (${productCount}个产品)`;
                     select.appendChild(option);
                 });
+                // 保持当前选中项：优先 currentFileId，否则保持刷新前的选中
+                const targetId = currentFileId || prevValue || '';
+                if (targetId && data.files.some(f => f.file_id === targetId)) {
+                    select.value = targetId;
+                }
             }
         })
         .catch(err => {

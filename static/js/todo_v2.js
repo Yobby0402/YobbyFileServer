@@ -289,7 +289,7 @@
     }
 
     function getDueDateStatus(dueDate) {
-        if (!dueDate) return { status: 'none', label: '未设置' };
+        if (!dueDate) return { status: 'none', label: '未设置截止' };
         const today = new Date();
         today.setHours(0, 0, 0, 0);
         const due = new Date(dueDate);
@@ -687,7 +687,8 @@
         if (refs.upcomingCount) refs.upcomingCount.textContent = upcoming.length;
         if (refs.undatedCount) refs.undatedCount.textContent = undated.length;
 
-        const allPending = [...overdue, ...today_due, ...upcoming, ...undated];
+        // 待完成概览只展示有截止日期的任务，未设置截止日期的任务不显示卡片
+        const allPending = [...overdue, ...today_due, ...upcoming];
 
         if (allPending.length === 0) {
             refs.pendingOverview.innerHTML = `

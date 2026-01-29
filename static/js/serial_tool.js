@@ -24,7 +24,8 @@ class SerialToolApp {
         this.captureSessions = new Map(); // 持续日志会话
         this.historyMarkers = new Map(); // 已加载日志的时间戳
         this.capturePortOptions = []; // 可用串口列表
-        
+        this.captureStatusRefreshTimer = null; // 持续日志状态定时刷新
+
         this.init();
     }
     
@@ -156,7 +157,9 @@ class SerialToolApp {
         `;
         
         const currentUrl = window.location.href;
-        const localhostUrl = currentUrl.replace(window.location.host, 'localhost:5000');
+        // 获取当前端口，如果没有则使用默认的5000
+        const currentPort = window.location.port || '5000';
+        const localhostUrl = currentUrl.replace(window.location.host, `localhost:${currentPort}`);
         
         warning.innerHTML = `
             <button class="close-btn" onclick="this.parentElement.remove()" style="position: absolute; top: 10px; right: 10px; background: none; border: none; font-size: 1.2rem; cursor: pointer; color: #856404; opacity: 0.7;">×</button>
@@ -364,11 +367,31 @@ class SerialToolApp {
         }
     }
 
+    formatDuration(ms) {
+        if (!Number.isFinite(ms) || ms < 0) return '--';
+        const s = Math.floor(ms / 1000);
+        const m = Math.floor(s / 60);
+        const h = Math.floor(m / 60);
+        const parts = [];
+        if (h > 0) parts.push(h + ' 时');
+        parts.push((m % 60) + ' 分');
+        parts.push((s % 60) + ' 秒');
+        return parts.join(' ');
+    }
+
+    formatBytes(n) {
+        if (!Number.isFinite(n) || n < 0) return '--';
+        if (n >= 1048576) return (n / 1048576).toFixed(2) + ' MB';
+        if (n >= 1024) return (n / 1024).toFixed(2) + ' KB';
+        return n + ' B';
+    }
+
     renderCaptureStatus() {
         const list = document.getElementById('captureSessionList');
         if (!list) return;
 
         if (this.captureSessions.size === 0) {
+            this.stopCaptureStatusRefresh();
             list.innerHTML = `
                 <div class="list-group-item text-muted small text-center py-2">
                     暂无持续日志任务
@@ -377,6 +400,8 @@ class SerialToolApp {
             return;
         }
 
+        this.startCaptureStatusRefresh();
+
         list.innerHTML = '';
         this.captureSessions.forEach((session) => {
             const item = document.createElement('div');
@@ -384,6 +409,12 @@ class SerialToolApp {
             item.dataset.portId = session.port_id;
 
             const startedAt = session.started_at ? new Date(session.started_at).toLocaleString() : '--';
+            const startedMs = session.started_at ? new Date(session.started_at).getTime() : null;
+            const durationMs = startedMs ? (Date.now() - startedMs) : 0;
+            const durationStr = this.formatDuration(durationMs);
+            const bytesLogged = session.bytes_logged != null ? session.bytes_logged : 0;
+            const bytesStr = this.formatBytes(bytesLogged);
+
             const config = session.config || {};
             const parityMap = {
                 N: '无',
@@ -401,25 +432,49 @@ class SerialToolApp {
             item.innerHTML = `
                 <div>
                     <div class="fw-bold">${session.device || session.port_id}</div>
-                    <div class="session-meta">
+                    <div class="session-meta small">
                         波特率 ${config.baudrate || '--'} · 数据位 ${config.bytesize || '--'} · 停止位 ${config.stopbits || '--'} · 校验 ${parityLabel}<br>
-                        启动时间：${startedAt}
+                        启动时间：${startedAt}<br>
+                        <strong>记录时长：</strong><span class="capture-duration" data-started-at="${session.started_at || ''}">${durationStr}</span>
+                        <strong class="ms-2">记录长度：</strong><span class="capture-bytes">${bytesStr}</span>
                     </div>
                 </div>
-                <div class="capture-session-actions btn-group btn-group-sm" role="group">
-                    <button class="btn btn-outline-light" data-action="load-log" data-port-id="${session.port_id}">
-                        <i class="fas fa-file-alt"></i>
+                <div class="capture-session-actions btn-group btn-group-sm flex-wrap" role="group">
+                    <button type="button" class="btn btn-outline-secondary" data-action="view-log" data-port-id="${session.port_id}" title="在弹窗中查看记录内容">
+                        <i class="fas fa-external-link-alt me-1"></i>弹窗查看
                     </button>
-                    <button class="btn btn-outline-warning" data-action="open-port" data-port-id="${session.port_id}">
-                        <i class="fas fa-plug"></i>
+                    <button type="button" class="btn btn-outline-secondary" data-action="load-log" data-port-id="${session.port_id}" title="将历史记录加载到下方数据监控区">
+                        <i class="fas fa-tv me-1"></i>加载到监控区
                     </button>
-                    <button class="btn btn-outline-danger" data-action="stop-log" data-port-id="${session.port_id}">
-                        <i class="fas fa-stop"></i>
+                    <button type="button" class="btn btn-outline-secondary" data-action="open-port" data-port-id="${session.port_id}" title="连接此串口进行收发">
+                        <i class="fas fa-plug me-1"></i>连接
+                    </button>
+                    <button type="button" class="btn btn-outline-danger" data-action="stop-log" data-port-id="${session.port_id}" title="停止持续日志">
+                        <i class="fas fa-stop me-1"></i>停止
                     </button>
                 </div>
             `;
             list.appendChild(item);
         });
+    }
+
+    startCaptureStatusRefresh() {
+        if (this.captureStatusRefreshTimer) return;
+        const interval = 3000;
+        this.captureStatusRefreshTimer = setInterval(() => {
+            if (this.captureSessions.size === 0) {
+                this.stopCaptureStatusRefresh();
+                return;
+            }
+            this.loadCaptureStatus(false);
+        }, interval);
+    }
+
+    stopCaptureStatusRefresh() {
+        if (this.captureStatusRefreshTimer) {
+            clearInterval(this.captureStatusRefreshTimer);
+            this.captureStatusRefreshTimer = null;
+        }
     }
 
     updatePortLoggingFlags() {
@@ -529,7 +584,76 @@ class SerialToolApp {
                 return;
             }
             await this.ensureRemoteConnection(session);
+        } else if (action === 'view-log') {
+            await this.openCaptureLogModal(portId);
         }
+    }
+
+    async openCaptureLogModal(portId) {
+        const session = this.captureSessions.get(portId);
+        const titleEl = document.getElementById('captureLogViewTitle');
+        const contentEl = document.getElementById('captureLogViewContent');
+        const statsEl = document.getElementById('captureLogViewStats');
+        const modalEl = document.getElementById('captureLogViewModal');
+        if (!modalEl || !contentEl) return;
+
+        if (titleEl) titleEl.textContent = (session?.device || portId) + ' - 持续日志记录';
+        this._captureLogModalPortId = portId;
+
+        const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+        modal.show();
+        contentEl.textContent = '加载中...';
+        if (statsEl) statsEl.textContent = '-- 条 · -- 字节';
+        await this.refreshCaptureLogModalContent(portId);
+    }
+
+    async refreshCaptureLogModalContent(portId) {
+        const contentEl = document.getElementById('captureLogViewContent');
+        const statsEl = document.getElementById('captureLogViewStats');
+        const refreshBtn = document.getElementById('captureLogViewRefreshBtn');
+        if (!contentEl || !portId) return;
+
+        if (refreshBtn) refreshBtn.disabled = true;
+        try {
+            const response = await fetch(`/api/serial/capture/log/${encodeURIComponent(portId)}?limit=2000`);
+            const result = await response.json();
+            if (!result.success) {
+                contentEl.textContent = '加载失败：' + (result.error || '未知错误');
+                if (statsEl) statsEl.textContent = '-- 条 · -- 字节';
+                return;
+            }
+            const entries = Array.isArray(result.entries) ? result.entries : [];
+            let totalBytes = 0;
+            const lines = [];
+            entries.forEach((entry) => {
+                const ts = entry.ts || '';
+                const dir = entry.dir === 'tx' ? 'TX' : 'RX';
+                const text = entry.text != null ? entry.text : (entry.hex ? this.hexToDisplay(entry.hex) : '');
+                const hex = entry.hex || '';
+                totalBytes += hex.length / 2 || text.length;
+                const dirTag = dir === 'RX' ? '[RX]' : '[TX]';
+                const safe = text.replace(/[\r\n]/g, ' ').trim() || hex;
+                lines.push(`${ts} ${dirTag} ${safe}`);
+            });
+            contentEl.textContent = lines.length ? lines.join('\n') : '暂无记录';
+            contentEl.scrollTop = contentEl.scrollHeight;
+            if (statsEl) statsEl.textContent = `${entries.length} 条 · ${this.formatBytes(totalBytes)}`;
+        } catch (e) {
+            contentEl.textContent = '加载失败：' + (e.message || String(e));
+            if (statsEl) statsEl.textContent = '-- 条 · -- 字节';
+        } finally {
+            if (refreshBtn) refreshBtn.disabled = false;
+        }
+    }
+
+    hexToDisplay(hexStr) {
+        if (!hexStr || typeof hexStr !== 'string') return '';
+        const bytes = [];
+        for (let i = 0; i < hexStr.length; i += 2) {
+            const b = parseInt(hexStr.substr(i, 2), 16);
+            bytes.push(b);
+        }
+        return String.fromCharCode.apply(null, bytes.map((b) => (b >= 32 && b < 127 ? b : 46)));
     }
 
     async ensureRemoteConnection(session) {
@@ -761,6 +885,15 @@ class SerialToolApp {
         const captureSessionList = document.getElementById('captureSessionList');
         if (captureSessionList) {
             captureSessionList.addEventListener('click', (event) => this.handleCaptureSessionAction(event));
+        }
+
+        const captureLogViewRefreshBtn = document.getElementById('captureLogViewRefreshBtn');
+        if (captureLogViewRefreshBtn) {
+            captureLogViewRefreshBtn.addEventListener('click', () => {
+                if (this._captureLogModalPortId) {
+                    this.refreshCaptureLogModalContent(this._captureLogModalPortId);
+                }
+            });
         }
 
         // 发送数据

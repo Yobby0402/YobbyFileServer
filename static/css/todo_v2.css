@@ -1267,6 +1267,10 @@ input:checked + .slider:before {
     color: #3b82f6;
 }
 
+.pending-card-due.undated {
+    color: #94a3b8;
+}
+
 .alert {
     border-radius: 12px;
 }

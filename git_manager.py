@@ -5,6 +5,8 @@ Git操作管理器
 """
 import os
 import sys
+import platform
+import subprocess
 from typing import Dict, List, Optional, Tuple, Callable
 
 # 尝试导入GitPython
@@ -39,6 +41,33 @@ def log_message(message, level='INFO'):
             sys.stdout.flush()
         except Exception:
             pass  # 如果都失败了，忽略
+
+def _get_subprocess_kwargs():
+    """
+    获取subprocess.run的额外参数，用于在Windows下隐藏控制台窗口
+    
+    Returns:
+        dict: 包含creationflags的字典（Windows）或空字典（其他平台）
+    """
+    kwargs = {}
+    if platform.system() == 'Windows':
+        kwargs['creationflags'] = subprocess.CREATE_NO_WINDOW
+    return kwargs
+
+def _run_subprocess(*args, **kwargs):
+    """
+    运行subprocess.run，在Windows下自动隐藏控制台窗口
+    
+    Args:
+        *args: subprocess.run的位置参数
+        **kwargs: subprocess.run的关键字参数
+        
+    Returns:
+        subprocess.CompletedProcess: subprocess.run的返回值
+    """
+    # 合并Windows特定的参数
+    kwargs.update(_get_subprocess_kwargs())
+    return subprocess.run(*args, **kwargs)
 
 def _force_remove_directory(path):
     """
@@ -258,7 +287,7 @@ class GitManager:
                     try:
                         # 方法1: 尝试使用git status命令（更可靠）
                         import subprocess
-                        result = subprocess.run(
+                        result = _run_subprocess(
                             ['git', 'status', '--porcelain'],
                             cwd=path,
                             capture_output=True,
@@ -642,9 +671,9 @@ class GitManager:
                     log_message("使用subprocess直接克隆（推荐方法）...", 'INFO')
                     cmd = ['git', 'clone', '-v', '--progress', '--', final_url, target_path]
                     if env:
-                        result = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=120)
+                        result = _run_subprocess(cmd, env=env, capture_output=True, text=True, timeout=120)
                     else:
-                        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+                        result = _run_subprocess(cmd, capture_output=True, text=True, timeout=120)
                     
                     # 检查输出中是否包含checkout失败的信息
                     error_output = (result.stderr or '') + (result.stdout or '')
@@ -667,9 +696,9 @@ class GitManager:
                                 import subprocess
                                 reset_cmd = ['git', '-C', target_path, 'reset', '--hard', 'HEAD']
                                 if env:
-                                    reset_result = subprocess.run(reset_cmd, env=env, capture_output=True, text=True, timeout=30)
+                                    reset_result = _run_subprocess(reset_cmd, env=env, capture_output=True, text=True, timeout=30)
                                 else:
-                                    reset_result = subprocess.run(reset_cmd, capture_output=True, text=True, timeout=30)
+                                    reset_result = _run_subprocess(reset_cmd, capture_output=True, text=True, timeout=30)
                                 
                                 if reset_result.returncode == 0:
                                     log_message(f"已重置索引状态，确保工作目录与HEAD一致", 'INFO')
@@ -686,9 +715,9 @@ class GitManager:
                                 # 尝试使用 git restore 修复
                                 restore_cmd = ['git', '-C', target_path, 'restore', '--source=HEAD', ':/']
                                 if env:
-                                    restore_result = subprocess.run(restore_cmd, env=env, capture_output=True, text=True, timeout=30)
+                                    restore_result = _run_subprocess(restore_cmd, env=env, capture_output=True, text=True, timeout=30)
                                 else:
-                                    restore_result = subprocess.run(restore_cmd, capture_output=True, text=True, timeout=30)
+                                    restore_result = _run_subprocess(restore_cmd, capture_output=True, text=True, timeout=30)
                                 
                                 if restore_result.returncode == 0:
                                     log_message(f"使用 git restore 修复成功", 'INFO')
@@ -697,9 +726,9 @@ class GitManager:
                                     try:
                                         reset_cmd = ['git', '-C', target_path, 'reset', '--hard', 'HEAD']
                                         if env:
-                                            reset_result = subprocess.run(reset_cmd, env=env, capture_output=True, text=True, timeout=30)
+                                            reset_result = _run_subprocess(reset_cmd, env=env, capture_output=True, text=True, timeout=30)
                                         else:
-                                            reset_result = subprocess.run(reset_cmd, capture_output=True, text=True, timeout=30)
+                                            reset_result = _run_subprocess(reset_cmd, capture_output=True, text=True, timeout=30)
                                         
                                         if reset_result.returncode == 0:
                                             log_message(f"已重置索引状态，确保工作目录与HEAD一致", 'INFO')
@@ -717,9 +746,9 @@ class GitManager:
                                     log_message(f"git restore 失败，尝试 git checkout: {restore_result.stderr}", 'WARNING')
                                     checkout_cmd = ['git', '-C', target_path, 'checkout', '-f']
                                     if env:
-                                        checkout_result = subprocess.run(checkout_cmd, env=env, capture_output=True, text=True, timeout=30)
+                                        checkout_result = _run_subprocess(checkout_cmd, env=env, capture_output=True, text=True, timeout=30)
                                     else:
-                                        checkout_result = subprocess.run(checkout_cmd, capture_output=True, text=True, timeout=30)
+                                        checkout_result = _run_subprocess(checkout_cmd, capture_output=True, text=True, timeout=30)
                                     
                                     if checkout_result.returncode == 0:
                                         log_message(f"使用 git checkout 修复成功", 'INFO')
@@ -768,9 +797,9 @@ class GitManager:
                             # 尝试使用 git restore 修复
                             restore_cmd = ['git', '-C', target_path, 'restore', '--source=HEAD', ':/']
                             if env:
-                                restore_result = subprocess.run(restore_cmd, env=env, capture_output=True, text=True, timeout=30)
+                                restore_result = _run_subprocess(restore_cmd, env=env, capture_output=True, text=True, timeout=30)
                             else:
-                                restore_result = subprocess.run(restore_cmd, capture_output=True, text=True, timeout=30)
+                                restore_result = _run_subprocess(restore_cmd, capture_output=True, text=True, timeout=30)
                             
                             if restore_result.returncode == 0:
                                 log_message(f"使用 git restore 修复成功", 'INFO')
@@ -779,9 +808,9 @@ class GitManager:
                                 try:
                                     reset_cmd = ['git', '-C', target_path, 'reset', '--hard', 'HEAD']
                                     if env:
-                                        reset_result = subprocess.run(reset_cmd, env=env, capture_output=True, text=True, timeout=30)
+                                        reset_result = _run_subprocess(reset_cmd, env=env, capture_output=True, text=True, timeout=30)
                                     else:
-                                        reset_result = subprocess.run(reset_cmd, capture_output=True, text=True, timeout=30)
+                                        reset_result = _run_subprocess(reset_cmd, capture_output=True, text=True, timeout=30)
                                     
                                     if reset_result.returncode == 0:
                                         log_message(f"已重置索引状态，确保工作目录与HEAD一致", 'INFO')
@@ -799,9 +828,9 @@ class GitManager:
                                 log_message(f"git restore 失败，尝试 git checkout: {restore_result.stderr}", 'WARNING')
                                 checkout_cmd = ['git', '-C', target_path, 'checkout', '-f']
                                 if env:
-                                    checkout_result = subprocess.run(checkout_cmd, env=env, capture_output=True, text=True, timeout=30)
+                                    checkout_result = _run_subprocess(checkout_cmd, env=env, capture_output=True, text=True, timeout=30)
                                 else:
-                                    checkout_result = subprocess.run(checkout_cmd, capture_output=True, text=True, timeout=30)
+                                    checkout_result = _run_subprocess(checkout_cmd, capture_output=True, text=True, timeout=30)
                                 
                                 if checkout_result.returncode == 0:
                                     log_message(f"使用 git checkout 修复成功", 'INFO')
@@ -810,9 +839,9 @@ class GitManager:
                                     try:
                                         reset_cmd = ['git', '-C', target_path, 'reset', '--hard', 'HEAD']
                                         if env:
-                                            reset_result = subprocess.run(reset_cmd, env=env, capture_output=True, text=True, timeout=30)
+                                            reset_result = _run_subprocess(reset_cmd, env=env, capture_output=True, text=True, timeout=30)
                                         else:
-                                            reset_result = subprocess.run(reset_cmd, capture_output=True, text=True, timeout=30)
+                                            reset_result = _run_subprocess(reset_cmd, capture_output=True, text=True, timeout=30)
                                         
                                         if reset_result.returncode == 0:
                                             log_message(f"已重置索引状态，确保工作目录与HEAD一致", 'INFO')
@@ -880,9 +909,9 @@ class GitManager:
                             import subprocess
                             reset_cmd = ['git', '-C', target_path, 'reset', '--hard', 'HEAD']
                             if env:
-                                reset_result = subprocess.run(reset_cmd, env=env, capture_output=True, text=True, timeout=30)
+                                reset_result = _run_subprocess(reset_cmd, env=env, capture_output=True, text=True, timeout=30)
                             else:
-                                reset_result = subprocess.run(reset_cmd, capture_output=True, text=True, timeout=30)
+                                reset_result = _run_subprocess(reset_cmd, capture_output=True, text=True, timeout=30)
                             
                             if reset_result.returncode == 0:
                                 log_message(f"已重置索引状态，确保工作目录与HEAD一致", 'INFO')
@@ -908,9 +937,9 @@ class GitManager:
                                 # 尝试使用 git restore 修复
                                 restore_cmd = ['git', '-C', target_path, 'restore', '--source=HEAD', ':/']
                                 if env:
-                                    restore_result = subprocess.run(restore_cmd, env=env, capture_output=True, text=True, timeout=30)
+                                    restore_result = _run_subprocess(restore_cmd, env=env, capture_output=True, text=True, timeout=30)
                                 else:
-                                    restore_result = subprocess.run(restore_cmd, capture_output=True, text=True, timeout=30)
+                                    restore_result = _run_subprocess(restore_cmd, capture_output=True, text=True, timeout=30)
                                 
                                 if restore_result.returncode == 0:
                                     log_message(f"使用 git restore 修复成功", 'INFO')
@@ -919,9 +948,9 @@ class GitManager:
                                     try:
                                         reset_cmd = ['git', '-C', target_path, 'reset', '--hard', 'HEAD']
                                         if env:
-                                            reset_result = subprocess.run(reset_cmd, env=env, capture_output=True, text=True, timeout=30)
+                                            reset_result = _run_subprocess(reset_cmd, env=env, capture_output=True, text=True, timeout=30)
                                         else:
-                                            reset_result = subprocess.run(reset_cmd, capture_output=True, text=True, timeout=30)
+                                            reset_result = _run_subprocess(reset_cmd, capture_output=True, text=True, timeout=30)
                                         
                                         if reset_result.returncode == 0:
                                             log_message(f"已重置索引状态，确保工作目录与HEAD一致", 'INFO')
@@ -943,9 +972,9 @@ class GitManager:
                                     log_message(f"git restore 失败，尝试 git checkout: {restore_result.stderr}", 'WARNING')
                                     checkout_cmd = ['git', '-C', target_path, 'checkout', '-f']
                                     if env:
-                                        checkout_result = subprocess.run(checkout_cmd, env=env, capture_output=True, text=True, timeout=30)
+                                        checkout_result = _run_subprocess(checkout_cmd, env=env, capture_output=True, text=True, timeout=30)
                                     else:
-                                        checkout_result = subprocess.run(checkout_cmd, capture_output=True, text=True, timeout=30)
+                                        checkout_result = _run_subprocess(checkout_cmd, capture_output=True, text=True, timeout=30)
                                     
                                     if checkout_result.returncode == 0:
                                         log_message(f"使用 git checkout 修复成功", 'INFO')
@@ -954,9 +983,9 @@ class GitManager:
                                         try:
                                             reset_cmd = ['git', '-C', target_path, 'reset', '--hard', 'HEAD']
                                             if env:
-                                                reset_result = subprocess.run(reset_cmd, env=env, capture_output=True, text=True, timeout=30)
+                                                reset_result = _run_subprocess(reset_cmd, env=env, capture_output=True, text=True, timeout=30)
                                             else:
-                                                reset_result = subprocess.run(reset_cmd, capture_output=True, text=True, timeout=30)
+                                                reset_result = _run_subprocess(reset_cmd, capture_output=True, text=True, timeout=30)
                                             
                                             if reset_result.returncode == 0:
                                                 log_message(f"已重置索引状态，确保工作目录与HEAD一致", 'INFO')
@@ -996,9 +1025,9 @@ class GitManager:
                                 log_message("尝试使用subprocess直接克隆...", 'INFO')
                                 cmd = ['git', 'clone', '-v', '--', final_url, target_path]
                                 if env:
-                                    result = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=120)
+                                    result = _run_subprocess(cmd, env=env, capture_output=True, text=True, timeout=120)
                                 else:
-                                    result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+                                    result = _run_subprocess(cmd, capture_output=True, text=True, timeout=120)
                                 
                                 # 检查输出中是否包含checkout失败的信息（克隆成功但checkout失败）
                                 error_output = (result.stderr or '') + (result.stdout or '')
@@ -1022,9 +1051,9 @@ class GitManager:
                                             # 尝试使用 git restore 修复
                                             restore_cmd = ['git', '-C', target_path, 'restore', '--source=HEAD', ':/']
                                             if env:
-                                                restore_result = subprocess.run(restore_cmd, env=env, capture_output=True, text=True, timeout=30)
+                                                restore_result = _run_subprocess(restore_cmd, env=env, capture_output=True, text=True, timeout=30)
                                             else:
-                                                restore_result = subprocess.run(restore_cmd, capture_output=True, text=True, timeout=30)
+                                                restore_result = _run_subprocess(restore_cmd, capture_output=True, text=True, timeout=30)
                                             
                                             if restore_result.returncode == 0:
                                                 log_message(f"使用 git restore 修复成功", 'INFO')
@@ -1033,9 +1062,9 @@ class GitManager:
                                                 try:
                                                     reset_cmd = ['git', '-C', target_path, 'reset', '--hard', 'HEAD']
                                                     if env:
-                                                        reset_result = subprocess.run(reset_cmd, env=env, capture_output=True, text=True, timeout=30)
+                                                        reset_result = _run_subprocess(reset_cmd, env=env, capture_output=True, text=True, timeout=30)
                                                     else:
-                                                        reset_result = subprocess.run(reset_cmd, capture_output=True, text=True, timeout=30)
+                                                        reset_result = _run_subprocess(reset_cmd, capture_output=True, text=True, timeout=30)
                                                     
                                                     if reset_result.returncode == 0:
                                                         log_message(f"已重置索引状态，确保工作目录与HEAD一致", 'INFO')
@@ -1053,9 +1082,9 @@ class GitManager:
                                                 log_message(f"git restore 失败，尝试 git checkout: {restore_result.stderr}", 'WARNING')
                                                 checkout_cmd = ['git', '-C', target_path, 'checkout', '-f']
                                                 if env:
-                                                    checkout_result = subprocess.run(checkout_cmd, env=env, capture_output=True, text=True, timeout=30)
+                                                    checkout_result = _run_subprocess(checkout_cmd, env=env, capture_output=True, text=True, timeout=30)
                                                 else:
-                                                    checkout_result = subprocess.run(checkout_cmd, capture_output=True, text=True, timeout=30)
+                                                    checkout_result = _run_subprocess(checkout_cmd, capture_output=True, text=True, timeout=30)
                                                 
                                                 if checkout_result.returncode == 0:
                                                     log_message(f"使用 git checkout 修复成功", 'INFO')
@@ -1064,9 +1093,9 @@ class GitManager:
                                                     try:
                                                         reset_cmd = ['git', '-C', target_path, 'reset', '--hard', 'HEAD']
                                                         if env:
-                                                            reset_result = subprocess.run(reset_cmd, env=env, capture_output=True, text=True, timeout=30)
+                                                            reset_result = _run_subprocess(reset_cmd, env=env, capture_output=True, text=True, timeout=30)
                                                         else:
-                                                            reset_result = subprocess.run(reset_cmd, capture_output=True, text=True, timeout=30)
+                                                            reset_result = _run_subprocess(reset_cmd, capture_output=True, text=True, timeout=30)
                                                         
                                                         if reset_result.returncode == 0:
                                                             log_message(f"已重置索引状态，确保工作目录与HEAD一致", 'INFO')
@@ -1204,7 +1233,7 @@ class GitManager:
                 if env:
                     # 使用git命令拉取，以便传递环境变量
                     import subprocess
-                    result = subprocess.run(
+                    result = _run_subprocess(
                         ['git', 'pull', 'origin', repo.active_branch.name],
                         cwd=path,
                         env=env,
@@ -1311,7 +1340,7 @@ class GitManager:
                     # 使用git命令推送，以便传递环境变量
                     import subprocess
                     log_message(f"执行推送: git push origin {current_branch}", 'INFO')
-                    result = subprocess.run(
+                    result = _run_subprocess(
                         ['git', 'push', 'origin', current_branch],
                         cwd=path,
                         env=env,
@@ -1390,7 +1419,7 @@ class GitManager:
                     try:
                         import subprocess
                         # 使用git add -A添加所有更改（包括修改、新增、删除）
-                        result = subprocess.run(
+                        result = _run_subprocess(
                             ['git', 'add', '-A'],
                             cwd=path,
                             capture_output=True,
@@ -1419,7 +1448,7 @@ class GitManager:
                         log_message("警告: 检测到更改但暂存区为空，尝试使用git add -A", 'WARNING')
                         # 使用git命令强制添加所有更改
                         import subprocess
-                        result = subprocess.run(
+                        result = _run_subprocess(
                             ['git', 'add', '-A'],
                             cwd=path,
                             capture_output=True,
@@ -1689,7 +1718,7 @@ class GitManager:
                     cmd = ssh_base_cmd + ['info']
                     log_message(f"尝试Gitolite命令: {' '.join(cmd)}", 'DEBUG')
                     
-                    result = subprocess.run(
+                    result = _run_subprocess(
                         cmd,
                         env=env,
                         capture_output=True,
@@ -1897,7 +1926,7 @@ class GitManager:
                 try:
                     env = self._get_git_env(config)
                     # 使用git ls-remote测试连接
-                    result = subprocess.run(
+                    result = _run_subprocess(
                         ['git', 'ls-remote', '--heads', test_url],
                         env=env,
                         capture_output=True,
@@ -1979,7 +2008,7 @@ class GitManager:
                     
                     env = self._get_git_env(config)
                     # 使用git ls-remote测试连接
-                    result = subprocess.run(
+                    result = _run_subprocess(
                         ['git', 'ls-remote', '--heads', test_url],
                         env=env,
                         capture_output=True,

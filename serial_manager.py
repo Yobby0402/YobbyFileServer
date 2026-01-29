@@ -4,16 +4,64 @@ from __future__ import annotations
 
 import json
 import os
-import serial
-import serial.tools.list_ports
-import serial.serialutil
-from serial.serialutil import SerialException
 import sys
 import threading
 import time
 from collections import defaultdict, deque
 from datetime import datetime
 from typing import Callable, Dict, List, Optional
+
+# 导入 pyserial，确保使用正确的包
+# 当 serial 包缺少 __init__.py 或被其它包覆盖时，从平台子模块直接导入 Serial
+def _load_pyserial():
+    # 1) 先尝试正常导入
+    try:
+        import serial as _serial
+        if hasattr(_serial, 'Serial'):
+            return _serial
+        # 有 serialutil 且能导入 Serial 时也视为可用
+        if hasattr(_serial, 'serialutil'):
+            try:
+                from serial.serialutil import Serial
+                _serial.Serial = Serial
+                return _serial
+            except ImportError:
+                pass
+        # 2) serial 包存在但无 Serial（常见于缺少 __init__.py 或被其它包覆盖）
+        # 从平台子模块直接导入 Serial 并挂到 serial 上
+        try:
+            if sys.platform == 'win32':
+                from serial.serialwin32 import Serial
+            else:
+                from serial.serialposix import Serial
+            _serial.Serial = Serial
+            return _serial
+        except ImportError:
+            pass
+        # 当前 serial 不是 pyserial，清除后下面会报错
+        for _k in list(sys.modules.keys()):
+            if _k == 'serial' or _k.startswith('serial.'):
+                sys.modules.pop(_k, None)
+    except ImportError:
+        pass
+    
+    raise ImportError(
+        "无法加载 pyserial。请执行:\n"
+        "  pip uninstall serial\n"
+        "  pip install --force-reinstall pyserial\n"
+        "（若曾安装过名为 serial 的其它包，会覆盖 pyserial，需强制重装）"
+    )
+
+
+try:
+    serial = _load_pyserial()
+    Serial = serial.Serial
+    import serial.tools.list_ports  # noqa: F401, E402
+    import serial.serialutil  # noqa: F401, E402
+    from serial.serialutil import SerialException
+except ImportError as e:
+    print(f"[错误] {e}")
+    raise
 
 
 class SerialPortManager:
@@ -76,7 +124,7 @@ class SerialPortManager:
                 return True
 
             try:
-                ser = serial.Serial(
+                ser = Serial(
                     port=device,
                     baudrate=baudrate,
                     bytesize=bytesize,
@@ -200,7 +248,7 @@ class SerialPortManager:
                 session_copy.pop("file_handle", None)
                 return session_copy
             # 若串口未打开则打开
-            self.open_port(
+            success = self.open_port(
                 target_port_id,
                 device,
                 baudrate=baudrate,
@@ -210,6 +258,12 @@ class SerialPortManager:
                 listener_id=None,
                 callback=None,
             )
+            
+            if not success:
+                raise ValueError(f"无法打开串口 {device}，请检查设备是否可用")
+
+            if target_port_id not in self.ports:
+                raise ValueError(f"串口 {target_port_id} 打开失败")
 
             port_info = self.ports[target_port_id]
 
@@ -242,7 +296,7 @@ class SerialPortManager:
                 "directory": log_dir,
                 "file_path": filepath,
                 "file_handle": file_handle,
-                "started_at": (now := datetime.now()).strftime(f"%Y-%m-%dT%H:%M:%S.{now.microsecond // 1000:03d}Z"),
+                "started_at": (now := datetime.now()).strftime(f"%Y-%m-%dT%H:%M:%S.{now.microsecond // 1000:03d}"),
                 "last_write": None,
                 "bytes_logged": 0,
             }
