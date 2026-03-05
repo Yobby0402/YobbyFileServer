@@ -4,9 +4,11 @@ import sys
 import configparser
 import json
 import logging
+import threading
 from datetime import datetime
 import ctypes
 import socket
+from logging.handlers import TimedRotatingFileHandler
 from flask import Flask, request
 from flask_socketio import SocketIO, emit, join_room, leave_room
 import routes
@@ -17,6 +19,7 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QH
                                 QFileDialog, QFormLayout, QMenuBar, QInputDialog, QCheckBox,
                                 QListWidget, QListWidgetItem, QComboBox)
 from PyQt5.QtCore import QProcess, QTimer, Qt, pyqtSignal, QObject, QThread
+from PyQt5.QtCore import QEventLoop
 from PyQt5.QtGui import QIcon, QTextCursor
 
 
@@ -47,18 +50,18 @@ def get_config_path():
     if getattr(sys, 'frozen', False):
         # 打包环境：exe所在目录
         base_dir = os.path.dirname(sys.executable)
-        print(f"[调试] 打包模式 - exe目录: {base_dir}")
+        app_logger.info("[调试] 打包模式 - exe目录: %s", base_dir)
     else:
         # 开发环境：.py文件所在目录
         base_dir = os.path.dirname(os.path.abspath(__file__))
-        print(f"[调试] 开发模式 - py目录: {base_dir}")
+        app_logger.info("[调试] 开发模式 - py目录: %s", base_dir)
     
     program_dir_path = os.path.join(base_dir, config_name)
-    print(f"[调试] 配置文件路径: {program_dir_path}")
+    app_logger.info("[调试] 配置文件路径: %s", program_dir_path)
     
     # 如果配置文件已存在于程序目录，直接返回
     if os.path.exists(program_dir_path):
-        print(f"[调试] 配置文件已存在")
+        app_logger.info("[调试] 配置文件已存在")
         return program_dir_path
     
     # 配置文件不存在，测试程序目录是否可写
@@ -69,14 +72,14 @@ def get_config_path():
             f.write('test')
         os.remove(test_file)
         # 程序目录可写，使用程序目录
-        print(f"[调试] 程序目录可写，配置文件将创建在: {program_dir_path}")
+        app_logger.info("[调试] 程序目录可写，配置文件将创建在: %s", program_dir_path)
         return program_dir_path
     except Exception as e:
         # 程序目录不可写，使用用户目录
         config_dir = os.path.join(os.path.expanduser("~"), ".yobboy_file_server")
         os.makedirs(config_dir, exist_ok=True)
         fallback_path = os.path.join(config_dir, config_name)
-        print(f"[调试] 程序目录不可写({e})，使用用户目录: {fallback_path}")
+        app_logger.warning("[调试] 程序目录不可写(%s)，使用用户目录: %s", e, fallback_path)
         return fallback_path
 
 
@@ -108,14 +111,35 @@ def get_logs_dir():
 # Flask 应用日志配置
 # =============================
 
+def _create_rotating_handler(log_file, level=logging.INFO):
+    """创建按天轮转的日志处理器。"""
+    handler = TimedRotatingFileHandler(
+        filename=log_file,
+        when='midnight',
+        interval=1,
+        backupCount=14,
+        encoding='utf-8'
+    )
+    handler.suffix = "%Y-%m-%d"
+    handler.setLevel(level)
+    handler.setFormatter(logging.Formatter(
+        '%(asctime)s - %(levelname)s - %(name)s - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    ))
+    return handler
+
+
+_logs_dir = get_logs_dir()
+app_logger = logging.getLogger("yobboy_file_server")
+app_logger.setLevel(logging.INFO)
+if not app_logger.handlers:
+    app_logger.addHandler(_create_rotating_handler(os.path.join(_logs_dir, "app.log"), logging.INFO))
+app_logger.propagate = False
+
 connection_logger = logging.getLogger("file_server_connections")
 connection_logger.setLevel(logging.INFO)
-log_filename = f"{get_logs_dir()}/access_{datetime.now().strftime('%Y-%m-%d')}.log"
-file_handler = logging.FileHandler(log_filename, encoding='utf-8')
-file_handler.setFormatter(logging.Formatter(
-    '%(asctime)s - %(message)s', datefmt='%Y-%m-%d %H:%M:%S'
-))
-connection_logger.addHandler(file_handler)
+if not connection_logger.handlers:
+    connection_logger.addHandler(_create_rotating_handler(os.path.join(_logs_dir, "access.log"), logging.INFO))
 connection_logger.propagate = False
 
 
@@ -144,7 +168,7 @@ def get_local_ips(verbose=True, use_cache=True):
         import time
         if time.time() - _ip_cache_time < _ip_cache_ttl:
             if verbose:
-                print(f"[网络] 使用缓存的IP地址列表（{len(_ip_cache)}个地址）")
+                app_logger.info("[网络] 使用缓存的IP地址列表（%s个地址）", len(_ip_cache))
             return _ip_cache.copy()
     
     ip_list = []
@@ -170,10 +194,10 @@ def get_local_ips(verbose=True, use_cache=True):
             s.connect(("8.8.8.8", 80))
             default_ip = s.getsockname()[0]
             if verbose:
-                print(f"[网络] 默认路由IP（推荐）: {default_ip}")
+                app_logger.info("[网络] 默认路由IP（推荐）: %s", default_ip)
     except Exception as e:
         if verbose:
-            print(f"[网络] 无法获取默认路由IP: {e}")
+            app_logger.warning("[网络] 无法获取默认路由IP: %s", e)
     
     # 2. 获取所有网络接口的IP地址
     try:
@@ -187,7 +211,7 @@ def get_local_ips(verbose=True, use_cache=True):
                     ip_list.append(ip)
     except Exception as e:
         if verbose:
-            print(f"[网络] 获取主机名IP时出错: {e}")
+            app_logger.warning("[网络] 获取主机名IP时出错: %s", e)
     
     # 3. 智能排序IP地址
     def ip_priority(ip):
@@ -242,7 +266,7 @@ def get_local_ips(verbose=True, use_cache=True):
     
     # 打印所有找到的IP及其优先级（仅在verbose模式下）
     if verbose:
-        print("[网络] 找到的所有IP地址（按优先级排序）:")
+        app_logger.info("[网络] 找到的所有IP地址（按优先级排序）:")
         for ip in ip_list:
             priority = ip_priority(ip)
             # 使用ASCII字符替代Unicode字符，避免Windows控制台编码问题
@@ -254,10 +278,10 @@ def get_local_ips(verbose=True, use_cache=True):
                 status = "[可用]"
             
             try:
-                print(f"  {status} {ip} (优先级: {priority})")
+                app_logger.info("  %s %s (优先级: %s)", status, ip, priority)
             except UnicodeEncodeError:
                 # 如果仍然有编码问题，使用纯ASCII输出
-                print(f"  {status} {ip} (priority: {priority})")
+                app_logger.info("  %s %s (priority: %s)", status, ip, priority)
     
     # 更新缓存
     if use_cache:
@@ -271,15 +295,18 @@ def get_local_ips(verbose=True, use_cache=True):
 def log_connection_info():
     """记录当前请求的连接信息"""
     if request:
+        path = request.path
+        # 跳过高频静态资源与连接探测请求，减少日志 I/O 压力
+        if path.startswith('/static/') or path.startswith('/socket.io/') or path == '/favicon.ico':
+            return
         client_ip = request.environ.get('REMOTE_ADDR')
         user_agent = request.headers.get('User-Agent', 'Unknown')
-        path = request.path
         method = request.method
         msg = f"IP: {client_ip} | Method: {method} | Path: {path} | User-Agent: {user_agent}"
         connection_logger.info(msg)
 
 
-def create_app():
+def create_app(debug=False):
     """应用工厂函数"""
     # 显式指定 templates 和 static 目录（外部文件夹）
     template_dir = get_resource_path('templates')
@@ -290,8 +317,8 @@ def create_app():
     app.config['CONFIG_FILE'] = get_config_path()
     app.config['DEFAULT_ROOT_DIR'] = os.path.expanduser("~")
     
-    # 启用调试模式以便查看请求日志
-    app.debug = True
+    # 调试模式由启动参数控制，避免 GUI 场景默认开启调试
+    app.debug = debug
 
     # 确保模板和静态目录存在（用于首次运行时创建）
     os.makedirs(template_dir, exist_ok=True)
@@ -325,20 +352,22 @@ def init_serial_socketio(socketio):
     
     # 存储客户端会话
     serial_sessions = {}
+    serial_sessions_lock = threading.Lock()
     
     @socketio.on('connect', namespace='/serial')
     def handle_connect():
         """客户端连接"""
-        print(f'[Serial WebSocket] 客户端连接: {request.sid}')
+        app_logger.info('[Serial WebSocket] 客户端连接: %s', request.sid)
         emit('connected', {'client_id': request.sid})
     
     @socketio.on('disconnect', namespace='/serial')
     def handle_disconnect():
         """客户端断开"""
-        print(f'[Serial WebSocket] 客户端断开: {request.sid}')
+        app_logger.info('[Serial WebSocket] 客户端断开: %s', request.sid)
         
         # 清理会话
-        session_ports = serial_sessions.pop(request.sid, {})
+        with serial_sessions_lock:
+            session_ports = dict(serial_sessions.pop(request.sid, {}))
         for port_id, listener_id in session_ports.items():
             try:
                 serial_manager.release_port(port_id, listener_id)
@@ -390,7 +419,8 @@ def init_serial_socketio(socketio):
             
             if success:
                 # 记录会话
-                serial_sessions.setdefault(request.sid, {})[port_id] = listener_id
+                with serial_sessions_lock:
+                    serial_sessions.setdefault(request.sid, {})[port_id] = listener_id
                 
                 # 加入房间
                 join_room(f'port_{port_id}')
@@ -411,7 +441,7 @@ def init_serial_socketio(socketio):
                 })
         
         except Exception as e:
-            print(f'[错误] 打开串口失败: {e}')
+            app_logger.error('[错误] 打开串口失败: %s', e)
             emit('port_opened', {
                 'success': False,
                 'error': str(e)
@@ -423,8 +453,9 @@ def init_serial_socketio(socketio):
         try:
             port_id = data.get('port_id')
             
-            session_ports = serial_sessions.get(request.sid, {})
-            listener_id = session_ports.pop(port_id, None)
+            with serial_sessions_lock:
+                session_ports = serial_sessions.get(request.sid, {})
+                listener_id = session_ports.pop(port_id, None)
 
             # 释放监听器（若没有其他监听器与日志，则会关闭串口）
             serial_manager.release_port(port_id, listener_id)
@@ -438,7 +469,7 @@ def init_serial_socketio(socketio):
             })
         
         except Exception as e:
-            print(f'[错误] 关闭串口失败: {e}')
+            app_logger.error('[错误] 关闭串口失败: %s', e)
             emit('port_closed', {
                 'success': False,
                 'error': str(e)
@@ -468,7 +499,7 @@ def init_serial_socketio(socketio):
                 })
         
         except Exception as e:
-            print(f'[错误] 写入数据失败: {e}')
+            app_logger.error('[错误] 写入数据失败: %s', e)
             emit('data_written', {
                 'success': False,
                 'error': str(e)
@@ -532,15 +563,15 @@ def load_or_create_config(app):
             
             # 检查路径是否有效（仅警告，不修改配置）
             if not os.path.isdir(app.config['ROOT_DIR']):
-                print(f"[警告] 配置的根目录 '{app.config['ROOT_DIR']}' 不存在或无效")
-                print(f"  请通过设置界面修改根目录，或手动创建该目录")
+                app_logger.warning("[警告] 配置的根目录 '%s' 不存在或无效", app.config['ROOT_DIR'])
+                app_logger.warning("  请通过设置界面修改根目录，或手动创建该目录")
             
-            print(f"[OK] 配置已加载: 根目录={app.config['ROOT_DIR']}, 密码长度={len(password)}, 管理员密码已设置")
-            print(f"[配置] Git功能开关: {git_enabled} (从配置文件读取: {settings.get('git_enabled', 'false')})")
-            print(f"[配置] Git工作目录: {app.config['GIT_WORKDIR'] if app.config['GIT_WORKDIR'] else '未设置'}")
+            app_logger.info("[OK] 配置已加载: 根目录=%s, 密码长度=%s, 管理员密码已设置", app.config['ROOT_DIR'], len(password))
+            app_logger.info("[配置] Git功能开关: %s (从配置文件读取: %s)", git_enabled, settings.get('git_enabled', 'false'))
+            app_logger.info("[配置] Git工作目录: %s", app.config['GIT_WORKDIR'] if app.config['GIT_WORKDIR'] else '未设置')
         else:
             # 配置文件格式错误，使用默认值并保存
-            print("[警告] 配置文件格式错误，使用默认配置")
+            app_logger.warning("[警告] 配置文件格式错误，使用默认配置")
             app.config['ROOT_DIR'] = app.config['DEFAULT_ROOT_DIR']
             app.config['PASSWORD'] = 'password'
             app.config['ADMIN_PASSWORD'] = 'admin123'
@@ -551,7 +582,7 @@ def load_or_create_config(app):
             save_config(app)
     else:
         # 配置文件不存在，创建默认配置
-        print("配置文件不存在，创建默认配置")
+        app_logger.info("配置文件不存在，创建默认配置")
         app.config['ROOT_DIR'] = app.config['DEFAULT_ROOT_DIR']
         app.config['PASSWORD'] = 'password'
         app.config['ADMIN_PASSWORD'] = 'admin123'
@@ -562,23 +593,89 @@ def load_or_create_config(app):
         save_config(app)
 
 
-def save_config(app):
-    """保存当前配置到文件"""
-    config_file = app.config['CONFIG_FILE']
+def read_runtime_settings(create_if_missing=True, config_file=None):
+    """
+    轻量读取运行配置，避免仅为读取配置而初始化 Flask/SocketIO。
+    返回结构与 app.config 关键字段保持一致。
+    """
+    default_root_dir = os.path.expanduser("~")
+    config_file = config_file or get_config_path()
+    config = configparser.ConfigParser()
+    settings_data = {
+        'CONFIG_FILE': config_file,
+        'ROOT_DIR': default_root_dir,
+        'PASSWORD': 'password',
+        'ADMIN_PASSWORD': 'admin123',
+        'CLOSE_TO_TRAY': False,
+        'PORT': 5000,
+        'GIT_ENABLED': False,
+        'GIT_WORKDIR': '',
+        'GIT_EXTERNAL_APP_PATH': ''
+    }
+
+    if os.path.exists(config_file):
+        config.read(config_file, encoding='utf-8')
+        if 'settings' in config:
+            settings = config['settings']
+            root_dir = settings.get('root_dir', default_root_dir)
+            settings_data['ROOT_DIR'] = os.path.normpath(root_dir) if root_dir else default_root_dir
+            settings_data['PASSWORD'] = settings.get('password', 'password')
+            settings_data['ADMIN_PASSWORD'] = settings.get('admin_password', 'admin123')
+            settings_data['CLOSE_TO_TRAY'] = settings.get('close_to_tray', 'false').lower() == 'true'
+            try:
+                settings_data['PORT'] = int(settings.get('port', '5000'))
+            except ValueError:
+                app_logger.warning("[警告] 配置文件中的端口无效，已回退到 5000")
+                settings_data['PORT'] = 5000
+            settings_data['GIT_ENABLED'] = settings.get('git_enabled', 'false').lower() == 'true'
+            git_workdir = settings.get('git_workdir', '')
+            settings_data['GIT_WORKDIR'] = os.path.normpath(git_workdir) if git_workdir else ''
+            settings_data['GIT_EXTERNAL_APP_PATH'] = settings.get('git_external_app_path', '')
+            return settings_data
+        app_logger.warning("[警告] 配置文件缺少 [settings] 段，使用默认配置")
+    elif not create_if_missing:
+        return settings_data
+    else:
+        app_logger.info("配置文件不存在，创建默认配置")
+
+    if create_if_missing:
+        save_runtime_settings(settings_data, config_file=config_file)
+    return settings_data
+
+
+def save_runtime_settings(settings_data, config_file=None):
+    """保存轻量配置字典到配置文件"""
+    config_file = config_file or settings_data.get('CONFIG_FILE', get_config_path())
     config = configparser.ConfigParser()
     config['settings'] = {
-        'root_dir': app.config['ROOT_DIR'],
-        'password': app.config['PASSWORD'],
-        'admin_password': app.config.get('ADMIN_PASSWORD', 'admin123'),
-        'close_to_tray': str(app.config.get('CLOSE_TO_TRAY', False)).lower(),
-        'port': str(app.config.get('PORT', 5000)),
-        'git_enabled': str(app.config.get('GIT_ENABLED', False)).lower(),
-        'git_workdir': app.config.get('GIT_WORKDIR', ''),
-        'git_external_app_path': app.config.get('GIT_EXTERNAL_APP_PATH', '')
+        'root_dir': settings_data.get('ROOT_DIR', os.path.expanduser("~")),
+        'password': settings_data.get('PASSWORD', 'password'),
+        'admin_password': settings_data.get('ADMIN_PASSWORD', 'admin123'),
+        'close_to_tray': str(settings_data.get('CLOSE_TO_TRAY', False)).lower(),
+        'port': str(settings_data.get('PORT', 5000)),
+        'git_enabled': str(settings_data.get('GIT_ENABLED', False)).lower(),
+        'git_workdir': settings_data.get('GIT_WORKDIR', ''),
+        'git_external_app_path': settings_data.get('GIT_EXTERNAL_APP_PATH', '')
     }
     with open(config_file, 'w', encoding='utf-8') as f:
         config.write(f)
-    print(f"配置已保存到: {config_file}")
+
+
+def save_config(app):
+    """保存当前配置到文件"""
+    settings_data = {
+        'CONFIG_FILE': app.config['CONFIG_FILE'],
+        'ROOT_DIR': app.config['ROOT_DIR'],
+        'PASSWORD': app.config['PASSWORD'],
+        'ADMIN_PASSWORD': app.config.get('ADMIN_PASSWORD', 'admin123'),
+        'CLOSE_TO_TRAY': app.config.get('CLOSE_TO_TRAY', False),
+        'PORT': app.config.get('PORT', 5000),
+        'GIT_ENABLED': app.config.get('GIT_ENABLED', False),
+        'GIT_WORKDIR': app.config.get('GIT_WORKDIR', ''),
+        'GIT_EXTERNAL_APP_PATH': app.config.get('GIT_EXTERNAL_APP_PATH', '')
+    }
+    save_runtime_settings(settings_data, config_file=app.config['CONFIG_FILE'])
+    app_logger.info("配置已保存到: %s", app.config['CONFIG_FILE'])
 
 
 class LogMessageReceiver(QObject):
@@ -1945,7 +2042,7 @@ class FlaskServerProcess(QProcess):
 
         # 设置工作目录为exe所在目录（打包模式）或.py文件所在目录（开发模式）
         self.setWorkingDirectory(current_dir)
-        print(f"[调试] Flask子进程工作目录: {current_dir}")
+        app_logger.info("[调试] Flask子进程工作目录: %s", current_dir)
         self.start(cmd[0], cmd[1:])
 
 
@@ -1972,7 +2069,7 @@ class MainWindow(QMainWindow):
             icon_path = get_resource_path('文件服务器.png')
             self.setWindowIcon(QIcon(icon_path))
         except Exception as e:
-            print(f"加载图标失败: {e}")
+            app_logger.warning("加载图标失败: %s", e)
 
         myappid = "wo de app"
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
@@ -2280,7 +2377,7 @@ class MainWindow(QMainWindow):
         """创建系统托盘图标"""
         # 检查系统是否支持托盘图标
         if not QSystemTrayIcon.isSystemTrayAvailable():
-            print("系统不支持托盘图标")
+            app_logger.warning("系统不支持托盘图标")
             return
         
         # 创建系统托盘图标
@@ -2290,25 +2387,25 @@ class MainWindow(QMainWindow):
         try:
             icon_loaded = False
             png_path = get_resource_path('文件服务器.png')
-            print(f"尝试加载托盘图标: {png_path}")
+            app_logger.info("尝试加载托盘图标: %s", png_path)
             png_icon = QIcon(png_path)
             if not png_icon.isNull():
                 self.tray_icon.setIcon(png_icon)
                 icon_loaded = True
-                print("托盘图标加载成功 (png)")
+                app_logger.info("托盘图标加载成功 (png)")
             else:
                 ico_path = get_resource_path('文件服务器.ico')
-                print(f"png无效，尝试ico: {ico_path}")
+                app_logger.info("png无效，尝试ico: %s", ico_path)
                 ico_icon = QIcon(ico_path)
                 if not ico_icon.isNull():
                     self.tray_icon.setIcon(ico_icon)
                     icon_loaded = True
-                    print("托盘图标加载成功 (ico)")
+                    app_logger.info("托盘图标加载成功 (ico)")
             if not icon_loaded:
                 self.tray_icon.setIcon(self.style().standardIcon(self.style().SP_ComputerIcon))
-                print("使用系统默认图标")
+                app_logger.info("使用系统默认图标")
         except Exception as e:
-            print(f"加载托盘图标失败: {e}")
+            app_logger.warning("加载托盘图标失败: %s", e)
             self.tray_icon.setIcon(self.style().standardIcon(self.style().SP_ComputerIcon))
         
         # 设置提示文字
@@ -2353,7 +2450,7 @@ class MainWindow(QMainWindow):
         # 强制显示托盘图标（避免判断show返回值）
         self.tray_icon.setVisible(True)
         self.tray_icon.show()
-        print("托盘图标已显示")
+        app_logger.info("托盘图标已显示")
         
         # 根据配置设置关闭行为
         self.update_quit_behavior()
@@ -2373,7 +2470,7 @@ class MainWindow(QMainWindow):
         """最小化到系统托盘"""
         # 检查托盘图标是否可用
         if not hasattr(self, 'tray_icon') or not self.tray_icon:
-            print("托盘图标不可用，无法最小化到托盘")
+            app_logger.warning("托盘图标不可用，无法最小化到托盘")
             return
         
         # 确保托盘图标可见
@@ -2524,6 +2621,34 @@ class MainWindow(QMainWindow):
         self.append_log("--- 正在停止服务器... ---\n")
         self.process.stop_server()
 
+    def wait_for_server_state(self, expected_running, timeout_ms=5000):
+        """等待服务器达到目标状态，使用事件循环保持 UI 响应。"""
+        if self.is_server_running == expected_running:
+            return True
+
+        loop = QEventLoop(self)
+        timeout_timer = QTimer(self)
+        check_timer = QTimer(self)
+        timeout_timer.setSingleShot(True)
+
+        result = {'ok': False}
+
+        def check_state():
+            if self.is_server_running == expected_running:
+                result['ok'] = True
+                loop.quit()
+
+        timeout_timer.timeout.connect(loop.quit)
+        check_timer.timeout.connect(check_state)
+        timeout_timer.start(timeout_ms)
+        check_timer.start(50)
+        check_state()
+        loop.exec_()
+        check_timer.stop()
+        timeout_timer.stop()
+
+        return result['ok']
+
     def on_server_started(self):
         """服务器进程启动时的回调"""
         self.is_server_running = True
@@ -2551,7 +2676,7 @@ class MainWindow(QMainWindow):
             with open(log_file_path, 'w', encoding='utf-8') as f:
                 f.write(self.log_text_edit.toPlainText())
         except Exception as e:
-            print(f"保存日志失败: {e}")
+            app_logger.error("保存日志失败: %s", e)
 
         self.log_text_edit.clear()
 
@@ -2580,18 +2705,8 @@ class MainWindow(QMainWindow):
             if reply == QMessageBox.Yes:
                 # 启动服务器
                 self.start_server()
-                
-                # 等待服务器启动（最多等待5秒）
-                for i in range(50):
-                    if self.is_server_running:
-                        # 再等待一小段时间确保服务器完全启动
-                        QApplication.processEvents()
-                        QThread.msleep(200)
-                        break
-                    QApplication.processEvents()
-                    QThread.msleep(100)
-                
-                if not self.is_server_running:
+
+                if not self.wait_for_server_state(expected_running=True, timeout_ms=5000):
                     QMessageBox.warning(self, "错误", "服务器启动失败，无法打开帮助页面")
                     return
             else:
@@ -2624,30 +2739,23 @@ class MainWindow(QMainWindow):
             
             if reply == QMessageBox.Yes:
                 self.stop_server()
-                # 等待服务器停止
-                for i in range(50):
-                    if not self.is_server_running:
-                        break
-                    QApplication.processEvents()
-                    QThread.msleep(100)
-                
-                if self.is_server_running:
+
+                if not self.wait_for_server_state(expected_running=False, timeout_ms=5000):
                     QMessageBox.warning(self, "错误", "服务器停止失败，无法打开设置")
                     return
             else:
                 return
         
-        # 获取当前配置
-        app = create_app()
-        load_or_create_config(app)
-        current_root = app.config.get('ROOT_DIR', os.path.expanduser('~'))
-        current_password = app.config.get('PASSWORD', 'password')
-        current_admin_password = app.config.get('ADMIN_PASSWORD', 'admin123')
-        current_close_to_tray = app.config.get('CLOSE_TO_TRAY', False)
-        current_port = app.config.get('PORT', 5000)
-        current_git_enabled = app.config.get('GIT_ENABLED', False)
-        current_git_workdir = app.config.get('GIT_WORKDIR', '')
-        current_git_external_app_path = app.config.get('GIT_EXTERNAL_APP_PATH', '')
+        # 获取当前配置（轻量读取，避免初始化 Flask/SocketIO）
+        settings = read_runtime_settings()
+        current_root = settings.get('ROOT_DIR', os.path.expanduser('~'))
+        current_password = settings.get('PASSWORD', 'password')
+        current_admin_password = settings.get('ADMIN_PASSWORD', 'admin123')
+        current_close_to_tray = settings.get('CLOSE_TO_TRAY', False)
+        current_port = settings.get('PORT', 5000)
+        current_git_enabled = settings.get('GIT_ENABLED', False)
+        current_git_workdir = settings.get('GIT_WORKDIR', '')
+        current_git_external_app_path = settings.get('GIT_EXTERNAL_APP_PATH', '')
         
         # 显示设置对话框
         dialog = SettingsDialog(self, current_root, current_password, current_admin_password, current_close_to_tray, current_port, current_git_enabled, current_git_workdir, current_git_external_app_path)
@@ -2656,26 +2764,18 @@ class MainWindow(QMainWindow):
             
             # 保存配置
             try:
-                config = configparser.ConfigParser()
-                config['settings'] = {
-                    'root_dir': new_root,
-                    'password': new_password,
-                    'admin_password': new_admin_password,
-                    'close_to_tray': str(new_close_to_tray).lower(),
-                    'port': str(new_port),
-                    'git_enabled': str(new_git_enabled).lower(),
-                    'git_workdir': new_git_workdir,
-                    'git_external_app_path': new_git_external_app_path
-                }
                 config_file = get_config_path()
-                
-                with open(config_file, 'w', encoding='utf-8') as f:
-                    config.write(f)
-                
-                # 验证保存是否成功
-                config_check = configparser.ConfigParser()
-                config_check.read(config_file, encoding='utf-8')
-                saved_password = config_check['settings'].get('password', '')
+                save_runtime_settings({
+                    'CONFIG_FILE': config_file,
+                    'ROOT_DIR': new_root,
+                    'PASSWORD': new_password,
+                    'ADMIN_PASSWORD': new_admin_password,
+                    'CLOSE_TO_TRAY': new_close_to_tray,
+                    'PORT': new_port,
+                    'GIT_ENABLED': new_git_enabled,
+                    'GIT_WORKDIR': new_git_workdir,
+                    'GIT_EXTERNAL_APP_PATH': new_git_external_app_path
+                }, config_file=config_file)
                 
                 close_behavior_text = "最小化到托盘" if new_close_to_tray else "直接退出程序"
                 git_enabled_text = "已启用" if new_git_enabled else "已禁用"
@@ -2695,49 +2795,47 @@ class MainWindow(QMainWindow):
                     f"您可以重新启动服务器使用新配置。"
                 )
                 
-                print(f"配置已保存到: {config_file}")
-                print(f"根目录: {new_root}")
-                print(f"登录密码长度: {len(new_password)}")
-                print(f"管理员密码长度: {len(new_admin_password)}")
-                print(f"服务器端口: {new_port}")
-                print(f"关闭行为: {close_behavior_text}")
-                print(f"Git功能: {git_enabled_text}")
+                app_logger.info("配置已保存到: %s", config_file)
+                app_logger.info("根目录: %s", new_root)
+                app_logger.info("登录密码长度: %s", len(new_password))
+                app_logger.info("管理员密码长度: %s", len(new_admin_password))
+                app_logger.info("服务器端口: %s", new_port)
+                app_logger.info("关闭行为: %s", close_behavior_text)
+                app_logger.info("Git功能: %s", git_enabled_text)
                 
                 # 更新主窗口的关闭行为配置
                 self.close_to_tray = new_close_to_tray
                 self.server_port = new_port  # 更新端口配置
                 self.update_quit_behavior()  # 立即更新QApplication行为
-                print(f"[配置更新] 关闭行为已更新: {'最小化到托盘' if new_close_to_tray else '直接退出'}")
-                print(f"[配置更新] 服务器端口已更新: {new_port}（需要重启服务器生效）")
-                print(f"[配置更新] Git功能已更新: {git_enabled_text}（需要重启服务器生效）")
+                app_logger.info("[配置更新] 关闭行为已更新: %s", '最小化到托盘' if new_close_to_tray else '直接退出')
+                app_logger.info("[配置更新] 服务器端口已更新: %s（需要重启服务器生效）", new_port)
+                app_logger.info("[配置更新] Git功能已更新: %s（需要重启服务器生效）", git_enabled_text)
                 
             except Exception as e:
                 import traceback
                 error_detail = traceback.format_exc()
                 QMessageBox.critical(self, "保存失败", f"保存配置时发生错误：\n\n{e}\n\n详细信息:\n{error_detail}")
-                print(f"保存配置失败: {e}")
-                print(error_detail)
+                app_logger.error("保存配置失败: %s", e)
+                app_logger.error(error_detail)
     
     def load_close_behavior_config(self):
         """加载关闭行为配置"""
         try:
-            app = create_app()
-            load_or_create_config(app)
-            self.close_to_tray = app.config.get('CLOSE_TO_TRAY', False)
-            print(f"[配置] 关闭行为: {'最小化到托盘' if self.close_to_tray else '直接退出'}")
+            settings = read_runtime_settings(create_if_missing=False)
+            self.close_to_tray = settings.get('CLOSE_TO_TRAY', False)
+            app_logger.info("[配置] 关闭行为: %s", '最小化到托盘' if self.close_to_tray else '直接退出')
         except Exception as e:
-            print(f"[警告] 加载关闭行为配置失败: {e}")
+            app_logger.warning("[警告] 加载关闭行为配置失败: %s", e)
             self.close_to_tray = False
     
     def load_server_port_config(self):
         """加载服务器端口配置"""
         try:
-            app = create_app()
-            load_or_create_config(app)
-            self.server_port = app.config.get('PORT', 5000)
-            print(f"[配置] 服务器端口: {self.server_port}")
+            settings = read_runtime_settings(create_if_missing=False)
+            self.server_port = settings.get('PORT', 5000)
+            app_logger.info("[配置] 服务器端口: %s", self.server_port)
         except Exception as e:
-            print(f"[警告] 加载端口配置失败: {e}")
+            app_logger.warning("[警告] 加载端口配置失败: %s", e)
             self.server_port = 5000
     
     def update_quit_behavior(self):
@@ -2747,11 +2845,11 @@ class MainWindow(QMainWindow):
             if self.close_to_tray:
                 # 关闭到托盘模式：关闭窗口不退出应用
                 app.setQuitOnLastWindowClosed(False)
-                print("[配置] 已设置：关闭窗口不退出应用（托盘模式）")
+                app_logger.info("[配置] 已设置：关闭窗口不退出应用（托盘模式）")
             else:
                 # 退出模式：关闭窗口退出应用
                 app.setQuitOnLastWindowClosed(True)
-                print("[配置] 已设置：关闭窗口退出应用（退出模式）")
+                app_logger.info("[配置] 已设置：关闭窗口退出应用（退出模式）")
     
     def show_about(self):
         """显示关于对话框"""
@@ -2792,10 +2890,10 @@ class MainWindow(QMainWindow):
                 QSystemTrayIcon.Information,
                 2000
             )
-            print("[关闭事件] 窗口已最小化到托盘")
+            app_logger.info("[关闭事件] 窗口已最小化到托盘")
         else:
             # 退出程序
-            print("[关闭事件] 准备退出程序")
+            app_logger.info("[关闭事件] 准备退出程序")
             if self.is_server_running:
                 reply = QMessageBox.question(
                     self, '退出', '服务器正在运行，确定要退出吗？',
@@ -2803,33 +2901,33 @@ class MainWindow(QMainWindow):
                 )
                 if reply == QMessageBox.Yes:
                     self.stop_server()
-                    for _ in range(50):
-                        if not self.is_server_running:
-                            break
-                        QApplication.processEvents()
-                        QThread.msleep(100)
-                    event.accept()
-                    print("[关闭事件] 程序已退出")
+                    if self.wait_for_server_state(expected_running=False, timeout_ms=5000):
+                        event.accept()
+                        app_logger.info("[关闭事件] 程序已退出")
+                    else:
+                        event.ignore()
+                        QMessageBox.warning(self, "错误", "服务器停止超时，已取消退出")
                 else:
                     event.ignore()
-                    print("[关闭事件] 用户取消退出")
+                    app_logger.info("[关闭事件] 用户取消退出")
             else:
                 event.accept()
-                print("[关闭事件] 程序已退出")
+                app_logger.info("[关闭事件] 程序已退出")
 
 
 def run_flask_app(info_file_path=None):
     """运行 Flask 应用"""
+    # 当从GUI启动时（有info_file_path参数），将debug设为False以避免冲突
+    debug = False if info_file_path else True
     # 注意：load_or_create_config 现在在 create_app() 中调用
-    application = create_app()
+    application = create_app(debug=debug)
     
     # === 显示加载的配置信息 ===
     print("=" * 60)
     print("[服务器配置信息]")
     print(f"配置文件路径: {application.config.get('CONFIG_FILE')}")
     print(f"根目录: {application.config.get('ROOT_DIR')}")
-    print(f"登录密码: {application.config.get('PASSWORD')}")
-    print(f"密码长度: {len(application.config.get('PASSWORD', ''))}")
+    print(f"登录密码长度: {len(application.config.get('PASSWORD', ''))}")
     print(f"Git功能: {'已启用' if application.config.get('GIT_ENABLED') else '已禁用'}")
     print(f"Git工作目录: {application.config.get('GIT_WORKDIR', '未设置')}")
     print(f"Git外部软件路径: {application.config.get('GIT_EXTERNAL_APP_PATH', '未设置')}")
@@ -2845,8 +2943,6 @@ def run_flask_app(info_file_path=None):
             print(f" * Running on http://{ip}:{port}")
     print(f" * WebSocket endpoint: /serial")
     sys.stdout.flush()
-    # 当从GUI启动时（有info_file_path参数），将debug设为False以避免冲突
-    debug = False if info_file_path else True
     # 使用 socketio.run 而不是 app.run
     # 添加 use_reloader=False 以加快启动速度（避免自动检测和重载机制）
     application.socketio.run(application, 

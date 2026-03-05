@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="zh-CN">
 
 <head>
@@ -260,6 +260,8 @@
             transition: all 0.3s cubic-bezier(0.165, 0.84, 0.44, 1);
             box-shadow: var(--t-shadow-lg);
             border: 1px solid var(--t-border-light);
+            max-height: 65vh;
+            overflow-y: auto;
         }
 
         .theme-wrapper:hover .theme-dropdown-menu {
@@ -283,6 +285,36 @@
         .theme-item:hover {
             background: var(--t-primary-faint);
             color: var(--t-primary);
+        }
+
+        .theme-item::before {
+            content: '\2713';
+            display: inline-block;
+            width: 16px;
+            margin-right: 8px;
+            opacity: 0;
+            color: var(--t-primary-hover);
+            font-weight: 700;
+        }
+
+        .theme-item.is-active::before {
+            opacity: 1;
+        }
+
+        .theme-group-title {
+            padding: 8px 16px 4px;
+            font-size: 12px;
+            color: var(--t-text-muted);
+            font-weight: 700;
+            letter-spacing: 0.02em;
+            text-transform: uppercase;
+            cursor: default;
+        }
+
+        .theme-divider {
+            margin: 6px 12px;
+            border: none;
+            border-top: 1px solid var(--t-border-light);
         }
 
         @media (max-width: 768px) {
@@ -311,23 +343,102 @@
         }
     </style>
     <script>
-        // Inline setup for choice page
-        // 确保在DOM加载完成后设置主题
-        window.setTheme = function (themeName) {
-            document.body.setAttribute('data-theme', themeName);
-            localStorage.setItem('site_theme', themeName);
-            // 触发自定义事件，通知其他组件主题已更改
-            window.dispatchEvent(new CustomEvent('themechanged', { detail: { theme: themeName } }));
+        // Inline setup for choice page: color theme + morph effect
+        const LEGACY_THEME_TO_COLOR = {
+            'jasmine': 'jasmine',
+            'mint-fresh': 'jasmine',
+            'mist-forest': 'forest',
+            'bamboo-grove': 'forest',
+            'tea-garden': 'forest',
+            'sunset': 'sunset',
+            'golden-beach': 'sunset',
+            'orange-warmth': 'sunset',
+            'rose-whisper': 'sunset',
+            'cherry-blossom': 'sunset',
+            'sky-azure': 'ocean',
+            'ocean-shallow': 'ocean',
+            'tech-blue': 'ocean',
+            'cloud-light': 'ocean',
+            'lake-reflection': 'ocean',
+            'aurora': 'ocean',
+            'lavender-field': 'lavender',
+            'purple-dream': 'lavender',
+            'cyberpunk': 'graphite',
+            'morning-mist': 'graphite'
         };
-        
-        // 页面加载时应用保存的主题
+
+        function normalizeColorTheme(themeName) {
+            return LEGACY_THEME_TO_COLOR[themeName] || themeName || 'jasmine';
+        }
+
+        function applyThemeState(themeColor, morph) {
+            const safeColor = normalizeColorTheme(themeColor);
+            const safeMorph = morph || 'flat';
+            document.body.setAttribute('data-theme-color', safeColor);
+            document.body.setAttribute('data-theme', safeColor); // legacy compatibility
+            document.body.setAttribute('data-morph', safeMorph);
+            refreshThemeMenuState(safeColor, safeMorph);
+        }
+
+        function refreshThemeMenuState(themeColor, morph) {
+            document.querySelectorAll('.theme-item[data-theme-color], .theme-item[data-morph]').forEach((el) => {
+                el.classList.remove('is-active');
+            });
+            const colorEl = document.querySelector(`.theme-item[data-theme-color="${themeColor}"]`);
+            const morphEl = document.querySelector(`.theme-item[data-morph="${morph}"]`);
+            if (colorEl) colorEl.classList.add('is-active');
+            if (morphEl) morphEl.classList.add('is-active');
+        }
+
+        window.setThemeColor = function (themeColor) {
+            const currentMorph = localStorage.getItem('site_morph') || 'flat';
+            const safeColor = normalizeColorTheme(themeColor);
+            localStorage.setItem('site_theme_color', safeColor);
+            localStorage.setItem('site_theme', safeColor); // keep legacy key updated
+            applyThemeState(safeColor, currentMorph);
+            window.dispatchEvent(new CustomEvent('themechanged', { detail: { themeColor: safeColor, morph: currentMorph } }));
+        };
+
+        window.setMorph = function (morphName) {
+            const currentColor = normalizeColorTheme(localStorage.getItem('site_theme_color') || localStorage.getItem('site_theme') || 'jasmine');
+            const safeMorph = morphName || 'flat';
+            localStorage.setItem('site_morph', safeMorph);
+            applyThemeState(currentColor, safeMorph);
+            window.dispatchEvent(new CustomEvent('themechanged', { detail: { themeColor: currentColor, morph: safeMorph } }));
+        };
+
+        // legacy api
+        window.setTheme = function (themeName) {
+            if (themeName === 'glassmorphism' || themeName === 'neumorphism' || themeName === 'claymorphism') {
+                window.setMorph(themeName === 'neumorphism' ? 'glassmorphism' : themeName);
+                return;
+            }
+            window.setThemeColor(themeName);
+        };
+
         (function () {
-            const savedTheme = localStorage.getItem('site_theme') || 'jasmine';
-            document.body.setAttribute('data-theme', savedTheme);
+            const legacyTheme = localStorage.getItem('site_theme') || 'jasmine';
+            const savedColor = normalizeColorTheme(localStorage.getItem('site_theme_color') || legacyTheme);
+            const savedMorph = localStorage.getItem('site_morph') || (
+                legacyTheme === 'glassmorphism' || legacyTheme === 'neumorphism' || legacyTheme === 'claymorphism'
+                    ? (legacyTheme === 'neumorphism' ? 'glassmorphism' : legacyTheme)
+                    : 'flat'
+            );
+            applyThemeState(savedColor, savedMorph);
+            localStorage.setItem('site_theme_color', savedColor);
+            localStorage.setItem('site_theme', savedColor);
+            localStorage.setItem('site_morph', savedMorph);
         })();
+
+        document.addEventListener('DOMContentLoaded', function () {
+            refreshThemeMenuState(
+                document.body.getAttribute('data-theme-color') || 'jasmine',
+                document.body.getAttribute('data-morph') || 'flat'
+            );
+        });
     </script>
     <style>
-        /* 确保动态背景覆盖themes.css的样式 */
+        /* 纭繚鍔ㄦ€佽儗鏅鐩杢hemes.css鐨勬牱寮?*/
         body {
             background: transparent !important;
         }
@@ -367,26 +478,18 @@
                 <i class="fa fa-paint-brush"></i> 主题
             </button>
             <div class="theme-dropdown-menu">
-                <div class="theme-item" onclick="setTheme('jasmine')">🍃 茉莉奶白</div>
-                <div class="theme-item" onclick="setTheme('mist-forest')">🌲 迷雾森林</div>
-                <div class="theme-item" onclick="setTheme('sunset')">🌅 日落黄昏</div>
-                <div class="theme-item" onclick="setTheme('golden-beach')">🏖️ 黄金沙滩</div>
-                <div class="theme-item" onclick="setTheme('cyberpunk')">🌃 赛博朋克</div>
-                <div class="theme-item" onclick="setTheme('aurora')">🌌 极光星空</div>
-                <div class="theme-item" onclick="setTheme('mint-fresh')">🌿 薄荷清新</div>
-                <div class="theme-item" onclick="setTheme('cherry-blossom')">🌸 樱花飞舞</div>
-                <div class="theme-item" onclick="setTheme('sky-azure')">☁️ 天空湛蓝</div>
-                <div class="theme-item" onclick="setTheme('lavender-field')">💜 薰衣草田</div>
-                <div class="theme-item" onclick="setTheme('bamboo-grove')">🎋 竹林深处</div>
-                <div class="theme-item" onclick="setTheme('morning-mist')">🌫️ 晨雾朦胧</div>
-                <div class="theme-item" onclick="setTheme('ocean-shallow')">🌊 浅海湛蓝</div>
-                <div class="theme-item" onclick="setTheme('tea-garden')">🍵 茶园时光</div>
-                <div class="theme-item" onclick="setTheme('tech-blue')">💻 科技之光</div>
-                <div class="theme-item" onclick="setTheme('cloud-light')">☁️ 云淡风轻</div>
-                <div class="theme-item" onclick="setTheme('rose-whisper')">🌹 玫瑰轻语</div>
-                <div class="theme-item" onclick="setTheme('orange-warmth')">🍊 橙意暖暖</div>
-                <div class="theme-item" onclick="setTheme('purple-dream')">💭 淡紫梦境</div>
-                <div class="theme-item" onclick="setTheme('lake-reflection')">🏞️ 湖光山色</div>
+                <div class="theme-group-title">颜色主题</div>
+                <div class="theme-item" data-theme-color="jasmine" onclick="setThemeColor('jasmine')">茉莉绿</div>
+                <div class="theme-item" data-theme-color="ocean" onclick="setThemeColor('ocean')">海洋蓝</div>
+                <div class="theme-item" data-theme-color="forest" onclick="setThemeColor('forest')">森林绿</div>
+                <div class="theme-item" data-theme-color="sunset" onclick="setThemeColor('sunset')">落日橙</div>
+                <div class="theme-item" data-theme-color="lavender" onclick="setThemeColor('lavender')">薰衣草紫</div>
+                <div class="theme-item" data-theme-color="graphite" onclick="setThemeColor('graphite')">石墨深灰</div>
+                <hr class="theme-divider">
+                <div class="theme-group-title">拟态效果</div>
+                <div class="theme-item" data-morph="flat" onclick="setMorph('flat')">纯色模式（无拟态）</div>
+                <div class="theme-item" data-morph="glassmorphism" onclick="setMorph('glassmorphism')">玻璃拟态</div>
+                <div class="theme-item" data-morph="claymorphism" onclick="setMorph('claymorphism')">粘土拟态</div>
             </div>
         </div>
 
@@ -470,3 +573,4 @@
 </body>
 
 </html>
+
