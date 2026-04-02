@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
+    {% include '_theme_bootstrap.html' %}
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>3D模型查看器 - {{ filename }}</title>
@@ -35,6 +36,7 @@
             z-index: 1000;
             color: white;
             min-width: 200px;
+            pointer-events: auto;
         }
 
         #toolbar h5 {
@@ -58,6 +60,7 @@
             cursor: pointer;
             transition: all 0.3s;
             font-size: 13px;
+            pointer-events: auto;
         }
 
         .toolbar-btn:hover {
@@ -168,12 +171,6 @@
             text-align: center;
         }
     </style>
-    <script>
-        (function() {
-            const savedTheme = localStorage.getItem('site_theme') || 'jasmine';
-            document.body.setAttribute('data-theme', savedTheme);
-        })();
-    </script>
 </head>
 <body>
     <!-- 返回按钮 -->
@@ -253,7 +250,7 @@
             { color: 0x2d3436, name: '深灰' },
             { color: 0xffffff, name: '白色' },
             { color: 0x000000, name: '黑色' },
-            { color: 0x16213e, name: '午夜蓝' }
+            { color: 0x16213e, name: 'midnight-blue' }
         ];
 
         // 初始化场景

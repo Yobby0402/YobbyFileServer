@@ -1,9 +1,10 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
+    {% include '_theme_bootstrap.html' %}
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>使用帮助 - Yobboy 文件服务器 R1</title>
+    <title>使用帮助 - Yobboy 文件服务器 R1.3</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap.min.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/font-awesome.min.css') }}">
         <!-- Theme System -->
@@ -268,12 +269,6 @@
             }
         }
     </style>
-    <script>
-        (function() {
-            const savedTheme = localStorage.getItem('site_theme') || 'jasmine';
-            document.body.setAttribute('data-theme', savedTheme);
-        })();
-    </script>
 </head>
 <body>
     <header class="hero">
@@ -284,17 +279,17 @@
                         <i class="fas fa-compass"></i> Yobboy 文件服务器 · 使用帮助中心
                     </h1>
                     <p class="mb-3">
-                        欢迎体验 R1.1 —— 功能完善的本地文件管理和协作工具。
-                        集成了文件浏览、在线编辑、任务管理、产品对比、图表编辑、串口调试等多种功能。
+                        欢迎体验 R1.3 —— 功能完善的本地文件管理和协作工具。
+                        集成了文件浏览、在线编辑、任务管理、产品对比、图表编辑、串口调试、共享串口与持续日志等多种功能。
                         本页汇总了快速上手、核心功能、管理配置、安全提示与常见问题，帮助你和团队高效协作。
                     </p>
-                    <span class="badge-pill"><i class="fas fa-history"></i> 最后更新：2026-01-20 · 版本 R1.2</span>
+                    <span class="badge-pill"><i class="fas fa-history"></i> 最后更新：2026-04-02 · 版本 R1.3</span>
                 </div>
                 <div class="d-flex flex-column flex-sm-row gap-3">
                     <a class="btn btn-soft btn-success" href="{{ url_for('serial_tool') }}">
                         <i class="fas fa-bolt"></i> 打开串口调试助手
                     </a>
-                    <a class="btn btn-outline-soft" href="{{ url_for('todo_page') }}">
+                    <a class="btn btn-outline-soft" href="{{ url_for('todo_v2_page') }}">
                         <i class="fas fa-tasks"></i> 前往 ToDo 任务管理
                     </a>
                 </div>
@@ -359,7 +354,7 @@
             </section>
 
             <section class="help-section" id="core-features">
-                <h2><i class="fas fa-gem"></i> 核心功能速览 <span>R1.1 版本</span></h2>
+                <h2><i class="fas fa-gem"></i> 核心功能速览 <span>R1.3 版本</span></h2>
                 <div class="divider"></div>
                 <div class="sub-grid">
                     <div class="feature-card">
@@ -375,9 +370,9 @@
                     <div class="feature-card">
                         <h3><i class="fas fa-microchip"></i> 串口助手 & 持续日志</h3>
                         <ul>
-                            <li>Web Serial + 远程串口双模式；参数配置、快捷键、终端模式一应俱全。</li>
-                            <li>可为服务器串口开启持续日志，日志 JSON Lines 写入，可随时载入回放。</li>
-                            <li>历史日志与实时调试互不干扰，可随时“接管”串口继续调试。</li>
+                            <li>Web Serial、本地串口共享、远程串口三种路径统一协作；参数配置、快捷键、终端模式一应俱全。</li>
+                            <li>可为服务器串口或共享串口开启持续日志，日志 JSON Lines 写入并支持分页载入回放。</li>
+                            <li>历史日志与实时调试互不干扰，可随时“接管”服务器串口继续调试或停止日志。</li>
                         </ul>
                     </div>
                     <div class="feature-card">
@@ -652,23 +647,25 @@ port = 5000
                             <i class="fas fa-shield-alt mt-1"></i>
                             <div>
                                 <strong>浏览器限制：</strong>必须在 HTTPS 或 <code>localhost</code> 下使用 Web Serial 功能；非安全上下文请切换到远程模式。
+                                现在服务器设置支持兼容模式，可保留主站 HTTP，并为串口助手单独开启 HTTPS 入口。
                             </div>
                         </div>
                     </div>
                     <div class="feature-card">
                         <h3><i class="fas fa-cloud"></i> 远程串口模式</h3>
                         <ul>
-                            <li>通过 Socket.IO 连接服务器串口，可远程监控与发送命令。</li>
-                            <li>支持多监听器，调试过程不会影响后台日志记录。</li>
-                            <li>断开连接前自动保存当前会话日志，便于追踪历史。</li>
+                            <li>通过 Socket.IO 连接服务器串口或浏览器共享串口，可远程监控与发送命令。</li>
+                            <li>所有客户端共享同一收发流，支持多监听器同时查看、同时发送并实时同步。</li>
+                            <li>浏览器无需安装额外程序；共享端关闭页面后，对应共享串口会自动下线。</li>
                         </ul>
                     </div>
                     <div class="feature-card">
                         <h3><i class="fas fa-clipboard-list"></i> 持续日志捕获</h3>
                         <ul>
                             <li>在“持续日志”面板选择串口和参数，点击“开启持续日志”即可后台写入 JSONL。</li>
-                            <li>日志可以随时载入到当前界面，与实时数据一起查看，支持增量加载。</li>
-                            <li>可随时停止日志捕获；日志保存在 <code>logs/serial_capture/&lt;port&gt;/YYYY-MM-DD.jsonl</code>。</li>
+                            <li>日志可以随时载入到当前界面，与实时数据一起查看；默认仅加载最近一段记录，旧记录按需继续读取。</li>
+                            <li>浏览器共享串口断开后对应日志会自动停止；服务器本机串口日志则可由任意后续客户端手动停止。</li>
+                            <li>日志保存在 <code>logs/serial_capture/&lt;port&gt;/YYYY-MM-DD.jsonl</code>。</li>
                             <li>API：<code>POST /api/serial/capture/start</code>、<code>/stop</code>、<code>/status</code>、<code>/log/&lt;port&gt;</code>。</li>
                         </ul>
                     </div>
@@ -911,6 +908,7 @@ port = 5000
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
+    {% include '_theme_bootstrap.html' %}
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>使用帮助 - Yobboy文件服务器</title>
@@ -1065,12 +1063,6 @@ port = 5000
             overflow-x: auto;
         }
     </style>
-    <script>
-        (function() {
-            const savedTheme = localStorage.getItem('site_theme') || 'jasmine';
-            document.body.setAttribute('data-theme', savedTheme);
-        })();
-    </script>
 </head>
 <body>
     <div class="help-container">

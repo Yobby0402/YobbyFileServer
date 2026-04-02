@@ -2,6 +2,7 @@
 <html lang="zh-CN">
 
 <head>
+    {% include '_theme_bootstrap.html' %}
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Yobboy 文件服务器</title>
@@ -6524,19 +6525,6 @@
         document.addEventListener('DOMContentLoaded', function() {
             checkGitEnabled();
             
-        });
-    </script>
-    <script>
-        // Theme Management
-        function setTheme(themeName) {
-            document.body.setAttribute('data-theme', themeName);
-            localStorage.setItem('site_theme', themeName);
-        }
-
-        // Load saved theme
-        document.addEventListener('DOMContentLoaded', () => {
-            const savedTheme = localStorage.getItem('site_theme') || 'jasmine';
-            setTheme(savedTheme);
         });
     </script>
     <!-- Marked.js 用于Markdown实时预览 -->

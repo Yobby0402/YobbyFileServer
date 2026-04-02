@@ -2,6 +2,7 @@
 <html lang="zh-CN">
 
 <head>
+    {% include '_theme_bootstrap.html' %}
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Yobboy文件服务器</title>
@@ -260,6 +261,8 @@
             transition: all 0.3s cubic-bezier(0.165, 0.84, 0.44, 1);
             box-shadow: var(--t-shadow-lg);
             border: 1px solid var(--t-border-light);
+            max-height: 65vh;
+            overflow-y: auto;
         }
 
         .theme-wrapper:hover .theme-dropdown-menu {
@@ -269,27 +272,701 @@
         }
 
         .theme-item {
-            display: block;
-            padding: 10px 20px;
+            display: flex;
+            align-items: center;
+            min-height: 44px;
+            margin: 4px 8px;
+            padding: 10px 16px;
             color: var(--t-text-main);
             text-decoration: none;
             cursor: pointer;
-            transition: background 0.2s, color 0.2s;
+            transition: background 0.2s, color 0.2s, border-color 0.2s, box-shadow 0.2s, transform 0.2s;
             text-align: left;
             font-size: 0.95rem;
             white-space: nowrap;
+            border-radius: 12px;
+            border: 1px solid transparent;
         }
 
         .theme-item:hover {
             background: var(--t-primary-faint);
             color: var(--t-primary);
+            border-color: rgba(255, 255, 255, 0.2);
+        }
+
+        .theme-item::before {
+            content: '\2713';
+            display: inline-block;
+            width: 16px;
+            margin-right: 8px;
+            opacity: 0;
+            color: var(--t-primary-hover);
+            font-weight: 700;
+        }
+
+        .theme-item.is-active {
+            background: linear-gradient(135deg, var(--t-primary), var(--t-primary-hover));
+            color: var(--t-text-light);
+            border-color: rgba(255, 255, 255, 0.8);
+            box-shadow: 0 10px 20px rgba(8, 18, 30, 0.18);
+            font-weight: 700;
+        }
+
+        .theme-item.is-active::before {
+            opacity: 1;
+        }
+
+        .theme-group-title {
+            padding: 8px 16px 4px;
+            font-size: 12px;
+            color: var(--t-text-muted);
+            font-weight: 700;
+            letter-spacing: 0.02em;
+            text-transform: uppercase;
+            cursor: default;
+        }
+
+        .theme-divider {
+            margin: 6px 12px;
+            border: none;
+            border-top: 1px solid var(--t-border-light);
+        }
+
+        /* Dual-Morph Studio: same layout, different material rendering */
+        .main-container {
+            padding: 96px 18px 82px;
+            gap: 14px;
+        }
+
+        .choice-section {
+            border-radius: 24px;
+            border: 1px solid rgba(255, 255, 255, 0.35);
+            box-shadow: 0 12px 28px rgba(10, 24, 40, 0.16);
+            backdrop-filter: blur(6px);
+            -webkit-backdrop-filter: blur(6px);
+        }
+
+        .choice-section::after {
+            content: '';
+            position: absolute;
+            width: 240px;
+            height: 240px;
+            border-radius: 999px;
+            right: -80px;
+            top: -80px;
+            background: radial-gradient(circle, rgba(255, 255, 255, 0.28), rgba(255, 255, 255, 0));
+            pointer-events: none;
+            opacity: 0.75;
+        }
+
+        .choice-content {
+            color: var(--t-text-strong);
+            padding: 0 20px;
+        }
+
+        .choice-title {
+            color: var(--t-text-strong);
+            text-shadow: none;
+            letter-spacing: 0.01em;
+        }
+
+        .choice-description {
+            color: var(--t-text-main);
+            opacity: 0.96;
+            max-width: 360px;
+            text-shadow: none;
+        }
+
+        .choice-icon {
+            filter: drop-shadow(0 8px 12px rgba(14, 24, 36, 0.2));
+        }
+
+        .footer {
+            background: linear-gradient(135deg, rgba(8, 18, 30, 0.78), rgba(8, 18, 30, 0.62));
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border-top: 1px solid rgba(255, 255, 255, 0.25);
+        }
+
+        html[data-morph="flat"] .choice-section {
+            background: linear-gradient(145deg, rgba(255, 255, 255, 0.4), rgba(255, 255, 255, 0.12));
+            border-color: rgba(255, 255, 255, 0.42);
+        }
+
+        html[data-morph="glassmorphism"] .choice-section {
+            background: linear-gradient(145deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.03));
+            border: 1.5px solid rgba(255, 255, 255, 0.78);
+            box-shadow:
+                inset 0 1px 0 rgba(255, 255, 255, 0.78),
+                inset 0 -1px 0 rgba(15, 30, 46, 0.2),
+                0 14px 30px rgba(7, 16, 30, 0.22);
+            backdrop-filter: blur(14px) saturate(120%);
+            -webkit-backdrop-filter: blur(14px) saturate(120%);
+        }
+
+        html[data-morph="glassmorphism"] .choice-section:hover {
+            border-color: rgba(255, 255, 255, 0.92);
+            box-shadow:
+                inset 0 1px 0 rgba(255, 255, 255, 0.82),
+                inset 0 -1px 0 rgba(15, 30, 46, 0.26),
+                0 20px 36px rgba(7, 16, 30, 0.28);
+        }
+
+        html[data-morph="glassmorphism"] .top-btn {
+            background: rgba(255, 255, 255, 0.08);
+            color: var(--t-text-strong);
+            border: 1.5px solid rgba(255, 255, 255, 0.78);
+            box-shadow: 0 8px 20px rgba(7, 16, 30, 0.2);
+            backdrop-filter: blur(10px) saturate(118%);
+            -webkit-backdrop-filter: blur(10px) saturate(118%);
+        }
+
+        html[data-morph="glassmorphism"] .top-btn:hover {
+            background: rgba(255, 255, 255, 0.18);
+            color: #fff;
+            border-color: rgba(255, 255, 255, 0.92);
+        }
+
+        html[data-morph="glassmorphism"] .theme-dropdown-menu {
+            background: linear-gradient(145deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.05));
+            border: 1.5px solid rgba(255, 255, 255, 0.75);
+            backdrop-filter: blur(12px) saturate(120%);
+            -webkit-backdrop-filter: blur(12px) saturate(120%);
+        }
+
+        html[data-morph="claymorphism"] .choice-section {
+            background: linear-gradient(155deg, var(--t-primary-faint), var(--t-primary-lighter));
+            border: 2px solid rgba(255, 255, 255, 0.44);
+            box-shadow:
+                inset -2px -2px 7px rgba(255, 255, 255, 0.48),
+                inset 2px 2px 7px rgba(20, 34, 52, 0.2),
+                10px 10px 20px rgba(20, 34, 52, 0.22);
+        }
+
+        html[data-morph="claymorphism"] .choice-section:hover {
+            box-shadow:
+                inset -2px -2px 7px rgba(255, 255, 255, 0.56),
+                inset 2px 2px 8px rgba(20, 34, 52, 0.22),
+                14px 14px 26px rgba(20, 34, 52, 0.24);
+        }
+
+        html[data-morph="claymorphism"] .top-btn {
+            background: linear-gradient(155deg, var(--t-primary-light), var(--t-primary));
+            border: 2px solid rgba(255, 255, 255, 0.45);
+            color: var(--t-text-light);
+            box-shadow:
+                inset -1px -1px 5px rgba(255, 255, 255, 0.34),
+                inset 1px 1px 5px rgba(20, 34, 52, 0.24),
+                6px 6px 14px rgba(20, 34, 52, 0.2);
+        }
+
+        html[data-morph="claymorphism"] .theme-dropdown-menu {
+            background: linear-gradient(155deg, rgba(255, 255, 255, 0.95), var(--t-primary-faint));
+            border: 2px solid rgba(255, 255, 255, 0.45);
+            box-shadow:
+                inset -1px -1px 5px rgba(255, 255, 255, 0.38),
+                8px 8px 16px rgba(20, 34, 52, 0.2);
+        }
+
+        html[data-morph="claymorphism"] .theme-item[data-morph] {
+            background: linear-gradient(155deg, rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0.52));
+            border: 1.5px solid rgba(255, 255, 255, 0.5);
+            box-shadow:
+                inset -1px -1px 4px rgba(255, 255, 255, 0.42),
+                inset 1px 1px 4px rgba(20, 34, 52, 0.12),
+                4px 4px 10px rgba(20, 34, 52, 0.08);
+            color: var(--t-text-main);
+            opacity: 0.58;
+            filter: saturate(0.58);
+        }
+
+        html[data-morph="claymorphism"] .theme-item[data-morph]:hover {
+            opacity: 0.78;
+            filter: saturate(0.82);
+            transform: translateY(-1px);
+        }
+
+        html[data-morph="claymorphism"] .theme-item[data-morph].is-active {
+            background: linear-gradient(155deg, var(--t-primary), var(--t-primary-hover));
+            color: var(--t-text-light);
+            border-color: rgba(255, 255, 255, 0.92);
+            box-shadow:
+                inset -1px -1px 5px rgba(255, 255, 255, 0.2),
+                inset 1px 1px 5px rgba(8, 18, 30, 0.26),
+                0 0 0 3px rgba(255, 255, 255, 0.34),
+                8px 10px 18px rgba(20, 34, 52, 0.22);
+            opacity: 1;
+            filter: none;
+            transform: translateY(-1px);
+        }
+
+        html[data-morph="claymorphism"] .theme-item[data-morph].is-active::before {
+            color: #fff;
+        }
+
+        .tool-viewport {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 92px;
+            overflow: hidden;
+            z-index: 1;
+        }
+
+        .ambient-backdrop {
+            position: fixed;
+            inset: 0;
+            z-index: 0;
+            pointer-events: none;
+            overflow: hidden;
+        }
+
+        .ambient-orb {
+            position: absolute;
+            border-radius: 999px;
+            filter: blur(48px);
+            opacity: 0.48;
+            mix-blend-mode: screen;
+            animation: driftOrb 18s ease-in-out infinite alternate;
+        }
+
+        .ambient-orb.orb-a {
+            width: 420px;
+            height: 420px;
+            left: -120px;
+            top: 12vh;
+            background: radial-gradient(circle, rgba(255, 255, 255, 0.4), rgba(255, 255, 255, 0));
+        }
+
+        .ambient-orb.orb-b {
+            width: 380px;
+            height: 380px;
+            right: -80px;
+            top: 36vh;
+            background: radial-gradient(circle, rgba(255, 255, 255, 0.3), rgba(255, 255, 255, 0));
+            animation-duration: 22s;
+        }
+
+        .ambient-grid {
+            position: absolute;
+            inset: 0;
+            background-image:
+                linear-gradient(rgba(255, 255, 255, 0.06) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255, 255, 255, 0.06) 1px, transparent 1px);
+            background-size: 56px 56px;
+            mask-image: radial-gradient(circle at 50% 45%, black 25%, transparent 75%);
+            opacity: 0.22;
+        }
+
+        .ambient-noise {
+            position: absolute;
+            inset: 0;
+            background-image: radial-gradient(rgba(255, 255, 255, 0.12) 0.5px, transparent 0.5px);
+            background-size: 3px 3px;
+            opacity: 0.08;
+        }
+
+        @keyframes driftOrb {
+            0% {
+                transform: translate3d(0, 0, 0) scale(1);
+            }
+            100% {
+                transform: translate3d(28px, -22px, 0) scale(1.08);
+            }
+        }
+
+        .tool-track {
+            display: flex;
+            height: 100%;
+            width: 100%;
+            transition: transform 620ms cubic-bezier(0.22, 0.61, 0.36, 1);
+            will-change: transform;
+        }
+
+        .tool-screen {
+            min-width: 100vw;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            position: relative;
+            overflow: hidden;
+            padding: 106px 72px 30px;
+        }
+
+        .tool-screen::before {
+            content: "";
+            position: absolute;
+            inset: 0;
+            background:
+                radial-gradient(circle at 12% 20%, rgba(255, 255, 255, 0.28), transparent 42%),
+                radial-gradient(circle at 82% 74%, rgba(255, 255, 255, 0.2), transparent 45%);
+            pointer-events: none;
+        }
+
+        .tool-content {
+            max-width: 1480px;
+            width: 100%;
+            position: relative;
+            z-index: 2;
+            display: grid;
+            grid-template-columns: minmax(0, 2fr) minmax(220px, 0.42fr);
+            gap: clamp(22px, 3vw, 40px);
+            align-items: center;
+            color: var(--t-text-strong);
+            opacity: 0.18;
+            transform: translateY(22px) scale(0.985);
+            transition: opacity 380ms ease-out, transform 520ms cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        .tool-main {
+            text-align: left;
+            min-width: 0;
+            display: flex;
+            flex-direction: column;
+            --tool-copy-width: min(100%, 1160px);
+        }
+
+        .tool-screen.layout-right .tool-main {
+            order: 2;
+            justify-self: end;
+            padding-right: clamp(28px, 5vw, 92px);
+            text-align: left;
+            align-items: flex-start;
+            --tool-copy-width: min(100%, 960px);
+        }
+
+        .tool-screen.layout-right .tool-enter-tip {
+            justify-content: flex-start;
+        }
+
+        .tool-screen.layout-right .tool-meta {
+            order: 1;
+            justify-self: start;
+        }
+
+        .tool-main > * {
+            opacity: 0;
+            transform: translateY(16px);
+            transition: opacity 360ms ease-out, transform 520ms cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        .tool-screen.is-active-screen .tool-main > * {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        .tool-screen.is-active-screen .tool-main > *:nth-child(1) {
+            transition-delay: 60ms;
+        }
+        .tool-screen.is-active-screen .tool-main > *:nth-child(2) {
+            transition-delay: 120ms;
+        }
+        .tool-screen.is-active-screen .tool-main > *:nth-child(3) {
+            transition-delay: 180ms;
+        }
+        .tool-screen.is-active-screen .tool-main > *:nth-child(4) {
+            transition-delay: 240ms;
+        }
+
+        .tool-screen.is-active-screen .tool-content {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+        }
+
+        .tool-kicker {
+            font-size: 12px;
+            letter-spacing: 0.16em;
+            text-transform: uppercase;
+            font-weight: 700;
+            color: var(--t-text-muted);
+            margin-bottom: 10px;
+            width: var(--tool-copy-width);
+        }
+
+        .tool-title {
+            margin: 0;
+            font-size: clamp(42px, 5.6vw, 84px);
+            line-height: 1.02;
+            color: var(--t-text-strong);
+            white-space: nowrap;
+            transition: letter-spacing 320ms ease, text-shadow 360ms ease;
+            width: var(--tool-copy-width);
+        }
+
+        .tool-screen.is-active-screen .tool-title {
+            letter-spacing: 0.01em;
+            text-shadow: 0 10px 24px rgba(8, 18, 30, 0.16);
+        }
+
+        .tool-desc {
+            margin: 14px 0 0;
+            font-size: clamp(14px, 1.28vw, 18px);
+            line-height: 1.55;
+            color: var(--t-text-main);
+            width: var(--tool-copy-width);
+            max-width: var(--tool-copy-width);
+            white-space: nowrap;
+        }
+
+        .tool-enter-tip {
+            margin-top: 18px;
+            font-size: 13px;
+            color: var(--t-text-muted);
+            letter-spacing: 0.02em;
+            opacity: 0.86;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            width: var(--tool-copy-width);
+        }
+
+        .tool-enter-tip i {
+            font-size: 12px;
+            opacity: 0.72;
+        }
+
+        .tool-meta {
+            border: 1px solid rgba(255, 255, 255, 0.36);
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 18px;
+            padding: 18px 18px 16px;
+            width: min(260px, 100%);
+            justify-self: end;
+            box-shadow: 0 12px 24px rgba(8, 18, 30, 0.16);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            opacity: 0;
+            transform: translateY(16px) scale(0.985);
+            transition: opacity 360ms ease-out 220ms, transform 520ms cubic-bezier(0.16, 1, 0.3, 1) 220ms;
+        }
+
+        .tool-screen.is-active-screen .tool-meta {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+        }
+
+        .tool-meta-title {
+            font-size: 11px;
+            letter-spacing: 0.16em;
+            text-transform: uppercase;
+            font-weight: 700;
+            color: var(--t-text-muted);
+            margin-bottom: 10px;
+        }
+
+        .tool-points {
+            list-style: none;
+            margin: 0;
+            padding: 0;
+            display: grid;
+            gap: 8px;
+        }
+
+        .tool-points li {
+            font-size: 13px;
+            line-height: 1.5;
+            color: var(--t-text-main);
+            display: flex;
+            align-items: flex-start;
+            gap: 8px;
+        }
+
+        .tool-points li::before {
+            content: "•";
+            color: var(--t-primary);
+            font-weight: 700;
+            line-height: 1.3;
+        }
+
+        .tool-chips {
+            margin-top: 12px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+        }
+
+        .tool-chip {
+            font-size: 11px;
+            border-radius: 999px;
+            padding: 3px 8px;
+            border: 1px solid rgba(255, 255, 255, 0.46);
+            background: rgba(255, 255, 255, 0.14);
+            color: var(--t-text-strong);
+        }
+
+        .side-nav-btn {
+            position: fixed;
+            top: 50%;
+            transform: translateY(-50%);
+            z-index: 125;
+            width: 46px;
+            height: 46px;
+            border-radius: 999px;
+            border: 1px solid rgba(255, 255, 255, 0.68);
+            background: rgba(255, 255, 255, 0.16);
+            color: var(--t-text-strong);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            backdrop-filter: blur(8px) saturate(120%);
+            -webkit-backdrop-filter: blur(8px);
+            transition: transform 220ms ease-out, background 220ms ease-out, box-shadow 220ms ease-out;
+        }
+
+        .side-nav-btn:hover {
+            background: rgba(255, 255, 255, 0.3);
+            transform: translateY(-50%) scale(1.05);
+            box-shadow: 0 8px 18px rgba(8, 18, 30, 0.24);
+        }
+
+        .side-nav-btn.left {
+            left: 16px;
+        }
+
+        .side-nav-btn.right {
+            right: 16px;
+        }
+
+        .quick-dock {
+            position: fixed;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            z-index: 130;
+            padding: 12px 14px 14px;
+            background: linear-gradient(180deg, rgba(8, 18, 30, 0.12), rgba(8, 18, 30, 0.7));
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border-top: 1px solid rgba(255, 255, 255, 0.24);
+        }
+
+        .quick-switch {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+        }
+
+        .switch-item {
+            width: 44px;
+            height: 44px;
+            border-radius: 999px;
+            border: 1px solid rgba(255, 255, 255, 0.5);
+            background: rgba(255, 255, 255, 0.14);
+            color: #f7fbff;
+            font-size: 16px;
+            cursor: pointer;
+            transition: transform 180ms ease-out, background 220ms ease, box-shadow 220ms ease, border-color 220ms ease;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .switch-item:hover {
+            transform: translateY(-2px) scale(1.03);
+            background: rgba(255, 255, 255, 0.24);
+        }
+
+        .switch-item.is-active {
+            background: linear-gradient(135deg, var(--t-primary), var(--t-primary-light));
+            border-color: rgba(255, 255, 255, 0.92);
+            color: #fff;
+            transform: translateY(-2px) scale(1.06);
+            box-shadow: 0 10px 22px rgba(6, 14, 24, 0.3);
+        }
+
+        html[data-morph="glassmorphism"] .tool-screen {
+            background: linear-gradient(145deg, rgba(255, 255, 255, 0.09), rgba(255, 255, 255, 0.02));
+        }
+
+        html[data-morph="glassmorphism"] .tool-content {
+            text-shadow: 0 1px 0 rgba(255, 255, 255, 0.18);
+        }
+
+        html[data-morph="glassmorphism"] .tool-meta,
+        html[data-morph="glassmorphism"] .tool-chip {
+            background: rgba(255, 255, 255, 0.1);
+            border-color: rgba(255, 255, 255, 0.72);
+        }
+
+        html[data-morph="claymorphism"] .tool-screen {
+            background: linear-gradient(155deg, rgba(255, 255, 255, 0.35), var(--t-primary-faint));
+        }
+
+        html[data-morph="claymorphism"] .tool-meta {
+            background: linear-gradient(155deg, rgba(255, 255, 255, 0.46), var(--t-primary-faint));
+            border: 2px solid rgba(255, 255, 255, 0.5);
+            box-shadow:
+                inset -1px -1px 4px rgba(255, 255, 255, 0.42),
+                inset 1px 1px 4px rgba(20, 34, 52, 0.2),
+                8px 8px 16px rgba(20, 34, 52, 0.18);
+        }
+
+        html[data-morph="claymorphism"] .tool-chip {
+            background: linear-gradient(145deg, rgba(255, 255, 255, 0.42), var(--t-primary-faint));
+            border-color: rgba(255, 255, 255, 0.62);
+        }
+
+        html[data-morph="claymorphism"] .switch-item {
+            background: linear-gradient(155deg, rgba(255, 255, 255, 0.96), rgba(255, 255, 255, 0.62));
+            color: var(--t-text-main);
+            border: 1.5px solid rgba(255, 255, 255, 0.58);
+            box-shadow:
+                inset -2px -2px 5px rgba(255, 255, 255, 0.42),
+                inset 2px 2px 5px rgba(20, 34, 52, 0.12),
+                4px 4px 10px rgba(20, 34, 52, 0.12);
+            opacity: 0.52;
+            filter: saturate(0.45);
+        }
+
+        html[data-morph="claymorphism"] .switch-item.is-active {
+            background: linear-gradient(155deg, var(--t-primary), var(--t-primary-hover));
+            color: #fff;
+            border-color: rgba(255, 255, 255, 0.9);
+            box-shadow:
+                inset -2px -2px 5px rgba(255, 255, 255, 0.18),
+                inset 2px 2px 6px rgba(8, 18, 30, 0.28),
+                0 0 0 3px rgba(255, 255, 255, 0.36),
+                10px 12px 20px rgba(20, 34, 52, 0.24);
+            opacity: 1;
+            filter: none;
+        }
+
+        html[data-morph="claymorphism"] .switch-item:hover {
+            opacity: 0.72;
+            filter: saturate(0.75);
+        }
+
+        .footer {
+            bottom: 92px;
+            font-size: 0.82rem;
+            padding: 8px 10px;
+            background: rgba(8, 18, 30, 0.62);
+            z-index: 260;
+            pointer-events: auto;
+        }
+
+        .footer a {
+            pointer-events: auto;
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            .ambient-orb,
+            .tool-track,
+            .tool-content,
+            .switch-item,
+            .side-nav-btn {
+                animation: none !important;
+                transition: none !important;
+            }
         }
 
         @media (max-width: 768px) {
-            .main-container {
-                flex-direction: column;
-            }
-
             .choice-title {
                 font-size: 2rem;
             }
@@ -308,26 +985,296 @@
                 padding: 8px 15px;
                 font-size: 0.9rem;
             }
+
+            .tool-screen {
+                padding: 88px 18px 14px;
+            }
+
+            .tool-title {
+                font-size: clamp(28px, 8vw, 44px);
+                line-height: 1.06;
+            }
+
+            .tool-desc {
+                font-size: 14px;
+                line-height: 1.45;
+            }
+
+            .tool-content {
+                grid-template-columns: 1fr;
+                gap: 14px;
+            }
+
+            .tool-screen.layout-right .tool-main {
+                order: 1;
+                text-align: left;
+                align-items: flex-start;
+                padding-right: 0;
+            }
+
+            .tool-main {
+                --tool-copy-width: 100%;
+            }
+
+            .tool-screen.layout-right .tool-enter-tip {
+                justify-content: flex-start;
+            }
+
+            .tool-screen.layout-right .tool-meta {
+                order: 2;
+            }
+
+            .side-nav-btn {
+                width: 40px;
+                height: 40px;
+            }
+
+            .switch-item {
+                width: 40px;
+                height: 40px;
+            }
         }
     </style>
     <script>
-        // Inline setup for choice page
-        // 确保在DOM加载完成后设置主题
-        window.setTheme = function (themeName) {
-            document.body.setAttribute('data-theme', themeName);
-            localStorage.setItem('site_theme', themeName);
-            // 触发自定义事件，通知其他组件主题已更改
-            window.dispatchEvent(new CustomEvent('themechanged', { detail: { theme: themeName } }));
+        // Inline setup for choice page: color theme + morph effect
+        const CHOICE_DEBUG_VERSION = 'choice-debug-2026-03-06-v1';
+        function choiceDebugLog(...args) {
+            console.log('[CHOICE-DEBUG]', ...args);
+        }
+        choiceDebugLog('script_loaded', CHOICE_DEBUG_VERSION, 'path=', window.location.pathname);
+
+        const LEGACY_THEME_TO_COLOR = {
+            'jasmine': 'jasmine',
+            'mint-fresh': 'jasmine',
+            'mist-forest': 'forest',
+            'bamboo-grove': 'forest',
+            'tea-garden': 'forest',
+            'sunset': 'sunset',
+            'golden-beach': 'sunset',
+            'orange-warmth': 'sunset',
+            'rose-whisper': 'sunset',
+            'cherry-blossom': 'sunset',
+            'sky-azure': 'ocean',
+            'ocean-shallow': 'ocean',
+            'tech-blue': 'ocean',
+            'cloud-light': 'ocean',
+            'lake-reflection': 'ocean',
+            'aurora': 'ocean',
+            'lavender-field': 'lavender',
+            'purple-dream': 'lavender',
+            'cyberpunk': 'graphite',
+            'morning-mist': 'graphite'
         };
-        
-        // 页面加载时应用保存的主题
-        (function () {
-            const savedTheme = localStorage.getItem('site_theme') || 'jasmine';
-            document.body.setAttribute('data-theme', savedTheme);
-        })();
+
+        function normalizeColorTheme(themeName) {
+            return LEGACY_THEME_TO_COLOR[themeName] || themeName || 'jasmine';
+        }
+
+        function applyThemeAttributes(target, themeColor, morph) {
+            if (!target) return;
+            target.setAttribute('data-theme-color', themeColor);
+            target.setAttribute('data-theme', themeColor);
+            target.setAttribute('data-morph', morph);
+        }
+
+        function getAppliedThemeAttribute(attributeName, fallbackValue) {
+            return document.documentElement.getAttribute(attributeName)
+                || (document.body && document.body.getAttribute(attributeName))
+                || fallbackValue;
+        }
+
+        function applyThemeState(themeColor, morph) {
+            const safeColor = normalizeColorTheme(themeColor);
+            const safeMorph = morph || 'flat';
+            applyThemeAttributes(document.documentElement, safeColor, safeMorph);
+            if (!document.body) {
+                choiceDebugLog('applyThemeState_body_not_ready', { safeColor, safeMorph });
+                return;
+            }
+            applyThemeAttributes(document.body, safeColor, safeMorph);
+            refreshThemeMenuState(safeColor, safeMorph);
+        }
+
+        function refreshThemeMenuState(themeColor, morph) {
+            document.querySelectorAll('.theme-item[data-theme-color], .theme-item[data-morph]').forEach((el) => {
+                el.classList.remove('is-active');
+            });
+            const colorEl = document.querySelector(`.theme-item[data-theme-color="${themeColor}"]`);
+            const morphEl = document.querySelector(`.theme-item[data-morph="${morph}"]`);
+            if (colorEl) colorEl.classList.add('is-active');
+            if (morphEl) morphEl.classList.add('is-active');
+        }
+
+        window.setThemeColor = function (themeColor) {
+            const currentMorph = localStorage.getItem('site_morph') || 'flat';
+            const safeColor = normalizeColorTheme(themeColor);
+            localStorage.setItem('site_theme_color', safeColor);
+            localStorage.setItem('site_theme', safeColor); // keep legacy key updated
+            applyThemeState(safeColor, currentMorph);
+            window.dispatchEvent(new CustomEvent('themechanged', { detail: { themeColor: safeColor, morph: currentMorph } }));
+        };
+
+        window.setMorph = function (morphName) {
+            const currentColor = normalizeColorTheme(localStorage.getItem('site_theme_color') || localStorage.getItem('site_theme') || 'jasmine');
+            const safeMorph = morphName || 'flat';
+            localStorage.setItem('site_morph', safeMorph);
+            applyThemeState(currentColor, safeMorph);
+            window.dispatchEvent(new CustomEvent('themechanged', { detail: { themeColor: currentColor, morph: safeMorph } }));
+        };
+
+        // legacy api
+        window.setTheme = function (themeName) {
+            if (themeName === 'glassmorphism' || themeName === 'neumorphism' || themeName === 'claymorphism') {
+                window.setMorph(themeName === 'neumorphism' ? 'glassmorphism' : themeName);
+                return;
+            }
+            window.setThemeColor(themeName);
+        };
+
+        document.addEventListener('DOMContentLoaded', function () {
+            choiceDebugLog('DOMContentLoaded_fired');
+            const legacyTheme = localStorage.getItem('site_theme') || 'jasmine';
+            const savedColor = normalizeColorTheme(localStorage.getItem('site_theme_color') || legacyTheme);
+            const savedMorph = localStorage.getItem('site_morph') || (
+                legacyTheme === 'glassmorphism' || legacyTheme === 'neumorphism' || legacyTheme === 'claymorphism'
+                    ? (legacyTheme === 'neumorphism' ? 'glassmorphism' : legacyTheme)
+                    : 'flat'
+            );
+            applyThemeState(savedColor, savedMorph);
+            localStorage.setItem('site_theme_color', savedColor);
+            localStorage.setItem('site_theme', savedColor);
+            localStorage.setItem('site_morph', savedMorph);
+
+            refreshThemeMenuState(
+                getAppliedThemeAttribute('data-theme-color', 'jasmine'),
+                getAppliedThemeAttribute('data-morph', 'flat')
+            );
+
+            const viewport = document.getElementById('toolViewport');
+            const track = document.getElementById('toolTrack');
+            const leftBtn = document.getElementById('leftNavBtn');
+            const rightBtn = document.getElementById('rightNavBtn');
+            const switches = Array.from(document.querySelectorAll('.switch-item'));
+            const screens = Array.from(document.querySelectorAll('.tool-screen'));
+            choiceDebugLog('elements_found', {
+                viewport: !!viewport,
+                track: !!track,
+                leftBtn: !!leftBtn,
+                rightBtn: !!rightBtn,
+                switchCount: switches.length,
+                screenCount: screens.length
+            });
+            if (!viewport || !track || !switches.length || !screens.length) return;
+
+            let currentIndex = 0;
+            let autoTimer = null;
+            let wheelLocked = false;
+            const autoInterval = 5000;
+            const total = screens.length;
+
+            function activateSwitch(index) {
+                switches.forEach((btn, i) => btn.classList.toggle('is-active', i === index));
+            }
+
+            function normalizeIndex(index) {
+                if (total === 0) return 0;
+                return (index + total) % total;
+            }
+
+            function renderCurrent() {
+                const offset = currentIndex * viewport.clientWidth;
+                track.style.transform = `translate3d(-${offset}px, 0, 0)`;
+                activateSwitch(currentIndex);
+                screens.forEach((screen, i) => screen.classList.toggle('is-active-screen', i === currentIndex));
+                window.__toolIndex = currentIndex;
+                choiceDebugLog('render_current', { currentIndex, offset, viewportWidth: viewport.clientWidth });
+            }
+
+            function enterCurrentTool() {
+                const url = screens[currentIndex] && screens[currentIndex].dataset.url;
+                choiceDebugLog('enter_current_tool', { currentIndex, url });
+                if (url) window.location.href = url;
+            }
+
+            function resetAutoPlay() {
+                if (autoTimer) clearInterval(autoTimer);
+                autoTimer = setInterval(() => {
+                    choiceDebugLog('autoplay_tick', { currentIndex, next: currentIndex + 1 });
+                    goTo(currentIndex + 1, false);
+                }, autoInterval);
+                choiceDebugLog('autoplay_reset', { intervalMs: autoInterval });
+            }
+
+            function goTo(index, fromUser = true) {
+                const prev = currentIndex;
+                currentIndex = normalizeIndex(index);
+                choiceDebugLog('go_to', { requested: index, normalized: currentIndex, prev, fromUser });
+                renderCurrent();
+                if (fromUser) resetAutoPlay();
+            }
+
+            window.scrollToTool = function (index) {
+                choiceDebugLog('scrollToTool_called', { index });
+                goTo(index, true);
+            };
+
+            window.previewTool = function (index) {
+                choiceDebugLog('previewTool_hover', { index });
+                goTo(index, true);
+            };
+
+            window.enterToolByIndex = function (index) {
+                choiceDebugLog('enterToolByIndex_called', { index, currentIndex });
+                if (typeof index === 'number' && index !== currentIndex) {
+                    goTo(index, true);
+                    setTimeout(() => {
+                        choiceDebugLog('enterToolByIndex_delayed_enter', { index, currentIndex });
+                        if (currentIndex === index) enterCurrentTool();
+                    }, 560);
+                    return;
+                }
+                enterCurrentTool();
+            };
+
+            // Click/mouseenter interactions are bound inline in markup for stronger reliability.
+
+            document.addEventListener('keydown', (event) => {
+                choiceDebugLog('keydown', { key: event.key });
+                if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') {
+                    event.preventDefault();
+                    goTo(currentIndex - 1, true);
+                } else if (event.key === 'ArrowRight' || event.key === 'ArrowDown') {
+                    event.preventDefault();
+                    goTo(currentIndex + 1, true);
+                } else if (event.key === 'Enter') {
+                    enterCurrentTool();
+                }
+            });
+
+            function onWheelSwitch(event) {
+                event.preventDefault();
+                choiceDebugLog('wheel', { deltaY: event.deltaY, wheelLocked });
+                if (wheelLocked) return;
+                wheelLocked = true;
+                const direction = event.deltaY > 0 ? 1 : -1;
+                goTo(currentIndex + direction, true);
+                setTimeout(() => {
+                    wheelLocked = false;
+                    choiceDebugLog('wheel_unlock');
+                }, 420);
+            }
+
+            window.addEventListener('wheel', onWheelSwitch, { passive: false });
+            window.addEventListener('resize', renderCurrent);
+            choiceDebugLog('event_listeners_bound');
+
+            renderCurrent();
+            resetAutoPlay();
+            choiceDebugLog('init_complete');
+        });
     </script>
     <style>
-        /* 确保动态背景覆盖themes.css的样式 */
+        /* 纭繚鍔ㄦ€佽儗鏅鐩杢hemes.css鐨勬牱寮?*/
         body {
             background: transparent !important;
         }
@@ -360,6 +1307,13 @@
 </head>
 
 <body>
+    <div class="ambient-backdrop" aria-hidden="true">
+        <div class="ambient-orb orb-a"></div>
+        <div class="ambient-orb orb-b"></div>
+        <div class="ambient-grid"></div>
+        <div class="ambient-noise"></div>
+    </div>
+
     <div class="top-right-bar">
         <!-- Theme Selection -->
         <div class="theme-wrapper">
@@ -367,26 +1321,18 @@
                 <i class="fa fa-paint-brush"></i> 主题
             </button>
             <div class="theme-dropdown-menu">
-                <div class="theme-item" onclick="setTheme('jasmine')">🍃 茉莉奶白</div>
-                <div class="theme-item" onclick="setTheme('mist-forest')">🌲 迷雾森林</div>
-                <div class="theme-item" onclick="setTheme('sunset')">🌅 日落黄昏</div>
-                <div class="theme-item" onclick="setTheme('golden-beach')">🏖️ 黄金沙滩</div>
-                <div class="theme-item" onclick="setTheme('cyberpunk')">🌃 赛博朋克</div>
-                <div class="theme-item" onclick="setTheme('aurora')">🌌 极光星空</div>
-                <div class="theme-item" onclick="setTheme('mint-fresh')">🌿 薄荷清新</div>
-                <div class="theme-item" onclick="setTheme('cherry-blossom')">🌸 樱花飞舞</div>
-                <div class="theme-item" onclick="setTheme('sky-azure')">☁️ 天空湛蓝</div>
-                <div class="theme-item" onclick="setTheme('lavender-field')">💜 薰衣草田</div>
-                <div class="theme-item" onclick="setTheme('bamboo-grove')">🎋 竹林深处</div>
-                <div class="theme-item" onclick="setTheme('morning-mist')">🌫️ 晨雾朦胧</div>
-                <div class="theme-item" onclick="setTheme('ocean-shallow')">🌊 浅海湛蓝</div>
-                <div class="theme-item" onclick="setTheme('tea-garden')">🍵 茶园时光</div>
-                <div class="theme-item" onclick="setTheme('tech-blue')">💻 科技之光</div>
-                <div class="theme-item" onclick="setTheme('cloud-light')">☁️ 云淡风轻</div>
-                <div class="theme-item" onclick="setTheme('rose-whisper')">🌹 玫瑰轻语</div>
-                <div class="theme-item" onclick="setTheme('orange-warmth')">🍊 橙意暖暖</div>
-                <div class="theme-item" onclick="setTheme('purple-dream')">💭 淡紫梦境</div>
-                <div class="theme-item" onclick="setTheme('lake-reflection')">🏞️ 湖光山色</div>
+                <div class="theme-group-title">颜色主题</div>
+                <div class="theme-item" data-theme-color="jasmine" onclick="setThemeColor('jasmine')">茉莉绿</div>
+                <div class="theme-item" data-theme-color="ocean" onclick="setThemeColor('ocean')">海洋蓝</div>
+                <div class="theme-item" data-theme-color="forest" onclick="setThemeColor('forest')">森林绿</div>
+                <div class="theme-item" data-theme-color="sunset" onclick="setThemeColor('sunset')">落日橙</div>
+                <div class="theme-item" data-theme-color="lavender" onclick="setThemeColor('lavender')">薰衣草紫</div>
+                <div class="theme-item" data-theme-color="graphite" onclick="setThemeColor('graphite')">石墨深灰</div>
+                <hr class="theme-divider">
+                <div class="theme-group-title">拟态效果</div>
+                <div class="theme-item" data-morph="flat" onclick="setMorph('flat')">纯色模式（无拟态）</div>
+                <div class="theme-item" data-morph="glassmorphism" onclick="setMorph('glassmorphism')">玻璃拟态</div>
+                <div class="theme-item" data-morph="claymorphism" onclick="setMorph('claymorphism')">粘土拟态</div>
             </div>
         </div>
 
@@ -396,72 +1342,151 @@
         </a>
     </div>
 
-    <div class="main-container">
-        <div class="choice-section file-browser" onclick="window.location.href='/file_browser'">
-            <div class="choice-content">
-                <span class="choice-icon">📁</span>
-                <h2 class="choice-title">文件浏览器</h2>
-                <p class="choice-description">
-                    浏览、预览和下载服务器上的文件<br>
-                    支持多种文件格式查看和下载<br>
-                    全离线模式，仅局域网内访问，访问记录可查询
-                </p>
-            </div>
-        </div>
+    <button class="side-nav-btn left" id="leftNavBtn" type="button" aria-label="上一页" onclick="scrollToTool((window.__toolIndex || 0) - 1)">
+        <i class="fas fa-chevron-left"></i>
+    </button>
+    <button class="side-nav-btn right" id="rightNavBtn" type="button" aria-label="下一页" onclick="scrollToTool((window.__toolIndex || 0) + 1)">
+        <i class="fas fa-chevron-right"></i>
+    </button>
 
-        <div class="choice-section todo-board" onclick="window.location.href='/todo/v2'">
-            <div class="choice-content">
-                <span class="choice-icon">📝</span>
-                <h2 class="choice-title">ToDo 任务管理</h2>
-                <p class="choice-description">
-                    项目管理与任务追踪系统<br>
-                    支持项目分组、任务排序、进度跟踪<br>
-                    待完成概览卡片展示
-                </p>
-            </div>
-        </div>
+    <div class="tool-viewport" id="toolViewport">
+        <div class="tool-track" id="toolTrack">
+            <section class="tool-screen" data-tool="file_browser" data-url="/file_browser" onclick="enterToolByIndex(0)">
+                <div class="tool-content">
+                    <div class="tool-main">
+                        <div class="tool-kicker">01 / 05 · File Hub</div>
+                        <h2 class="tool-title">文件浏览器</h2>
+                        <p class="tool-desc">查看、检索和共享本地文件与资料。</p>
+                        <p class="tool-enter-tip"><i class="fas fa-mouse-pointer"></i>点击此页面任意位置进入</p>
+                    </div>
+                    <aside class="tool-meta">
+                        <div class="tool-meta-title">核心能力</div>
+                        <ul class="tool-points">
+                            <li>多格式预览与下载一体化</li>
+                            <li>收藏分组快速回访常用目录</li>
+                            <li>支持局域网内高效共享</li>
+                        </ul>
+                        <div class="tool-chips">
+                            <span class="tool-chip">文件检索</span>
+                            <span class="tool-chip">预览</span>
+                            <span class="tool-chip">共享</span>
+                        </div>
+                    </aside>
+                </div>
+            </section>
 
-        <div class="choice-section product-compare" onclick="window.location.href='/product_compare'">
-            <div class="choice-content">
-                <span class="choice-icon">⚖️</span>
-                <h2 class="choice-title">产品对比</h2>
-                <p class="choice-description">
-                    记录和对比不同产品的参数<br>
-                    支持表格和雷达图直观展示<br>
-                    多维度分析产品优势与劣势
-                </p>
-            </div>
-        </div>
+            <section class="tool-screen layout-right" data-tool="todo_v2" data-url="/todo/v2" onclick="enterToolByIndex(1)">
+                <div class="tool-content">
+                    <div class="tool-main">
+                        <div class="tool-kicker">02 / 05 · Task Studio</div>
+                        <h2 class="tool-title">ToDo 任务管理</h2>
+                        <p class="tool-desc">管理项目任务、周计划和汇报进度。</p>
+                        <p class="tool-enter-tip"><i class="fas fa-mouse-pointer"></i>点击此页面任意位置进入</p>
+                    </div>
+                    <aside class="tool-meta">
+                        <div class="tool-meta-title">效率亮点</div>
+                        <ul class="tool-points">
+                            <li>表格与汇报双视图一键切换</li>
+                            <li>优先级与进度可视化管理</li>
+                            <li>历史记录支持追溯与复盘</li>
+                        </ul>
+                        <div class="tool-chips">
+                            <span class="tool-chip">项目协同</span>
+                            <span class="tool-chip">周报</span>
+                            <span class="tool-chip">追踪</span>
+                        </div>
+                    </aside>
+                </div>
+            </section>
 
-        <div class="choice-section drawio-editor" onclick="window.location.href='/drawio_main'">
-            <div class="choice-content">
-                <span class="choice-icon">📊</span>
-                <h2 class="choice-title">Draw.io 编辑器</h2>
-                <p class="choice-description">
-                    创建和编辑流程图、架构图<br>
-                    支持本地文件上传和服务器保存<br>
-                    全离线模式，不依赖第三方服务，本地存储，安全可靠
-                </p>
-            </div>
-        </div>
+            <section class="tool-screen" data-tool="product_compare" data-url="/product_compare" onclick="enterToolByIndex(2)">
+                <div class="tool-content">
+                    <div class="tool-main">
+                        <div class="tool-kicker">03 / 05 · Compare Lab</div>
+                        <h2 class="tool-title">产品对比</h2>
+                        <p class="tool-desc">对比参数差异，快速完成选型决策。</p>
+                        <p class="tool-enter-tip"><i class="fas fa-mouse-pointer"></i>点击此页面任意位置进入</p>
+                    </div>
+                    <aside class="tool-meta">
+                        <div class="tool-meta-title">决策支持</div>
+                        <ul class="tool-points">
+                            <li>同屏比对核心参数差异</li>
+                            <li>雷达图快速观察优势短板</li>
+                            <li>对比结果便于复用与沉淀</li>
+                        </ul>
+                        <div class="tool-chips">
+                            <span class="tool-chip">选型</span>
+                            <span class="tool-chip">竞品</span>
+                            <span class="tool-chip">可视化</span>
+                        </div>
+                    </aside>
+                </div>
+            </section>
 
-        <div class="choice-section serial-tool" onclick="window.location.href='/serial_tool'">
-            <div class="choice-content">
-                <span class="choice-icon">🔌</span>
-                <h2 class="choice-title">串口调试助手</h2>
-                <p class="choice-description">
-                    连接本地或远程串口设备<br>
-                    实时数据收发与监控<br>
-                    支持数据记录、十六进制显示等功能
-                </p>
-            </div>
+            <section class="tool-screen layout-right" data-tool="drawio_main" data-url="/drawio_main" onclick="enterToolByIndex(3)">
+                <div class="tool-content">
+                    <div class="tool-main">
+                        <div class="tool-kicker">04 / 05 · Diagram Space</div>
+                        <h2 class="tool-title">Draw.io 编辑器</h2>
+                        <p class="tool-desc">绘制流程图、架构图并本地保存。</p>
+                        <p class="tool-enter-tip"><i class="fas fa-mouse-pointer"></i>点击此页面任意位置进入</p>
+                    </div>
+                    <aside class="tool-meta">
+                        <div class="tool-meta-title">图表能力</div>
+                        <ul class="tool-points">
+                            <li>流程图与架构图统一编辑</li>
+                            <li>本地保存保障数据可控</li>
+                            <li>适合评审演示与归档</li>
+                        </ul>
+                        <div class="tool-chips">
+                            <span class="tool-chip">流程图</span>
+                            <span class="tool-chip">架构图</span>
+                            <span class="tool-chip">本地化</span>
+                        </div>
+                    </aside>
+                </div>
+            </section>
+
+            <section class="tool-screen" data-tool="serial_tool" data-url="/serial_tool" onclick="enterToolByIndex(4)">
+                <div class="tool-content">
+                    <div class="tool-main">
+                        <div class="tool-kicker">05 / 05 · Serial Console</div>
+                        <h2 class="tool-title">串口调试助手</h2>
+                        <p class="tool-desc">连接串口设备，实时收发与排查问题。</p>
+                        <p class="tool-enter-tip"><i class="fas fa-mouse-pointer"></i>点击此页面任意位置进入</p>
+                    </div>
+                    <aside class="tool-meta">
+                        <div class="tool-meta-title">调试能力</div>
+                        <ul class="tool-points">
+                            <li>实时收发与链路状态观察</li>
+                            <li>日志记录辅助故障定位</li>
+                            <li>覆盖本地与远程设备场景</li>
+                        </ul>
+                        <div class="tool-chips">
+                            <span class="tool-chip">串口通信</span>
+                            <span class="tool-chip">监控</span>
+                            <span class="tool-chip">诊断</span>
+                        </div>
+                    </aside>
+                </div>
+            </section>
         </div>
     </div>
 
-    <div class="footer">
+    <div class="quick-dock">
+        <div class="quick-switch">
+            <button class="switch-item is-active" type="button" aria-label="文件浏览器" onmouseenter="previewTool(0)" onclick="enterToolByIndex(0)"><i class="fas fa-folder-open"></i></button>
+            <button class="switch-item" type="button" aria-label="ToDo 任务管理" onmouseenter="previewTool(1)" onclick="enterToolByIndex(1)"><i class="fas fa-tasks"></i></button>
+            <button class="switch-item" type="button" aria-label="产品对比" onmouseenter="previewTool(2)" onclick="enterToolByIndex(2)"><i class="fas fa-balance-scale"></i></button>
+            <button class="switch-item" type="button" aria-label="Draw.io 编辑器" onmouseenter="previewTool(3)" onclick="enterToolByIndex(3)"><i class="fas fa-project-diagram"></i></button>
+            <button class="switch-item" type="button" aria-label="串口调试助手" onmouseenter="previewTool(4)" onclick="enterToolByIndex(4)"><i class="fas fa-plug"></i></button>
+        </div>
+    </div>
+
+    <div class="footer" onclick="event.stopPropagation();">
         © 2025 Yobboy文件服务器 - 本地化文件管理与图表编辑解决方案
         <br>
-        <a href="/help" style="color: #4facfe; text-decoration: none; margin-top: 10px; display: inline-block;">
+        <a href="/help" onclick="event.stopPropagation();" style="color: #4facfe; text-decoration: none; margin-top: 10px; display: inline-block;">
             <i class="fas fa-question-circle"></i> 使用帮助
         </a>
     </div>

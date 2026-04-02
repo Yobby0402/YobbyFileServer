@@ -64,7 +64,7 @@ body {
     flex-shrink: 0;
 }
 
-/* 统一所有控件的高度为38px */
+/* 缁熶竴鎵€鏈夋帶浠剁殑楂樺害涓?8px */
 .todo-header .input-group {
     height: 38px;
     display: flex;
@@ -87,7 +87,7 @@ body {
     flex: 1;
 }
 
-/* 统一输入框和按钮的样式 */
+/* 缁熶竴杈撳叆妗嗗拰鎸夐挳鐨勬牱寮?*/
 .todo-header .form-control {
     padding: 8px 16px;
     border-radius: 8px;
@@ -148,7 +148,7 @@ body {
     border-radius: 8px;
 }
 
-/* 统一按钮样式 */
+/* 缁熶竴鎸夐挳鏍峰紡 */
 .todo-header .btn {
     padding: 8px 16px;
     border-radius: 8px;
@@ -167,7 +167,7 @@ body {
     font-size: 14px;
 }
 
-/* 字体大小控件统一高度 */
+/* 瀛椾綋澶у皬鎺т欢缁熶竴楂樺害 */
 .font-size-controls {
     display: flex;
     gap: 8px;
@@ -210,7 +210,7 @@ body {
     color: rgba(241, 245, 255, 0.8);
 }
 
-/* 风格切换开关统一高度 */
+/* 椋庢牸鍒囨崲寮€鍏崇粺涓€楂樺害 */
 .style-switch {
     display: flex;
     align-items: center;
@@ -231,7 +231,7 @@ body {
     white-space: nowrap;
 }
 
-/* 文件状态badge统一高度 */
+/* 鏂囦欢鐘舵€乥adge缁熶竴楂樺害 */
 .file-status-badge {
     height: 38px;
     line-height: 38px;
@@ -293,7 +293,7 @@ input:checked + .slider:before {
     transform: translateX(26px);
 }
 
-/* 可折叠的待完成任务列表 */
+/* 鍙姌鍙犵殑寰呭畬鎴愪换鍔″垪琛?*/
 .collapsible-header {
     cursor: pointer;
     user-select: none;
@@ -316,7 +316,7 @@ input:checked + .slider:before {
     display: none;
 }
 
-/* 风格容器 */
+/* 椋庢牸瀹瑰櫒 */
 .style-container {
     display: none;
 }
@@ -325,7 +325,7 @@ input:checked + .slider:before {
     display: block;
 }
 
-/* 表格风格样式 */
+/* 琛ㄦ牸椋庢牸鏍峰紡 */
 .table-style {
     background: rgba(255, 255, 255, 0.95);
     border-radius: 16px;
@@ -458,7 +458,7 @@ input:checked + .slider:before {
     vertical-align: top;
 }
 
-/* 确保表格中的详细描述列能正确显示换行 */
+/* 纭繚琛ㄦ牸涓殑璇︾粏鎻忚堪鍒楄兘姝ｇ‘鏄剧ず鎹㈣ */
 .preview-table td[data-column="description"] {
     white-space: normal;
     word-wrap: break-word;
@@ -489,7 +489,7 @@ input:checked + .slider:before {
     margin: 0;
 }
 
-/* 改动数量链接 */
+/* 鏀瑰姩鏁伴噺閾炬帴 */
 .change-count-link {
     color: #0066cc;
     cursor: pointer;
@@ -501,7 +501,7 @@ input:checked + .slider:before {
     text-decoration: underline;
 }
 
-/* 筛选面板 */
+/* 绛涢€夐潰鏉?*/
 .filter-overlay {
     position: fixed;
     top: 0;
@@ -561,7 +561,7 @@ input:checked + .slider:before {
     border-top: 1px solid #e0e0e0;
 }
 
-/* 导出配置样式 */
+/* 瀵煎嚭閰嶇疆鏍峰紡 */
 .config-section {
     margin-bottom: 24px;
     padding-bottom: 20px;
@@ -635,7 +635,7 @@ input:checked + .slider:before {
     color: #475569;
 }
 
-/* 历史记录表格 */
+/* 鍘嗗彶璁板綍琛ㄦ牸 */
 #historyTable {
     margin-bottom: 0;
 }
@@ -660,14 +660,14 @@ input:checked + .slider:before {
     justify-content: center;
 }
 
-/* 字体大小变量 */
+/* 瀛椾綋澶у皬鍙橀噺 */
 .todo-v2-page {
     --font-size-base: 14px;
     --font-size-project: 16px;
     --font-size-task: 14px;
 }
 
-/* 表格风格字体大小 */
+/* 琛ㄦ牸椋庢牸瀛椾綋澶у皬 */
 .table-style.font-size-small .preview-table {
     font-size: 11px;
 }
@@ -763,12 +763,43 @@ input:checked + .slider:before {
     gap: 16px;
 }
 
+.project-section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
+    padding: 14px 18px;
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.78);
+    border: 1px dashed rgba(120, 130, 150, 0.35);
+    color: #475569;
+}
+
+.project-section-title {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 700;
+    color: #334155;
+}
+
+.project-section-description {
+    font-size: 13px;
+    color: #64748b;
+}
+
 .project-table-wrapper {
     background: rgba(255, 255, 255, 0.92);
     border-radius: 18px;
     box-shadow: 0 16px 40px rgba(31, 143, 126, 0.18);
     border: 1px solid rgba(95, 191, 174, 0.2);
     overflow: hidden;
+}
+
+.project-table-wrapper.archived-project {
+    opacity: 0.92;
+    border-color: rgba(148, 163, 184, 0.35);
+    box-shadow: 0 12px 28px rgba(100, 116, 139, 0.14);
 }
 
 .project-header {
@@ -826,6 +857,23 @@ input:checked + .slider:before {
     color: #64748b;
 }
 
+.project-archived-badge,
+.project-archived-badge-inline {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: rgba(148, 163, 184, 0.18);
+    color: #475569;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.project-archived-badge-inline {
+    margin-left: 6px;
+}
+
 .project-progress {
     display: flex;
     align-items: center;
@@ -860,6 +908,68 @@ input:checked + .slider:before {
     display: flex;
     gap: 8px;
     align-items: center;
+}
+
+#toggleArchivedProjectsBtn.active {
+    background: rgba(255, 255, 255, 0.22);
+    border-color: rgba(255, 255, 255, 0.45);
+    color: #fff;
+}
+
+html[data-morph="claymorphism"] .todo-header .style-switch {
+    background: linear-gradient(155deg, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0.08));
+    border: 1.5px solid rgba(255, 255, 255, 0.34);
+    box-shadow:
+        inset -2px -2px 5px rgba(255, 255, 255, 0.24),
+        inset 2px 2px 5px rgba(20, 34, 52, 0.16);
+}
+
+html[data-morph="claymorphism"] .todo-header .style-switch .btn-group {
+    gap: 8px;
+}
+
+html[data-morph="claymorphism"] .todo-header .style-switch .style-btn,
+html[data-morph="claymorphism"] .todo-header #toggleArchivedProjectsBtn {
+    background: linear-gradient(155deg, rgba(255, 255, 255, 0.96), rgba(255, 255, 255, 0.64)) !important;
+    color: var(--t-text-main) !important;
+    border: 1.5px solid rgba(255, 255, 255, 0.72) !important;
+    box-shadow:
+        inset -2px -2px 5px rgba(255, 255, 255, 0.46),
+        inset 2px 2px 5px rgba(20, 34, 52, 0.12),
+        4px 4px 10px rgba(20, 34, 52, 0.12) !important;
+    filter: saturate(0.42);
+    opacity: 0.58;
+}
+
+html[data-morph="claymorphism"] .todo-header .style-switch .style-btn:hover,
+html[data-morph="claymorphism"] .todo-header #toggleArchivedProjectsBtn:hover {
+    opacity: 0.82;
+    filter: saturate(0.78);
+}
+
+html[data-morph="claymorphism"] .todo-header .style-switch .style-btn.active,
+html[data-morph="claymorphism"] .todo-header #toggleArchivedProjectsBtn.active {
+    background: linear-gradient(155deg, var(--t-primary), var(--t-primary-hover)) !important;
+    color: #fff !important;
+    border-color: rgba(255, 255, 255, 0.92) !important;
+    box-shadow:
+        inset -2px -2px 5px rgba(255, 255, 255, 0.16),
+        inset 2px 2px 6px rgba(8, 18, 30, 0.3),
+        0 0 0 3px rgba(255, 255, 255, 0.34),
+        10px 12px 20px rgba(20, 34, 52, 0.24) !important;
+    filter: none;
+    opacity: 1;
+    transform: translateY(-1px);
+}
+
+html[data-morph="claymorphism"] .todo-header #toggleArchivedProjectsBtn .badge {
+    background: rgba(15, 31, 29, 0.14) !important;
+    color: var(--t-text-main) !important;
+}
+
+html[data-morph="claymorphism"] .todo-header #toggleArchivedProjectsBtn.active .badge {
+    background: rgba(255, 255, 255, 0.2) !important;
+    color: #fff !important;
 }
 
 .project-toggle-icon {
@@ -1538,7 +1648,7 @@ input:checked + .slider:before {
     }
 }
 
-/* 浮动工具栏样式 */
+/* 娴姩宸ュ叿鏍忔牱寮?*/
 .floating-toolbar {
     position: fixed;
     bottom: 20px;
@@ -1598,7 +1708,7 @@ input:checked + .slider:before {
     background: linear-gradient(135deg, rgba(95, 191, 174, 0.9) 0%, rgba(54, 170, 151, 0.85) 100%);
 }
 
-/* 笔记列表样式 */
+/* 绗旇鍒楄〃鏍峰紡 */
 #noteListContainer .list-group-item {
     border: 1px solid var(--t-border-light);
     margin-bottom: 5px;
@@ -1624,7 +1734,7 @@ input:checked + .slider:before {
     color: white;
 }
 
-/* 笔记预览和编辑区域样式 */
+/* 绗旇棰勮鍜岀紪杈戝尯鍩熸牱寮?*/
 #notePreview, #noteLivePreview {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Microsoft YaHei", sans-serif;
 }
@@ -1715,7 +1825,7 @@ input:checked + .slider:before {
     overflow-y: auto !important;
 }
 
-/* 汇报表格样式 */
+/* 姹囨姤琛ㄦ牸鏍峰紡 */
 .report-table-wrapper {
     padding: 20px;
 }
@@ -1845,7 +1955,7 @@ input:checked + .slider:before {
     color: #64748b;
 }
 
-/* 全屏样式 */
+/* 鍏ㄥ睆鏍峰紡 */
 .report-style:fullscreen {
     background: white;
     padding: 20px;

@@ -1,52 +1,147 @@
+﻿(function () {
+    const COLOR_THEMES = [
+        { id: "jasmine", label: "茉莉绿" },
+        { id: "ocean", label: "海洋蓝" },
+        { id: "forest", label: "森林绿" },
+        { id: "sunset", label: "落日橙" },
+        { id: "lavender", label: "薰衣草紫" },
+        { id: "graphite", label: "石墨深灰" }
+    ];
 
-(function () {
-    // 1. Theme Manager Logic (Shared)
-    window.setTheme = function (themeName) {
-        document.body.setAttribute('data-theme', themeName);
-        localStorage.setItem('site_theme', themeName);
+    const MORPH_STYLES = [
+        { id: "flat", label: "纯色模式（无拟态）" },
+        { id: "glassmorphism", label: "玻璃拟态" },
+        { id: "claymorphism", label: "粘土拟态" }
+    ];
+
+    const LEGACY_THEME_TO_COLOR = {
+        jasmine: "jasmine",
+        "mint-fresh": "jasmine",
+        "mist-forest": "forest",
+        "bamboo-grove": "forest",
+        "tea-garden": "forest",
+        sunset: "sunset",
+        "golden-beach": "sunset",
+        "orange-warmth": "sunset",
+        "rose-whisper": "sunset",
+        "cherry-blossom": "sunset",
+        "sky-azure": "ocean",
+        "ocean-shallow": "ocean",
+        "tech-blue": "ocean",
+        "cloud-light": "ocean",
+        "lake-reflection": "ocean",
+        aurora: "ocean",
+        "lavender-field": "lavender",
+        "purple-dream": "lavender",
+        cyberpunk: "graphite",
+        "morning-mist": "graphite"
     };
 
-    function initTheme() {
-        const savedTheme = localStorage.getItem('site_theme') || 'jasmine';
-        document.body.setAttribute('data-theme', savedTheme);
-        return savedTheme;
+    function normalizeColorTheme(themeName) {
+        return LEGACY_THEME_TO_COLOR[themeName] || themeName || "jasmine";
     }
+
+    function applyThemeAttributes(target, themeColor, morph) {
+        if (!target) return;
+        target.setAttribute("data-theme-color", themeColor);
+        target.setAttribute("data-theme", themeColor); // legacy compatibility
+        target.setAttribute("data-morph", morph);
+    }
+
+    function getAppliedThemeAttribute(attributeName, fallbackValue) {
+        return document.documentElement.getAttribute(attributeName)
+            || (document.body && document.body.getAttribute(attributeName))
+            || fallbackValue;
+    }
+
+    function applyThemeState(themeColor, morph) {
+        const safeColor = normalizeColorTheme(themeColor);
+        const safeMorph = morph || "flat";
+        applyThemeAttributes(document.documentElement, safeColor, safeMorph);
+        applyThemeAttributes(document.body, safeColor, safeMorph);
+        refreshThemeSelection(safeColor, safeMorph);
+    }
+
+    function refreshThemeSelection(themeColor, morph) {
+        document.querySelectorAll(".theme-option[data-theme-color], .theme-option[data-morph]").forEach((el) => {
+            el.classList.remove("is-active");
+        });
+        const colorEl = document.querySelector(`.theme-option[data-theme-color="${themeColor}"]`);
+        const morphEl = document.querySelector(`.theme-option[data-morph="${morph}"]`);
+        if (colorEl) colorEl.classList.add("is-active");
+        if (morphEl) morphEl.classList.add("is-active");
+    }
+
+    function initTheme() {
+        const legacyTheme = localStorage.getItem("site_theme") || "jasmine";
+        const savedColor = normalizeColorTheme(localStorage.getItem("site_theme_color") || legacyTheme);
+        const savedMorph = localStorage.getItem("site_morph") || (
+            legacyTheme === "glassmorphism" || legacyTheme === "neumorphism" || legacyTheme === "claymorphism"
+                ? (legacyTheme === "neumorphism" ? "glassmorphism" : legacyTheme)
+                : "flat"
+        );
+        applyThemeState(savedColor, savedMorph);
+        localStorage.setItem("site_theme_color", savedColor);
+        localStorage.setItem("site_theme", savedColor);
+        localStorage.setItem("site_morph", savedMorph);
+    }
+
+    window.setThemeColor = function (themeColor) {
+        const currentMorph = localStorage.getItem("site_morph") || "flat";
+        const safeColor = normalizeColorTheme(themeColor);
+        localStorage.setItem("site_theme_color", safeColor);
+        localStorage.setItem("site_theme", safeColor);
+        applyThemeState(safeColor, currentMorph);
+        window.dispatchEvent(new CustomEvent("themechanged", { detail: { themeColor: safeColor, morph: currentMorph } }));
+    };
+
+    window.setMorph = function (morphName) {
+        const currentColor = normalizeColorTheme(localStorage.getItem("site_theme_color") || localStorage.getItem("site_theme") || "jasmine");
+        const safeMorph = morphName || "flat";
+        localStorage.setItem("site_morph", safeMorph);
+        applyThemeState(currentColor, safeMorph);
+        window.dispatchEvent(new CustomEvent("themechanged", { detail: { themeColor: currentColor, morph: safeMorph } }));
+    };
+
+    // Legacy API compatibility
+    window.setTheme = function (themeName) {
+        if (themeName === "glassmorphism" || themeName === "neumorphism" || themeName === "claymorphism") {
+            window.setMorph(themeName === "neumorphism" ? "glassmorphism" : themeName);
+            return;
+        }
+        window.setThemeColor(themeName);
+    };
 
     initTheme();
 
-    // 2. Check conditions to skip adding floater
-    // If we are on choice page (identified by class or structure), skip
-    if (document.querySelector('.choice-section') || document.querySelector('.top-right-bar')) {
+    // Skip choice page, which has its own menu
+    if (document.querySelector(".choice-section") || document.querySelector(".top-right-bar")) {
         return;
     }
 
-    // Check if duplicate
-    if (document.getElementById('theme-floater')) return;
+    if (document.getElementById("theme-floater")) return;
 
-    // 3. Inject Floating Button
+    function buildMenuHTML() {
+        const colorItems = COLOR_THEMES
+            .map((t) => `<div class="theme-option" data-theme-color="${t.id}" onclick="setThemeColor('${t.id}')">${t.label}</div>`)
+            .join("");
+        const morphItems = MORPH_STYLES
+            .map((t) => `<div class="theme-option" data-morph="${t.id}" onclick="setMorph('${t.id}')">${t.label}</div>`)
+            .join("");
+
+        return `
+            <div class="theme-group-title">颜色主题</div>
+            ${colorItems}
+            <hr class="theme-divider">
+            <div class="theme-group-title">拟态效果</div>
+            ${morphItems}
+        `;
+    }
+
     const floaterHTML = `
     <div id="theme-floater" class="theme-floater">
-                <div class="theme-menu" id="theme-floater-menu">
-            <div class="theme-option" onclick="setTheme('jasmine')">🍃 茉莉奶白</div>
-            <div class="theme-option" onclick="setTheme('mist-forest')">🌲 迷雾森林</div>
-            <div class="theme-option" onclick="setTheme('sunset')">🌅 日落黄昏</div>
-            <div class="theme-option" onclick="setTheme('golden-beach')">🏖️ 黄金沙滩</div>
-            <div class="theme-option" onclick="setTheme('cyberpunk')">🌃 赛博朋克</div>
-            <div class="theme-option" onclick="setTheme('aurora')">🌌 极光星空</div>
-            <div class="theme-option" onclick="setTheme('mint-fresh')">🌿 薄荷清新</div>
-            <div class="theme-option" onclick="setTheme('cherry-blossom')">🌸 樱花飞舞</div>
-            <div class="theme-option" onclick="setTheme('sky-azure')">☁️ 天空湛蓝</div>
-            <div class="theme-option" onclick="setTheme('lavender-field')">💜 薰衣草田</div>
-            <div class="theme-option" onclick="setTheme('bamboo-grove')">🎋 竹林深处</div>
-            <div class="theme-option" onclick="setTheme('morning-mist')">🌫️ 晨雾朦胧</div>
-            <div class="theme-option" onclick="setTheme('ocean-shallow')">🌊 浅海湛蓝</div>
-            <div class="theme-option" onclick="setTheme('tea-garden')">🍵 茶园时光</div>
-            <div class="theme-option" onclick="setTheme('tech-blue')">💻 科技之光</div>
-            <div class="theme-option" onclick="setTheme('cloud-light')">☁️ 云淡风轻</div>
-            <div class="theme-option" onclick="setTheme('rose-whisper')">🌹 玫瑰轻语</div>
-            <div class="theme-option" onclick="setTheme('orange-warmth')">🍊 橙意暖暖</div>
-            <div class="theme-option" onclick="setTheme('purple-dream')">💭 淡紫梦境</div>
-            <div class="theme-option" onclick="setTheme('lake-reflection')">🏞️ 湖光山色</div>
+        <div class="theme-menu" id="theme-floater-menu">
+            ${buildMenuHTML()}
         </div>
         <button class="theme-btn" id="theme-floater-btn" title="切换主题">
             <i class="fa fa-paint-brush"></i>
@@ -56,7 +151,7 @@
         .theme-floater {
             position: fixed;
             top: 20px;
-            right: 80px; /* Adjusted to be left of logout/user area if any */
+            right: 80px;
             z-index: 10001;
             display: flex;
             flex-direction: column;
@@ -93,15 +188,30 @@
             visibility: hidden;
             transform: translateY(10px);
             transition: all 0.2s ease;
-            min-width: 140px;
-            /* Ensure text is readable */
+            min-width: 180px;
             color: var(--t-text-main);
             text-align: left;
+            max-height: 65vh;
+            overflow-y: auto;
         }
         .theme-menu.active {
             opacity: 1;
             visibility: visible;
             transform: translateY(0);
+        }
+        .theme-group-title {
+            padding: 8px 16px 4px;
+            font-size: 12px;
+            color: var(--t-text-muted);
+            font-weight: 700;
+            letter-spacing: 0.02em;
+            text-transform: uppercase;
+            cursor: default;
+        }
+        .theme-divider {
+            margin: 6px 12px;
+            border: none;
+            border-top: 1px solid var(--t-border-light);
         }
         .theme-option {
             padding: 8px 16px;
@@ -111,6 +221,18 @@
             transition: background 0.2s;
             white-space: nowrap;
         }
+        .theme-option::before {
+            content: "\\2713";
+            display: inline-block;
+            width: 16px;
+            margin-right: 8px;
+            opacity: 0;
+            color: var(--t-primary-hover);
+            font-weight: 700;
+        }
+        .theme-option.is-active::before {
+            opacity: 1;
+        }
         .theme-option:hover {
             background: var(--t-border-light);
             color: var(--t-primary);
@@ -118,134 +240,132 @@
     </style>
     `;
 
-    const div = document.createElement('div');
-    div.innerHTML = floaterHTML;
-    document.body.appendChild(div);
+    const wrapper = document.createElement("div");
+    wrapper.innerHTML = floaterHTML;
+    document.body.appendChild(wrapper);
+    refreshThemeSelection(
+        getAppliedThemeAttribute("data-theme-color", "jasmine"),
+        getAppliedThemeAttribute("data-morph", "flat")
+    );
 
-    const btn = document.getElementById('theme-floater-btn');
-    const menu = document.getElementById('theme-floater-menu');
+    const btn = document.getElementById("theme-floater-btn");
+    const menu = document.getElementById("theme-floater-menu");
 
-    // Toggle menu
-    btn.addEventListener('click', (e) => {
+    btn.addEventListener("click", (e) => {
         e.stopPropagation();
-        menu.classList.toggle('active');
+        menu.classList.toggle("active");
     });
 
-    // Close menu when clicking outside
-    document.addEventListener('click', (e) => {
+    document.addEventListener("click", (e) => {
         if (menu && btn && !menu.contains(e.target) && !btn.contains(e.target)) {
-            menu.classList.remove('active');
+            menu.classList.remove("active");
         }
     });
 
-    // Special handling for index.html floating toolbar
-    // If index.html has its own floater, we might want to integrate?
-    // User requested "add floating button", so adding a separate one is fine, 
-    // but placing it at right: 30px might overlap if multiple toolbars exist.
-    // Index.html has .floating-toolbar at right: 20px. 
-    // Let's shift ours up or left if that exists? 
-    // Actually, stacking them via z-index is one way, but they occupy the same space.
-    // Ideally we should append to .floating-toolbar if it exists?
+    const existingToolbar = document.querySelector(".floating-toolbar");
+    if (!existingToolbar) return;
 
-    const existingToolbar = document.querySelector('.floating-toolbar');
-    if (existingToolbar) {
-        // 移除独立的主题浮动按钮
-        div.remove();
-        
-        // 创建主题切换按钮并添加到浮动工具栏的第一个位置
-        const themeBtn = document.createElement('button');
-        themeBtn.className = 'toolbar-btn';
-        themeBtn.style.background = 'linear-gradient(135deg, #FF9800, #F44336)';
-        // 使用emoji图标，与其他按钮保持一致
-        themeBtn.innerHTML = '🎨';
-        themeBtn.title = '切换主题';
-        themeBtn.onclick = (e) => {
-            e.stopPropagation();
-            // 创建主题菜单
-            let themeMenu = document.getElementById('theme-menu-integrated');
-            if (!themeMenu) {
-                themeMenu = document.createElement('div');
-                themeMenu.id = 'theme-menu-integrated';
-                themeMenu.className = 'theme-menu-integrated';
-                themeMenu.innerHTML = `
-                    <div class="theme-option" onclick="setTheme('jasmine')">🍃 茉莉奶白</div>
-                    <div class="theme-option" onclick="setTheme('mist-forest')">🌲 迷雾森林</div>
-                    <div class="theme-option" onclick="setTheme('sunset')">🌅 日落黄昏</div>
-                    <div class="theme-option" onclick="setTheme('golden-beach')">🏖️ 黄金沙滩</div>
-                    <div class="theme-option" onclick="setTheme('cyberpunk')">🌃 赛博朋克</div>
-                    <div class="theme-option" onclick="setTheme('aurora')">🌌 极光星空</div>
-                    <div class="theme-option" onclick="setTheme('mint-fresh')">🌿 薄荷清新</div>
-                    <div class="theme-option" onclick="setTheme('cherry-blossom')">🌸 樱花飞舞</div>
-                    <div class="theme-option" onclick="setTheme('sky-azure')">☁️ 天空湛蓝</div>
-                    <div class="theme-option" onclick="setTheme('lavender-field')">💜 薰衣草田</div>
-                    <div class="theme-option" onclick="setTheme('bamboo-grove')">🎋 竹林深处</div>
-                    <div class="theme-option" onclick="setTheme('morning-mist')">🌫️ 晨雾朦胧</div>
-                    <div class="theme-option" onclick="setTheme('ocean-shallow')">🌊 浅海湛蓝</div>
-                    <div class="theme-option" onclick="setTheme('tea-garden')">🍵 茶园时光</div>
-                    <div class="theme-option" onclick="setTheme('tech-blue')">💻 科技之光</div>
-                    <div class="theme-option" onclick="setTheme('cloud-light')">☁️ 云淡风轻</div>
-                    <div class="theme-option" onclick="setTheme('rose-whisper')">🌹 玫瑰轻语</div>
-                    <div class="theme-option" onclick="setTheme('orange-warmth')">🍊 橙意暖暖</div>
-                    <div class="theme-option" onclick="setTheme('purple-dream')">💭 淡紫梦境</div>
-                    <div class="theme-option" onclick="setTheme('lake-reflection')">🏞️ 湖光山色</div>
-                `;
-                document.body.appendChild(themeMenu);
-                
-                // 添加样式
-                if (!document.getElementById('theme-menu-integrated-style')) {
-                    const style = document.createElement('style');
-                    style.id = 'theme-menu-integrated-style';
-                    style.textContent = `
-                        .theme-menu-integrated {
-                            position: fixed;
-                            bottom: 90px;
-                            right: 20px;
-                            background: var(--t-bg-panel-opaque);
-                            border: 1px solid var(--t-border-light);
-                            padding: 8px 0;
-                            border-radius: 12px;
-                            box-shadow: 0 4px 16px rgba(0,0,0,0.15);
-                            opacity: 0;
-                            visibility: hidden;
-                            transform: translateY(10px);
-                            transition: all 0.2s ease;
-                            min-width: 140px;
-                            z-index: 10001;
-                            color: var(--t-text-main);
-                            text-align: left;
-                        }
-                        .theme-menu-integrated.active {
-                            opacity: 1;
-                            visibility: visible;
-                            transform: translateY(0);
-                        }
-                        .theme-menu-integrated .theme-option {
-                            padding: 8px 16px;
-                            cursor: pointer;
-                            font-size: 14px;
-                            color: var(--t-text-main);
-                            transition: background 0.2s;
-                            white-space: nowrap;
-                        }
-                        .theme-menu-integrated .theme-option:hover {
-                            background: var(--t-border-light);
-                            color: var(--t-primary);
-                        }
-                    `;
-                    document.head.appendChild(style);
-                }
-                
-                // 点击外部关闭菜单
-                document.addEventListener('click', (e) => {
-                    if (themeMenu && themeBtn && !themeMenu.contains(e.target) && !themeBtn.contains(e.target)) {
-                        themeMenu.classList.remove('active');
+    wrapper.remove();
+
+    const themeBtn = document.createElement("button");
+    themeBtn.className = "toolbar-btn";
+    themeBtn.style.background = "linear-gradient(135deg, #FF9800, #F44336)";
+    themeBtn.innerHTML = "🎨";
+    themeBtn.title = "切换主题";
+    themeBtn.onclick = (e) => {
+        e.stopPropagation();
+        let themeMenu = document.getElementById("theme-menu-integrated");
+        if (!themeMenu) {
+            themeMenu = document.createElement("div");
+            themeMenu.id = "theme-menu-integrated";
+            themeMenu.className = "theme-menu-integrated";
+            themeMenu.innerHTML = buildMenuHTML();
+            document.body.appendChild(themeMenu);
+            refreshThemeSelection(
+                getAppliedThemeAttribute("data-theme-color", "jasmine"),
+                getAppliedThemeAttribute("data-morph", "flat")
+            );
+
+            if (!document.getElementById("theme-menu-integrated-style")) {
+                const style = document.createElement("style");
+                style.id = "theme-menu-integrated-style";
+                style.textContent = `
+                    .theme-menu-integrated {
+                        position: fixed;
+                        bottom: 90px;
+                        right: 20px;
+                        background: var(--t-bg-panel-opaque);
+                        border: 1px solid var(--t-border-light);
+                        padding: 8px 0;
+                        border-radius: 12px;
+                        box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+                        opacity: 0;
+                        visibility: hidden;
+                        transform: translateY(10px);
+                        transition: all 0.2s ease;
+                        min-width: 180px;
+                        z-index: 10001;
+                        color: var(--t-text-main);
+                        text-align: left;
+                        max-height: 60vh;
+                        overflow-y: auto;
                     }
-                });
+                    .theme-menu-integrated.active {
+                        opacity: 1;
+                        visibility: visible;
+                        transform: translateY(0);
+                    }
+                    .theme-menu-integrated .theme-group-title {
+                        padding: 8px 16px 4px;
+                        font-size: 12px;
+                        color: var(--t-text-muted);
+                        font-weight: 700;
+                        letter-spacing: 0.02em;
+                        text-transform: uppercase;
+                        cursor: default;
+                    }
+                    .theme-menu-integrated .theme-divider {
+                        margin: 6px 12px;
+                        border: none;
+                        border-top: 1px solid var(--t-border-light);
+                    }
+                    .theme-menu-integrated .theme-option {
+                        padding: 8px 16px;
+                        cursor: pointer;
+                        font-size: 14px;
+                        color: var(--t-text-main);
+                        transition: background 0.2s;
+                        white-space: nowrap;
+                    }
+                    .theme-menu-integrated .theme-option::before {
+                        content: "\\2713";
+                        display: inline-block;
+                        width: 16px;
+                        margin-right: 8px;
+                        opacity: 0;
+                        color: var(--t-primary-hover);
+                        font-weight: 700;
+                    }
+                    .theme-menu-integrated .theme-option.is-active::before {
+                        opacity: 1;
+                    }
+                    .theme-menu-integrated .theme-option:hover {
+                        background: var(--t-border-light);
+                        color: var(--t-primary);
+                    }
+                `;
+                document.head.appendChild(style);
             }
-            themeMenu.classList.toggle('active');
-        };
-        
-        // 插入到浮动工具栏的第一个位置
-        existingToolbar.insertBefore(themeBtn, existingToolbar.firstChild);
-    }
+
+            document.addEventListener("click", (ev) => {
+                if (themeMenu && themeBtn && !themeMenu.contains(ev.target) && !themeBtn.contains(ev.target)) {
+                    themeMenu.classList.remove("active");
+                }
+            });
+        }
+        themeMenu.classList.toggle("active");
+    };
+
+    existingToolbar.insertBefore(themeBtn, existingToolbar.firstChild);
 })();
+

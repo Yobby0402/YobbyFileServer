@@ -4,6 +4,8 @@ import sys
 import re
 import configparser
 import json
+import math
+import unicodedata
 from datetime import datetime
 from typing import Optional
 # 确保在文件顶部添加必要的导入
@@ -17,6 +19,7 @@ from share_links import ShareLinkManager  # 导入分享链接管理器
 from todo_manager import todo_manager
 from todo_extended_manager import todo_extended_manager
 from serial_manager import serial_manager
+from shared_serial_hub import shared_serial_hub
 from product_compare_manager import product_compare_manager
 
 # 日志输出函数（统一输出到标准输出，GUI会捕获）
@@ -47,6 +50,66 @@ def log_message(message, level='INFO'):
 def is_logged_in():
     """检查用户是否已登录"""
     return 'logged_in' in session
+
+
+REMOTE_SERIAL_HTTPS_MODE_FULL = 'full'
+REMOTE_SERIAL_HTTPS_MODE_COMPAT = 'compat'
+
+
+def normalize_remote_serial_https_mode(value):
+    """Normalize the stored remote-serial HTTPS mode."""
+    mode = (value or '').strip().lower()
+    if mode == REMOTE_SERIAL_HTTPS_MODE_COMPAT:
+        return REMOTE_SERIAL_HTTPS_MODE_COMPAT
+    return REMOTE_SERIAL_HTTPS_MODE_FULL
+
+
+def get_serial_https_port():
+    """Return the configured HTTPS port for the serial companion listener."""
+    try:
+        main_port = int(current_app.config.get('PORT', 5000))
+    except (TypeError, ValueError):
+        main_port = 5000
+    default_port = 5444 if main_port == 5443 else 5443
+    try:
+        port = int(current_app.config.get('SERIAL_HTTPS_PORT', default_port))
+        if 1 <= port <= 65535:
+            return port
+    except (TypeError, ValueError):
+        pass
+    return default_port
+
+
+def build_serial_https_url(path=None):
+    """Build the HTTPS URL used by the serial tool in compatibility mode."""
+    host = request.host.split(':', 1)[0]
+    target_path = path or request.path
+    query_string = request.query_string.decode('utf-8', errors='ignore')
+    if query_string:
+        target_path = f"{target_path}?{query_string}"
+    return f"https://{host}:{get_serial_https_port()}{target_path}"
+
+
+def get_serial_server_config(page_path=None):
+    """Build serial-tool runtime config shared with templates."""
+    remote_serial_enabled = bool(current_app.config.get('REMOTE_SERIAL_ENABLED', False))
+    remote_serial_https_mode = normalize_remote_serial_https_mode(
+        current_app.config.get('REMOTE_SERIAL_HTTPS_MODE', REMOTE_SERIAL_HTTPS_MODE_FULL)
+    )
+    serial_https_active = bool(current_app.config.get('SERIAL_HTTPS_ACTIVE', False))
+    cert_file = (current_app.config.get('HTTPS_CERT_FILE') or '').strip()
+    key_file = (current_app.config.get('HTTPS_KEY_FILE') or '').strip()
+    serial_https_url = build_serial_https_url(page_path or request.path)
+    return {
+        'remote_serial_enabled': remote_serial_enabled,
+        'https_expected': remote_serial_enabled,
+        'https_cert_configured': bool(cert_file and key_file),
+        'https_mode': remote_serial_https_mode,
+        'compat_mode': remote_serial_https_mode == REMOTE_SERIAL_HTTPS_MODE_COMPAT,
+        'serial_https_port': get_serial_https_port(),
+        'serial_https_active': serial_https_active,
+        'serial_https_url': serial_https_url,
+    }
 
 # 创建markdown-it实例，支持多种扩展
 def create_markdown_parser():
@@ -118,11 +181,11 @@ def render_markdown_content(content, filepath):
 
 # 文件类型常量定义
 OFFICE_EXTENSIONS = ['.docx', '.xlsx', '.pptx']
-IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.svg', '.webp']
+IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.svg', '.webp', '.avif', '.ico']
 MARKDOWN_EXTENSIONS = ['.md', '.markdown']
 PDF_EXTENSIONS = ['.pdf']
-VIDEO_EXTENSIONS = ['.mp4', '.avi', '.mov', '.wmv']
-AUDIO_EXTENSIONS = ['.mp3', '.wav', '.flac', '.ogg', '.wma', '.m4a', '.aac']  # 音频文件格式
+VIDEO_EXTENSIONS = ['.mp4', '.avi', '.mov', '.wmv', '.webm', '.m4v']
+AUDIO_EXTENSIONS = ['.mp3', '.wav', '.flac', '.ogg', '.wma', '.m4a', '.aac', '.opus', '.weba', '.aiff', '.aif', '.amr']  # 音频文件格式
 DRAWIO_EXTENSIONS = ['.drawio', '.diagram', '.dio', '.xml']  # 添加.xml作为draw.io格式
 MODEL_3D_EXTENSIONS = ['.gltf', '.glb', '.obj', '.stl', '.fbx', '.step', '.stp']  # 3D模型文件格式
 
@@ -172,6 +235,113 @@ def save_favorites(data):
     except Exception as e:
         print(f"保存收藏数据失败: {e}")
         return False
+
+def _excel_display_width(value):
+    """估算单元格内容显示宽度，兼顾中文和换行。"""
+    if value is None:
+        return 0.0
+
+    text = str(value)
+    if not text:
+        return 0.0
+
+    max_line_width = 0.0
+    for line in text.split('\n'):
+        line_width = 0.0
+        for char in line:
+            if char == '\t':
+                line_width += 4
+            elif unicodedata.east_asian_width(char) in ('F', 'W'):
+                line_width += 2
+            elif ord(char) < 128:
+                line_width += 1
+            else:
+                line_width += 1.5
+        max_line_width = max(max_line_width, line_width)
+
+    return max_line_width
+
+
+def _excel_estimate_wrapped_lines(value, column_width):
+    """根据列宽估算换行后的行数。"""
+    if value is None:
+        return 1
+
+    text = str(value)
+    if not text:
+        return 1
+
+    available_width = max(float(column_width or 0) - 1.5, 1)
+    total_lines = 0
+
+    for line in text.split('\n'):
+        display_width = _excel_display_width(line)
+        total_lines += max(1, math.ceil(display_width / available_width))
+
+    return max(total_lines, 1)
+
+
+def _excel_apply_auto_dimensions(ws, min_width=8, max_width=60, header_row=1, width_hints=None):
+    """为工作表自动调整列宽和行高，避免内容被截断。"""
+    if ws.max_row < header_row or ws.max_column < 1:
+        return
+
+    from openpyxl.utils import get_column_letter
+
+    normalized_hints = {}
+    if width_hints:
+        for col_letter, hint in width_hints.items():
+            try:
+                normalized_hints[str(col_letter).upper()] = float(hint)
+            except (TypeError, ValueError):
+                continue
+
+    final_widths = {}
+
+    for col_idx in range(1, ws.max_column + 1):
+        col_letter = get_column_letter(col_idx)
+        max_content_width = 0.0
+
+        for row_idx in range(header_row, ws.max_row + 1):
+            value = ws.cell(row=row_idx, column=col_idx).value
+            if value in (None, ''):
+                continue
+            max_content_width = max(max_content_width, _excel_display_width(value))
+
+        existing_width = ws.column_dimensions[col_letter].width or 0
+        desired_width = max(
+            float(min_width),
+            max_content_width + 2.5,
+            float(existing_width),
+            normalized_hints.get(col_letter, 0.0),
+        )
+        final_width = min(desired_width, float(max_width))
+        ws.column_dimensions[col_letter].width = final_width
+        final_widths[col_letter] = final_width
+
+    for row_idx in range(header_row, ws.max_row + 1):
+        max_lines = 1
+
+        for col_idx in range(1, ws.max_column + 1):
+            cell = ws.cell(row=row_idx, column=col_idx)
+            value = cell.value
+            if value in (None, ''):
+                continue
+
+            col_letter = get_column_letter(col_idx)
+            column_width = final_widths.get(col_letter, min_width)
+            alignment = getattr(cell, 'alignment', None)
+            wrap_text = bool(alignment and alignment.wrap_text)
+
+            if wrap_text:
+                max_lines = max(max_lines, _excel_estimate_wrapped_lines(value, column_width))
+            else:
+                max_lines = max(max_lines, max(1, str(value).count('\n') + 1))
+
+        base_height = 24 if row_idx == header_row else 20
+        desired_height = base_height + max(0, max_lines - 1) * 16
+        existing_height = ws.row_dimensions[row_idx].height or 0
+        ws.row_dimensions[row_idx].height = min(max(desired_height, existing_height, base_height), 240)
 
 # 修复init_app函数内部的Draw.io路由
 
@@ -1049,10 +1219,10 @@ def init_app(app):
                     project_name_display if row_idx == project_name_start_row else '',  # 项目名称（只在第一行显示）
                     task.get('index', ''),
                     task.get('summary', ''),
-                    task.get('description', '').replace('\n', ' '),
+                    task.get('description', ''),
                     task.get('status', ''),
-                    current_progress.replace('\n', ' '),
-                    task.get('weekly_plan', '').replace('\n', ' ')
+                    current_progress,
+                    task.get('weekly_plan', '')
                 ]
 
                 # 计算该行需要的最大行数（用于设置行高）
@@ -1161,6 +1331,7 @@ def init_app(app):
 
             # 设置表头行高
             ws.row_dimensions[1].height = 25
+            _excel_apply_auto_dimensions(ws, min_width=8, max_width=60, header_row=1)
 
             # 保存到内存
             output = BytesIO()
@@ -1969,6 +2140,9 @@ def init_app(app):
                     comment_ws.column_dimensions['C'].width = 18
                     comment_ws.column_dimensions['D'].width = 50
 
+            for worksheet in wb.worksheets:
+                _excel_apply_auto_dimensions(worksheet, min_width=8, max_width=60, header_row=1)
+
             # 保存到内存
             output = BytesIO()
             wb.save(output)
@@ -2604,7 +2778,7 @@ def init_app(app):
         mimetype = None
         
         if ext in IMAGE_EXTENSIONS:
-            if ext == '.jpg' or ext == '.jpeg':
+            if ext in ['.jpg', '.jpeg']:
                 mimetype = 'image/jpeg'
             elif ext == '.png':
                 mimetype = 'image/png'
@@ -2614,6 +2788,10 @@ def init_app(app):
                 mimetype = 'image/svg+xml'
             elif ext == '.webp':
                 mimetype = 'image/webp'
+            elif ext == '.avif':
+                mimetype = 'image/avif'
+            elif ext == '.ico':
+                mimetype = 'image/x-icon'
             else:
                 mimetype = 'image/jpeg'
         elif ext == '.pdf':
@@ -2625,15 +2803,33 @@ def init_app(app):
                 mimetype = 'video/x-msvideo'
             elif ext == '.mov':
                 mimetype = 'video/quicktime'
+            elif ext == '.wmv':
+                mimetype = 'video/x-ms-wmv'
+            elif ext == '.webm':
+                mimetype = 'video/webm'
+            elif ext == '.m4v':
+                mimetype = 'video/x-m4v'
             else:
                 mimetype = 'video/mp4'
-        elif ext in ['.mp3', '.wav', '.flac', '.ogg', '.wma', '.m4a']:
+        elif ext in AUDIO_EXTENSIONS:
             if ext == '.mp3':
                 mimetype = 'audio/mpeg'
             elif ext == '.wav':
                 mimetype = 'audio/wav'
             elif ext == '.ogg':
                 mimetype = 'audio/ogg'
+            elif ext == '.flac':
+                mimetype = 'audio/flac'
+            elif ext == '.wma':
+                mimetype = 'audio/x-ms-wma'
+            elif ext in ['.m4a', '.aac']:
+                mimetype = 'audio/mp4'
+            elif ext in ['.opus', '.weba']:
+                mimetype = 'audio/ogg'
+            elif ext in ['.aiff', '.aif']:
+                mimetype = 'audio/aiff'
+            elif ext == '.amr':
+                mimetype = 'audio/amr'
             else:
                 mimetype = 'audio/mpeg'
         
@@ -2851,9 +3047,11 @@ def init_app(app):
         preview_url = url_for('preview_file', filepath=filepath)
         
         # 代码文件扩展名列表
-        CODE_EXTENSIONS = ['.py', '.js', '.html', '.css', '.scss', '.php', '.java', '.c', '.cpp', 
-                          '.cs', '.go', '.rb', '.sh', '.bat', '.sql', '.ts', '.tsx', '.jsx', 
-                          '.json', '.xml', '.yaml', '.yml', '.md', '.markdown', '.txt', '.csv', '.log']
+        CODE_EXTENSIONS = ['.py', '.js', '.html', '.css', '.scss', '.php', '.java', '.c', '.cpp',
+                          '.cs', '.go', '.rb', '.sh', '.bat', '.sql', '.ts', '.tsx', '.jsx',
+                          '.json', '.xml', '.yaml', '.yml', '.md', '.markdown', '.txt', '.csv', '.log',
+                          '.ini', '.toml', '.env', '.conf', '.cfg', '.properties',
+                          '.vue', '.svelte', '.kt', '.rs', '.swift', '.lua', '.ps1']
         
         if ext in MARKDOWN_EXTENSIONS:
             file_type = 'markdown'
@@ -2948,6 +3146,19 @@ def init_app(app):
                         '.xml': 'xml',
                         '.yaml': 'yaml',
                         '.yml': 'yaml',
+                        '.ini': 'ini',
+                        '.toml': 'toml',
+                        '.env': 'shell',
+                        '.conf': 'ini',
+                        '.cfg': 'ini',
+                        '.properties': 'ini',
+                        '.vue': 'html',
+                        '.svelte': 'html',
+                        '.kt': 'kotlin',
+                        '.rs': 'rust',
+                        '.swift': 'swift',
+                        '.lua': 'lua',
+                        '.ps1': 'powershell',
                         '.md': 'markdown',
                         '.markdown': 'markdown',
                         '.txt': 'text',
@@ -3039,7 +3250,18 @@ def init_app(app):
         """串口调试助手页面"""
         if not is_logged_in():
             return redirect(url_for('login'))
-        return render_template('serial_tool.html')
+        serial_server_config = get_serial_server_config('/serial_tool')
+        if (
+            serial_server_config['remote_serial_enabled']
+            and serial_server_config['compat_mode']
+            and serial_server_config['serial_https_active']
+            and not request.is_secure
+        ):
+            return redirect(serial_server_config['serial_https_url'])
+        return render_template(
+            'serial_tool.html',
+            serial_server_config=serial_server_config
+        )
 
     def _normalize_parity(value: str) -> str:
         mapping = {
@@ -3075,6 +3297,15 @@ def init_app(app):
                     port['recommended_id'] = serial_manager.generate_port_id(device, 9600)
             return jsonify({'success': True, 'ports': ports})
         except Exception as exc:  # pylint: disable=broad-except
+            return jsonify({'success': False, 'error': str(exc)}), 500
+    @app.route('/api/serial/channels', methods=['GET'])
+    def api_serial_channels():
+        if not is_logged_in():
+            return jsonify({'success': False, 'error': 'not_logged_in'}), 401
+        try:
+            return jsonify({'success': True, 'channels': shared_serial_hub.list_channels()})
+        except Exception as exc:  # pylint: disable=broad-except
+            return jsonify({'success': False, 'error': str(exc)}), 500
             return jsonify({'success': False, 'error': str(exc)}), 500
 
     @app.route('/api/serial/capture/start', methods=['POST'])
@@ -3175,6 +3406,159 @@ def init_app(app):
             return jsonify({'success': False, 'error': str(exc)}), 500
     
     # 保存串口日志
+    def _serial_action_runner():
+        socketio = getattr(current_app, 'socketio', None)
+        return getattr(socketio, 'serial_action_runner', None) if socketio else None
+
+    def _serial_emit_refresh(channel_id=None):
+        socketio = getattr(current_app, 'socketio', None)
+        if not socketio:
+            return
+        emit_channels = getattr(socketio, 'serial_emit_shared_channels', None)
+        emit_channel_state = getattr(socketio, 'serial_emit_channel_state', None)
+        if emit_channels:
+            emit_channels()
+        if channel_id and emit_channel_state:
+            emit_channel_state(channel_id)
+
+    def api_serial_channels_v2():
+        if not is_logged_in():
+            return jsonify({'success': False, 'error': 'not_logged_in'}), 401
+        try:
+            return jsonify({'success': True, 'channels': shared_serial_hub.list_channels()})
+        except Exception as exc:  # pylint: disable=broad-except
+            return jsonify({'success': False, 'error': str(exc)}), 500
+
+    def api_serial_capture_start_v2():
+        if not is_logged_in():
+            return jsonify({'success': False, 'error': 'not_logged_in'}), 401
+
+        payload = request.json or {}
+        channel_id = (payload.get('channel_id') or payload.get('port_id') or '').strip()
+        try:
+            if not channel_id:
+                device = (payload.get('device') or '').strip()
+                if not device:
+                    return jsonify({'success': False, 'error': 'missing_device'}), 400
+                channel_info, _created = shared_serial_hub.ensure_server_channel(
+                    device=device,
+                    config={
+                        'baudrate': int(payload.get('baudrate', 9600)),
+                        'bytesize': int(payload.get('bytesize', 8)),
+                        'parity': _normalize_parity(payload.get('parity', 'N')),
+                        'stopbits': int(payload.get('stopbits', 1)),
+                    },
+                    display_name=payload.get('display_name') or device,
+                )
+                channel_id = channel_info['channel_id']
+
+            session_info, actions, error = shared_serial_hub.start_capture(channel_id, started_by='http')
+            if error or not session_info:
+                return jsonify({'success': False, 'error': error or 'capture_start_failed'}), 400
+
+            runner = _serial_action_runner()
+            if runner and actions:
+                runner(actions)
+
+            channel = shared_serial_hub.get_channel(channel_id)
+            if (
+                channel
+                and channel.get('source_type') == 'server_pyserial'
+                and channel.get('capture_active')
+                and channel.get('state') != 'active'
+                and channel.get('last_error')
+            ):
+                shared_serial_hub.stop_capture(channel_id, reason='activation_failed')
+                _serial_emit_refresh(channel_id)
+                return jsonify({'success': False, 'error': channel.get('last_error') or 'server_open_failed'}), 400
+
+            _serial_emit_refresh(channel_id)
+            session_info['channel'] = channel
+            session_info['port_info'] = channel
+            return jsonify({'success': True, 'session': session_info})
+        except (TypeError, ValueError):
+            return jsonify({'success': False, 'error': 'invalid_serial_config'}), 400
+        except Exception as exc:  # pylint: disable=broad-except
+            return jsonify({'success': False, 'error': str(exc)}), 500
+
+    def api_serial_capture_stop_v2():
+        if not is_logged_in():
+            return jsonify({'success': False, 'error': 'not_logged_in'}), 401
+
+        payload = request.json or {}
+        channel_id = (payload.get('channel_id') or payload.get('port_id') or '').strip()
+        if not _is_safe_port_id(channel_id):
+            return jsonify({'success': False, 'error': 'invalid_channel_id'}), 400
+        try:
+            _session_info, actions, error = shared_serial_hub.stop_capture(channel_id, reason='manual')
+            if error:
+                if error == 'capture_not_found':
+                    return jsonify({'success': False, 'error': 'capture_not_found'}), 404
+                return jsonify({'success': False, 'error': error}), 400
+            runner = _serial_action_runner()
+            if runner and actions:
+                runner(actions)
+            _serial_emit_refresh(channel_id)
+            return jsonify({'success': True})
+        except Exception as exc:  # pylint: disable=broad-except
+            return jsonify({'success': False, 'error': str(exc)}), 500
+
+    def api_serial_capture_status_v2():
+        if not is_logged_in():
+            return jsonify({'success': False, 'error': 'not_logged_in'}), 401
+        try:
+            sessions = shared_serial_hub.get_capture_sessions()
+            for session_info in sessions:
+                channel_id = session_info.get('channel_id')
+                session_info['port_info'] = shared_serial_hub.get_channel(channel_id) if channel_id else None
+            return jsonify({'success': True, 'sessions': sessions})
+        except Exception as exc:  # pylint: disable=broad-except
+            return jsonify({'success': False, 'error': str(exc)}), 500
+
+    def api_serial_capture_log_v2(port_id):
+        if not is_logged_in():
+            return jsonify({'success': False, 'error': 'not_logged_in'}), 401
+        if not _is_safe_port_id(port_id):
+            return jsonify({'success': False, 'error': 'invalid_channel_id'}), 400
+
+        try:
+            limit = int(request.args.get('limit', 200))
+        except ValueError:
+            return jsonify({'success': False, 'error': 'invalid_limit'}), 400
+
+        before_seq_raw = (request.args.get('before_seq') or '').strip()
+        before_seq = None
+        if before_seq_raw:
+            try:
+                before_seq = int(before_seq_raw)
+            except ValueError:
+                return jsonify({'success': False, 'error': 'invalid_before_seq'}), 400
+
+        try:
+            entries, next_cursor, has_more, error = shared_serial_hub.get_history(
+                channel_id=port_id,
+                before_seq=before_seq,
+                limit=max(1, min(limit, 1000)),
+            )
+            if error:
+                return jsonify({'success': False, 'error': error}), 404
+            return jsonify(
+                {
+                    'success': True,
+                    'entries': entries,
+                    'next_cursor': next_cursor,
+                    'has_more': has_more,
+                }
+            )
+        except Exception as exc:  # pylint: disable=broad-except
+            return jsonify({'success': False, 'error': str(exc)}), 500
+
+    app.view_functions['api_serial_channels'] = api_serial_channels_v2
+    app.view_functions['api_serial_capture_start'] = api_serial_capture_start_v2
+    app.view_functions['api_serial_capture_stop'] = api_serial_capture_stop_v2
+    app.view_functions['api_serial_capture_status'] = api_serial_capture_status_v2
+    app.view_functions['api_serial_capture_log'] = api_serial_capture_log_v2
+
     @app.route('/save_serial_log', methods=['POST'])
     def save_serial_log():
         """保存串口日志到服务器"""
@@ -3363,7 +3747,18 @@ def init_app(app):
         """串口诊断工具页面"""
         if not is_logged_in():
             return redirect(url_for('login'))
-        return render_template('serial_diagnostic.html')
+        serial_server_config = get_serial_server_config('/serial_diagnostic')
+        if (
+            serial_server_config['remote_serial_enabled']
+            and serial_server_config['compat_mode']
+            and serial_server_config['serial_https_active']
+            and not request.is_secure
+        ):
+            return redirect(serial_server_config['serial_https_url'])
+        return render_template(
+            'serial_diagnostic.html',
+            serial_server_config=serial_server_config
+        )
     
     # Draw.io主编辑器页面（带保存功能）
     @app.route('/drawio_main')
@@ -3816,13 +4211,36 @@ def init_app(app):
         if not os.path.exists(full_path):
             return render_template('share_error.html', error='文件不存在'), 404
         
+        filename = os.path.basename(full_path)
+        _, ext = os.path.splitext(filename.lower())
+        preview_kind = 'unsupported'
+
+        if not link_data['is_directory']:
+            if ext in DRAWIO_EXTENSIONS:
+                preview_kind = 'drawio'
+            elif ext in MARKDOWN_EXTENSIONS:
+                preview_kind = 'markdown'
+            elif ext in IMAGE_EXTENSIONS:
+                preview_kind = 'image'
+            elif ext == '.pdf':
+                preview_kind = 'pdf'
+            elif ext in VIDEO_EXTENSIONS:
+                preview_kind = 'video'
+            elif ext in AUDIO_EXTENSIONS:
+                preview_kind = 'audio'
+
+        preview_supported = preview_kind != 'unsupported'
+
         # 渲染分享页面
         return render_template('share_view.html',
                              share_code=share_code,
                              link_data=link_data,
                              file_path=link_data['file_path'],
                              is_directory=link_data['is_directory'],
-                             filename=os.path.basename(full_path))
+                             filename=filename,
+                             download_available=not link_data['is_directory'],
+                             preview_supported=preview_supported,
+                             preview_kind=preview_kind)
     
     @app.route('/share/<share_code>/verify', methods=['POST'])
     def share_verify_password(share_code):
@@ -3961,6 +4379,10 @@ def init_app(app):
                 mimetype = 'image/svg+xml'
             elif ext == '.webp':
                 mimetype = 'image/webp'
+            elif ext == '.avif':
+                mimetype = 'image/avif'
+            elif ext == '.ico':
+                mimetype = 'image/x-icon'
         elif ext == '.pdf':
             mimetype = 'application/pdf'
         elif ext in VIDEO_EXTENSIONS:
@@ -3970,6 +4392,12 @@ def init_app(app):
                 mimetype = 'video/x-msvideo'
             elif ext == '.mov':
                 mimetype = 'video/quicktime'
+            elif ext == '.wmv':
+                mimetype = 'video/x-ms-wmv'
+            elif ext == '.webm':
+                mimetype = 'video/webm'
+            elif ext == '.m4v':
+                mimetype = 'video/x-m4v'
         elif ext in AUDIO_EXTENSIONS:
             if ext == '.mp3':
                 mimetype = 'audio/mpeg'
@@ -3977,8 +4405,18 @@ def init_app(app):
                 mimetype = 'audio/wav'
             elif ext == '.ogg':
                 mimetype = 'audio/ogg'
-            elif ext == '.m4a':
+            elif ext == '.flac':
+                mimetype = 'audio/flac'
+            elif ext == '.wma':
+                mimetype = 'audio/x-ms-wma'
+            elif ext in ['.m4a', '.aac']:
                 mimetype = 'audio/mp4'
+            elif ext in ['.opus', '.weba']:
+                mimetype = 'audio/ogg'
+            elif ext in ['.aiff', '.aif']:
+                mimetype = 'audio/aiff'
+            elif ext == '.amr':
+                mimetype = 'audio/amr'
         
         return send_from_directory(directory, filename, as_attachment=False, mimetype=mimetype)
     

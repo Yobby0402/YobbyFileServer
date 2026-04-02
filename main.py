@@ -1,23 +1,37 @@
 # main.py
 import os
 import sys
+import shutil
 import configparser
 import json
 import logging
-from datetime import datetime
+import threading
+import importlib.util
+import ssl
+import urllib.request
+import urllib.error
+from datetime import datetime, timedelta
 import ctypes
 import socket
-from flask import Flask, request
+import ipaddress
+from logging.handlers import TimedRotatingFileHandler
+from flask import Flask, request, session
 from flask_socketio import SocketIO, emit, join_room, leave_room
 import routes
 from serial_manager import serial_manager
+from shared_serial_hub import (
+    SOURCE_BROWSER_SERIAL,
+    SOURCE_SERVER_PYSERIAL,
+    shared_serial_hub,
+)
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                                 QPushButton, QTextEdit, QLabel, QGroupBox, QMessageBox, 
                                 QSystemTrayIcon, QMenu, QAction, QDialog, QLineEdit, 
                                 QFileDialog, QFormLayout, QMenuBar, QInputDialog, QCheckBox,
-                                QListWidget, QListWidgetItem, QComboBox)
-from PyQt5.QtCore import QProcess, QTimer, Qt, pyqtSignal, QObject, QThread
-from PyQt5.QtGui import QIcon, QTextCursor
+                                QListWidget, QListWidgetItem, QComboBox, QTabWidget)
+from PyQt5.QtCore import QProcess, QTimer, Qt, pyqtSignal, QObject, QThread, QUrl
+from PyQt5.QtCore import QEventLoop
+from PyQt5.QtGui import QIcon, QTextCursor, QDesktopServices
 
 
 # =============================
@@ -47,18 +61,18 @@ def get_config_path():
     if getattr(sys, 'frozen', False):
         # 打包环境：exe所在目录
         base_dir = os.path.dirname(sys.executable)
-        print(f"[调试] 打包模式 - exe目录: {base_dir}")
+        app_logger.info("[调试] 打包模式 - exe目录: %s", base_dir)
     else:
         # 开发环境：.py文件所在目录
         base_dir = os.path.dirname(os.path.abspath(__file__))
-        print(f"[调试] 开发模式 - py目录: {base_dir}")
+        app_logger.info("[调试] 开发模式 - py目录: %s", base_dir)
     
     program_dir_path = os.path.join(base_dir, config_name)
-    print(f"[调试] 配置文件路径: {program_dir_path}")
+    app_logger.info("[调试] 配置文件路径: %s", program_dir_path)
     
     # 如果配置文件已存在于程序目录，直接返回
     if os.path.exists(program_dir_path):
-        print(f"[调试] 配置文件已存在")
+        app_logger.info("[调试] 配置文件已存在")
         return program_dir_path
     
     # 配置文件不存在，测试程序目录是否可写
@@ -69,14 +83,14 @@ def get_config_path():
             f.write('test')
         os.remove(test_file)
         # 程序目录可写，使用程序目录
-        print(f"[调试] 程序目录可写，配置文件将创建在: {program_dir_path}")
+        app_logger.info("[调试] 程序目录可写，配置文件将创建在: %s", program_dir_path)
         return program_dir_path
     except Exception as e:
         # 程序目录不可写，使用用户目录
         config_dir = os.path.join(os.path.expanduser("~"), ".yobboy_file_server")
         os.makedirs(config_dir, exist_ok=True)
         fallback_path = os.path.join(config_dir, config_name)
-        print(f"[调试] 程序目录不可写({e})，使用用户目录: {fallback_path}")
+        app_logger.warning("[调试] 程序目录不可写(%s)，使用用户目录: %s", e, fallback_path)
         return fallback_path
 
 
@@ -104,19 +118,204 @@ def get_logs_dir():
         return logs_dir
 
 
+DEFAULT_SERIAL_HTTPS_PORT = 5443
+REMOTE_SERIAL_HTTPS_MODE_FULL = 'full'
+REMOTE_SERIAL_HTTPS_MODE_COMPAT = 'compat'
+
+
+def normalize_remote_serial_https_mode(value):
+    """Normalize the remote-serial HTTPS mode."""
+    mode = (value or '').strip().lower()
+    if mode == REMOTE_SERIAL_HTTPS_MODE_COMPAT:
+        return REMOTE_SERIAL_HTTPS_MODE_COMPAT
+    return REMOTE_SERIAL_HTTPS_MODE_FULL
+
+
+def default_serial_https_port(main_port=None):
+    """Return a sensible default HTTPS port for the serial companion listener."""
+    try:
+        main_port_value = int(main_port)
+    except (TypeError, ValueError):
+        main_port_value = 5000
+
+    default_port = DEFAULT_SERIAL_HTTPS_PORT
+    if main_port_value == default_port:
+        return default_port + 1
+    return default_port
+
+
+def normalize_serial_https_port(value, main_port=None):
+    """Normalize the configured serial HTTPS port."""
+    try:
+        port = int(value)
+        if 1 <= port <= 65535:
+            return port
+    except (TypeError, ValueError):
+        pass
+    return default_serial_https_port(main_port)
+
+
+def resolve_relative_config_path(path_value, config_dir):
+    """Resolve a config path relative to the config directory."""
+    if not path_value:
+        return ''
+    candidate = os.path.expanduser(path_value)
+    if os.path.isabs(candidate):
+        return os.path.normpath(candidate)
+    return os.path.normpath(os.path.join(config_dir, candidate))
+
+
+def can_load_cert_pair(cert_path, key_path):
+    """Check whether a certificate pair can be loaded by Python's SSL stack."""
+    try:
+        test_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        test_context.load_cert_chain(certfile=cert_path, keyfile=key_path)
+        return True, ''
+    except Exception as e:
+        return False, str(e)
+
+
+def can_bind_tcp_port(host, port):
+    """Return whether a TCP port looks available for binding."""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as test_socket:
+            test_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            test_socket.bind((host, int(port)))
+        return True
+    except OSError:
+        return False
+
+
+def inspect_https_runtime(settings_data, verify_cert_pair=True):
+    """Inspect whether HTTPS can be started with the current settings."""
+    config_file = settings_data.get('CONFIG_FILE') or get_config_path()
+    config_dir = os.path.dirname(config_file)
+    main_port = settings_data.get('PORT', 5000)
+    remote_serial_enabled = bool(settings_data.get('REMOTE_SERIAL_ENABLED', False))
+    remote_serial_https_mode = normalize_remote_serial_https_mode(
+        settings_data.get('REMOTE_SERIAL_HTTPS_MODE', REMOTE_SERIAL_HTTPS_MODE_FULL)
+    )
+    serial_https_port = normalize_serial_https_port(
+        settings_data.get('SERIAL_HTTPS_PORT', default_serial_https_port(main_port)),
+        main_port=main_port,
+    )
+
+    cert_file = (settings_data.get('HTTPS_CERT_FILE') or '').strip()
+    key_file = (settings_data.get('HTTPS_KEY_FILE') or '').strip()
+    resolved_cert_file = resolve_relative_config_path(cert_file, config_dir)
+    resolved_key_file = resolve_relative_config_path(key_file, config_dir)
+
+    cert_exists = bool(resolved_cert_file and os.path.exists(resolved_cert_file))
+    key_exists = bool(resolved_key_file and os.path.exists(resolved_key_file))
+    cert_pair_configured = bool(cert_file and key_file)
+    cert_pair_ok = False
+    cert_pair_error = ''
+    if cert_exists and key_exists and verify_cert_pair:
+        cert_pair_ok, cert_pair_error = can_load_cert_pair(resolved_cert_file, resolved_key_file)
+    elif cert_exists and key_exists:
+        cert_pair_ok = True
+
+    has_cryptography = importlib.util.find_spec('cryptography') is not None
+    https_available = cert_pair_ok or has_cryptography
+
+    return {
+        'config_file': config_file,
+        'config_dir': config_dir,
+        'main_port': main_port,
+        'remote_serial_enabled': remote_serial_enabled,
+        'remote_serial_https_mode': remote_serial_https_mode,
+        'serial_https_port': serial_https_port,
+        'cert_file': cert_file,
+        'key_file': key_file,
+        'resolved_cert_file': resolved_cert_file,
+        'resolved_key_file': resolved_key_file,
+        'cert_exists': cert_exists,
+        'key_exists': key_exists,
+        'cert_pair_configured': cert_pair_configured,
+        'cert_pair_ok': cert_pair_ok,
+        'cert_pair_error': cert_pair_error,
+        'has_cryptography': has_cryptography,
+        'https_available': https_available,
+    }
+
+
+def prepare_https_runtime(settings_data):
+    """Prepare SSL context information for a remote-serial HTTPS listener."""
+    runtime_info = inspect_https_runtime(settings_data, verify_cert_pair=True)
+    ssl_context = None
+    cert_source = 'none'
+
+    if runtime_info['cert_exists'] and runtime_info['key_exists'] and runtime_info['cert_pair_ok']:
+        ssl_context = (
+            runtime_info['resolved_cert_file'],
+            runtime_info['resolved_key_file'],
+        )
+        cert_source = 'configured'
+        return runtime_info, ssl_context, cert_source
+
+    if runtime_info['has_cryptography']:
+        local_ips_for_cert = get_local_ips(verbose=False, use_cache=True)
+        auto_cert_file, auto_key_file, auto_cert_created = get_or_create_local_https_cert(
+            runtime_info['config_dir'],
+            local_ips_for_cert
+        )
+        if auto_cert_file and auto_key_file:
+            runtime_info['auto_cert_file'] = auto_cert_file
+            runtime_info['auto_key_file'] = auto_key_file
+            runtime_info['auto_cert_created'] = auto_cert_created
+            ssl_context = (auto_cert_file, auto_key_file)
+            cert_source = 'generated'
+        else:
+            ssl_context = 'adhoc'
+            cert_source = 'adhoc'
+
+    return runtime_info, ssl_context, cert_source
+
+
 # =============================
 # Flask 应用日志配置
 # =============================
 
+def _create_rotating_handler(log_file, level=logging.INFO, delay=True):
+    """创建按天轮转的日志处理器。"""
+    handler = TimedRotatingFileHandler(
+        filename=log_file,
+        when='midnight',
+        interval=1,
+        backupCount=14,
+        encoding='utf-8',
+        delay=delay
+    )
+    handler.suffix = "%Y-%m-%d"
+    handler.setLevel(level)
+    handler.setFormatter(logging.Formatter(
+        '%(asctime)s - %(levelname)s - %(name)s - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    ))
+    return handler
+
+
+_logs_dir = get_logs_dir()
+app_logger = logging.getLogger("yobboy_file_server")
+app_logger.setLevel(logging.INFO)
+if not app_logger.handlers:
+    app_logger.addHandler(_create_rotating_handler(os.path.join(_logs_dir, "app.log"), logging.INFO))
+app_logger.propagate = False
+
 connection_logger = logging.getLogger("file_server_connections")
 connection_logger.setLevel(logging.INFO)
-log_filename = f"{get_logs_dir()}/access_{datetime.now().strftime('%Y-%m-%d')}.log"
-file_handler = logging.FileHandler(log_filename, encoding='utf-8')
-file_handler.setFormatter(logging.Formatter(
-    '%(asctime)s - %(message)s', datefmt='%Y-%m-%d %H:%M:%S'
-))
-connection_logger.addHandler(file_handler)
 connection_logger.propagate = False
+
+
+def ensure_connection_logger_handler():
+    """
+    懒加载 access.log handler，避免 GUI 主进程在仅导入模块时占用日志文件句柄，
+    导致 Flask 子进程轮转 access.log 时触发 WinError 32。
+    """
+    if not connection_logger.handlers:
+        connection_logger.addHandler(
+            _create_rotating_handler(os.path.join(_logs_dir, "access.log"), logging.INFO, delay=True)
+        )
 
 
 # IP地址缓存（避免重复查询）
@@ -144,7 +343,7 @@ def get_local_ips(verbose=True, use_cache=True):
         import time
         if time.time() - _ip_cache_time < _ip_cache_ttl:
             if verbose:
-                print(f"[网络] 使用缓存的IP地址列表（{len(_ip_cache)}个地址）")
+                app_logger.info("[网络] 使用缓存的IP地址列表（%s个地址）", len(_ip_cache))
             return _ip_cache.copy()
     
     ip_list = []
@@ -170,10 +369,10 @@ def get_local_ips(verbose=True, use_cache=True):
             s.connect(("8.8.8.8", 80))
             default_ip = s.getsockname()[0]
             if verbose:
-                print(f"[网络] 默认路由IP（推荐）: {default_ip}")
+                app_logger.info("[网络] 默认路由IP（推荐）: %s", default_ip)
     except Exception as e:
         if verbose:
-            print(f"[网络] 无法获取默认路由IP: {e}")
+            app_logger.warning("[网络] 无法获取默认路由IP: %s", e)
     
     # 2. 获取所有网络接口的IP地址
     try:
@@ -187,7 +386,7 @@ def get_local_ips(verbose=True, use_cache=True):
                     ip_list.append(ip)
     except Exception as e:
         if verbose:
-            print(f"[网络] 获取主机名IP时出错: {e}")
+            app_logger.warning("[网络] 获取主机名IP时出错: %s", e)
     
     # 3. 智能排序IP地址
     def ip_priority(ip):
@@ -242,7 +441,7 @@ def get_local_ips(verbose=True, use_cache=True):
     
     # 打印所有找到的IP及其优先级（仅在verbose模式下）
     if verbose:
-        print("[网络] 找到的所有IP地址（按优先级排序）:")
+        app_logger.info("[网络] 找到的所有IP地址（按优先级排序）:")
         for ip in ip_list:
             priority = ip_priority(ip)
             # 使用ASCII字符替代Unicode字符，避免Windows控制台编码问题
@@ -254,10 +453,10 @@ def get_local_ips(verbose=True, use_cache=True):
                 status = "[可用]"
             
             try:
-                print(f"  {status} {ip} (优先级: {priority})")
+                app_logger.info("  %s %s (优先级: %s)", status, ip, priority)
             except UnicodeEncodeError:
                 # 如果仍然有编码问题，使用纯ASCII输出
-                print(f"  {status} {ip} (priority: {priority})")
+                app_logger.info("  %s %s (priority: %s)", status, ip, priority)
     
     # 更新缓存
     if use_cache:
@@ -271,15 +470,18 @@ def get_local_ips(verbose=True, use_cache=True):
 def log_connection_info():
     """记录当前请求的连接信息"""
     if request:
+        path = request.path
+        # 跳过高频静态资源与连接探测请求，减少日志 I/O 压力
+        if path.startswith('/static/') or path.startswith('/socket.io/') or path == '/favicon.ico':
+            return
         client_ip = request.environ.get('REMOTE_ADDR')
         user_agent = request.headers.get('User-Agent', 'Unknown')
-        path = request.path
         method = request.method
         msg = f"IP: {client_ip} | Method: {method} | Path: {path} | User-Agent: {user_agent}"
         connection_logger.info(msg)
 
 
-def create_app():
+def create_app(debug=False):
     """应用工厂函数"""
     # 显式指定 templates 和 static 目录（外部文件夹）
     template_dir = get_resource_path('templates')
@@ -290,12 +492,15 @@ def create_app():
     app.config['CONFIG_FILE'] = get_config_path()
     app.config['DEFAULT_ROOT_DIR'] = os.path.expanduser("~")
     
-    # 启用调试模式以便查看请求日志
-    app.debug = True
+    # 调试模式由启动参数控制，避免 GUI 场景默认开启调试
+    app.debug = debug
 
     # 确保模板和静态目录存在（用于首次运行时创建）
     os.makedirs(template_dir, exist_ok=True)
     os.makedirs(static_dir, exist_ok=True)
+
+    # 仅在真正启动 Flask 应用时绑定 access logger，避免多进程文件锁冲突。
+    ensure_connection_logger_handler()
 
     @app.before_request
     def before_request():
@@ -325,20 +530,22 @@ def init_serial_socketio(socketio):
     
     # 存储客户端会话
     serial_sessions = {}
+    serial_sessions_lock = threading.Lock()
     
     @socketio.on('connect', namespace='/serial')
     def handle_connect():
         """客户端连接"""
-        print(f'[Serial WebSocket] 客户端连接: {request.sid}')
+        app_logger.info('[Serial WebSocket] 客户端连接: %s', request.sid)
         emit('connected', {'client_id': request.sid})
     
     @socketio.on('disconnect', namespace='/serial')
     def handle_disconnect():
         """客户端断开"""
-        print(f'[Serial WebSocket] 客户端断开: {request.sid}')
+        app_logger.info('[Serial WebSocket] 客户端断开: %s', request.sid)
         
         # 清理会话
-        session_ports = serial_sessions.pop(request.sid, {})
+        with serial_sessions_lock:
+            session_ports = dict(serial_sessions.pop(request.sid, {}))
         for port_id, listener_id in session_ports.items():
             try:
                 serial_manager.release_port(port_id, listener_id)
@@ -390,7 +597,8 @@ def init_serial_socketio(socketio):
             
             if success:
                 # 记录会话
-                serial_sessions.setdefault(request.sid, {})[port_id] = listener_id
+                with serial_sessions_lock:
+                    serial_sessions.setdefault(request.sid, {})[port_id] = listener_id
                 
                 # 加入房间
                 join_room(f'port_{port_id}')
@@ -411,7 +619,7 @@ def init_serial_socketio(socketio):
                 })
         
         except Exception as e:
-            print(f'[错误] 打开串口失败: {e}')
+            app_logger.error('[错误] 打开串口失败: %s', e)
             emit('port_opened', {
                 'success': False,
                 'error': str(e)
@@ -423,8 +631,9 @@ def init_serial_socketio(socketio):
         try:
             port_id = data.get('port_id')
             
-            session_ports = serial_sessions.get(request.sid, {})
-            listener_id = session_ports.pop(port_id, None)
+            with serial_sessions_lock:
+                session_ports = serial_sessions.get(request.sid, {})
+                listener_id = session_ports.pop(port_id, None)
 
             # 释放监听器（若没有其他监听器与日志，则会关闭串口）
             serial_manager.release_port(port_id, listener_id)
@@ -438,7 +647,7 @@ def init_serial_socketio(socketio):
             })
         
         except Exception as e:
-            print(f'[错误] 关闭串口失败: {e}')
+            app_logger.error('[错误] 关闭串口失败: %s', e)
             emit('port_closed', {
                 'success': False,
                 'error': str(e)
@@ -468,7 +677,7 @@ def init_serial_socketio(socketio):
                 })
         
         except Exception as e:
-            print(f'[错误] 写入数据失败: {e}')
+            app_logger.error('[错误] 写入数据失败: %s', e)
             emit('data_written', {
                 'success': False,
                 'error': str(e)
@@ -501,6 +710,397 @@ def init_serial_socketio(socketio):
             })
 
 
+def init_serial_socketio(socketio):
+    """Initialize shared serial Socket.IO events."""
+
+    def channel_room(channel_id):
+        return f'channel_{channel_id}'
+
+    def emit_shared_channels():
+        socketio.emit(
+            'shared_channels',
+            {'success': True, 'channels': shared_serial_hub.list_channels()},
+            namespace='/serial'
+        )
+
+    def emit_channel_state(channel_id):
+        channel = shared_serial_hub.get_channel(channel_id)
+        if channel:
+            socketio.emit(
+                'channel_state',
+                {'success': True, 'channel': channel},
+                namespace='/serial',
+                room=channel_room(channel_id),
+            )
+
+    def emit_serial_entry(entry):
+        if not entry:
+            return
+        payload = {
+            'success': True,
+            'channel_id': entry['channel_id'],
+            'port_id': entry['channel_id'],
+            'direction': entry['dir'],
+            'data': list(bytes.fromhex(entry.get('hex', ''))),
+            'timestamp': entry['ts'],
+            'entry': entry,
+        }
+        socketio.emit('serial_entry', payload, namespace='/serial', room=channel_room(entry['channel_id']))
+        socketio.emit('serial_data', payload, namespace='/serial', room=channel_room(entry['channel_id']))
+
+    def apply_serial_actions(actions):
+        if not actions:
+            return
+        catalog_dirty = False
+        for action in actions:
+            action_type = action.get('type')
+            channel_id = action.get('channel_id')
+            if action_type == 'server_open':
+                config = action.get('config', {})
+                listener_id = f"hub:{channel_id}"
+
+                def on_data_received(_pid, data_bytes, current_channel_id=channel_id):
+                    entry = shared_serial_hub.append_rx_entry(current_channel_id, data_bytes)
+                    emit_serial_entry(entry)
+
+                success = serial_manager.open_port(
+                    port_id=channel_id,
+                    device=action.get('device'),
+                    baudrate=int(config.get('baudrate', 9600)),
+                    bytesize=int(config.get('bytesize', 8)),
+                    parity=config.get('parity', 'N'),
+                    stopbits=int(config.get('stopbits', 1)),
+                    listener_id=listener_id,
+                    callback=on_data_received,
+                )
+                shared_serial_hub.mark_server_channel_state(
+                    channel_id,
+                    active=success,
+                    error='' if success else 'server_open_failed',
+                )
+                emit_channel_state(channel_id)
+                if not success:
+                    socketio.emit(
+                        'channel_error',
+                        {
+                            'success': False,
+                            'channel_id': channel_id,
+                            'error': '打开服务器串口失败',
+                        },
+                        namespace='/serial',
+                        room=channel_room(channel_id),
+                    )
+                catalog_dirty = True
+            elif action_type == 'server_close':
+                try:
+                    serial_manager.release_port(channel_id, listener_id=f"hub:{channel_id}", force=True)
+                except Exception:
+                    pass
+                shared_serial_hub.mark_server_channel_state(channel_id, active=False, error='')
+                emit_channel_state(channel_id)
+                catalog_dirty = True
+            elif action_type == 'browser_activate':
+                socketio.emit(
+                    'browser_channel_activate',
+                    {
+                        'success': True,
+                        'channel_id': channel_id,
+                        'config': action.get('config', {}),
+                    },
+                    namespace='/serial',
+                    room=action.get('owner_sid'),
+                )
+                catalog_dirty = True
+            elif action_type == 'browser_sleep':
+                socketio.emit(
+                    'browser_channel_sleep',
+                    {
+                        'success': True,
+                        'channel_id': channel_id,
+                    },
+                    namespace='/serial',
+                    room=action.get('owner_sid'),
+                )
+                catalog_dirty = True
+            elif action_type == 'browser_write_request':
+                socketio.emit(
+                    'browser_write_request',
+                    {
+                        'success': True,
+                        'channel_id': channel_id,
+                        'request_id': action.get('request_id'),
+                        'data': action.get('data', []),
+                    },
+                    namespace='/serial',
+                    room=action.get('owner_sid'),
+                )
+        if catalog_dirty:
+            emit_shared_channels()
+
+    socketio.serial_action_runner = apply_serial_actions
+    socketio.serial_emit_shared_channels = emit_shared_channels
+    socketio.serial_emit_channel_state = emit_channel_state
+
+    @socketio.on('connect', namespace='/serial')
+    def handle_connect():
+        if not session.get('logged_in'):
+            app_logger.warning('[Serial WebSocket] Rejecting unauthorized socket connection: %s', request.sid)
+            return False
+        app_logger.info('[Serial WebSocket] 客户端连接: %s', request.sid)
+        emit('connected', {'client_id': request.sid})
+        emit('shared_channels', {'success': True, 'channels': shared_serial_hub.list_channels()})
+        return True
+
+    @socketio.on('disconnect', namespace='/serial')
+    def handle_disconnect():
+        app_logger.info('[Serial WebSocket] 客户端断开: %s', request.sid)
+        failed_writes = shared_serial_hub.fail_browser_writes_for_owner(request.sid)
+        changed_channels, actions = shared_serial_hub.handle_socket_disconnect(request.sid)
+        for failed in failed_writes:
+            socketio.emit(
+                'data_written',
+                {
+                    'success': False,
+                    'port_id': failed.get('channel_id'),
+                    'channel_id': failed.get('channel_id'),
+                    'bytes_written': failed.get('bytes_written', 0),
+                    'error': failed.get('error', 'owner_disconnected'),
+                },
+                namespace='/serial',
+                room=failed.get('requester_sid'),
+            )
+        apply_serial_actions(actions)
+        if changed_channels or failed_writes:
+            emit_shared_channels()
+            for channel in changed_channels:
+                emit_channel_state(channel['channel_id'])
+
+    @socketio.on('list_ports', namespace='/serial')
+    def handle_list_ports():
+        try:
+            ports = serial_manager.list_available_ports()
+            emit('ports_list', {'success': True, 'ports': ports})
+        except Exception as e:
+            emit('ports_list', {'success': False, 'error': str(e)})
+
+    @socketio.on('list_channels', namespace='/serial')
+    def handle_list_channels():
+        emit('shared_channels', {'success': True, 'channels': shared_serial_hub.list_channels()})
+
+    @socketio.on('register_browser_port', namespace='/serial')
+    def handle_register_browser_port(data):
+        try:
+            config = {
+                'baudrate': int(data.get('baudrate', 9600)),
+                'bytesize': int(data.get('bytesize', 8)),
+                'parity': data.get('parity', 'N'),
+                'stopbits': int(data.get('stopbits', 1)),
+            }
+            channel = shared_serial_hub.register_browser_channel(
+                owner_sid=request.sid,
+                display_name=data.get('display_name', ''),
+                config=config,
+                browser_port=data.get('browser_port') or {},
+            )
+            emit('browser_port_registered', {'success': True, 'channel': channel})
+            emit_shared_channels()
+        except Exception as e:
+            emit('browser_port_registered', {'success': False, 'error': str(e)})
+
+    @socketio.on('unregister_browser_port', namespace='/serial')
+    def handle_unregister_browser_port(data):
+        try:
+            channel_id = data.get('channel_id') or data.get('port_id')
+            channel, actions = shared_serial_hub.unregister_browser_channel(request.sid, channel_id)
+            if not channel:
+                emit('browser_port_unregistered', {'success': False, 'error': '共享串口不存在'})
+                return
+            apply_serial_actions(actions)
+            emit('browser_port_unregistered', {'success': True, 'channel_id': channel_id})
+            emit_shared_channels()
+        except Exception as e:
+            emit('browser_port_unregistered', {'success': False, 'error': str(e)})
+
+    @socketio.on('open_port', namespace='/serial')
+    def handle_open_port(data):
+        try:
+            channel_id = (data.get('channel_id') or data.get('port_id') or '').strip()
+            if not channel_id:
+                device = (data.get('device') or '').strip()
+                if not device:
+                    emit('port_opened', {'success': False, 'error': '缺少串口设备信息'})
+                    return
+                config = {
+                    'baudrate': int(data.get('baudrate', 9600)),
+                    'bytesize': int(data.get('bytesize', 8)),
+                    'parity': data.get('parity', 'N'),
+                    'stopbits': int(data.get('stopbits', 1)),
+                }
+                channel_info, _created = shared_serial_hub.ensure_server_channel(
+                    device=device,
+                    config=config,
+                    display_name=data.get('display_name') or device,
+                )
+                channel_id = channel_info['channel_id']
+
+            channel, actions, error = shared_serial_hub.attach_client(channel_id, request.sid)
+            if error or not channel:
+                emit('port_opened', {'success': False, 'port_id': channel_id, 'error': error or '打开共享串口失败'})
+                return
+
+            join_room(channel_room(channel_id))
+            apply_serial_actions(actions)
+            channel = shared_serial_hub.get_channel(channel_id) or channel
+            emit(
+                'port_opened',
+                {
+                    'success': True,
+                    'port_id': channel_id,
+                    'channel': channel,
+                    'port_info': channel,
+                },
+            )
+            emit_channel_state(channel_id)
+            emit_shared_channels()
+        except Exception as e:
+            app_logger.error('[错误] 打开共享串口失败: %s', e)
+            emit('port_opened', {'success': False, 'error': str(e)})
+
+    @socketio.on('close_port', namespace='/serial')
+    def handle_close_port(data):
+        try:
+            channel_id = (data.get('channel_id') or data.get('port_id') or '').strip()
+            channel, actions = shared_serial_hub.detach_client(channel_id, request.sid)
+            leave_room(channel_room(channel_id))
+            apply_serial_actions(actions)
+            emit(
+                'port_closed',
+                {
+                    'success': True,
+                    'port_id': channel_id,
+                    'channel': channel,
+                },
+            )
+            emit_channel_state(channel_id)
+            emit_shared_channels()
+        except Exception as e:
+            app_logger.error('[错误] 关闭共享串口失败: %s', e)
+            emit('port_closed', {'success': False, 'error': str(e)})
+
+    @socketio.on('write_data', namespace='/serial')
+    def handle_write_data(data):
+        try:
+            channel_id = (data.get('channel_id') or data.get('port_id') or '').strip()
+            if not shared_serial_hub.is_client_attached(channel_id, request.sid):
+                emit('data_written', {'success': False, 'port_id': channel_id, 'error': '当前客户端未连接此串口'})
+                return
+
+            channel = shared_serial_hub.get_channel(channel_id)
+            if not channel:
+                emit('data_written', {'success': False, 'port_id': channel_id, 'error': '共享串口不存在'})
+                return
+
+            data_bytes = bytes(data.get('data', []))
+            if channel['source_type'] == SOURCE_SERVER_PYSERIAL:
+                bytes_written = serial_manager.write_data(channel_id, data_bytes)
+                if bytes_written >= 0:
+                    entry = shared_serial_hub.append_tx_entry(channel_id, data_bytes, actor=None)
+                    emit(
+                        'data_written',
+                        {
+                            'success': True,
+                            'port_id': channel_id,
+                            'channel_id': channel_id,
+                            'bytes_written': bytes_written,
+                        },
+                    )
+                    emit_serial_entry(entry)
+                else:
+                    emit('data_written', {'success': False, 'port_id': channel_id, 'error': '写入数据失败'})
+            elif channel['source_type'] == SOURCE_BROWSER_SERIAL:
+                action, error = shared_serial_hub.build_browser_write_request(
+                    channel_id=channel_id,
+                    requester_sid=request.sid,
+                    data=data_bytes,
+                    actor=None,
+                )
+                if error or not action:
+                    emit('data_written', {'success': False, 'port_id': channel_id, 'error': error or '浏览器串口未激活'})
+                    return
+                apply_serial_actions([action])
+            else:
+                emit('data_written', {'success': False, 'port_id': channel_id, 'error': '未知串口类型'})
+        except Exception as e:
+            app_logger.error('[错误] 写入共享串口失败: %s', e)
+            emit('data_written', {'success': False, 'error': str(e)})
+
+    @socketio.on('get_port_info', namespace='/serial')
+    def handle_get_port_info(data):
+        try:
+            channel_id = (data.get('channel_id') or data.get('port_id') or '').strip()
+            channel = shared_serial_hub.get_channel(channel_id)
+            if channel:
+                emit(
+                    'port_info',
+                    {
+                        'success': True,
+                        'port_id': channel_id,
+                        'channel': channel,
+                        'port_info': channel,
+                    },
+                )
+            else:
+                emit('port_info', {'success': False, 'port_id': channel_id, 'error': '共享串口不存在'})
+        except Exception as e:
+            emit('port_info', {'success': False, 'error': str(e)})
+
+    @socketio.on('browser_channel_ready', namespace='/serial')
+    def handle_browser_channel_ready(data):
+        channel_id = (data.get('channel_id') or '').strip()
+        channel = shared_serial_hub.mark_browser_channel_ready(
+            owner_sid=request.sid,
+            channel_id=channel_id,
+            active=bool(data.get('active', False)),
+            error=(data.get('error') or '').strip() or None,
+        )
+        if channel:
+            emit_channel_state(channel_id)
+            emit_shared_channels()
+
+    @socketio.on('browser_port_data', namespace='/serial')
+    def handle_browser_port_data(data):
+        channel_id = (data.get('channel_id') or '').strip()
+        if not shared_serial_hub.is_browser_owner(channel_id, request.sid):
+            return
+        entry = shared_serial_hub.append_rx_entry(channel_id, bytes(data.get('data', [])))
+        emit_serial_entry(entry)
+
+    @socketio.on('browser_write_result', namespace='/serial')
+    def handle_browser_write_result(data):
+        ack, entry, error = shared_serial_hub.complete_browser_write(
+            owner_sid=request.sid,
+            request_id=(data.get('request_id') or '').strip(),
+            success=bool(data.get('success', False)),
+            error=(data.get('error') or '').strip() or None,
+        )
+        if error or not ack:
+            return
+        socketio.emit(
+            'data_written',
+            {
+                'success': ack['success'],
+                'port_id': ack['channel_id'],
+                'channel_id': ack['channel_id'],
+                'bytes_written': ack.get('bytes_written', 0),
+                'error': ack.get('error', ''),
+            },
+            namespace='/serial',
+            room=ack.get('requester_sid'),
+        )
+        if entry:
+            emit_serial_entry(entry)
+
+
 def load_or_create_config(app):
     """加载或创建配置文件"""
     config_file = app.config['CONFIG_FILE']
@@ -519,6 +1119,16 @@ def load_or_create_config(app):
             git_enabled = settings.get('git_enabled', 'false').lower() == 'true'  # Git功能开关
             git_workdir = settings.get('git_workdir', '')  # Git工作目录
             git_external_app_path = settings.get('git_external_app_path', '')  # Git外部软件路径（如VSCode）
+            remote_serial_enabled = settings.get('remote_serial_enabled', 'false').lower() == 'true'
+            remote_serial_https_mode = normalize_remote_serial_https_mode(
+                settings.get('remote_serial_https_mode', REMOTE_SERIAL_HTTPS_MODE_FULL)
+            )
+            serial_https_port = normalize_serial_https_port(
+                settings.get('serial_https_port', default_serial_https_port(port)),
+                main_port=port,
+            )
+            https_cert_file = settings.get('https_cert_file', '').strip()
+            https_key_file = settings.get('https_key_file', '').strip()
             
             # 保存配置到app中（即使路径不存在也保留用户设置）
             app.config['ROOT_DIR'] = os.path.normpath(root_dir) if root_dir else app.config['DEFAULT_ROOT_DIR']
@@ -529,18 +1139,30 @@ def load_or_create_config(app):
             app.config['GIT_ENABLED'] = git_enabled
             app.config['GIT_WORKDIR'] = os.path.normpath(git_workdir) if git_workdir else ''
             app.config['GIT_EXTERNAL_APP_PATH'] = git_external_app_path if git_external_app_path else ''
+            app.config['REMOTE_SERIAL_ENABLED'] = remote_serial_enabled
+            app.config['REMOTE_SERIAL_HTTPS_MODE'] = remote_serial_https_mode
+            app.config['SERIAL_HTTPS_PORT'] = serial_https_port
+            app.config['HTTPS_CERT_FILE'] = https_cert_file
+            app.config['HTTPS_KEY_FILE'] = https_key_file
             
             # 检查路径是否有效（仅警告，不修改配置）
             if not os.path.isdir(app.config['ROOT_DIR']):
-                print(f"[警告] 配置的根目录 '{app.config['ROOT_DIR']}' 不存在或无效")
-                print(f"  请通过设置界面修改根目录，或手动创建该目录")
+                app_logger.warning("[警告] 配置的根目录 '%s' 不存在或无效", app.config['ROOT_DIR'])
+                app_logger.warning("  请通过设置界面修改根目录，或手动创建该目录")
             
-            print(f"[OK] 配置已加载: 根目录={app.config['ROOT_DIR']}, 密码长度={len(password)}, 管理员密码已设置")
-            print(f"[配置] Git功能开关: {git_enabled} (从配置文件读取: {settings.get('git_enabled', 'false')})")
-            print(f"[配置] Git工作目录: {app.config['GIT_WORKDIR'] if app.config['GIT_WORKDIR'] else '未设置'}")
+            app_logger.info("[OK] 配置已加载: 根目录=%s, 密码长度=%s, 管理员密码已设置", app.config['ROOT_DIR'], len(password))
+            app_logger.info("[配置] Git功能开关: %s (从配置文件读取: %s)", git_enabled, settings.get('git_enabled', 'false'))
+            app_logger.info("[配置] Git工作目录: %s", app.config['GIT_WORKDIR'] if app.config['GIT_WORKDIR'] else '未设置')
+            app_logger.info(
+                "[配置] 远程串口: %s, HTTPS模式: %s, HTTPS端口: %s, HTTPS证书已配置: %s",
+                remote_serial_enabled,
+                remote_serial_https_mode,
+                serial_https_port,
+                bool(https_cert_file and https_key_file),
+            )
         else:
             # 配置文件格式错误，使用默认值并保存
-            print("[警告] 配置文件格式错误，使用默认配置")
+            app_logger.warning("[警告] 配置文件格式错误，使用默认配置")
             app.config['ROOT_DIR'] = app.config['DEFAULT_ROOT_DIR']
             app.config['PASSWORD'] = 'password'
             app.config['ADMIN_PASSWORD'] = 'admin123'
@@ -548,10 +1170,15 @@ def load_or_create_config(app):
             app.config['PORT'] = 5000
             app.config['GIT_ENABLED'] = False
             app.config['GIT_WORKDIR'] = ''
+            app.config['REMOTE_SERIAL_ENABLED'] = False
+            app.config['REMOTE_SERIAL_HTTPS_MODE'] = REMOTE_SERIAL_HTTPS_MODE_FULL
+            app.config['SERIAL_HTTPS_PORT'] = default_serial_https_port(app.config['PORT'])
+            app.config['HTTPS_CERT_FILE'] = ''
+            app.config['HTTPS_KEY_FILE'] = ''
             save_config(app)
     else:
         # 配置文件不存在，创建默认配置
-        print("配置文件不存在，创建默认配置")
+        app_logger.info("配置文件不存在，创建默认配置")
         app.config['ROOT_DIR'] = app.config['DEFAULT_ROOT_DIR']
         app.config['PASSWORD'] = 'password'
         app.config['ADMIN_PASSWORD'] = 'admin123'
@@ -559,26 +1186,160 @@ def load_or_create_config(app):
         app.config['PORT'] = 5000
         app.config['GIT_ENABLED'] = False
         app.config['GIT_WORKDIR'] = ''
+        app.config['REMOTE_SERIAL_ENABLED'] = False
+        app.config['REMOTE_SERIAL_HTTPS_MODE'] = REMOTE_SERIAL_HTTPS_MODE_FULL
+        app.config['SERIAL_HTTPS_PORT'] = default_serial_https_port(app.config['PORT'])
+        app.config['HTTPS_CERT_FILE'] = ''
+        app.config['HTTPS_KEY_FILE'] = ''
         save_config(app)
+
+
+def read_runtime_settings(create_if_missing=True, config_file=None):
+    """
+    轻量读取运行配置，避免仅为读取配置而初始化 Flask/SocketIO。
+    返回结构与 app.config 关键字段保持一致。
+    """
+    default_root_dir = os.path.expanduser("~")
+    config_file = config_file or get_config_path()
+    config = configparser.ConfigParser()
+    settings_data = {
+        'CONFIG_FILE': config_file,
+        'ROOT_DIR': default_root_dir,
+        'PASSWORD': 'password',
+        'ADMIN_PASSWORD': 'admin123',
+        'CLOSE_TO_TRAY': False,
+        'PORT': 5000,
+        'GIT_ENABLED': False,
+        'GIT_WORKDIR': '',
+        'GIT_EXTERNAL_APP_PATH': '',
+        'REMOTE_SERIAL_ENABLED': False,
+        'REMOTE_SERIAL_HTTPS_MODE': REMOTE_SERIAL_HTTPS_MODE_FULL,
+        'SERIAL_HTTPS_PORT': default_serial_https_port(5000),
+        'HTTPS_CERT_FILE': '',
+        'HTTPS_KEY_FILE': ''
+    }
+
+    if os.path.exists(config_file):
+        config.read(config_file, encoding='utf-8')
+        if 'settings' in config:
+            settings = config['settings']
+            root_dir = settings.get('root_dir', default_root_dir)
+            settings_data['ROOT_DIR'] = os.path.normpath(root_dir) if root_dir else default_root_dir
+            settings_data['PASSWORD'] = settings.get('password', 'password')
+            settings_data['ADMIN_PASSWORD'] = settings.get('admin_password', 'admin123')
+            settings_data['CLOSE_TO_TRAY'] = settings.get('close_to_tray', 'false').lower() == 'true'
+            try:
+                settings_data['PORT'] = int(settings.get('port', '5000'))
+            except ValueError:
+                app_logger.warning("[警告] 配置文件中的端口无效，已回退到 5000")
+                settings_data['PORT'] = 5000
+            settings_data['GIT_ENABLED'] = settings.get('git_enabled', 'false').lower() == 'true'
+            git_workdir = settings.get('git_workdir', '')
+            settings_data['GIT_WORKDIR'] = os.path.normpath(git_workdir) if git_workdir else ''
+            settings_data['GIT_EXTERNAL_APP_PATH'] = settings.get('git_external_app_path', '')
+            settings_data['REMOTE_SERIAL_ENABLED'] = settings.get('remote_serial_enabled', 'false').lower() == 'true'
+            settings_data['REMOTE_SERIAL_HTTPS_MODE'] = normalize_remote_serial_https_mode(
+                settings.get('remote_serial_https_mode', REMOTE_SERIAL_HTTPS_MODE_FULL)
+            )
+            settings_data['SERIAL_HTTPS_PORT'] = normalize_serial_https_port(
+                settings.get('serial_https_port', default_serial_https_port(settings_data['PORT'])),
+                main_port=settings_data['PORT'],
+            )
+            settings_data['HTTPS_CERT_FILE'] = settings.get('https_cert_file', '').strip()
+            settings_data['HTTPS_KEY_FILE'] = settings.get('https_key_file', '').strip()
+            return settings_data
+        app_logger.warning("[警告] 配置文件缺少 [settings] 段，使用默认配置")
+    elif not create_if_missing:
+        return settings_data
+    else:
+        app_logger.info("配置文件不存在，创建默认配置")
+
+    if create_if_missing:
+        save_runtime_settings(settings_data, config_file=config_file)
+    return settings_data
+
+
+def save_runtime_settings(settings_data, config_file=None):
+    """保存轻量配置字典到配置文件"""
+    config_file = config_file or settings_data.get('CONFIG_FILE', get_config_path())
+    existing_remote_serial_enabled = False
+    existing_remote_serial_https_mode = REMOTE_SERIAL_HTTPS_MODE_FULL
+    existing_serial_https_port = default_serial_https_port(settings_data.get('PORT', 5000))
+    existing_https_cert_file = ''
+    existing_https_key_file = ''
+    if os.path.exists(config_file):
+        existing_config = configparser.ConfigParser()
+        existing_config.read(config_file, encoding='utf-8')
+        if 'settings' in existing_config:
+            existing_settings = existing_config['settings']
+            existing_remote_serial_enabled = existing_settings.get('remote_serial_enabled', 'false').lower() == 'true'
+            existing_remote_serial_https_mode = normalize_remote_serial_https_mode(
+                existing_settings.get('remote_serial_https_mode', REMOTE_SERIAL_HTTPS_MODE_FULL)
+            )
+            existing_serial_https_port = normalize_serial_https_port(
+                existing_settings.get('serial_https_port', default_serial_https_port(settings_data.get('PORT', 5000))),
+                main_port=settings_data.get('PORT', 5000),
+            )
+            existing_https_cert_file = existing_settings.get('https_cert_file', '').strip()
+            existing_https_key_file = existing_settings.get('https_key_file', '').strip()
+
+    remote_serial_enabled_value = settings_data.get('REMOTE_SERIAL_ENABLED', existing_remote_serial_enabled)
+    if isinstance(remote_serial_enabled_value, str):
+        remote_serial_enabled = remote_serial_enabled_value.strip().lower() == 'true'
+    else:
+        remote_serial_enabled = bool(remote_serial_enabled_value)
+
+    remote_serial_https_mode = normalize_remote_serial_https_mode(
+        settings_data.get('REMOTE_SERIAL_HTTPS_MODE', existing_remote_serial_https_mode)
+    )
+    main_port = settings_data.get('PORT', 5000)
+    serial_https_port = normalize_serial_https_port(
+        settings_data.get('SERIAL_HTTPS_PORT', existing_serial_https_port),
+        main_port=main_port,
+    )
+    https_cert_file = (settings_data.get('HTTPS_CERT_FILE', existing_https_cert_file) or '').strip()
+    https_key_file = (settings_data.get('HTTPS_KEY_FILE', existing_https_key_file) or '').strip()
+
+    config = configparser.ConfigParser()
+    config['settings'] = {
+        'root_dir': settings_data.get('ROOT_DIR', os.path.expanduser("~")),
+        'password': settings_data.get('PASSWORD', 'password'),
+        'admin_password': settings_data.get('ADMIN_PASSWORD', 'admin123'),
+        'close_to_tray': str(settings_data.get('CLOSE_TO_TRAY', False)).lower(),
+        'port': str(settings_data.get('PORT', 5000)),
+        'git_enabled': str(settings_data.get('GIT_ENABLED', False)).lower(),
+        'git_workdir': settings_data.get('GIT_WORKDIR', ''),
+        'git_external_app_path': settings_data.get('GIT_EXTERNAL_APP_PATH', ''),
+        'remote_serial_enabled': str(remote_serial_enabled).lower(),
+        'remote_serial_https_mode': remote_serial_https_mode,
+        'serial_https_port': str(serial_https_port),
+        'https_cert_file': https_cert_file,
+        'https_key_file': https_key_file
+    }
+    with open(config_file, 'w', encoding='utf-8') as f:
+        config.write(f)
 
 
 def save_config(app):
     """保存当前配置到文件"""
-    config_file = app.config['CONFIG_FILE']
-    config = configparser.ConfigParser()
-    config['settings'] = {
-        'root_dir': app.config['ROOT_DIR'],
-        'password': app.config['PASSWORD'],
-        'admin_password': app.config.get('ADMIN_PASSWORD', 'admin123'),
-        'close_to_tray': str(app.config.get('CLOSE_TO_TRAY', False)).lower(),
-        'port': str(app.config.get('PORT', 5000)),
-        'git_enabled': str(app.config.get('GIT_ENABLED', False)).lower(),
-        'git_workdir': app.config.get('GIT_WORKDIR', ''),
-        'git_external_app_path': app.config.get('GIT_EXTERNAL_APP_PATH', '')
+    settings_data = {
+        'CONFIG_FILE': app.config['CONFIG_FILE'],
+        'ROOT_DIR': app.config['ROOT_DIR'],
+        'PASSWORD': app.config['PASSWORD'],
+        'ADMIN_PASSWORD': app.config.get('ADMIN_PASSWORD', 'admin123'),
+        'CLOSE_TO_TRAY': app.config.get('CLOSE_TO_TRAY', False),
+        'PORT': app.config.get('PORT', 5000),
+        'GIT_ENABLED': app.config.get('GIT_ENABLED', False),
+        'GIT_WORKDIR': app.config.get('GIT_WORKDIR', ''),
+        'GIT_EXTERNAL_APP_PATH': app.config.get('GIT_EXTERNAL_APP_PATH', ''),
+        'REMOTE_SERIAL_ENABLED': app.config.get('REMOTE_SERIAL_ENABLED', False),
+        'REMOTE_SERIAL_HTTPS_MODE': app.config.get('REMOTE_SERIAL_HTTPS_MODE', REMOTE_SERIAL_HTTPS_MODE_FULL),
+        'SERIAL_HTTPS_PORT': app.config.get('SERIAL_HTTPS_PORT', default_serial_https_port(app.config.get('PORT', 5000))),
+        'HTTPS_CERT_FILE': app.config.get('HTTPS_CERT_FILE', ''),
+        'HTTPS_KEY_FILE': app.config.get('HTTPS_KEY_FILE', '')
     }
-    with open(config_file, 'w', encoding='utf-8') as f:
-        config.write(f)
-    print(f"配置已保存到: {config_file}")
+    save_runtime_settings(settings_data, config_file=app.config['CONFIG_FILE'])
+    app_logger.info("配置已保存到: %s", app.config['CONFIG_FILE'])
 
 
 class LogMessageReceiver(QObject):
@@ -611,7 +1372,7 @@ class GitConfigDialog(QDialog):
                 font-size: 11pt;
                 font-weight: bold;
             }
-            QLineEdit, QComboBox {
+            QLineEdit, QComboBox, QTextEdit {
                 padding: 8px 12px;
                 border: 2px solid #e0e0e0;
                 border-radius: 6px;
@@ -619,7 +1380,7 @@ class GitConfigDialog(QDialog):
                 font-size: 10pt;
                 color: #2c3e50;
             }
-            QLineEdit:focus, QComboBox:focus {
+            QLineEdit:focus, QComboBox:focus, QTextEdit:focus {
                 border-color: #667eea;
             }
             QPushButton {
@@ -970,15 +1731,83 @@ class GitConfigEditDialog(QDialog):
         ssh_key_layout.setSpacing(10)
         
         self.ssh_key_edit = QLineEdit()
-        self.ssh_key_edit.setPlaceholderText("选择SSH私钥文件...")
+        self.ssh_key_edit.setPlaceholderText("原有方式可继续直接选择已有私钥文件，或点击右侧生成兼容密钥...")
         ssh_key_layout.addWidget(self.ssh_key_edit, 1)
         
         ssh_browse_button = QPushButton("📁 浏览")
         ssh_browse_button.setObjectName("browseButton")
         ssh_browse_button.clicked.connect(self.browse_ssh_key)
         ssh_key_layout.addWidget(ssh_browse_button)
+
+        ssh_generate_button = QPushButton("🔐 生成")
+        ssh_generate_button.setObjectName("browseButton")
+        ssh_generate_button.setToolTip("自动生成一对兼容性更高的 RSA SSH 密钥，并填入私钥路径")
+        ssh_generate_button.clicked.connect(self.generate_ssh_key)
+        ssh_key_layout.addWidget(ssh_generate_button)
+
+        ssh_help_button = QPushButton("❓ 说明")
+        ssh_help_button.setObjectName("browseButton")
+        ssh_help_button.setToolTip("查看SSH私钥、公钥和Git服务器配置说明")
+        ssh_help_button.clicked.connect(self.show_ssh_key_help)
+        ssh_key_layout.addWidget(ssh_help_button)
         
         form_layout.addRow(self.ssh_key_label, self.ssh_key_widget)
+
+        self.ssh_key_hint_label = QLabel(
+            "兼容原有方式：你仍然可以点击“浏览”直接选择已有私钥文件。"
+            "如果点“生成”，程序会自动创建一对兼容性更高的 RSA 密钥，自动填入私钥路径，并把同名 .pub 公钥复制到剪贴板。"
+            "接着把公钥粘贴到 Git 服务器的 SSH Keys 页面，再点“测试配置”。"
+        )
+        self.ssh_key_hint_label.setWordWrap(True)
+        self.ssh_key_hint_label.setStyleSheet("""
+            color: #5f6c7b;
+            font-size: 10pt;
+            font-weight: normal;
+            padding: 0 0 4px 0;
+        """)
+        form_layout.addRow("", self.ssh_key_hint_label)
+
+        self.ssh_public_key_label = QLabel("公钥内容：")
+        self.ssh_public_key_widget = QWidget()
+        ssh_public_key_layout = QVBoxLayout(self.ssh_public_key_widget)
+        ssh_public_key_layout.setContentsMargins(0, 0, 0, 0)
+        ssh_public_key_layout.setSpacing(8)
+
+        self.ssh_public_key_text = QTextEdit()
+        self.ssh_public_key_text.setReadOnly(True)
+        self.ssh_public_key_text.setAcceptRichText(False)
+        self.ssh_public_key_text.setPlaceholderText("生成密钥后，或选择已有私钥后，这里会显示可直接复制的公钥内容。")
+        self.ssh_public_key_text.setMinimumHeight(96)
+        ssh_public_key_layout.addWidget(self.ssh_public_key_text)
+
+        ssh_public_key_actions = QHBoxLayout()
+        ssh_public_key_actions.setContentsMargins(0, 0, 0, 0)
+        ssh_public_key_actions.setSpacing(10)
+
+        self.ssh_public_key_status = QLabel("当前还没有可复制的公钥内容。")
+        self.ssh_public_key_status.setStyleSheet("""
+            color: #5f6c7b;
+            font-size: 10pt;
+            font-weight: normal;
+        """)
+        ssh_public_key_actions.addWidget(self.ssh_public_key_status, 1)
+
+        self.copy_public_key_button = QPushButton("📋 复制公钥")
+        self.copy_public_key_button.setObjectName("browseButton")
+        self.copy_public_key_button.setToolTip("复制当前显示的公钥内容")
+        self.copy_public_key_button.clicked.connect(self.copy_public_key)
+        self.copy_public_key_button.setEnabled(False)
+        ssh_public_key_actions.addWidget(self.copy_public_key_button)
+
+        self.export_public_key_button = QPushButton("📄 生成TXT")
+        self.export_public_key_button.setObjectName("browseButton")
+        self.export_public_key_button.setToolTip("将当前公钥内容生成 TXT 文件，并用系统默认程序打开")
+        self.export_public_key_button.clicked.connect(self.export_public_key_to_txt)
+        self.export_public_key_button.setEnabled(False)
+        ssh_public_key_actions.addWidget(self.export_public_key_button)
+
+        ssh_public_key_layout.addLayout(ssh_public_key_actions)
+        form_layout.addRow(self.ssh_public_key_label, self.ssh_public_key_widget)
         
         # 用户名（HTTPS认证）
         self.username_label = QLabel("用户名：")
@@ -1011,10 +1840,10 @@ class GitConfigEditDialog(QDialog):
         button_layout = QHBoxLayout()
         button_layout.setSpacing(10)
         
-        # 测试按钮（仅在编辑已保存的配置时显示）
+        # 测试按钮（新增配置和编辑配置都可直接测试）
         self.test_button = QPushButton("🧪 测试配置")
         self.test_button.setObjectName("editButton")
-        self.test_button.setVisible(bool(self.config))
+        self.test_button.setVisible(True)
         self.test_button.clicked.connect(self.test_config)
         button_layout.addWidget(self.test_button)
         
@@ -1045,6 +1874,9 @@ class GitConfigEditDialog(QDialog):
         ssh_visible = (auth_type == 'ssh')
         self.ssh_key_label.setVisible(ssh_visible)
         self.ssh_key_widget.setVisible(ssh_visible)
+        self.ssh_key_hint_label.setVisible(ssh_visible)
+        self.ssh_public_key_label.setVisible(ssh_visible)
+        self.ssh_public_key_widget.setVisible(ssh_visible)
         
         # 显示/隐藏转换按钮
         server_url = self.server_edit.text().strip()
@@ -1057,11 +1889,20 @@ class GitConfigEditDialog(QDialog):
         self.username_edit.setVisible(https_visible)
         self.password_label.setVisible(https_visible)
         self.password_edit.setVisible(https_visible)
+
+        if ssh_visible:
+            self.refresh_public_key_display()
+        else:
+            self.set_public_key_display('', "当前不是 SSH 认证方式。")
         
         # 监听服务器地址变化，动态显示转换按钮
         if not hasattr(self, '_server_edit_connected'):
             self.server_edit.textChanged.connect(self.on_server_url_changed)
             self._server_edit_connected = True
+
+        if not hasattr(self, '_ssh_key_edit_connected'):
+            self.ssh_key_edit.textChanged.connect(self.on_ssh_key_path_changed)
+            self._ssh_key_edit_connected = True
     
     def on_server_url_changed(self):
         """服务器地址改变时的处理"""
@@ -1069,6 +1910,169 @@ class GitConfigEditDialog(QDialog):
             server_url = self.server_edit.text().strip()
             is_http_url = server_url.startswith(('http://', 'https://'))
             self.convert_to_ssh_button.setVisible(is_http_url)
+
+    def on_ssh_key_path_changed(self):
+        """SSH密钥路径改变时，尝试同步显示公钥内容"""
+        if self.auth_type_combo.currentText().lower() != 'ssh':
+            self.set_public_key_display('', '当前不是 SSH 认证方式。')
+            return
+        self.refresh_public_key_display()
+
+    def set_public_key_display(self, public_key_text: str, status_text: str = ''):
+        """设置公钥显示区域内容"""
+        public_key_text = (public_key_text or '').strip()
+        self.ssh_public_key_text.setPlainText(public_key_text)
+        has_text = bool(public_key_text)
+        self.copy_public_key_button.setEnabled(has_text)
+        self.export_public_key_button.setEnabled(has_text)
+        if has_text:
+            self.ssh_public_key_status.setText(status_text or "公钥内容已就绪，可以直接复制并粘贴到 Git 服务器。")
+        else:
+            self.ssh_public_key_status.setText(status_text or "当前还没有可复制的公钥内容。")
+
+    def load_public_key_text(self, ssh_key_path: str) -> str:
+        """根据SSH密钥路径读取或推导公钥内容"""
+        ssh_key_path = (ssh_key_path or '').strip()
+        if not ssh_key_path:
+            return ''
+
+        candidate_paths = []
+        if ssh_key_path.endswith('.pub'):
+            candidate_paths.append(ssh_key_path)
+        else:
+            candidate_paths.append(f"{ssh_key_path}.pub")
+
+        for candidate in candidate_paths:
+            if os.path.exists(candidate):
+                try:
+                    with open(candidate, 'r', encoding='utf-8') as f:
+                        return f.read().strip()
+                except Exception:
+                    pass
+
+        if not os.path.exists(ssh_key_path) or ssh_key_path.endswith('.pub'):
+            return ''
+
+        ssh_keygen = shutil.which('ssh-keygen')
+        if ssh_keygen:
+            run_kwargs = {
+                'capture_output': True,
+                'text': True,
+                'check': True
+            }
+            if sys.platform.startswith('win'):
+                run_kwargs['creationflags'] = subprocess.CREATE_NO_WINDOW
+            try:
+                result = subprocess.run([ssh_keygen, '-y', '-f', ssh_key_path], **run_kwargs)
+                return (result.stdout or '').strip()
+            except Exception:
+                pass
+
+        try:
+            from cryptography.hazmat.primitives import serialization
+            with open(ssh_key_path, 'rb') as f:
+                private_key_data = f.read()
+            private_key = None
+            loaders = [
+                serialization.load_ssh_private_key,
+                serialization.load_pem_private_key
+            ]
+            for loader in loaders:
+                try:
+                    private_key = loader(private_key_data, password=None)
+                    break
+                except TypeError:
+                    try:
+                        private_key = loader(private_key_data, None)
+                        break
+                    except Exception:
+                        pass
+                except Exception:
+                    pass
+            if private_key is not None:
+                return private_key.public_key().public_bytes(
+                    encoding=serialization.Encoding.OpenSSH,
+                    format=serialization.PublicFormat.OpenSSH
+                ).decode('utf-8').strip()
+        except Exception:
+            pass
+
+        return ''
+
+    def refresh_public_key_display(self, public_key_text: str = ''):
+        """刷新公钥显示区域"""
+        ssh_key_path = self.ssh_key_edit.text().strip()
+        text = (public_key_text or '').strip()
+        if text:
+            self.set_public_key_display(text, "公钥内容已显示在下方，可直接复制。")
+            return
+
+        if not ssh_key_path:
+            self.set_public_key_display('', "请先选择已有私钥文件，或点击“生成”创建新密钥。")
+            return
+
+        text = self.load_public_key_text(ssh_key_path)
+        if text:
+            self.set_public_key_display(text, "已读取到公钥内容，可直接复制。")
+        else:
+            self.set_public_key_display('', "未找到对应公钥内容。若刚生成密钥，请确认生成成功；若是已有私钥，请确认同目录下存在 .pub 文件。")
+
+    def copy_public_key(self):
+        """复制当前显示的公钥内容"""
+        public_key_text = self.ssh_public_key_text.toPlainText().strip()
+        if not public_key_text:
+            QMessageBox.information(self, "提示", "当前没有可复制的公钥内容。")
+            return
+        QApplication.clipboard().setText(public_key_text)
+        self.ssh_public_key_status.setText("公钥内容已复制到剪贴板，可以直接粘贴到 Git 服务器。")
+
+    def export_public_key_to_txt(self):
+        """将当前公钥内容导出为TXT文件并打开"""
+        public_key_text = self.ssh_public_key_text.toPlainText().strip()
+        if not public_key_text:
+            QMessageBox.information(self, "提示", "当前没有可导出的公钥内容。")
+            return
+
+        ssh_key_path = self.ssh_key_edit.text().strip()
+        if ssh_key_path:
+            base_dir = os.path.dirname(ssh_key_path)
+            if not base_dir:
+                base_dir = os.path.expanduser("~")
+            base_name = os.path.basename(ssh_key_path)
+            if base_name.endswith('.pub'):
+                base_name = base_name[:-4]
+        else:
+            desktop_dir = os.path.join(os.path.expanduser("~"), "Desktop")
+            base_dir = desktop_dir if os.path.isdir(desktop_dir) else os.path.expanduser("~")
+            base_name = self.name_edit.text().strip() or f"ssh_public_key_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            safe_chars = []
+            for char in base_name:
+                safe_chars.append(char if char.isalnum() or char in ('-', '_', '.') else '_')
+            base_name = ''.join(safe_chars).strip('._') or f"ssh_public_key_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+
+        txt_path = os.path.join(base_dir, f"{base_name}_public_key.txt")
+
+        try:
+            os.makedirs(base_dir, exist_ok=True)
+            with open(txt_path, 'w', encoding='utf-8') as f:
+                f.write(public_key_text + '\n')
+
+            opened = QDesktopServices.openUrl(QUrl.fromLocalFile(txt_path))
+            status_text = f"公钥 TXT 已生成：{txt_path}"
+            if opened:
+                status_text += "，已尝试用系统默认程序打开。"
+            else:
+                status_text += "。"
+            self.ssh_public_key_status.setText(status_text)
+
+            QMessageBox.information(
+                self,
+                "TXT 已生成",
+                f"公钥 TXT 已生成：\n{txt_path}\n\n"
+                "文件中只有公钥内容本身，方便你用其他被授权的进程打开并复制。"
+            )
+        except Exception as e:
+            QMessageBox.warning(self, "生成失败", f"生成公钥 TXT 失败：{e}")
     
     def convert_http_to_ssh(self):
         """将HTTP/HTTPS地址转换为SSH格式"""
@@ -1162,6 +2166,97 @@ class GitConfigEditDialog(QDialog):
                 if reply == QMessageBox.No:
                     return
             self.ssh_key_edit.setText(file_path)
+
+    def generate_ssh_key(self):
+        """生成新的SSH密钥对并自动填充私钥路径"""
+        try:
+            from git_config_manager import GitConfigManager
+
+            config_name = self.name_edit.text().strip() or "git_key"
+            git_email = self.git_email_edit.text().strip()
+            git_name = self.git_name_edit.text().strip()
+            comment = git_email or git_name or f"yobboy-file-server-{datetime.now().strftime('%Y%m%d')}"
+
+            config_manager = GitConfigManager()
+            result = config_manager.generate_ssh_key_pair(
+                key_name=config_name,
+                comment=comment
+            )
+
+            if not result.get('success'):
+                QMessageBox.warning(self, "生成失败", result.get('error', '生成SSH密钥失败'))
+                return
+
+            self.auth_type_combo.setCurrentIndex(0)
+            self.ssh_key_edit.setText(result['private_key_path'])
+            self.refresh_public_key_display(result['public_key'])
+            QApplication.clipboard().setText(result['public_key'])
+
+            QMessageBox.information(
+                self,
+                "SSH密钥已生成",
+                "已为当前配置生成新的 RSA SSH 密钥，并自动兼容原来的私钥路径使用方式。\n\n"
+                f"私钥文件：\n{result['private_key_path']}\n\n"
+                f"公钥文件：\n{result['public_key_path']}\n\n"
+                "下一步请按这个顺序操作：\n"
+                "1. 现在不用手动改私钥路径，程序已经自动填好了。\n"
+                "2. 系统已经把公钥内容复制到剪贴板。\n"
+                "3. 打开 GitLab / GitHub / Gitea / 自建 Git 服务的 SSH Keys 页面。\n"
+                "4. 把剪贴板里的公钥粘贴进去并保存。\n"
+                "5. 下方“公钥内容”区域也会直接显示这段内容，你也可以在那里手动复制。\n"
+                "6. 如果当前进程不允许复制，也可以点击“生成TXT”，用其他进程打开 TXT 后复制。\n"
+                "7. 回到这里，点击“测试配置”。\n\n"
+                "如果你已经有自己的私钥，也可以继续使用原来的“浏览”方式，不受影响。"
+            )
+        except Exception as e:
+            QMessageBox.warning(self, "生成失败", f"生成SSH密钥时出错：{e}")
+
+    def show_ssh_key_help(self):
+        """显示SSH密钥获取与使用说明"""
+        help_text = """
+<h3>🔐 SSH私钥要怎么获取？</h3>
+
+<p>这个界面现在同时兼容两种方式，你可以任选一种：</p>
+<ol>
+  <li><b>沿用原来的方式：</b> 点击“浏览”，选择你本机已经存在的私钥文件。</li>
+  <li><b>直接在本程序里点击“生成”</b>，程序会自动创建一对新的 RSA SSH 密钥，并把私钥路径填回当前配置。</li>
+</ol>
+
+<h4>推荐的最简单流程</h4>
+<ol>
+  <li>填好服务器地址</li>
+  <li>如果你已有私钥：点击“浏览”选择；如果没有：点击“生成”</li>
+  <li>如果使用了“生成”，程序会自动把公钥复制到剪贴板，并在下方“公钥内容”区域显示出来</li>
+  <li>打开 Git 服务器的 SSH Keys 页面，直接粘贴公钥，或点击“复制公钥”后再粘贴</li>
+  <li>回到当前窗口，点击“测试配置”</li>
+  <li>测试通过后再点击“保存”</li>
+</ol>
+
+<h4>什么是私钥，什么是公钥？</h4>
+<ul>
+  <li><b>私钥：</b> 本机认证时使用的文件，没有 <code>.pub</code> 后缀，比如 <code>id_ed25519</code>。</li>
+  <li><b>公钥：</b> 同名的 <code>.pub</code> 文件，比如 <code>id_ed25519.pub</code>，需要添加到 Git 服务器。</li>
+  <li><b>注意：</b> Git 认证时这里填写的是私钥路径，不是 <code>.pub</code> 公钥文件。</li>
+</ul>
+
+<h4>如果你想手动查找已有私钥</h4>
+<p>常见路径示例：</p>
+<ul>
+  <li>Windows: <code>C:\\Users\\你的用户名\\.ssh\\id_ed25519</code></li>
+  <li>Windows: <code>C:\\Users\\你的用户名\\.ssh\\id_rsa</code></li>
+  <li>Linux / macOS: <code>~/.ssh/id_ed25519</code></li>
+  <li>Linux / macOS: <code>~/.ssh/id_rsa</code></li>
+</ul>
+
+<p>如果你只看到 <code>.pub</code> 文件，没有同名私钥文件，就不能直接完成 SSH 认证，需要重新生成一对密钥。</p>
+"""
+
+        msg_box = QMessageBox(self)
+        msg_box.setWindowTitle("SSH密钥说明")
+        msg_box.setTextFormat(Qt.RichText)
+        msg_box.setText(help_text)
+        msg_box.setStandardButtons(QMessageBox.Ok)
+        msg_box.exec_()
     
     def show_ssh_address_help(self):
         """显示SSH地址格式帮助"""
@@ -1352,9 +2447,13 @@ ssh -T git@example.com
                     return None
             
             if not os.path.exists(ssh_key_path):
-                QMessageBox.warning(self, "警告", f"SSH密钥文件不存在: {ssh_key_path}\n是否继续？",
-                                  QMessageBox.Yes | QMessageBox.No)
-                if QMessageBox.No:
+                reply = QMessageBox.warning(
+                    self,
+                    "警告",
+                    f"SSH密钥文件不存在: {ssh_key_path}\n是否继续？",
+                    QMessageBox.Yes | QMessageBox.No
+                )
+                if reply == QMessageBox.No:
                     return None
             config['ssh_key_path'] = ssh_key_path
         else:  # https
@@ -1384,12 +2483,7 @@ ssh -T git@example.com
         config = self.get_config()
         if not config:
             return
-        
-        # 检查是否已保存（有ID）
-        if not self.config or not self.config.get('id'):
-            QMessageBox.warning(self, "提示", "请先保存配置后再测试")
-            return
-        
+
         # 显示测试进度
         from PyQt5.QtWidgets import QProgressDialog
         progress = QProgressDialog("正在测试配置...", "取消", 0, 0, self)
@@ -1399,39 +2493,46 @@ ssh -T git@example.com
         QApplication.processEvents()
         
         try:
-            # 导入Git配置管理器
-            from git_config_manager import GitConfigManager
             from git_manager import GitManager
-            
-            config_manager = GitConfigManager()
-            config_id = self.config.get('id')
-            saved_config = config_manager.get_config(config_id)
-            
-            if not saved_config:
-                QMessageBox.warning(self, "错误", "配置不存在")
-                return
-            
+
             # 测试配置
             git_manager = GitManager()
-            result = git_manager.test_config(saved_config)
-            
-            progress.close()
+            result = git_manager.test_config(config)
             
             if result.get('success'):
-                QMessageBox.information(self, "测试成功", result.get('message', '配置测试成功'))
+                message = result.get('message', '配置测试成功')
+                if not self.config or not self.config.get('id'):
+                    message += "\n\n当前是未保存状态，确认可用后再点击“保存”即可。"
+                QMessageBox.information(self, "测试成功", message)
             else:
                 QMessageBox.warning(self, "测试失败", result.get('error', '配置测试失败'))
         except ImportError as e:
-            progress.close()
             QMessageBox.critical(self, "错误", f"无法加载Git模块: {e}\n请确保已安装GitPython")
         except Exception as e:
-            progress.close()
             QMessageBox.critical(self, "错误", f"测试配置时发生错误: {str(e)}")
+        finally:
+            progress.close()
 
 
 class SettingsDialog(QDialog):
     """设置对话框，用于配置根目录和密码"""
-    def __init__(self, parent=None, current_root='', current_password='', current_admin_password='', current_close_to_tray=False, current_port=5000, current_git_enabled=False, current_git_workdir='', current_git_external_app_path=''):
+    def __init__(
+        self,
+        parent=None,
+        current_root='',
+        current_password='',
+        current_admin_password='',
+        current_close_to_tray=False,
+        current_port=5000,
+        current_git_enabled=False,
+        current_git_workdir='',
+        current_git_external_app_path='',
+        current_remote_serial_enabled=False,
+        current_remote_serial_https_mode=REMOTE_SERIAL_HTTPS_MODE_FULL,
+        current_serial_https_port=DEFAULT_SERIAL_HTTPS_PORT,
+        current_https_cert_file='',
+        current_https_key_file='',
+    ):
         super().__init__(parent)
         self.setWindowTitle("服务器设置")
         self.setMinimumWidth(500)
@@ -1443,6 +2544,14 @@ class SettingsDialog(QDialog):
         self.current_git_enabled = current_git_enabled
         self.current_git_workdir = current_git_workdir
         self.current_git_external_app_path = current_git_external_app_path
+        self.current_remote_serial_enabled = current_remote_serial_enabled
+        self.current_remote_serial_https_mode = normalize_remote_serial_https_mode(current_remote_serial_https_mode)
+        self.current_serial_https_port = normalize_serial_https_port(
+            current_serial_https_port,
+            main_port=current_port,
+        )
+        self.current_https_cert_file = current_https_cert_file
+        self.current_https_key_file = current_https_key_file
         self.new_root = current_root
         self.new_password = current_password
         self.new_admin_password = current_admin_password
@@ -1451,6 +2560,11 @@ class SettingsDialog(QDialog):
         self.new_git_enabled = current_git_enabled
         self.new_git_workdir = current_git_workdir
         self.new_git_external_app_path = current_git_external_app_path
+        self.new_remote_serial_enabled = current_remote_serial_enabled
+        self.new_remote_serial_https_mode = self.current_remote_serial_https_mode
+        self.new_serial_https_port = self.current_serial_https_port
+        self.new_https_cert_file = current_https_cert_file
+        self.new_https_key_file = current_https_key_file
         
         # 设置窗口样式
         self.setStyleSheet("""
@@ -1462,7 +2576,7 @@ class SettingsDialog(QDialog):
                 font-size: 11pt;
                 font-weight: bold;
             }
-            QLineEdit {
+            QLineEdit, QComboBox {
                 padding: 8px 12px;
                 border: 2px solid #e0e0e0;
                 border-radius: 6px;
@@ -1470,7 +2584,7 @@ class SettingsDialog(QDialog):
                 font-size: 10pt;
                 color: #2c3e50;
             }
-            QLineEdit:focus {
+            QLineEdit:focus, QComboBox:focus {
                 border-color: #667eea;
             }
             QPushButton {
@@ -1540,10 +2654,32 @@ class SettingsDialog(QDialog):
         info_label.setAlignment(Qt.AlignCenter)
         layout.addWidget(info_label)
         
-        # 表单布局
-        form_layout = QFormLayout()
-        form_layout.setSpacing(15)
-        form_layout.setContentsMargins(0, 10, 0, 10)
+        # Tab布局（避免单页过长）
+        tab_widget = QTabWidget()
+        basic_tab = QWidget()
+        advanced_tab = QWidget()
+        tab_widget.addTab(basic_tab, "基础")
+        tab_widget.addTab(advanced_tab, "高级")
+
+        basic_layout = QVBoxLayout(basic_tab)
+        basic_layout.setContentsMargins(0, 8, 0, 0)
+        advanced_layout = QVBoxLayout(advanced_tab)
+        advanced_layout.setContentsMargins(0, 8, 0, 0)
+
+        basic_form_layout = QFormLayout()
+        basic_form_layout.setSpacing(15)
+        basic_form_layout.setContentsMargins(0, 10, 0, 10)
+        advanced_form_layout = QFormLayout()
+        advanced_form_layout.setSpacing(15)
+        advanced_form_layout.setContentsMargins(0, 10, 0, 10)
+
+        basic_layout.addLayout(basic_form_layout)
+        advanced_layout.addLayout(advanced_form_layout)
+        basic_layout.addStretch()
+        advanced_layout.addStretch()
+
+        # 默认先写入基础页
+        form_layout = basic_form_layout
         
         # 根目录设置
         root_label = QLabel("根目录：")
@@ -1641,6 +2777,157 @@ class SettingsDialog(QDialog):
             border-radius: 4px;
         """)
         form_layout.addRow("", port_hint)
+
+        # 以下写入高级页
+        form_layout = advanced_form_layout
+
+        # 远程串口设置
+        remote_serial_label = QLabel("远程串口：")
+        self.remote_serial_enabled_checkbox = QCheckBox("启用远程串口（支持全站 HTTPS 或兼容模式）")
+        self.remote_serial_enabled_checkbox.setChecked(self.current_remote_serial_enabled)
+        self.remote_serial_enabled_checkbox.setStyleSheet("""
+            QCheckBox {
+                font-size: 10pt;
+                color: #2c3e50;
+                font-weight: normal;
+                padding: 5px;
+            }
+            QCheckBox::indicator {
+                width: 18px;
+                height: 18px;
+            }
+        """)
+        form_layout.addRow(remote_serial_label, self.remote_serial_enabled_checkbox)
+
+        self.remote_serial_hint = QLabel(
+            "☁️ 启用后将开放远程串口 WebSocket。\n"
+            "可继续使用原有全站 HTTPS，也可切换为主站 HTTP + 串口 HTTPS 的兼容模式。"
+        )
+        self.remote_serial_hint.setStyleSheet("""
+            font-size: 9pt;
+            color: #3498db;
+            font-weight: normal;
+            padding: 5px;
+            background: #e3f2fd;
+            border-radius: 4px;
+        """)
+        form_layout.addRow("", self.remote_serial_hint)
+
+        self.remote_serial_mode_label = QLabel("串口 HTTPS 模式：")
+        self.remote_serial_mode_combo = QComboBox()
+        self.remote_serial_mode_combo.addItem("全站 HTTPS（原有方式）", REMOTE_SERIAL_HTTPS_MODE_FULL)
+        self.remote_serial_mode_combo.addItem(
+            "兼容模式：主站 HTTP + 串口 HTTPS",
+            REMOTE_SERIAL_HTTPS_MODE_COMPAT,
+        )
+        current_mode_index = self.remote_serial_mode_combo.findData(self.current_remote_serial_https_mode)
+        if current_mode_index >= 0:
+            self.remote_serial_mode_combo.setCurrentIndex(current_mode_index)
+        form_layout.addRow(self.remote_serial_mode_label, self.remote_serial_mode_combo)
+
+        self.remote_serial_mode_hint = QLabel(
+            "全站 HTTPS 会保持原有行为；兼容模式会保留主站 HTTP，并额外开启一个 HTTPS 端口供串口工具使用。"
+        )
+        self.remote_serial_mode_hint.setStyleSheet("""
+            font-size: 9pt;
+            color: #3498db;
+            font-weight: normal;
+            padding: 5px;
+            background: #e3f2fd;
+            border-radius: 4px;
+        """)
+        form_layout.addRow("", self.remote_serial_mode_hint)
+
+        self.serial_https_port_label = QLabel("串口 HTTPS 端口：")
+        self.serial_https_port_edit = QLineEdit(str(self.current_serial_https_port))
+        self.serial_https_port_edit.setPlaceholderText("兼容模式下的 HTTPS 端口，例如 5443")
+        form_layout.addRow(self.serial_https_port_label, self.serial_https_port_edit)
+
+        self.serial_https_port_hint = QLabel(
+            "兼容模式下，主站继续使用上面的 HTTP 端口，串口工具会自动跳转到这里的 HTTPS 地址。"
+        )
+        self.serial_https_port_hint.setStyleSheet("""
+            font-size: 9pt;
+            color: #3498db;
+            font-weight: normal;
+            padding: 5px;
+            background: #e3f2fd;
+            border-radius: 4px;
+        """)
+        form_layout.addRow("", self.serial_https_port_hint)
+
+        # HTTPS证书路径
+        self.https_cert_label = QLabel("HTTPS证书：")
+        self.https_cert_widget = QWidget()
+        https_cert_layout = QHBoxLayout(self.https_cert_widget)
+        https_cert_layout.setContentsMargins(0, 0, 0, 0)
+        https_cert_layout.setSpacing(10)
+
+        self.https_cert_edit = QLineEdit(self.current_https_cert_file)
+        self.https_cert_edit.setPlaceholderText("选择证书文件（.pem/.crt）...")
+        https_cert_layout.addWidget(self.https_cert_edit, 1)
+
+        https_cert_browse_button = QPushButton("📄 证书")
+        https_cert_browse_button.setObjectName("browseButton")
+        https_cert_browse_button.clicked.connect(self.browse_https_cert)
+        https_cert_layout.addWidget(https_cert_browse_button)
+        form_layout.addRow(self.https_cert_label, self.https_cert_widget)
+
+        # HTTPS私钥路径
+        self.https_key_label = QLabel("HTTPS私钥：")
+        self.https_key_widget = QWidget()
+        https_key_layout = QHBoxLayout(self.https_key_widget)
+        https_key_layout.setContentsMargins(0, 0, 0, 0)
+        https_key_layout.setSpacing(10)
+
+        self.https_key_edit = QLineEdit(self.current_https_key_file)
+        self.https_key_edit.setPlaceholderText("选择私钥文件（.key/.pem）...")
+        https_key_layout.addWidget(self.https_key_edit, 1)
+
+        https_key_browse_button = QPushButton("🔑 私钥")
+        https_key_browse_button.setObjectName("browseButton")
+        https_key_browse_button.clicked.connect(self.browse_https_key)
+        https_key_layout.addWidget(https_key_browse_button)
+        form_layout.addRow(self.https_key_label, self.https_key_widget)
+
+        self.https_files_hint = QLabel(
+            "🔐 可留空：将尝试 adhoc 证书（需安装 cryptography）。\n"
+            "使用自定义证书时，证书和私钥需要同时配置。"
+        )
+        self.https_files_hint.setStyleSheet("""
+            font-size: 9pt;
+            color: #3498db;
+            font-weight: normal;
+            padding: 5px;
+            background: #e3f2fd;
+            border-radius: 4px;
+        """)
+        form_layout.addRow("", self.https_files_hint)
+
+        def on_remote_serial_changed(state):
+            enabled = (state == Qt.Checked)
+            compat_mode = (
+                self.remote_serial_mode_combo.currentData() == REMOTE_SERIAL_HTTPS_MODE_COMPAT
+            )
+            self.remote_serial_mode_label.setVisible(enabled)
+            self.remote_serial_mode_combo.setVisible(enabled)
+            self.remote_serial_mode_hint.setVisible(enabled)
+            self.serial_https_port_label.setVisible(enabled and compat_mode)
+            self.serial_https_port_edit.setVisible(enabled and compat_mode)
+            self.serial_https_port_hint.setVisible(enabled and compat_mode)
+            self.https_cert_label.setVisible(enabled)
+            self.https_cert_widget.setVisible(enabled)
+            self.https_key_label.setVisible(enabled)
+            self.https_key_widget.setVisible(enabled)
+            self.https_files_hint.setVisible(enabled)
+
+        self.remote_serial_enabled_checkbox.stateChanged.connect(on_remote_serial_changed)
+        self.remote_serial_mode_combo.currentIndexChanged.connect(
+            lambda _index: on_remote_serial_changed(
+                Qt.Checked if self.remote_serial_enabled_checkbox.isChecked() else Qt.Unchecked
+            )
+        )
+        on_remote_serial_changed(Qt.Checked if self.current_remote_serial_enabled else Qt.Unchecked)
         
         # Git功能开关设置
         git_enabled_label = QLabel("Git功能：")
@@ -1775,7 +3062,7 @@ class SettingsDialog(QDialog):
         
         self.git_enabled_checkbox.stateChanged.connect(on_git_enabled_changed)
         
-        layout.addLayout(form_layout)
+        layout.addWidget(tab_widget, 1)
         
         # 按钮区域
         button_layout = QHBoxLayout()
@@ -1855,6 +3142,30 @@ class SettingsDialog(QDialog):
         if file_path:
             self.git_external_app_edit.setText(file_path)
             self.new_git_external_app_path = file_path
+
+    def browse_https_cert(self):
+        """浏览选择HTTPS证书文件"""
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "选择HTTPS证书文件",
+            self.https_cert_edit.text() or os.path.expanduser("~"),
+            "证书文件 (*.pem *.crt *.cer *.cert);;所有文件 (*.*)"
+        )
+        if file_path:
+            self.https_cert_edit.setText(file_path)
+            self.new_https_cert_file = file_path
+
+    def browse_https_key(self):
+        """浏览选择HTTPS私钥文件"""
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "选择HTTPS私钥文件",
+            self.https_key_edit.text() or os.path.expanduser("~"),
+            "私钥文件 (*.key *.pem);;所有文件 (*.*)"
+        )
+        if file_path:
+            self.https_key_edit.setText(file_path)
+            self.new_https_key_file = file_path
     
     def accept(self):
         """确认保存"""
@@ -1866,6 +3177,12 @@ class SettingsDialog(QDialog):
         self.new_git_enabled = self.git_enabled_checkbox.isChecked()
         self.new_git_workdir = self.git_workdir_edit.text().strip()
         self.new_git_external_app_path = self.git_external_app_edit.text().strip()
+        self.new_remote_serial_enabled = self.remote_serial_enabled_checkbox.isChecked()
+        self.new_remote_serial_https_mode = normalize_remote_serial_https_mode(
+            self.remote_serial_mode_combo.currentData()
+        )
+        self.new_https_cert_file = self.https_cert_edit.text().strip()
+        self.new_https_key_file = self.https_key_edit.text().strip()
         
         # 验证端口
         try:
@@ -1889,6 +3206,57 @@ class SettingsDialog(QDialog):
         if not self.new_admin_password:
             QMessageBox.warning(self, "错误", "管理员密码不能为空")
             return
+
+        if self.new_remote_serial_enabled:
+            if self.new_remote_serial_https_mode == REMOTE_SERIAL_HTTPS_MODE_COMPAT:
+                try:
+                    serial_https_port = int(self.serial_https_port_edit.text().strip())
+                    if serial_https_port < 1 or serial_https_port > 65535:
+                        QMessageBox.warning(self, "错误", "串口 HTTPS 端口必须在 1-65535 之间")
+                        return
+                except ValueError:
+                    QMessageBox.warning(self, "错误", "串口 HTTPS 端口必须是有效的数字")
+                    return
+
+                if serial_https_port == self.new_port:
+                    QMessageBox.warning(self, "错误", "兼容模式下，HTTP 端口和串口 HTTPS 端口不能相同")
+                    return
+                self.new_serial_https_port = serial_https_port
+            else:
+                self.new_serial_https_port = normalize_serial_https_port(
+                    self.serial_https_port_edit.text().strip() or self.current_serial_https_port,
+                    main_port=self.new_port,
+                )
+
+            cert_filled = bool(self.new_https_cert_file)
+            key_filled = bool(self.new_https_key_file)
+            if cert_filled != key_filled:
+                QMessageBox.warning(self, "错误", "HTTPS证书和私钥必须同时填写，或同时留空。")
+                return
+
+            if cert_filled and not os.path.exists(self.new_https_cert_file):
+                QMessageBox.warning(self, "错误", f"证书文件不存在：{self.new_https_cert_file}")
+                return
+            if key_filled and not os.path.exists(self.new_https_key_file):
+                QMessageBox.warning(self, "错误", f"私钥文件不存在：{self.new_https_key_file}")
+                return
+
+            if not cert_filled:
+                has_cryptography = importlib.util.find_spec('cryptography') is not None
+                if not has_cryptography:
+                    QMessageBox.warning(
+                        self,
+                        "提示",
+                        "当前环境未安装 cryptography，且未配置证书。\n"
+                        "远程串口的 HTTPS 入口将无法启用。\n"
+                        "如需 HTTPS，请安装 cryptography 或配置证书与私钥。"
+                    )
+        else:
+            self.new_remote_serial_https_mode = REMOTE_SERIAL_HTTPS_MODE_FULL
+            self.new_serial_https_port = normalize_serial_https_port(
+                self.serial_https_port_edit.text().strip() or self.current_serial_https_port,
+                main_port=self.new_port,
+            )
         
         # 检查是否修改了根目录
         if self.new_root != self.current_root:
@@ -1916,7 +3284,21 @@ class SettingsDialog(QDialog):
     
     def get_settings(self):
         """获取设置"""
-        return self.new_root, self.new_password, self.new_admin_password, self.new_close_to_tray, self.new_port, self.new_git_enabled, self.new_git_workdir, self.new_git_external_app_path
+        return (
+            self.new_root,
+            self.new_password,
+            self.new_admin_password,
+            self.new_close_to_tray,
+            self.new_port,
+            self.new_git_enabled,
+            self.new_git_workdir,
+            self.new_git_external_app_path,
+            self.new_remote_serial_enabled,
+            self.new_remote_serial_https_mode,
+            self.new_serial_https_port,
+            self.new_https_cert_file,
+            self.new_https_key_file,
+        )
 
 
 class FlaskServerProcess(QProcess):
@@ -1945,17 +3327,32 @@ class FlaskServerProcess(QProcess):
 
         # 设置工作目录为exe所在目录（打包模式）或.py文件所在目录（开发模式）
         self.setWorkingDirectory(current_dir)
-        print(f"[调试] Flask子进程工作目录: {current_dir}")
+        app_logger.info("[调试] Flask子进程工作目录: %s", current_dir)
         self.start(cmd[0], cmd[1:])
 
 
     def stop_server(self):
         """停止 Flask 服务器"""
-        if self.state() == QProcess.Running:
+        try:
+            process_state = self.state()
+        except RuntimeError as e:
+            app_logger.warning("停止服务器时读取进程状态失败（对象可能已销毁）: %s", e)
+            return
+
+        if process_state != QProcess.NotRunning:
             self.terminate()
-            if not self.waitForFinished(5000):
+            try:
+                finished = self.waitForFinished(5000)
+            except RuntimeError as e:
+                app_logger.warning("等待服务器进程退出失败（对象可能已销毁）: %s", e)
+                return
+
+            if not finished:
                 self.kill()
-                self.waitForFinished(1000)
+                try:
+                    self.waitForFinished(1000)
+                except RuntimeError as e:
+                    app_logger.warning("强制结束服务器进程后等待失败（对象可能已销毁）: %s", e)
 
 
 class MainWindow(QMainWindow):
@@ -1972,7 +3369,7 @@ class MainWindow(QMainWindow):
             icon_path = get_resource_path('文件服务器.png')
             self.setWindowIcon(QIcon(icon_path))
         except Exception as e:
-            print(f"加载图标失败: {e}")
+            app_logger.warning("加载图标失败: %s", e)
 
         myappid = "wo de app"
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
@@ -2036,6 +3433,11 @@ class MainWindow(QMainWindow):
 
         self.is_server_running = False
         self.server_port = 5000  # 默认端口，将从配置中读取
+        self.server_scheme = 'http'
+        self.remote_serial_enabled = False
+        self.remote_serial_https_mode = REMOTE_SERIAL_HTTPS_MODE_FULL
+        self.serial_https_port = default_serial_https_port(self.server_port)
+        self.serial_https_active = False
         self.create_menu_bar()
         self.create_widgets()
         self.create_tray_icon()
@@ -2280,7 +3682,7 @@ class MainWindow(QMainWindow):
         """创建系统托盘图标"""
         # 检查系统是否支持托盘图标
         if not QSystemTrayIcon.isSystemTrayAvailable():
-            print("系统不支持托盘图标")
+            app_logger.warning("系统不支持托盘图标")
             return
         
         # 创建系统托盘图标
@@ -2290,25 +3692,25 @@ class MainWindow(QMainWindow):
         try:
             icon_loaded = False
             png_path = get_resource_path('文件服务器.png')
-            print(f"尝试加载托盘图标: {png_path}")
+            app_logger.info("尝试加载托盘图标: %s", png_path)
             png_icon = QIcon(png_path)
             if not png_icon.isNull():
                 self.tray_icon.setIcon(png_icon)
                 icon_loaded = True
-                print("托盘图标加载成功 (png)")
+                app_logger.info("托盘图标加载成功 (png)")
             else:
                 ico_path = get_resource_path('文件服务器.ico')
-                print(f"png无效，尝试ico: {ico_path}")
+                app_logger.info("png无效，尝试ico: %s", ico_path)
                 ico_icon = QIcon(ico_path)
                 if not ico_icon.isNull():
                     self.tray_icon.setIcon(ico_icon)
                     icon_loaded = True
-                    print("托盘图标加载成功 (ico)")
+                    app_logger.info("托盘图标加载成功 (ico)")
             if not icon_loaded:
                 self.tray_icon.setIcon(self.style().standardIcon(self.style().SP_ComputerIcon))
-                print("使用系统默认图标")
+                app_logger.info("使用系统默认图标")
         except Exception as e:
-            print(f"加载托盘图标失败: {e}")
+            app_logger.warning("加载托盘图标失败: %s", e)
             self.tray_icon.setIcon(self.style().standardIcon(self.style().SP_ComputerIcon))
         
         # 设置提示文字
@@ -2353,7 +3755,7 @@ class MainWindow(QMainWindow):
         # 强制显示托盘图标（避免判断show返回值）
         self.tray_icon.setVisible(True)
         self.tray_icon.show()
-        print("托盘图标已显示")
+        app_logger.info("托盘图标已显示")
         
         # 根据配置设置关闭行为
         self.update_quit_behavior()
@@ -2373,7 +3775,7 @@ class MainWindow(QMainWindow):
         """最小化到系统托盘"""
         # 检查托盘图标是否可用
         if not hasattr(self, 'tray_icon') or not self.tray_icon:
-            print("托盘图标不可用，无法最小化到托盘")
+            app_logger.warning("托盘图标不可用，无法最小化到托盘")
             return
         
         # 确保托盘图标可见
@@ -2431,13 +3833,44 @@ class MainWindow(QMainWindow):
         self.status_label.setText(f"{icon} <b>状态:</b> {status}")
         
         if addresses:
-            port = self.server_port
-            addr_text = "<br>".join([f"  🌐 <a href='http://{ip}:{port}' style='color: #0066cc; text-decoration: none;'>{ip}:{port}</a>" for ip in addresses])
-            self.address_label.setText(f"<b>访问地址:</b><br>{addr_text}")
+            ordered_addresses = []
+            for preferred in ('127.0.0.1', 'localhost'):
+                if preferred not in ordered_addresses:
+                    ordered_addresses.append(preferred)
+            for ip in addresses:
+                if ip and ip not in ordered_addresses:
+                    ordered_addresses.append(ip)
+
+            main_addr_text = "<br>".join(
+                [
+                    f"  🌐 <a href='{self.server_scheme}://{ip}:{self.server_port}' style='color: #0066cc; text-decoration: none;'>{self.server_scheme}://{ip}:{self.server_port}</a>"
+                    for ip in ordered_addresses
+                ]
+            )
+
+            address_sections = [f"<b>主站地址:</b><br>{main_addr_text}"]
+            if self.remote_serial_enabled and self.remote_serial_https_mode == REMOTE_SERIAL_HTTPS_MODE_COMPAT:
+                serial_addr_text = "<br>".join(
+                    [
+                        f"  🔐 <a href='https://{ip}:{self.serial_https_port}/serial_tool' style='color: #0b7285; text-decoration: none;'>https://{ip}:{self.serial_https_port}/serial_tool</a>"
+                        for ip in ordered_addresses
+                    ]
+                )
+                if self.serial_https_active:
+                    serial_caption = "串口 HTTPS 地址:"
+                else:
+                    serial_caption = "串口 HTTPS 地址（若无法打开，请检查证书或 cryptography）:"
+                address_sections.append(f"<b>{serial_caption}</b><br>{serial_addr_text}")
+
+            self.address_label.setText("<br><br>".join(address_sections))
             self.address_label.setOpenExternalLinks(True)
             self.address_label.setTextFormat(Qt.RichText)
             # 更新托盘图标提示
-            tray_tooltip = f"Yobboy文件服务器\n状态: {status}\n地址: {addresses[0]}:{port}"
+            tray_tooltip = (
+                f"Yobboy文件服务器\n状态: {status}\n主站: {self.server_scheme}://127.0.0.1:{self.server_port}"
+            )
+            if self.remote_serial_enabled and self.remote_serial_https_mode == REMOTE_SERIAL_HTTPS_MODE_COMPAT:
+                tray_tooltip += f"\n串口 HTTPS: https://127.0.0.1:{self.serial_https_port}/serial_tool"
             self.tray_icon.setToolTip(tray_tooltip)
         else:
             self.address_label.setText("访问地址: 未启动")
@@ -2480,10 +3913,21 @@ class MainWindow(QMainWindow):
         lines = stdout.splitlines(keepends=True)
         for line in lines:
             self.log_receiver.message.emit(line)
-            if "Running on" in line and "http://" in line:
-                # 使用缓存，避免重复查询IP地址
-                local_ips = get_local_ips(verbose=False, use_cache=True)
-                self.update_server_info("运行中", local_ips)
+            if "Running on" in line:
+                if self.remote_serial_enabled and self.remote_serial_https_mode == REMOTE_SERIAL_HTTPS_MODE_COMPAT:
+                    if "https://" in line:
+                        self.serial_https_active = True
+                    elif "http://" in line:
+                        self.server_scheme = 'http'
+                else:
+                    if "https://" in line:
+                        self.server_scheme = 'https'
+                    elif "http://" in line:
+                        self.server_scheme = 'http'
+                if "http://" in line or "https://" in line:
+                    # 使用缓存，避免重复查询IP地址
+                    local_ips = get_local_ips(verbose=False, use_cache=True)
+                    self.update_server_info("运行中", local_ips)
 
     def handle_stderr(self):
         """处理来自 Flask 进程的标准错误"""
@@ -2522,21 +3966,94 @@ class MainWindow(QMainWindow):
         if not self.is_server_running:
             return
         self.append_log("--- 正在停止服务器... ---\n")
-        self.process.stop_server()
+        try:
+            self.process.stop_server()
+        except RuntimeError as e:
+            app_logger.warning("停止服务器时进程对象不可用，按已停止处理: %s", e)
+            self.is_server_running = False
+            self.start_button.setEnabled(True)
+            self.stop_button.setEnabled(False)
+            self.tray_start_action.setEnabled(True)
+            self.tray_stop_action.setEnabled(False)
+            self.update_server_info("未运行")
+
+    def wait_for_server_state(self, expected_running, timeout_ms=5000):
+        """等待服务器达到目标状态，使用事件循环保持 UI 响应。"""
+        if self.is_server_running == expected_running:
+            return True
+
+        loop = QEventLoop(self)
+        timeout_timer = QTimer(self)
+        check_timer = QTimer(self)
+        timeout_timer.setSingleShot(True)
+
+        result = {'ok': False}
+
+        def check_state():
+            if self.is_server_running == expected_running:
+                result['ok'] = True
+                loop.quit()
+
+        timeout_timer.timeout.connect(loop.quit)
+        check_timer.timeout.connect(check_state)
+        timeout_timer.start(timeout_ms)
+        check_timer.start(50)
+        check_state()
+        loop.exec_()
+        check_timer.stop()
+        timeout_timer.stop()
+
+        return result['ok']
+
+    def probe_single_server(self, url):
+        """Probe one local endpoint and return whether it is reachable."""
+        try:
+            if url.startswith('https://'):
+                context = ssl._create_unverified_context()
+                with urllib.request.urlopen(url, timeout=3, context=context) as resp:
+                    code = getattr(resp, 'status', None)
+            else:
+                with urllib.request.urlopen(url, timeout=3) as resp:
+                    code = getattr(resp, 'status', None)
+            app_logger.info("[探测] 本机访问成功: %s (status=%s)", url, code)
+            return True
+        except urllib.error.URLError as e:
+            app_logger.error("[探测] 本机访问失败: %s, error=%s", url, e)
+        except Exception as e:
+            app_logger.error("[探测] 本机访问异常: %s, error=%s", url, e)
+        return False
+
+    def probe_server_locally(self):
+        """本机探测服务是否可访问，便于定位 HTTPS 连接问题。"""
+        if not self.is_server_running:
+            return
+
+        primary_url = f"{self.server_scheme}://127.0.0.1:{self.server_port}/"
+        self.probe_single_server(primary_url)
+
+        if self.remote_serial_enabled and self.remote_serial_https_mode == REMOTE_SERIAL_HTTPS_MODE_COMPAT:
+            serial_https_url = f"https://127.0.0.1:{self.serial_https_port}/serial_tool"
+            self.serial_https_active = self.probe_single_server(serial_https_url)
+
+        local_ips = get_local_ips(verbose=False, use_cache=True)
+        self.update_server_info("运行中", local_ips)
 
     def on_server_started(self):
         """服务器进程启动时的回调"""
         self.is_server_running = True
+        self.serial_https_active = False
         self.start_button.setEnabled(False)
         self.stop_button.setEnabled(True)
         self.tray_start_action.setEnabled(False)
         self.tray_stop_action.setEnabled(True)
         self.update_server_info("启动中...")
         self.append_log("--- 服务器启动中... ---\n")
+        QTimer.singleShot(1200, self.probe_server_locally)
 
     def on_server_finished(self, exit_code, exit_status):
         """服务器进程结束时的回调"""
         self.is_server_running = False
+        self.serial_https_active = False
         self.start_button.setEnabled(True)
         self.stop_button.setEnabled(False)
         self.tray_start_action.setEnabled(True)
@@ -2551,7 +4068,7 @@ class MainWindow(QMainWindow):
             with open(log_file_path, 'w', encoding='utf-8') as f:
                 f.write(self.log_text_edit.toPlainText())
         except Exception as e:
-            print(f"保存日志失败: {e}")
+            app_logger.error("保存日志失败: %s", e)
 
         self.log_text_edit.clear()
 
@@ -2580,18 +4097,8 @@ class MainWindow(QMainWindow):
             if reply == QMessageBox.Yes:
                 # 启动服务器
                 self.start_server()
-                
-                # 等待服务器启动（最多等待5秒）
-                for i in range(50):
-                    if self.is_server_running:
-                        # 再等待一小段时间确保服务器完全启动
-                        QApplication.processEvents()
-                        QThread.msleep(200)
-                        break
-                    QApplication.processEvents()
-                    QThread.msleep(100)
-                
-                if not self.is_server_running:
+
+                if not self.wait_for_server_state(expected_running=True, timeout_ms=5000):
                     QMessageBox.warning(self, "错误", "服务器启动失败，无法打开帮助页面")
                     return
             else:
@@ -2600,10 +4107,10 @@ class MainWindow(QMainWindow):
         # 获取本地IP地址（使用缓存）
         local_ips = get_local_ips(verbose=False, use_cache=True)
         port = self.server_port
+        scheme = self.server_scheme or 'http'
+        help_url = f"{scheme}://127.0.0.1:{port}/help"
         if local_ips:
-            help_url = f"http://{local_ips[0]}:{port}/help"
-        else:
-            help_url = f"http://127.0.0.1:{port}/help"
+            app_logger.info("[帮助] 可用局域网IP: %s", ", ".join(local_ips))
         
         # 在浏览器中打开帮助页面
         try:
@@ -2624,62 +4131,96 @@ class MainWindow(QMainWindow):
             
             if reply == QMessageBox.Yes:
                 self.stop_server()
-                # 等待服务器停止
-                for i in range(50):
-                    if not self.is_server_running:
-                        break
-                    QApplication.processEvents()
-                    QThread.msleep(100)
-                
-                if self.is_server_running:
+
+                if not self.wait_for_server_state(expected_running=False, timeout_ms=5000):
                     QMessageBox.warning(self, "错误", "服务器停止失败，无法打开设置")
                     return
             else:
                 return
         
-        # 获取当前配置
-        app = create_app()
-        load_or_create_config(app)
-        current_root = app.config.get('ROOT_DIR', os.path.expanduser('~'))
-        current_password = app.config.get('PASSWORD', 'password')
-        current_admin_password = app.config.get('ADMIN_PASSWORD', 'admin123')
-        current_close_to_tray = app.config.get('CLOSE_TO_TRAY', False)
-        current_port = app.config.get('PORT', 5000)
-        current_git_enabled = app.config.get('GIT_ENABLED', False)
-        current_git_workdir = app.config.get('GIT_WORKDIR', '')
-        current_git_external_app_path = app.config.get('GIT_EXTERNAL_APP_PATH', '')
+        # 获取当前配置（轻量读取，避免初始化 Flask/SocketIO）
+        settings = read_runtime_settings()
+        current_root = settings.get('ROOT_DIR', os.path.expanduser('~'))
+        current_password = settings.get('PASSWORD', 'password')
+        current_admin_password = settings.get('ADMIN_PASSWORD', 'admin123')
+        current_close_to_tray = settings.get('CLOSE_TO_TRAY', False)
+        current_port = settings.get('PORT', 5000)
+        current_git_enabled = settings.get('GIT_ENABLED', False)
+        current_git_workdir = settings.get('GIT_WORKDIR', '')
+        current_git_external_app_path = settings.get('GIT_EXTERNAL_APP_PATH', '')
+        current_remote_serial_enabled = settings.get('REMOTE_SERIAL_ENABLED', False)
+        current_remote_serial_https_mode = settings.get('REMOTE_SERIAL_HTTPS_MODE', REMOTE_SERIAL_HTTPS_MODE_FULL)
+        current_serial_https_port = settings.get('SERIAL_HTTPS_PORT', default_serial_https_port(current_port))
+        current_https_cert_file = settings.get('HTTPS_CERT_FILE', '')
+        current_https_key_file = settings.get('HTTPS_KEY_FILE', '')
         
         # 显示设置对话框
-        dialog = SettingsDialog(self, current_root, current_password, current_admin_password, current_close_to_tray, current_port, current_git_enabled, current_git_workdir, current_git_external_app_path)
+        dialog = SettingsDialog(
+            self,
+            current_root,
+            current_password,
+            current_admin_password,
+            current_close_to_tray,
+            current_port,
+            current_git_enabled,
+            current_git_workdir,
+            current_git_external_app_path,
+            current_remote_serial_enabled,
+            current_remote_serial_https_mode,
+            current_serial_https_port,
+            current_https_cert_file,
+            current_https_key_file,
+        )
         if dialog.exec_() == QDialog.Accepted:
-            new_root, new_password, new_admin_password, new_close_to_tray, new_port, new_git_enabled, new_git_workdir, new_git_external_app_path = dialog.get_settings()
+            (
+                new_root,
+                new_password,
+                new_admin_password,
+                new_close_to_tray,
+                new_port,
+                new_git_enabled,
+                new_git_workdir,
+                new_git_external_app_path,
+                new_remote_serial_enabled,
+                new_remote_serial_https_mode,
+                new_serial_https_port,
+                new_https_cert_file,
+                new_https_key_file,
+            ) = dialog.get_settings()
             
             # 保存配置
             try:
-                config = configparser.ConfigParser()
-                config['settings'] = {
-                    'root_dir': new_root,
-                    'password': new_password,
-                    'admin_password': new_admin_password,
-                    'close_to_tray': str(new_close_to_tray).lower(),
-                    'port': str(new_port),
-                    'git_enabled': str(new_git_enabled).lower(),
-                    'git_workdir': new_git_workdir,
-                    'git_external_app_path': new_git_external_app_path
-                }
                 config_file = get_config_path()
-                
-                with open(config_file, 'w', encoding='utf-8') as f:
-                    config.write(f)
-                
-                # 验证保存是否成功
-                config_check = configparser.ConfigParser()
-                config_check.read(config_file, encoding='utf-8')
-                saved_password = config_check['settings'].get('password', '')
+                save_runtime_settings({
+                    'CONFIG_FILE': config_file,
+                    'ROOT_DIR': new_root,
+                    'PASSWORD': new_password,
+                    'ADMIN_PASSWORD': new_admin_password,
+                    'CLOSE_TO_TRAY': new_close_to_tray,
+                    'PORT': new_port,
+                    'GIT_ENABLED': new_git_enabled,
+                    'GIT_WORKDIR': new_git_workdir,
+                    'GIT_EXTERNAL_APP_PATH': new_git_external_app_path,
+                    'REMOTE_SERIAL_ENABLED': new_remote_serial_enabled,
+                    'REMOTE_SERIAL_HTTPS_MODE': new_remote_serial_https_mode,
+                    'SERIAL_HTTPS_PORT': new_serial_https_port,
+                    'HTTPS_CERT_FILE': new_https_cert_file,
+                    'HTTPS_KEY_FILE': new_https_key_file
+                }, config_file=config_file)
                 
                 close_behavior_text = "最小化到托盘" if new_close_to_tray else "直接退出程序"
                 git_enabled_text = "已启用" if new_git_enabled else "已禁用"
                 git_workdir_text = new_git_workdir if new_git_workdir else "未设置"
+                remote_serial_text = "已启用" if new_remote_serial_enabled else "已禁用"
+                remote_serial_mode_text = (
+                    "兼容模式（主站 HTTP + 串口 HTTPS）"
+                    if new_remote_serial_https_mode == REMOTE_SERIAL_HTTPS_MODE_COMPAT
+                    else "全站 HTTPS（原有方式）"
+                )
+                if not new_remote_serial_enabled:
+                    cert_summary = "未启用"
+                else:
+                    cert_summary = "已配置" if (new_https_cert_file and new_https_key_file) else "未配置（将尝试 adhoc）"
                 
                 QMessageBox.information(
                     self, "保存成功", 
@@ -2691,54 +4232,94 @@ class MainWindow(QMainWindow):
                     f"服务器端口: {new_port}\n"
                     f"关闭行为: {close_behavior_text}\n"
                     f"Git功能: {git_enabled_text}\n"
+                    f"远程串口: {remote_serial_text}\n"
+                    f"{'串口 HTTPS 模式: ' + remote_serial_mode_text if new_remote_serial_enabled else ''}\n"
+                    f"{'串口 HTTPS 端口: ' + str(new_serial_https_port) if new_remote_serial_enabled and new_remote_serial_https_mode == REMOTE_SERIAL_HTTPS_MODE_COMPAT else ''}\n"
+                    f"HTTPS证书: {cert_summary}\n"
                     f"{'Git工作目录: ' + git_workdir_text if new_git_enabled else ''}\n\n"
                     f"您可以重新启动服务器使用新配置。"
                 )
                 
-                print(f"配置已保存到: {config_file}")
-                print(f"根目录: {new_root}")
-                print(f"登录密码长度: {len(new_password)}")
-                print(f"管理员密码长度: {len(new_admin_password)}")
-                print(f"服务器端口: {new_port}")
-                print(f"关闭行为: {close_behavior_text}")
-                print(f"Git功能: {git_enabled_text}")
+                app_logger.info("配置已保存到: %s", config_file)
+                app_logger.info("根目录: %s", new_root)
+                app_logger.info("登录密码长度: %s", len(new_password))
+                app_logger.info("管理员密码长度: %s", len(new_admin_password))
+                app_logger.info("服务器端口: %s", new_port)
+                app_logger.info("关闭行为: %s", close_behavior_text)
+                app_logger.info("Git功能: %s", git_enabled_text)
+                app_logger.info("远程串口: %s", remote_serial_text)
+                app_logger.info("远程串口 HTTPS 模式: %s", remote_serial_mode_text)
+                if new_remote_serial_enabled and new_remote_serial_https_mode == REMOTE_SERIAL_HTTPS_MODE_COMPAT:
+                    app_logger.info("串口 HTTPS 端口: %s", new_serial_https_port)
+                app_logger.info("HTTPS证书: %s", cert_summary)
                 
                 # 更新主窗口的关闭行为配置
                 self.close_to_tray = new_close_to_tray
                 self.server_port = new_port  # 更新端口配置
+                self.remote_serial_enabled = new_remote_serial_enabled
+                self.remote_serial_https_mode = normalize_remote_serial_https_mode(new_remote_serial_https_mode)
+                self.serial_https_port = normalize_serial_https_port(new_serial_https_port, main_port=new_port)
+                self.serial_https_active = False
+                self.server_scheme = (
+                    'https'
+                    if new_remote_serial_enabled and self.remote_serial_https_mode == REMOTE_SERIAL_HTTPS_MODE_FULL
+                    else 'http'
+                )
                 self.update_quit_behavior()  # 立即更新QApplication行为
-                print(f"[配置更新] 关闭行为已更新: {'最小化到托盘' if new_close_to_tray else '直接退出'}")
-                print(f"[配置更新] 服务器端口已更新: {new_port}（需要重启服务器生效）")
-                print(f"[配置更新] Git功能已更新: {git_enabled_text}（需要重启服务器生效）")
+                app_logger.info("[配置更新] 关闭行为已更新: %s", '最小化到托盘' if new_close_to_tray else '直接退出')
+                app_logger.info("[配置更新] 服务器端口已更新: %s（需要重启服务器生效）", new_port)
+                app_logger.info("[配置更新] Git功能已更新: %s（需要重启服务器生效）", git_enabled_text)
+                app_logger.info("[配置更新] 远程串口已更新: %s（需要重启服务器生效）", remote_serial_text)
                 
             except Exception as e:
                 import traceback
                 error_detail = traceback.format_exc()
                 QMessageBox.critical(self, "保存失败", f"保存配置时发生错误：\n\n{e}\n\n详细信息:\n{error_detail}")
-                print(f"保存配置失败: {e}")
-                print(error_detail)
+                app_logger.error("保存配置失败: %s", e)
+                app_logger.error(error_detail)
     
     def load_close_behavior_config(self):
         """加载关闭行为配置"""
         try:
-            app = create_app()
-            load_or_create_config(app)
-            self.close_to_tray = app.config.get('CLOSE_TO_TRAY', False)
-            print(f"[配置] 关闭行为: {'最小化到托盘' if self.close_to_tray else '直接退出'}")
+            settings = read_runtime_settings(create_if_missing=False)
+            self.close_to_tray = settings.get('CLOSE_TO_TRAY', False)
+            app_logger.info("[配置] 关闭行为: %s", '最小化到托盘' if self.close_to_tray else '直接退出')
         except Exception as e:
-            print(f"[警告] 加载关闭行为配置失败: {e}")
+            app_logger.warning("[警告] 加载关闭行为配置失败: %s", e)
             self.close_to_tray = False
     
     def load_server_port_config(self):
         """加载服务器端口配置"""
         try:
-            app = create_app()
-            load_or_create_config(app)
-            self.server_port = app.config.get('PORT', 5000)
-            print(f"[配置] 服务器端口: {self.server_port}")
+            settings = read_runtime_settings(create_if_missing=False)
+            self.server_port = settings.get('PORT', 5000)
+            self.remote_serial_enabled = settings.get('REMOTE_SERIAL_ENABLED', False)
+            self.remote_serial_https_mode = normalize_remote_serial_https_mode(
+                settings.get('REMOTE_SERIAL_HTTPS_MODE', REMOTE_SERIAL_HTTPS_MODE_FULL)
+            )
+            self.serial_https_port = normalize_serial_https_port(
+                settings.get('SERIAL_HTTPS_PORT', default_serial_https_port(self.server_port)),
+                main_port=self.server_port,
+            )
+            self.serial_https_active = False
+            self.server_scheme = (
+                'https'
+                if self.remote_serial_enabled and self.remote_serial_https_mode == REMOTE_SERIAL_HTTPS_MODE_FULL
+                else 'http'
+            )
+            app_logger.info("[配置] 服务器端口: %s", self.server_port)
+            app_logger.info("[配置] 服务器协议: %s", self.server_scheme)
+            app_logger.info("[配置] 远程串口: %s", self.remote_serial_enabled)
+            app_logger.info("[配置] 远程串口 HTTPS 模式: %s", self.remote_serial_https_mode)
+            app_logger.info("[配置] 串口 HTTPS 端口: %s", self.serial_https_port)
         except Exception as e:
-            print(f"[警告] 加载端口配置失败: {e}")
+            app_logger.warning("[警告] 加载端口配置失败: %s", e)
             self.server_port = 5000
+            self.server_scheme = 'http'
+            self.remote_serial_enabled = False
+            self.remote_serial_https_mode = REMOTE_SERIAL_HTTPS_MODE_FULL
+            self.serial_https_port = default_serial_https_port(self.server_port)
+            self.serial_https_active = False
     
     def update_quit_behavior(self):
         """根据配置更新QApplication的退出行为"""
@@ -2747,17 +4328,17 @@ class MainWindow(QMainWindow):
             if self.close_to_tray:
                 # 关闭到托盘模式：关闭窗口不退出应用
                 app.setQuitOnLastWindowClosed(False)
-                print("[配置] 已设置：关闭窗口不退出应用（托盘模式）")
+                app_logger.info("[配置] 已设置：关闭窗口不退出应用（托盘模式）")
             else:
                 # 退出模式：关闭窗口退出应用
                 app.setQuitOnLastWindowClosed(True)
-                print("[配置] 已设置：关闭窗口退出应用（退出模式）")
+                app_logger.info("[配置] 已设置：关闭窗口退出应用（退出模式）")
     
     def show_about(self):
         """显示关于对话框"""
         about_text = """
         <h2>🖥️ Yobboy文件服务器</h2>
-        <p><b>版本:</b> v2.2</p>
+        <p><b>版本:</b> R1.3 (2026-04-02)</p>
         <p><b>作者:</b> Yobboy Team</p>
         <br>
         <p>一个功能强大的本地文件服务器，支持：</p>
@@ -2792,10 +4373,10 @@ class MainWindow(QMainWindow):
                 QSystemTrayIcon.Information,
                 2000
             )
-            print("[关闭事件] 窗口已最小化到托盘")
+            app_logger.info("[关闭事件] 窗口已最小化到托盘")
         else:
             # 退出程序
-            print("[关闭事件] 准备退出程序")
+            app_logger.info("[关闭事件] 准备退出程序")
             if self.is_server_running:
                 reply = QMessageBox.question(
                     self, '退出', '服务器正在运行，确定要退出吗？',
@@ -2803,59 +4384,299 @@ class MainWindow(QMainWindow):
                 )
                 if reply == QMessageBox.Yes:
                     self.stop_server()
-                    for _ in range(50):
-                        if not self.is_server_running:
-                            break
-                        QApplication.processEvents()
-                        QThread.msleep(100)
-                    event.accept()
-                    print("[关闭事件] 程序已退出")
+                    if self.wait_for_server_state(expected_running=False, timeout_ms=5000):
+                        event.accept()
+                        app_logger.info("[关闭事件] 程序已退出")
+                    else:
+                        event.ignore()
+                        QMessageBox.warning(self, "错误", "服务器停止超时，已取消退出")
                 else:
                     event.ignore()
-                    print("[关闭事件] 用户取消退出")
+                    app_logger.info("[关闭事件] 用户取消退出")
             else:
                 event.accept()
-                print("[关闭事件] 程序已退出")
+                app_logger.info("[关闭事件] 程序已退出")
+
+
+def get_or_create_local_https_cert(config_dir, local_ips=None):
+    """
+    Create a persistent local HTTPS certificate when custom cert/key are not configured.
+    This avoids re-generating adhoc certs on every start and usually improves first-load latency.
+    """
+    cert_dir = os.path.join(config_dir, ".https")
+    cert_file = os.path.join(cert_dir, "local_https_cert.pem")
+    key_file = os.path.join(cert_dir, "local_https_key.pem")
+
+    if os.path.exists(cert_file) and os.path.exists(key_file):
+        return cert_file, key_file, False
+
+    try:
+        from cryptography import x509
+        from cryptography.x509.oid import NameOID, ExtendedKeyUsageOID
+        from cryptography.hazmat.primitives import hashes, serialization
+        from cryptography.hazmat.primitives.asymmetric import ec
+    except Exception as e:
+        app_logger.error("[serial] Unable to import cryptography modules for local HTTPS cert: %s", e)
+        return '', '', False
+
+    try:
+        os.makedirs(cert_dir, exist_ok=True)
+        private_key = ec.generate_private_key(ec.SECP256R1())
+
+        dns_names = {"localhost"}
+        host_name = socket.gethostname().strip()
+        if host_name:
+            dns_names.add(host_name)
+
+        ip_values = {"127.0.0.1"}
+        for ip_text in (local_ips or []):
+            ip_text = (ip_text or '').strip()
+            if not ip_text:
+                continue
+            try:
+                ip_values.add(str(ipaddress.ip_address(ip_text)))
+            except ValueError:
+                dns_names.add(ip_text)
+
+        san_entries = [x509.DNSName(name) for name in sorted(dns_names)]
+        for ip_text in sorted(ip_values):
+            san_entries.append(x509.IPAddress(ipaddress.ip_address(ip_text)))
+
+        subject = issuer = x509.Name([
+            x509.NameAttribute(NameOID.COUNTRY_NAME, "CN"),
+            x509.NameAttribute(NameOID.ORGANIZATION_NAME, "Yobboy File Server"),
+            x509.NameAttribute(NameOID.COMMON_NAME, "Yobboy Local HTTPS"),
+        ])
+
+        now = datetime.utcnow()
+        certificate = (
+            x509.CertificateBuilder()
+            .subject_name(subject)
+            .issuer_name(issuer)
+            .public_key(private_key.public_key())
+            .serial_number(x509.random_serial_number())
+            .not_valid_before(now - timedelta(days=1))
+            .not_valid_after(now + timedelta(days=3650))
+            .add_extension(x509.SubjectAlternativeName(san_entries), critical=False)
+            .add_extension(x509.BasicConstraints(ca=False, path_length=None), critical=True)
+            .add_extension(
+                x509.ExtendedKeyUsage([ExtendedKeyUsageOID.SERVER_AUTH]),
+                critical=False
+            )
+            .sign(private_key, hashes.SHA256())
+        )
+
+        with open(key_file, "wb") as f:
+            f.write(
+                private_key.private_bytes(
+                    encoding=serialization.Encoding.PEM,
+                    format=serialization.PrivateFormat.PKCS8,
+                    encryption_algorithm=serialization.NoEncryption()
+                )
+            )
+        with open(cert_file, "wb") as f:
+            f.write(certificate.public_bytes(serialization.Encoding.PEM))
+
+        return cert_file, key_file, True
+    except Exception as e:
+        app_logger.error("[serial] Failed to create local HTTPS certificate: %s", e)
+        return '', '', False
 
 
 def run_flask_app(info_file_path=None):
     """运行 Flask 应用"""
+    # 当从GUI启动时（有info_file_path参数），将debug设为False以避免冲突
+    debug = False if info_file_path else True
     # 注意：load_or_create_config 现在在 create_app() 中调用
-    application = create_app()
+    application = create_app(debug=debug)
     
     # === 显示加载的配置信息 ===
     print("=" * 60)
     print("[服务器配置信息]")
     print(f"配置文件路径: {application.config.get('CONFIG_FILE')}")
     print(f"根目录: {application.config.get('ROOT_DIR')}")
-    print(f"登录密码: {application.config.get('PASSWORD')}")
-    print(f"密码长度: {len(application.config.get('PASSWORD', ''))}")
+    print(f"登录密码长度: {len(application.config.get('PASSWORD', ''))}")
     print(f"Git功能: {'已启用' if application.config.get('GIT_ENABLED') else '已禁用'}")
     print(f"Git工作目录: {application.config.get('GIT_WORKDIR', '未设置')}")
     print(f"Git外部软件路径: {application.config.get('GIT_EXTERNAL_APP_PATH', '未设置')}")
+    print(
+        f"远程串口: {'已启用' if application.config.get('REMOTE_SERIAL_ENABLED') else '已禁用'}"
+    )
+    print(
+        f"串口 HTTPS 模式: {normalize_remote_serial_https_mode(application.config.get('REMOTE_SERIAL_HTTPS_MODE', REMOTE_SERIAL_HTTPS_MODE_FULL))}"
+    )
+    print(
+        f"串口 HTTPS 端口: {normalize_serial_https_port(application.config.get('SERIAL_HTTPS_PORT', default_serial_https_port(application.config.get('PORT', 5000))), main_port=application.config.get('PORT', 5000))}"
+    )
     print("=" * 60)
     # === 配置信息结束 ===
     
     host = "0.0.0.0"
     port = application.config.get('PORT', 5000)
+    remote_serial_enabled = bool(application.config.get('REMOTE_SERIAL_ENABLED', False))
+    remote_serial_https_mode = normalize_remote_serial_https_mode(
+        application.config.get('REMOTE_SERIAL_HTTPS_MODE', REMOTE_SERIAL_HTTPS_MODE_FULL)
+    )
+    serial_https_port = normalize_serial_https_port(
+        application.config.get('SERIAL_HTTPS_PORT', default_serial_https_port(port)),
+        main_port=port,
+    )
+
+    settings_data = {
+        'CONFIG_FILE': application.config.get('CONFIG_FILE') or get_config_path(),
+        'PORT': port,
+        'REMOTE_SERIAL_ENABLED': remote_serial_enabled,
+        'REMOTE_SERIAL_HTTPS_MODE': remote_serial_https_mode,
+        'SERIAL_HTTPS_PORT': serial_https_port,
+        'HTTPS_CERT_FILE': application.config.get('HTTPS_CERT_FILE', ''),
+        'HTTPS_KEY_FILE': application.config.get('HTTPS_KEY_FILE', ''),
+    }
+    runtime_info = inspect_https_runtime(settings_data, verify_cert_pair=True)
+    remote_ssl_context = None
+    remote_cert_source = 'none'
+    if remote_serial_enabled:
+        runtime_info, remote_ssl_context, remote_cert_source = prepare_https_runtime(settings_data)
+
+    def log_remote_https_runtime():
+        if remote_ssl_context is None:
+            return
+        if remote_cert_source == 'configured':
+            app_logger.info("[serial] HTTPS enabled with configured certificate files.")
+            return
+        if runtime_info['cert_exists'] and runtime_info['key_exists'] and not runtime_info['cert_pair_ok']:
+            app_logger.warning(
+                "[serial] HTTPS cert/key files exist but cannot be loaded, fallback certificate will be used. cert=%s, key=%s, error=%s",
+                runtime_info['resolved_cert_file'],
+                runtime_info['resolved_key_file'],
+                runtime_info['cert_pair_error'],
+            )
+        elif runtime_info['resolved_cert_file'] or runtime_info['resolved_key_file']:
+            app_logger.warning(
+                "[serial] HTTPS cert/key not ready, fallback certificate will be used. cert=%s (exists=%s), key=%s (exists=%s)",
+                runtime_info['resolved_cert_file'] or "(empty)",
+                runtime_info['cert_exists'],
+                runtime_info['resolved_key_file'] or "(empty)",
+                runtime_info['key_exists'],
+            )
+        if remote_cert_source == 'generated':
+            if runtime_info.get('auto_cert_created'):
+                app_logger.info(
+                    "[serial] Generated local HTTPS certificate: cert=%s, key=%s",
+                    runtime_info.get('auto_cert_file'),
+                    runtime_info.get('auto_key_file'),
+                )
+            else:
+                app_logger.info("[serial] HTTPS enabled with local persistent certificate.")
+        elif remote_cert_source == 'adhoc':
+            app_logger.info("[serial] HTTPS enabled with adhoc certificate.")
+
+    primary_scheme = 'http'
+    primary_ssl_context = None
+    serial_https_active = False
+    serial_websocket_scheme = 'ws'
+
+    if remote_serial_enabled:
+        if remote_ssl_context is not None:
+            log_remote_https_runtime()
+            serial_websocket_scheme = 'wss'
+            if remote_serial_https_mode == REMOTE_SERIAL_HTTPS_MODE_FULL:
+                primary_scheme = 'https'
+                primary_ssl_context = remote_ssl_context
+                serial_https_active = True
+            else:
+                serial_https_active = True
+        else:
+            app_logger.error(
+                "[serial] remote_serial_enabled=true 但当前无法启动 HTTPS。mode=%s",
+                remote_serial_https_mode,
+            )
+            app_logger.error(
+                "[serial] 如需 HTTPS，请安装 cryptography 或在 config.ini 配置 https_cert_file/https_key_file。"
+            )
+            print("[警告] 远程串口已启用，但当前无法启动 HTTPS：缺少 cryptography 且未配置有效证书。")
+            print("[提示] 执行: pip install cryptography")
+            print("[提示] 或在 config.ini 设置 https_cert_file / https_key_file 后重启服务。")
+
+    if (
+        remote_serial_enabled
+        and remote_serial_https_mode == REMOTE_SERIAL_HTTPS_MODE_COMPAT
+        and serial_https_active
+        and not can_bind_tcp_port(host, serial_https_port)
+    ):
+        serial_https_active = False
+        serial_websocket_scheme = 'ws'
+        app_logger.error(
+            "[serial] Compatibility HTTPS port is already in use: %s",
+            serial_https_port,
+        )
+        print(f"[警告] 串口 HTTPS 端口 {serial_https_port} 已被占用，兼容模式下的 HTTPS 入口未启动。")
+
+    application.config['SERVER_SCHEME'] = primary_scheme
+    application.config['PRIMARY_SERVER_SCHEME'] = primary_scheme
+    application.config['REMOTE_SERIAL_HTTPS_MODE'] = remote_serial_https_mode
+    application.config['SERIAL_HTTPS_PORT'] = serial_https_port
+    application.config['SERIAL_HTTPS_ACTIVE'] = serial_https_active
+
     local_ips = get_local_ips()
     print(f" * Running on all addresses ({host})")
-    for ip in local_ips:
-        if ip != '0.0.0.0':
-            print(f" * Running on http://{ip}:{port}")
-    print(f" * WebSocket endpoint: /serial")
+
+    if remote_serial_enabled and remote_serial_https_mode == REMOTE_SERIAL_HTTPS_MODE_COMPAT:
+        for ip in local_ips:
+            if ip != '0.0.0.0':
+                print(f" * Main site: http://{ip}:{port}")
+        print(f" * Main WebSocket endpoint: ws://<server>:{port}/serial")
+        if serial_https_active:
+            for ip in local_ips:
+                if ip != '0.0.0.0':
+                    print(f" * Serial HTTPS: https://{ip}:{serial_https_port}/serial_tool")
+            print(f" * Serial WebSocket endpoint: wss://<server>:{serial_https_port}/serial")
+        else:
+            print("[说明] 当前兼容模式仅启动 HTTP 主站，串口 HTTPS 入口尚未就绪。")
+    else:
+        for ip in local_ips:
+            if ip != '0.0.0.0':
+                print(f" * Running on {primary_scheme}://{ip}:{port}")
+        print(f" * WebSocket endpoint: {serial_websocket_scheme}://<server>:{port}/serial")
+
     sys.stdout.flush()
-    # 当从GUI启动时（有info_file_path参数），将debug设为False以避免冲突
-    debug = False if info_file_path else True
+
+    if remote_serial_enabled and remote_serial_https_mode == REMOTE_SERIAL_HTTPS_MODE_COMPAT and serial_https_active:
+        def run_serial_https_listener():
+            try:
+                run_kwargs = {
+                    'host': host,
+                    'port': serial_https_port,
+                    'debug': False,
+                    'use_reloader': False,
+                    'allow_unsafe_werkzeug': True,
+                    'log_output': False,
+                    'ssl_context': remote_ssl_context,
+                }
+                application.socketio.run(application, **run_kwargs)
+            except Exception as e:
+                app_logger.error("[serial] Failed to start compatibility HTTPS listener: %s", e)
+                print(f"[错误] 兼容模式下的串口 HTTPS 监听启动失败: {e}")
+
+        serial_https_thread = threading.Thread(
+            target=run_serial_https_listener,
+            name='serial-https-listener',
+            daemon=True,
+        )
+        serial_https_thread.start()
+
     # 使用 socketio.run 而不是 app.run
     # 添加 use_reloader=False 以加快启动速度（避免自动检测和重载机制）
-    application.socketio.run(application, 
-                            host=host, 
-                            port=port, 
-                            debug=debug,
-                            use_reloader=False,  # 禁用自动重载，加快启动
-                            allow_unsafe_werkzeug=True,
-                            log_output=False)
+    run_kwargs = {
+        'host': host,
+        'port': port,
+        'debug': debug,
+        'use_reloader': False,  # 禁用自动重载，加快启动
+        'allow_unsafe_werkzeug': True,
+        'log_output': False
+    }
+    if primary_ssl_context is not None:
+        run_kwargs['ssl_context'] = primary_ssl_context
+    application.socketio.run(application, **run_kwargs)
 
 
 if __name__ == '__main__':

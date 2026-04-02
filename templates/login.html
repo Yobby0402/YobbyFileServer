@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
+    {% include '_theme_bootstrap.html' %}
     <title>登录 - 文件服务器</title>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -93,12 +94,6 @@
             }
         }
     </style>
-    <script>
-        (function() {
-            const savedTheme = localStorage.getItem('site_theme') || 'jasmine';
-            document.body.setAttribute('data-theme', savedTheme);
-        })();
-    </script>
 </head>
 <body>
     <div class="login-card">

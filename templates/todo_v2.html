@@ -169,6 +169,9 @@
                         <button type="button" class="btn btn-success" id="exportButton">
                             <i class="fas fa-file-excel"></i> 导出Excel
                         </button>
+                        <button type="button" class="btn btn-outline-light" id="toggleArchivedProjectsBtn">
+                            <i class="fas fa-archive"></i> 已归档项目 <span class="badge bg-secondary ms-1" id="archivedProjectsCount">0</span>
+                        </button>
                         {% if direct_access %}
                         <span class="badge bg-warning text-dark">后门模式</span>
                         {% endif %}

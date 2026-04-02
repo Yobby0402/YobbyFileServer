@@ -1,12 +1,12 @@
 /* 
    Themes Definition File
    Defines CSS variables for different themes.
-   Default theme is "Jasmine" (茉莉奶白).
+   Default theme is "Jasmine" (鑼夎帀濂剁櫧).
 */
 
 :root {
     /* =========================================
-       Base Variables (Default: Jasmine / 茉莉奶白)
+       Base Variables (Default: Jasmine / 鑼夎帀濂剁櫧)
        ========================================= */
     
     /* Core Colors */
@@ -33,18 +33,25 @@
     --t-shadow-sm: 0 10px 30px rgba(30, 114, 96, 0.12);
     --t-shadow-lg: 0 18px 42px rgba(30, 114, 96, 0.18);
     --t-focus-ring: 0 0 0 0.25rem rgba(54, 170, 151, 0.25);
+    --t-text-strong: #0f1f1d;
+    --t-input-bg: #ffffff;
+    --t-input-text: #12211f;
+    --t-input-border: #8fa8a4;
+    --t-checkbox-bg: #ffffff;
+    --t-checkbox-border: #5f7f79;
+    --t-checkbox-tick: #ffffff;
     
-    /* Button Colors - 按钮配色 */
-    --t-success: #158467;        /* 成功/确认按钮 - 深绿色 */
-    --t-success-hover: #0f6b54;  /* 成功按钮悬停 */
-    --t-info: #4a90e2;           /* 信息按钮 - 蓝色 */
-    --t-info-hover: #357abd;     /* 信息按钮悬停 */
-    --t-warning: #f39c12;        /* 警告按钮 - 橙色 */
-    --t-warning-hover: #d68910;  /* 警告按钮悬停 */
-    --t-danger: #e74c3c;         /* 危险按钮 - 红色 */
-    --t-danger-hover: #c0392b;   /* 危险按钮悬停 */
-    --t-secondary: #6c8e7d;      /* 次要按钮 - 灰绿色 */
-    --t-secondary-hover: #5a7a6a; /* 次要按钮悬停 */
+    /* Button Colors - 鎸夐挳閰嶈壊 */
+    --t-success: #158467;        /* 鎴愬姛/纭鎸夐挳 - 娣辩豢鑹?*/
+    --t-success-hover: #0f6b54;  /* 鎴愬姛鎸夐挳鎮仠 */
+    --t-info: #4a90e2;           /* 淇℃伅鎸夐挳 - 钃濊壊 */
+    --t-info-hover: #357abd;     /* 淇℃伅鎸夐挳鎮仠 */
+    --t-warning: #f39c12;        /* 璀﹀憡鎸夐挳 - 姗欒壊 */
+    --t-warning-hover: #d68910;  /* 璀﹀憡鎸夐挳鎮仠 */
+    --t-danger: #e74c3c;         /* 鍗遍櫓鎸夐挳 - 绾㈣壊 */
+    --t-danger-hover: #c0392b;   /* 鍗遍櫓鎸夐挳鎮仠 */
+    --t-secondary: #6c8e7d;      /* 娆¤鎸夐挳 - 鐏扮豢鑹?*/
+    --t-secondary-hover: #5a7a6a; /* 娆¤鎸夐挳鎮仠 */
     
     /* Bootstrap overrides */
     --bs-primary: var(--t-primary);
@@ -52,7 +59,7 @@
 }
 
 /* =========================================
-   Theme: Mist Forest / 迷雾森林
+   Theme: Mist Forest / 杩烽浘妫灄
    ========================================= */
 [data-theme="mist-forest"] {
     --t-primary: #2d5a27;
@@ -63,6 +70,7 @@
 
     --t-text-main: #1a2f18;
     --t-text-muted: #4b6348;
+    --t-text-strong: #0f1f0e;
     
     --t-bg-body: linear-gradient(to bottom right, #2c3e50, #4ca1af); /* Misty dark */
     --t-bg-panel: rgba(255, 255, 255, 0.85);
@@ -87,7 +95,7 @@
 }
 
 /* =========================================
-   Theme: Sunset Twilight / 日落黄昏
+   Theme: Sunset Twilight / 鏃ヨ惤榛勬槒
    ========================================= */
 [data-theme="sunset"] {
     --t-primary: #e65100;
@@ -120,7 +128,7 @@
 }
 
 /* =========================================
-   Theme: Golden Beach / 黄金沙滩
+   Theme: Golden Beach / 榛勯噾娌欐哗
    ========================================= */
 [data-theme="golden-beach"] {
     --t-primary: #fbc02d;
@@ -153,7 +161,7 @@
 }
 
 /* =========================================
-   Theme: Cyberpunk / 赛博朋克
+   Theme: Cyberpunk / 璧涘崥鏈嬪厠
    ========================================= */
 [data-theme="cyberpunk"] {
     --t-primary: #00ff9f; /* Neon Green */
@@ -163,8 +171,15 @@
     --t-primary-faint: rgba(0, 255, 159, 0.1);
 
     --t-text-main: #e0e0e0;
-    --t-text-muted: #a0a0a0;
+    --t-text-muted: #b8c0c8;
     --t-text-light: #ffffff;
+    --t-text-strong: #f4f8ff;
+    --t-input-bg: rgba(8, 12, 24, 0.88);
+    --t-input-text: #f1f8ff;
+    --t-input-border: rgba(0, 255, 159, 0.5);
+    --t-checkbox-bg: rgba(14, 20, 35, 0.95);
+    --t-checkbox-border: #88ffe0;
+    --t-checkbox-tick: #07140f;
 
     --t-bg-body: linear-gradient(135deg, #0b0c15 0%, #180c1e 100%);
     --t-bg-panel: rgba(20, 20, 35, 0.85);
@@ -190,7 +205,7 @@
 }
 
 /* =========================================
-   Theme: Aurora / 极光星空
+   Theme: Aurora / 鏋佸厜鏄熺┖
    ========================================= */
 [data-theme="aurora"] {
     --t-primary: #00d2ff;
@@ -200,7 +215,14 @@
     --t-primary-faint: rgba(0, 210, 255, 0.1);
 
     --t-text-main: #ffffff;
-    --t-text-muted: #b0c4de;
+    --t-text-muted: #ccdaef;
+    --t-text-strong: #ffffff;
+    --t-input-bg: rgba(16, 28, 45, 0.92);
+    --t-input-text: #f4f9ff;
+    --t-input-border: rgba(146, 239, 253, 0.58);
+    --t-checkbox-bg: rgba(20, 35, 55, 0.96);
+    --t-checkbox-border: #9fefff;
+    --t-checkbox-tick: #042331;
     
     --t-bg-body: linear-gradient(to top, #09203f 0%, #537895 100%);
     --t-bg-panel: rgba(16, 28, 45, 0.7); /* Glassy dark */
@@ -224,7 +246,7 @@
 }
 
 /* =========================================
-   Theme: Mint Fresh / 薄荷清新
+   Theme: Mint Fresh / 钖勮嵎娓呮柊
    ========================================= */
 [data-theme="mint-fresh"] {
     --t-primary: #4fb3a5;
@@ -261,7 +283,7 @@
 }
 
 /* =========================================
-   Theme: Cherry Blossom / 樱花飞舞
+   Theme: Cherry Blossom / 妯辫姳椋炶垶
    ========================================= */
 [data-theme="cherry-blossom"] {
     --t-primary: #f8b2c4;
@@ -298,7 +320,7 @@
 }
 
 /* =========================================
-   Theme: Sky Azure / 天空湛蓝
+   Theme: Sky Azure / 澶╃┖婀涜摑
    ========================================= */
 [data-theme="sky-azure"] {
     --t-primary: #64b5f6;
@@ -335,7 +357,7 @@
 }
 
 /* =========================================
-   Theme: Lavender Field / 薰衣草田
+   Theme: Lavender Field / 钖拌。鑽夌敯
    ========================================= */
 [data-theme="lavender-field"] {
     --t-primary: #ba68c8;
@@ -372,7 +394,7 @@
 }
 
 /* =========================================
-   Theme: Bamboo Grove / 竹林深处
+   Theme: Bamboo Grove / 绔规灄娣卞
    ========================================= */
 [data-theme="bamboo-grove"] {
     --t-primary: #6b8e5a;
@@ -409,7 +431,7 @@
 }
 
 /* =========================================
-   Theme: Morning Mist / 晨雾朦胧
+   Theme: Morning Mist / 鏅ㄩ浘鏈﹁儳
    ========================================= */
 [data-theme="morning-mist"] {
     --t-primary: #78909c;
@@ -446,7 +468,7 @@
 }
 
 /* =========================================
-   Theme: Ocean Shallow / 浅海湛蓝
+   Theme: Ocean Shallow / 娴呮捣婀涜摑
    ========================================= */
 [data-theme="ocean-shallow"] {
     --t-primary: #26c6da;
@@ -483,7 +505,7 @@
 }
 
 /* =========================================
-   Theme: Tea Garden / 茶园时光
+   Theme: Tea Garden / 鑼跺洯鏃跺厜
    ========================================= */
 [data-theme="tea-garden"] {
     --t-primary: #7cb342;
@@ -520,7 +542,7 @@
 }
 
 /* =========================================
-   Theme: Tech Blue / 科技之光
+   Theme: Tech Blue / 绉戞妧涔嬪厜
    ========================================= */
 [data-theme="tech-blue"] {
     --t-primary: #1976d2;
@@ -557,7 +579,7 @@
 }
 
 /* =========================================
-   Theme: Cloud Light / 云淡风轻
+   Theme: Cloud Light / 浜戞贰椋庤交
    ========================================= */
 [data-theme="cloud-light"] {
     --t-primary: #81d4fa;
@@ -594,7 +616,7 @@
 }
 
 /* =========================================
-   Theme: Rose Whisper / 玫瑰轻语
+   Theme: Rose Whisper / 鐜懓杞昏
    ========================================= */
 [data-theme="rose-whisper"] {
     --t-primary: #f48fb1;
@@ -631,7 +653,7 @@
 }
 
 /* =========================================
-   Theme: Orange Warmth / 橙意暖暖
+   Theme: Orange Warmth / 姗欐剰鏆栨殩
    ========================================= */
 [data-theme="orange-warmth"] {
     --t-primary: #ff9800;
@@ -668,7 +690,7 @@
 }
 
 /* =========================================
-   Theme: Purple Dream / 淡紫梦境
+   Theme: Purple Dream / 娣＄传姊﹀
    ========================================= */
 [data-theme="purple-dream"] {
     --t-primary: #9575cd;
@@ -705,7 +727,7 @@
 }
 
 /* =========================================
-   Theme: Lake Reflection / 湖光山色
+   Theme: Lake Reflection / 婀栧厜灞辫壊
    ========================================= */
 [data-theme="lake-reflection"] {
     --t-primary: #4db6ac;
@@ -741,6 +763,258 @@
     --t-secondary-hover: #26a69a;
 }
 
+/* =========================================
+   Theme: Glassmorphism / 鐜荤拑鎷熸€?   鍏煎鏃у€? neumorphism
+   ========================================= */
+[data-theme="glassmorphism"],
+[data-theme="neumorphism"] {
+    --t-primary: #57c0ff;
+    --t-primary-hover: #38a8ee;
+    --t-primary-light: #84d3ff;
+    --t-primary-lighter: #b8e8ff;
+    --t-primary-faint: rgba(210, 242, 255, 0.2);
+
+    --t-text-main: #eaf5ff;
+    --t-text-strong: #ffffff;
+    --t-text-muted: #c4dcef;
+    --t-text-light: #ffffff;
+
+    --t-bg-body: radial-gradient(circle at 18% 20%, #1f4f78 0%, #2b3f75 35%, #3b2f63 68%, #1a2440 100%);
+    --t-bg-panel: linear-gradient(145deg, rgba(255, 255, 255, 0.24), rgba(255, 255, 255, 0.12));
+    --t-bg-panel-opaque: rgba(16, 26, 44, 0.78);
+    --t-bg-soft: linear-gradient(145deg, rgba(140, 215, 255, 0.16), rgba(255, 255, 255, 0.08));
+    --t-glass-blur: 16px;
+
+    --t-border: rgba(173, 230, 255, 0.42);
+    --t-border-light: rgba(173, 230, 255, 0.24);
+    --t-shadow-sm: 0 10px 30px rgba(5, 16, 34, 0.4);
+    --t-shadow-lg: 0 22px 46px rgba(5, 16, 34, 0.52);
+    --t-focus-ring: 0 0 0 0.25rem rgba(87, 192, 255, 0.35);
+
+    --t-input-bg: rgba(7, 20, 40, 0.68);
+    --t-input-text: #f3f9ff;
+    --t-input-border: rgba(166, 230, 255, 0.56);
+    --t-checkbox-bg: rgba(10, 24, 45, 0.8);
+    --t-checkbox-border: #9fe7ff;
+    --t-checkbox-tick: #03111f;
+
+    --t-success: #45d5a4;
+    --t-success-hover: #2bc492;
+    --t-info: #57c0ff;
+    --t-info-hover: #38a8ee;
+    --t-warning: #ffbf6b;
+    --t-warning-hover: #f0a94a;
+    --t-danger: #ff6f8e;
+    --t-danger-hover: #ef5478;
+    --t-secondary: #86a9c7;
+    --t-secondary-hover: #7095b6;
+}
+
+/* =========================================
+   Theme: Claymorphism / 绮樺湡鎷熸€?   ========================================= */
+[data-theme="claymorphism"] {
+    --t-primary: #ff7f6a;
+    --t-primary-hover: #f36b55;
+    --t-primary-light: #ffa38f;
+    --t-primary-lighter: #ffd0c3;
+    --t-primary-faint: #fff3ef;
+
+    --t-text-main: #3b2b44;
+    --t-text-strong: #281a32;
+    --t-text-muted: #705a7a;
+    --t-text-light: #ffffff;
+
+    --t-bg-body: radial-gradient(circle at 15% 20%, #ffe9dd 0%, #ffd9ef 38%, #dff4ff 100%);
+    --t-bg-panel: linear-gradient(145deg, rgba(255, 255, 255, 0.96), rgba(255, 240, 248, 0.95));
+    --t-bg-panel-opaque: #fff8fb;
+    --t-bg-soft: linear-gradient(140deg, rgba(255, 232, 240, 0.92), rgba(232, 245, 255, 0.9));
+
+    --t-border: rgba(214, 126, 162, 0.62);
+    --t-border-light: rgba(214, 126, 162, 0.3);
+    --t-shadow-sm: inset -2px -2px 8px rgba(255, 255, 255, 0.65), 6px 6px 14px rgba(209, 126, 168, 0.26);
+    --t-shadow-lg: inset -3px -3px 10px rgba(255, 255, 255, 0.72), 10px 10px 22px rgba(191, 120, 168, 0.28);
+    --t-focus-ring: 0 0 0 0.25rem rgba(255, 127, 106, 0.26);
+
+    --t-input-bg: #fffdfd;
+    --t-input-text: #392445;
+    --t-input-border: #d596b8;
+    --t-checkbox-bg: #fff8fc;
+    --t-checkbox-border: #be7399;
+    --t-checkbox-tick: #ffffff;
+
+    --t-success: #4dbb8a;
+    --t-success-hover: #3ca777;
+    --t-info: #5797ff;
+    --t-info-hover: #3f82f1;
+    --t-warning: #f5b14a;
+    --t-warning-hover: #e49f35;
+    --t-danger: #ee5d74;
+    --t-danger-hover: #db4962;
+    --t-secondary: #9c77b9;
+    --t-secondary-hover: #8967a5;
+}
+
+/* =========================================
+   Simplified Color Theme Layer
+   璇存槑锛氶鑹蹭富棰樺彧璐熻矗涓昏壊/鏂囨湰/鑳屾櫙锛屼笉鎵胯浇鎷熸€佹晥鏋?   ========================================= */
+[data-theme-color="jasmine"],
+[data-theme="jasmine"],
+[data-theme="mint-fresh"] {
+    --t-primary: #1f8f7e;
+    --t-primary-hover: #0c7464;
+    --t-primary-light: #5fbfae;
+    --t-primary-lighter: #93d4c8;
+    --t-primary-faint: #e0f4ef;
+    --t-text-main: #1f2f2d;
+    --t-text-strong: #0f1f1d;
+    --t-text-muted: #425a56;
+    --t-bg-body: linear-gradient(140deg, rgba(16, 130, 110, 0.98) 0%, rgba(54, 170, 151, 0.94) 45%, rgba(193, 231, 223, 0.9) 100%);
+    --t-bg-panel: linear-gradient(150deg, rgba(215, 242, 234, 0.92), rgba(255, 255, 255, 0.9));
+    --t-bg-panel-opaque: #fdfdf8;
+    --t-bg-soft: linear-gradient(130deg, rgba(214, 242, 234, 0.92), rgba(236, 248, 243, 0.88));
+    --t-border: rgba(95, 191, 174, 0.35);
+    --t-border-light: rgba(95, 191, 174, 0.18);
+    --t-input-bg: #ffffff;
+    --t-input-text: #12211f;
+    --t-input-border: #8fa8a4;
+    --t-checkbox-bg: #ffffff;
+    --t-checkbox-border: #5f7f79;
+    --t-checkbox-tick: #ffffff;
+}
+
+[data-theme-color="ocean"],
+[data-theme="sky-azure"],
+[data-theme="ocean-shallow"],
+[data-theme="tech-blue"],
+[data-theme="cloud-light"],
+[data-theme="lake-reflection"],
+[data-theme="aurora"] {
+    --t-primary: #2f86d8;
+    --t-primary-hover: #1f6fbf;
+    --t-primary-light: #66b3ff;
+    --t-primary-lighter: #a8d7ff;
+    --t-primary-faint: #e8f4ff;
+    --t-text-main: #11263b;
+    --t-text-strong: #0a1a2b;
+    --t-text-muted: #415f79;
+    --t-bg-body: linear-gradient(140deg, rgba(56, 145, 230, 0.96) 0%, rgba(98, 182, 244, 0.93) 48%, rgba(218, 240, 255, 0.92) 100%);
+    --t-bg-panel: linear-gradient(150deg, rgba(232, 245, 255, 0.93), rgba(255, 255, 255, 0.92));
+    --t-bg-panel-opaque: #f5faff;
+    --t-bg-soft: linear-gradient(130deg, rgba(226, 244, 255, 0.9), rgba(242, 249, 255, 0.88));
+    --t-border: rgba(73, 158, 236, 0.35);
+    --t-border-light: rgba(73, 158, 236, 0.18);
+    --t-input-bg: #ffffff;
+    --t-input-text: #10253b;
+    --t-input-border: #8fb6da;
+    --t-checkbox-bg: #ffffff;
+    --t-checkbox-border: #4d88bf;
+    --t-checkbox-tick: #ffffff;
+}
+
+[data-theme-color="forest"],
+[data-theme="mist-forest"],
+[data-theme="bamboo-grove"],
+[data-theme="tea-garden"] {
+    --t-primary: #3f8a4d;
+    --t-primary-hover: #2f6e3c;
+    --t-primary-light: #72b37c;
+    --t-primary-lighter: #add8b3;
+    --t-primary-faint: #e8f6ea;
+    --t-text-main: #1a2d1f;
+    --t-text-strong: #102013;
+    --t-text-muted: #49614d;
+    --t-bg-body: linear-gradient(140deg, rgba(61, 127, 74, 0.95) 0%, rgba(98, 163, 109, 0.92) 45%, rgba(226, 242, 229, 0.92) 100%);
+    --t-bg-panel: linear-gradient(150deg, rgba(234, 247, 236, 0.92), rgba(255, 255, 255, 0.9));
+    --t-bg-panel-opaque: #f6fcf7;
+    --t-bg-soft: linear-gradient(130deg, rgba(232, 246, 234, 0.92), rgba(244, 251, 245, 0.88));
+    --t-border: rgba(79, 146, 91, 0.34);
+    --t-border-light: rgba(79, 146, 91, 0.18);
+    --t-input-bg: #ffffff;
+    --t-input-text: #17311d;
+    --t-input-border: #95ba9b;
+    --t-checkbox-bg: #ffffff;
+    --t-checkbox-border: #4f8758;
+    --t-checkbox-tick: #ffffff;
+}
+
+[data-theme-color="sunset"],
+[data-theme="sunset"],
+[data-theme="golden-beach"],
+[data-theme="orange-warmth"],
+[data-theme="rose-whisper"],
+[data-theme="cherry-blossom"] {
+    --t-primary: #d86b2c;
+    --t-primary-hover: #bb5520;
+    --t-primary-light: #f29b57;
+    --t-primary-lighter: #ffd3a8;
+    --t-primary-faint: #fff2e6;
+    --t-text-main: #3a2718;
+    --t-text-strong: #27170d;
+    --t-text-muted: #70513a;
+    --t-bg-body: linear-gradient(140deg, rgba(236, 134, 71, 0.94) 0%, rgba(255, 172, 117, 0.91) 47%, rgba(255, 236, 216, 0.92) 100%);
+    --t-bg-panel: linear-gradient(150deg, rgba(255, 244, 232, 0.93), rgba(255, 255, 255, 0.91));
+    --t-bg-panel-opaque: #fffaf5;
+    --t-bg-soft: linear-gradient(130deg, rgba(255, 240, 225, 0.92), rgba(255, 248, 240, 0.9));
+    --t-border: rgba(219, 122, 59, 0.34);
+    --t-border-light: rgba(219, 122, 59, 0.2);
+    --t-input-bg: #ffffff;
+    --t-input-text: #3b2212;
+    --t-input-border: #d2a07f;
+    --t-checkbox-bg: #ffffff;
+    --t-checkbox-border: #b86d3b;
+    --t-checkbox-tick: #ffffff;
+}
+
+[data-theme-color="lavender"],
+[data-theme="lavender-field"],
+[data-theme="purple-dream"] {
+    --t-primary: #8766c9;
+    --t-primary-hover: #704fb0;
+    --t-primary-light: #b49be3;
+    --t-primary-lighter: #dcccf4;
+    --t-primary-faint: #f1ebfb;
+    --t-text-main: #2b223b;
+    --t-text-strong: #1a1328;
+    --t-text-muted: #605377;
+    --t-bg-body: linear-gradient(140deg, rgba(138, 108, 206, 0.95) 0%, rgba(182, 156, 228, 0.92) 45%, rgba(241, 235, 251, 0.92) 100%);
+    --t-bg-panel: linear-gradient(150deg, rgba(243, 236, 252, 0.93), rgba(255, 255, 255, 0.9));
+    --t-bg-panel-opaque: #faf8fe;
+    --t-bg-soft: linear-gradient(130deg, rgba(240, 233, 251, 0.92), rgba(248, 244, 255, 0.88));
+    --t-border: rgba(144, 108, 206, 0.34);
+    --t-border-light: rgba(144, 108, 206, 0.18);
+    --t-input-bg: #ffffff;
+    --t-input-text: #2a1f3a;
+    --t-input-border: #b49fda;
+    --t-checkbox-bg: #ffffff;
+    --t-checkbox-border: #7b63b3;
+    --t-checkbox-tick: #ffffff;
+}
+
+[data-theme-color="graphite"],
+[data-theme="cyberpunk"],
+[data-theme="morning-mist"] {
+    --t-primary: #47b6ff;
+    --t-primary-hover: #2b9ee8;
+    --t-primary-light: #7dccff;
+    --t-primary-lighter: #b4e3ff;
+    --t-primary-faint: rgba(71, 182, 255, 0.16);
+    --t-text-main: #eaf2fb;
+    --t-text-strong: #ffffff;
+    --t-text-muted: #b7c9dc;
+    --t-bg-body: linear-gradient(140deg, #1a2230 0%, #243247 48%, #162331 100%);
+    --t-bg-panel: linear-gradient(145deg, rgba(30, 42, 60, 0.88), rgba(21, 31, 46, 0.9));
+    --t-bg-panel-opaque: rgba(23, 33, 49, 0.94);
+    --t-bg-soft: linear-gradient(130deg, rgba(47, 68, 96, 0.65), rgba(32, 47, 68, 0.72));
+    --t-border: rgba(114, 164, 212, 0.42);
+    --t-border-light: rgba(114, 164, 212, 0.22);
+    --t-input-bg: rgba(14, 24, 39, 0.88);
+    --t-input-text: #f3f8ff;
+    --t-input-border: #668eb5;
+    --t-checkbox-bg: rgba(11, 20, 34, 0.95);
+    --t-checkbox-border: #89b8e2;
+    --t-checkbox-tick: #08121e;
+}
+
 /* Helper Class to enforce theme transition */
 body {
     transition: background 0.5s ease;
@@ -751,22 +1025,48 @@ body {
     transition-timing-function: ease;
 }
 
-/* 增强表单控件对比度 */
+/* 澧炲己琛ㄥ崟鎺т欢瀵规瘮搴?*/
 body input.form-control,
 body textarea.form-control,
 body select.form-select,
 body .form-control,
 body .form-select {
-    background-color: #ffffff !important;
-    color: #1f2f2d !important;
-    border-color: #95b5b0 !important;
+    background-color: var(--t-input-bg) !important;
+    color: var(--t-input-text) !important;
+    border-color: var(--t-input-border) !important;
+}
+
+body,
+body p,
+body label,
+body .form-label,
+body .table,
+body .card,
+body .modal-content,
+body .list-group-item {
+    color: var(--t-text-main);
+}
+
+body h1,
+body h2,
+body h3,
+body h4,
+body h5,
+body h6,
+body strong,
+body b {
+    color: var(--t-text-strong);
+}
+
+body .text-muted {
+    color: var(--t-text-muted) !important;
 }
 
 body input.form-control:focus,
 body textarea.form-control:focus,
 body select.form-select:focus {
-    background-color: #ffffff !important;
-    color: #1f2f2d !important;
+    background-color: var(--t-input-bg) !important;
+    color: var(--t-input-text) !important;
     border-color: var(--t-primary) !important;
     box-shadow: var(--t-focus-ring) !important;
 }
@@ -777,7 +1077,7 @@ body textarea.form-control::placeholder {
     opacity: 0.7;
 }
 
-/* 按钮颜色统一主题化 */
+/* 鎸夐挳棰滆壊缁熶竴涓婚鍖?*/
 body .btn-primary {
     background-color: var(--t-primary) !important;
     border-color: var(--t-primary) !important;
@@ -914,4 +1214,398 @@ body .btn-outline-secondary:hover {
     background-color: var(--t-secondary) !important;
     border-color: var(--t-secondary) !important;
     color: #ffffff !important;
+}
+
+/* 澶嶉€夋鍙鎬у寮猴紝瑙ｅ喅鍕鹃€?鏈嬀閫夐毦鍖哄垎闂 */
+body .form-check-input[type="checkbox"],
+body input[type="checkbox"].column-checkbox {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 1.08rem;
+    height: 1.08rem;
+    border-radius: 0.3rem;
+    border: 2px solid var(--t-checkbox-border) !important;
+    background-color: var(--t-checkbox-bg) !important;
+    background-image: none !important;
+    position: relative;
+    cursor: pointer;
+    vertical-align: middle;
+}
+
+body .form-check-input[type="checkbox"]:checked,
+body input[type="checkbox"].column-checkbox:checked {
+    background-color: var(--t-primary) !important;
+    border-color: var(--t-primary-hover) !important;
+}
+
+body .form-check-input[type="checkbox"]:checked::after,
+body input[type="checkbox"].column-checkbox:checked::after {
+    content: "";
+    position: absolute;
+    left: 0.25rem;
+    top: 0.05rem;
+    width: 0.3rem;
+    height: 0.6rem;
+    border: solid var(--t-checkbox-tick);
+    border-width: 0 0.14rem 0.14rem 0;
+    transform: rotate(45deg);
+}
+
+body .form-check-input[type="checkbox"]:focus,
+body input[type="checkbox"].column-checkbox:focus {
+    box-shadow: var(--t-focus-ring) !important;
+}
+
+body .form-check-input[type="checkbox"]:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+}
+
+html[data-morph="glassmorphism"] .card,
+html[data-morph="glassmorphism"] .modal-content,
+html[data-morph="glassmorphism"] .container-main,
+[data-theme="glassmorphism"] .card,
+[data-theme="glassmorphism"] .modal-content,
+[data-theme="glassmorphism"] .container-main,
+[data-theme="neumorphism"] .card,
+[data-theme="neumorphism"] .modal-content,
+[data-theme="neumorphism"] .container-main {
+    border: 1.5px solid rgba(255, 255, 255, 0.78);
+    background: linear-gradient(145deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.04)) !important;
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.78),
+        inset 0 -1px 0 rgba(19, 33, 49, 0.22),
+        0 0 0 1px rgba(22, 36, 50, 0.18),
+        0 14px 30px rgba(13, 25, 40, 0.2),
+        0 2px 8px rgba(255, 255, 255, 0.35);
+    backdrop-filter: blur(12px) saturate(120%);
+    -webkit-backdrop-filter: blur(12px) saturate(120%);
+}
+
+html[data-morph="glassmorphism"] .btn,
+[data-theme="glassmorphism"] .btn,
+[data-theme="neumorphism"] .btn {
+    border-radius: 14px !important;
+    border: 1.5px solid rgba(255, 255, 255, 0.82) !important;
+    background: linear-gradient(150deg, rgba(255, 255, 255, 0.15), rgba(255, 255, 255, 0.05)) !important;
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.84),
+        inset 0 -1px 0 rgba(18, 32, 49, 0.22),
+        0 0 0 1px rgba(18, 32, 49, 0.2),
+        0 8px 18px rgba(10, 20, 32, 0.22) !important;
+    backdrop-filter: blur(8px) saturate(115%);
+    -webkit-backdrop-filter: blur(8px) saturate(115%);
+}
+
+html[data-morph="glassmorphism"] .form-control,
+html[data-morph="glassmorphism"] .form-select,
+[data-theme="glassmorphism"] .form-control,
+[data-theme="glassmorphism"] .form-select,
+[data-theme="neumorphism"] .form-control,
+[data-theme="neumorphism"] .form-select {
+    border: 1.5px solid rgba(255, 255, 255, 0.82) !important;
+    background: linear-gradient(145deg, rgba(255, 255, 255, 0.13), rgba(255, 255, 255, 0.04)) !important;
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.8),
+        inset 0 -1px 0 rgba(22, 36, 51, 0.2),
+        0 0 0 1px rgba(22, 36, 51, 0.18),
+        0 8px 16px rgba(14, 24, 36, 0.14);
+    backdrop-filter: blur(8px) saturate(115%);
+    -webkit-backdrop-filter: blur(8px) saturate(115%);
+}
+
+html[data-morph="glassmorphism"] .form-check-input[type="checkbox"],
+[data-theme="glassmorphism"] .form-check-input[type="checkbox"],
+[data-theme="neumorphism"] .form-check-input[type="checkbox"] {
+    border-radius: 0.35rem;
+    border: 2px solid rgba(20, 36, 54, 0.68) !important;
+    background: rgba(255, 255, 255, 0.08) !important;
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.72),
+        inset 0 -1px 0 rgba(20, 36, 54, 0.22),
+        0 2px 6px rgba(11, 22, 35, 0.2);
+}
+
+html[data-morph="glassmorphism"] .form-check-input[type="checkbox"]:checked,
+[data-theme="glassmorphism"] .form-check-input[type="checkbox"]:checked,
+[data-theme="neumorphism"] .form-check-input[type="checkbox"]:checked {
+    background: rgba(255, 255, 255, 0.2) !important;
+    border-color: rgba(14, 32, 52, 0.8) !important;
+}
+
+html[data-morph="claymorphism"] .card,
+html[data-morph="claymorphism"] .modal-content,
+html[data-morph="claymorphism"] .container-main,
+[data-theme="claymorphism"] .card,
+[data-theme="claymorphism"] .modal-content,
+[data-theme="claymorphism"] .container-main {
+    border: 2px solid rgba(255, 255, 255, 0.38);
+    background: linear-gradient(155deg, var(--t-primary-lighter), var(--t-primary-faint) 52%, rgba(255, 255, 255, 0.8)) !important;
+    box-shadow:
+        inset -3px -3px 7px rgba(255, 255, 255, 0.56),
+        inset 3px 3px 8px rgba(15, 34, 54, 0.2),
+        10px 10px 22px rgba(20, 40, 60, 0.2),
+        -6px -6px 14px rgba(255, 255, 255, 0.36);
+    border-radius: 22px;
+}
+
+html[data-morph="claymorphism"] .btn,
+[data-theme="claymorphism"] .btn {
+    border-width: 2px !important;
+    border-style: solid !important;
+    border-color: rgba(255, 255, 255, 0.4) !important;
+    border-radius: 18px !important;
+    background: linear-gradient(155deg, var(--t-primary-light), var(--t-primary)) !important;
+    color: var(--t-text-light) !important;
+    box-shadow:
+        inset -2px -2px 6px rgba(255, 255, 255, 0.32),
+        inset 2px 2px 6px rgba(22, 36, 50, 0.24),
+        6px 6px 14px rgba(18, 34, 50, 0.24) !important;
+}
+
+html[data-morph="claymorphism"] .btn.active,
+html[data-morph="claymorphism"] .btn-check:checked + .btn,
+html[data-morph="claymorphism"] .view-toggle-btn.active,
+html[data-morph="claymorphism"] .style-btn.active,
+html[data-morph="claymorphism"] .filter-btn.active,
+html[data-morph="claymorphism"] .custom-nav-link.active,
+[data-theme="claymorphism"] .btn.active,
+[data-theme="claymorphism"] .btn-check:checked + .btn,
+[data-theme="claymorphism"] .view-toggle-btn.active,
+[data-theme="claymorphism"] .style-btn.active,
+[data-theme="claymorphism"] .filter-btn.active,
+[data-theme="claymorphism"] .custom-nav-link.active {
+    background: linear-gradient(155deg, var(--t-primary), var(--t-primary-hover)) !important;
+    color: #ffffff !important;
+    border-color: rgba(255, 255, 255, 0.9) !important;
+    box-shadow:
+        inset -2px -2px 6px rgba(255, 255, 255, 0.16),
+        inset 2px 2px 6px rgba(8, 20, 34, 0.3),
+        0 0 0 3px rgba(255, 255, 255, 0.3),
+        8px 10px 18px rgba(18, 34, 50, 0.26) !important;
+}
+
+html[data-morph="claymorphism"] .form-control,
+html[data-morph="claymorphism"] .form-select,
+[data-theme="claymorphism"] .form-control,
+[data-theme="claymorphism"] .form-select {
+    border: 2px solid rgba(255, 255, 255, 0.42) !important;
+    background: linear-gradient(155deg, var(--t-primary-faint), var(--t-primary-lighter)) !important;
+    color: var(--t-text-main) !important;
+    box-shadow:
+        inset -2px -2px 6px rgba(255, 255, 255, 0.45),
+        inset 2px 2px 5px rgba(20, 36, 54, 0.18),
+        4px 4px 10px rgba(20, 36, 54, 0.16);
+}
+
+html[data-morph="claymorphism"] .form-check-input[type="checkbox"],
+html[data-morph="claymorphism"] input[type="checkbox"].column-checkbox,
+[data-theme="claymorphism"] .form-check-input[type="checkbox"],
+[data-theme="claymorphism"] input[type="checkbox"].column-checkbox {
+    border: 2px solid rgba(255, 255, 255, 0.46) !important;
+    background: linear-gradient(155deg, var(--t-primary-faint), var(--t-primary-lighter)) !important;
+    box-shadow:
+        inset -1px -1px 4px rgba(255, 255, 255, 0.42),
+        inset 1px 1px 4px rgba(20, 36, 54, 0.2),
+        2px 2px 6px rgba(20, 36, 54, 0.18);
+}
+
+html[data-morph="claymorphism"] .form-check-input[type="checkbox"]:checked,
+html[data-morph="claymorphism"] input[type="checkbox"].column-checkbox:checked,
+[data-theme="claymorphism"] .form-check-input[type="checkbox"]:checked,
+[data-theme="claymorphism"] input[type="checkbox"].column-checkbox:checked {
+    background: linear-gradient(155deg, var(--t-primary-light), var(--t-primary)) !important;
+    border-color: rgba(255, 255, 255, 0.5) !important;
+}
+
+/* Morph-specific content surface overrides for file browser / todo pages */
+html[data-morph="glassmorphism"] .breadcrumb-row,
+html[data-morph="glassmorphism"] #fileListSection,
+html[data-morph="glassmorphism"] #previewSection,
+html[data-morph="glassmorphism"] .file-list-container,
+html[data-morph="glassmorphism"] .file-list,
+html[data-morph="glassmorphism"] .preview-pane,
+html[data-morph="glassmorphism"] .table-style,
+html[data-morph="glassmorphism"] .panel,
+html[data-morph="glassmorphism"] .project-table-wrapper,
+html[data-morph="glassmorphism"] .report-table-container,
+html[data-morph="glassmorphism"] .filter-panel,
+html[data-morph="glassmorphism"] #projectDescriptionPreview,
+html[data-morph="glassmorphism"] #descriptionLivePreview,
+html[data-morph="glassmorphism"] #notePreview,
+html[data-morph="glassmorphism"] #noteLivePreview {
+    background: linear-gradient(150deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.03)) !important;
+    border: 1.5px solid rgba(255, 255, 255, 0.72) !important;
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.7),
+        inset 0 -1px 0 rgba(16, 30, 47, 0.22),
+        0 10px 24px rgba(10, 22, 36, 0.16) !important;
+    backdrop-filter: blur(10px) saturate(118%);
+    -webkit-backdrop-filter: blur(10px) saturate(118%);
+}
+
+html[data-morph="glassmorphism"] .file-item,
+html[data-morph="glassmorphism"] .preview-table tbody tr,
+html[data-morph="glassmorphism"] .project-table tbody tr,
+html[data-morph="glassmorphism"] .report-table tbody tr {
+    background: rgba(255, 255, 255, 0.02) !important;
+    border-color: rgba(255, 255, 255, 0.24) !important;
+}
+
+html[data-morph="glassmorphism"] .file-item:hover,
+html[data-morph="glassmorphism"] .preview-table tbody tr:hover,
+html[data-morph="glassmorphism"] .project-table tbody tr:hover,
+html[data-morph="glassmorphism"] .report-table tbody tr:hover {
+    background: rgba(255, 255, 255, 0.16) !important;
+}
+
+html[data-morph="glassmorphism"] .preview-table,
+html[data-morph="glassmorphism"] .report-table,
+html[data-morph="glassmorphism"] .project-table tbody,
+html[data-morph="glassmorphism"] #historyTable,
+html[data-morph="glassmorphism"] .table {
+    background: rgba(255, 255, 255, 0.04) !important;
+}
+
+html[data-morph="glassmorphism"] .pending-card,
+html[data-morph="glassmorphism"] .pending-overview-section .panel,
+html[data-morph="glassmorphism"] .pending-cards .pending-card {
+    background: linear-gradient(145deg, rgba(255, 255, 255, 0.11), rgba(255, 255, 255, 0.03)) !important;
+    border: 1.5px solid rgba(255, 255, 255, 0.74) !important;
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.74),
+        inset 0 -1px 0 rgba(15, 30, 46, 0.2),
+        0 10px 22px rgba(8, 18, 30, 0.16) !important;
+}
+
+html[data-morph="glassmorphism"] .preview-table thead,
+html[data-morph="glassmorphism"] .preview-table th,
+html[data-morph="glassmorphism"] .project-table thead,
+html[data-morph="glassmorphism"] .project-table th,
+html[data-morph="glassmorphism"] .report-table thead,
+html[data-morph="glassmorphism"] .report-table th,
+html[data-morph="glassmorphism"] #historyTable thead,
+html[data-morph="glassmorphism"] #historyTable th {
+    background: linear-gradient(140deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.06)) !important;
+    color: var(--t-text-strong) !important;
+    border-color: rgba(255, 255, 255, 0.48) !important;
+}
+
+html[data-morph="glassmorphism"] div[style*="background: #f8f9fa"][style*="margin: 20px 0"][style*="padding: 10px"] {
+    background: linear-gradient(150deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.03)) !important;
+    border: 1.5px solid rgba(255, 255, 255, 0.72) !important;
+}
+
+html[data-morph="glassmorphism"] .file-link,
+html[data-morph="glassmorphism"] #fileListSection h4,
+html[data-morph="glassmorphism"] .panel-title,
+html[data-morph="glassmorphism"] .preview-table td,
+html[data-morph="glassmorphism"] .project-table td,
+html[data-morph="glassmorphism"] .report-table td,
+html[data-morph="glassmorphism"] .breadcrumb a {
+    color: var(--t-text-strong) !important;
+}
+
+/* Glass: transparent buttons + high-contrast border + active highlight */
+html[data-morph="glassmorphism"] .btn,
+html[data-morph="glassmorphism"] .btn-outline-primary,
+html[data-morph="glassmorphism"] .btn-outline-secondary,
+html[data-morph="glassmorphism"] .btn-outline-info,
+html[data-morph="glassmorphism"] .btn-outline-success,
+html[data-morph="glassmorphism"] .btn-outline-warning,
+html[data-morph="glassmorphism"] .btn-outline-danger {
+    background: rgba(255, 255, 255, 0.06) !important;
+    color: var(--t-text-strong) !important;
+    border: 1.5px solid rgba(255, 255, 255, 0.8) !important;
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.78),
+        0 0 0 1px rgba(12, 28, 46, 0.22),
+        0 8px 16px rgba(12, 24, 36, 0.16) !important;
+}
+
+html[data-morph="glassmorphism"] .btn:hover {
+    background: rgba(255, 255, 255, 0.14) !important;
+    color: var(--t-text-strong) !important;
+}
+
+html[data-morph="glassmorphism"] .btn.active,
+html[data-morph="glassmorphism"] .btn-check:checked + .btn,
+html[data-morph="glassmorphism"] .view-toggle-btn.active,
+html[data-morph="glassmorphism"] .style-btn.active,
+html[data-morph="glassmorphism"] .filter-btn.active,
+html[data-morph="glassmorphism"] .custom-nav-link.active {
+    background: linear-gradient(135deg, var(--t-primary), var(--t-primary-light)) !important;
+    color: #ffffff !important;
+    border-color: rgba(255, 255, 255, 0.92) !important;
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.5),
+        0 12px 24px rgba(7, 17, 30, 0.24) !important;
+}
+
+/* Clay: keep all major surfaces fully color-wrapped */
+html[data-morph="claymorphism"] .breadcrumb-row,
+html[data-morph="claymorphism"] #fileListSection,
+html[data-morph="claymorphism"] #previewSection,
+html[data-morph="claymorphism"] .file-list-container,
+html[data-morph="claymorphism"] .file-list,
+html[data-morph="claymorphism"] .preview-pane,
+html[data-morph="claymorphism"] .table-style,
+html[data-morph="claymorphism"] .panel,
+html[data-morph="claymorphism"] .project-table-wrapper,
+html[data-morph="claymorphism"] .report-table-container,
+html[data-morph="claymorphism"] .filter-panel,
+html[data-morph="claymorphism"] #projectDescriptionPreview,
+html[data-morph="claymorphism"] #descriptionLivePreview,
+html[data-morph="claymorphism"] #notePreview,
+html[data-morph="claymorphism"] #noteLivePreview {
+    background: linear-gradient(155deg, var(--t-primary-faint), var(--t-primary-lighter)) !important;
+    border: 2px solid rgba(255, 255, 255, 0.42) !important;
+    box-shadow:
+        inset -2px -2px 6px rgba(255, 255, 255, 0.44),
+        inset 2px 2px 6px rgba(20, 34, 50, 0.18),
+        8px 8px 18px rgba(20, 34, 50, 0.18) !important;
+}
+
+html[data-morph="claymorphism"] .file-item,
+html[data-morph="claymorphism"] .preview-table tbody tr,
+html[data-morph="claymorphism"] .project-table tbody tr,
+html[data-morph="claymorphism"] .report-table tbody tr {
+    background: linear-gradient(150deg, rgba(255, 255, 255, 0.45), var(--t-primary-faint)) !important;
+}
+
+html[data-morph="claymorphism"] .preview-table,
+html[data-morph="claymorphism"] .report-table,
+html[data-morph="claymorphism"] .project-table tbody,
+html[data-morph="claymorphism"] #historyTable,
+html[data-morph="claymorphism"] .table {
+    background: linear-gradient(155deg, rgba(255, 255, 255, 0.52), var(--t-primary-faint)) !important;
+}
+
+html[data-morph="claymorphism"] .pending-card,
+html[data-morph="claymorphism"] .pending-overview-section .panel,
+html[data-morph="claymorphism"] .pending-cards .pending-card {
+    background: linear-gradient(155deg, rgba(255, 255, 255, 0.56), var(--t-primary-faint)) !important;
+    border: 2px solid rgba(255, 255, 255, 0.45) !important;
+    box-shadow:
+        inset -2px -2px 6px rgba(255, 255, 255, 0.45),
+        inset 2px 2px 6px rgba(20, 36, 52, 0.18),
+        8px 8px 16px rgba(20, 36, 52, 0.16) !important;
+}
+
+html[data-morph="claymorphism"] .preview-table thead,
+html[data-morph="claymorphism"] .preview-table th,
+html[data-morph="claymorphism"] .project-table thead,
+html[data-morph="claymorphism"] .project-table th,
+html[data-morph="claymorphism"] .report-table thead,
+html[data-morph="claymorphism"] .report-table th,
+html[data-morph="claymorphism"] #historyTable thead,
+html[data-morph="claymorphism"] #historyTable th {
+    background: linear-gradient(155deg, var(--t-primary-faint), var(--t-primary-lighter)) !important;
+    color: var(--t-text-main) !important;
+    border-color: rgba(255, 255, 255, 0.45) !important;
+}
+
+html[data-morph="claymorphism"] div[style*="background: #f8f9fa"][style*="margin: 20px 0"][style*="padding: 10px"] {
+    background: linear-gradient(155deg, var(--t-primary-faint), var(--t-primary-lighter)) !important;
+    border: 2px solid rgba(255, 255, 255, 0.42) !important;
 }

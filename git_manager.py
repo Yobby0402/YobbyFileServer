@@ -1863,69 +1863,103 @@ class GitManager:
                         'error': f'SSH密钥文件不存在: {ssh_key_path}'
                     }
                 
-                # 处理SSH URL
-                test_url = server_url
-                
-                # 检查是否是基础URL（不带具体仓库名）
-                # 例如: git@example.com:username/ 或 git@example.com:username
-                is_base_url = False
-                if test_url.endswith('/') or (not test_url.endswith('.git') and ':' in test_url):
-                    # 可能是基础URL，尝试从URL中提取信息
-                    if test_url.startswith('git@'):
-                        # git@hostname:path 格式
-                        parts = test_url.split(':', 1)
-                        if len(parts) == 2:
-                            hostname = parts[0].replace('git@', '')
-                            path = parts[1].rstrip('/')
-                            # 如果路径不以 .git 结尾，可能是基础路径
-                            if not path.endswith('.git'):
-                                is_base_url = True
-                                # 尝试使用 test 仓库来测试连接
-                                test_repo_name = 'test.git' if not path.endswith('/') else 'test.git'
-                                if path:
-                                    test_url = f"git@{hostname}:{path}/{test_repo_name}" if not path.endswith('/') else f"git@{hostname}:{path}{test_repo_name}"
-                                else:
-                                    test_url = f"git@{hostname}:{test_repo_name}"
-                    elif test_url.startswith('ssh://'):
-                        # ssh://git@hostname/path 格式
+                def parse_ssh_target(url: str):
+                    if url.startswith('git@'):
+                        parts = url.split(':', 1)
+                        target = parts[0]
+                        path = parts[1] if len(parts) == 2 else ''
+                        return {
+                            'target': target,
+                            'path': path.strip('/'),
+                            'port': None
+                        }
+                    if url.startswith('ssh://'):
                         try:
                             from urllib.parse import urlparse
-                            parsed = urlparse(test_url)
-                            path = parsed.path.rstrip('/')
-                            if not path.endswith('.git'):
-                                is_base_url = True
-                                # 尝试使用 test 仓库来测试连接
-                                test_repo_name = 'test'
-                                if path:
-                                    test_url = f"ssh://git@{parsed.hostname}/{path}/{test_repo_name}"
-                                else:
-                                    test_url = f"ssh://git@{parsed.hostname}/{test_repo_name}"
-                        except:
-                            pass
-                
-                if is_http_url:
-                    # 尝试从HTTP URL转换为SSH URL
-                    # 例如: http://example.com/user/repo.git -> git@example.com:user/repo.git
+                            parsed = urlparse(url)
+                            if not parsed.hostname:
+                                return None
+                            user = parsed.username or 'git'
+                            return {
+                                'target': f'{user}@{parsed.hostname}',
+                                'path': parsed.path.strip('/'),
+                                'port': parsed.port
+                            }
+                        except Exception:
+                            return None
+                    return None
+
+                target_info = parse_ssh_target(server_url)
+                is_base_url = bool(target_info and not target_info.get('path', '').endswith('.git'))
+                env = self._get_git_env(config)
+
+                # 对基础URL，直接测试SSH主机认证，避免使用伪造仓库名导致误报失败
+                if is_base_url and target_info:
+                    ssh_cmd = ['ssh', '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=no']
+                    if ssh_key_path and os.path.exists(ssh_key_path):
+                        ssh_cmd.extend(['-i', ssh_key_path])
+                    if target_info.get('port'):
+                        ssh_cmd.extend(['-p', str(target_info['port'])])
+                    ssh_cmd.extend(['-T', target_info['target']])
+
                     try:
-                        from urllib.parse import urlparse
-                        parsed = urlparse(server_url)
-                        if parsed.path:
-                            # 移除开头的斜杠
-                            path = parsed.path.lstrip('/').rstrip('/')
-                            # 检查是否是基础URL
-                            if not path.endswith('.git'):
-                                is_base_url = True
-                                # 尝试使用 test 仓库来测试连接
-                                test_url = f"git@{parsed.hostname}:{path}/test.git" if path else f"git@{parsed.hostname}:test.git"
-                            else:
-                                test_url = f"git@{parsed.hostname}:{path}"
-                    except:
-                        pass
-                
-                # 测试SSH连接（使用git ls-remote）
+                        result = _run_subprocess(
+                            ssh_cmd,
+                            capture_output=True,
+                            text=True,
+                            timeout=10
+                        )
+                        output = '\n'.join(filter(None, [result.stdout.strip(), result.stderr.strip()])).strip()
+                        output_lower = output.lower()
+                        success_markers = [
+                            'successfully authenticated',
+                            'welcome to',
+                            'does not provide shell access',
+                            'shell access is disabled',
+                            'authenticated'
+                        ]
+                        failure_markers = [
+                            'permission denied',
+                            'publickey',
+                            'could not resolve hostname',
+                            'connection timed out',
+                            'connection refused',
+                            'host key verification failed',
+                            'no route to host'
+                        ]
+
+                        if result.returncode == 0 or any(marker in output_lower for marker in success_markers):
+                            message = 'SSH连接测试成功（基础地址认证成功）'
+                            message += '\n\n当前配置的是基础URL，后续克隆时可以继续只输入仓库名或相对路径。'
+                            return {
+                                'success': True,
+                                'message': message
+                            }
+
+                        if any(marker in output_lower for marker in failure_markers):
+                            return {
+                                'success': False,
+                                'error': f'SSH连接失败: {output or "认证未通过"}'
+                            }
+
+                        return {
+                            'success': False,
+                            'error': f'SSH连接测试未通过: {output or "服务器没有返回可识别的认证结果"}'
+                        }
+                    except subprocess.TimeoutExpired:
+                        return {
+                            'success': False,
+                            'error': 'SSH连接超时'
+                        }
+                    except Exception as e:
+                        return {
+                            'success': False,
+                            'error': f'SSH连接测试失败: {str(e)}'
+                        }
+
+                # 对完整仓库URL，继续使用 git ls-remote 测试
+                test_url = server_url
                 try:
-                    env = self._get_git_env(config)
-                    # 使用git ls-remote测试连接
                     result = _run_subprocess(
                         ['git', 'ls-remote', '--heads', test_url],
                         env=env,
@@ -1935,12 +1969,9 @@ class GitManager:
                     )
                     
                     if result.returncode == 0:
-                        message = 'SSH连接测试成功'
-                        if is_base_url:
-                            message += f'\n\n注意：您配置的是基础URL，克隆时只需输入仓库名即可\n例如：输入 "test" 会克隆为 {test_url.replace("/test.git", "")}/test.git'
                         return {
                             'success': True,
-                            'message': message
+                            'message': 'SSH连接测试成功'
                         }
                     else:
                         error_msg = result.stderr.strip() or result.stdout.strip()
