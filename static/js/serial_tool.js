@@ -25,6 +25,7 @@ class SerialToolApp {
         this.historyMarkers = new Map(); // 已加载日志的时间戳
         this.capturePortOptions = []; // 可用串口列表
         this.captureStatusRefreshTimer = null; // 持续日志状态定时刷新
+        this.serverConfig = window.SERIAL_SERVER_CONFIG || {};
 
         this.init();
     }
@@ -156,10 +157,25 @@ class SerialToolApp {
             animation: slideDown 0.3s ease;
         `;
         
-        const currentUrl = window.location.href;
-        // 获取当前端口，如果没有则使用默认的5000
-        const currentPort = window.location.port || '5000';
-        const localhostUrl = currentUrl.replace(window.location.host, `localhost:${currentPort}`);
+        const remoteSerialEnabled = !!this.serverConfig.remote_serial_enabled;
+        const serialHttpsUrl = this.serverConfig.serial_https_url || 'https://服务器地址:端口/serial_tool';
+        const recommendation = remoteSerialEnabled
+            ? `
+                <li><strong>服务器已启用远程串口</strong>：<br>
+                    请改用 <code>${serialHttpsUrl}</code> 访问当前页面。
+                </li>
+                <li><strong>如果仍显示 HTTP</strong>：<br>
+                    请在服务器 PyQt 设置里检查证书配置并重启服务。
+                </li>
+              `
+            : `
+                <li><strong>当前远程串口未启用</strong>：<br>
+                    服务器保持 HTTP 属于正常行为。
+                </li>
+                <li><strong>如需客户端连接本机串口</strong>：<br>
+                    请在服务器 PyQt 设置中启用远程串口（自动 HTTPS）。
+                </li>
+              `;
         
         warning.innerHTML = `
             <button class="close-btn" onclick="this.parentElement.remove()" style="position: absolute; top: 10px; right: 10px; background: none; border: none; font-size: 1.2rem; cursor: pointer; color: #856404; opacity: 0.7;">×</button>
@@ -173,20 +189,17 @@ class SerialToolApp {
                 Web Serial API 需要<strong>安全上下文</strong>（HTTPS 或 localhost），这是浏览器的安全策略。
             </p>
             <p class="mb-2" style="font-size: 0.95rem;">
-                <strong>✅ 解决方案（3选1）：</strong>
+                <strong>✅ 建议操作：</strong>
             </p>
             <ol style="font-size: 0.9rem; margin-left: 20px;">
-                <li><strong>使用 localhost 访问</strong>（推荐）：<br>
-                    <a href="${localhostUrl}" style="color: #0066cc; font-weight: bold;">${localhostUrl}</a>
+                ${recommendation}
+                <li><strong>使用“远程串口”模式</strong>：<br>
+                    可访问服务器自身串口（不受 Web Serial 的安全上下文限制）。
                 </li>
-                <li><strong>使用远程串口模式</strong>：<br>
-                    切换到右上角的"☁️ 远程串口"，可以访问服务器的串口（不受此限制）
-                </li>
-                <li><strong>配置 HTTPS</strong>（适合生产环境）</li>
             </ol>
             <p class="mb-0" style="font-size: 0.85rem; background: #e7f3ff; padding: 10px; border-radius: 4px; margin-top: 10px;">
                 <strong>💡 提示：</strong>本地串口模式访问的是<strong>你自己电脑的串口</strong>，与服务器地址无关。<br>
-                即使用 localhost 访问，打开的也是你自己电脑上的串口设备。
+                该限制来自浏览器安全策略，不是串口工具自身逻辑问题。
             </p>
         `;
         document.body.appendChild(warning);
@@ -1217,6 +1230,67 @@ class SerialToolApp {
         // 请求服务器列出可用串口
         this.websocket.emit('list_ports');
     }
+
+    loadExternalScript(src) {
+        return new Promise((resolve, reject) => {
+            const existing = document.querySelector(`script[src="${src}"]`);
+            if (existing) {
+                if (existing.dataset.loaded === 'true') {
+                    resolve();
+                    return;
+                }
+                existing.addEventListener('load', () => resolve(), { once: true });
+                existing.addEventListener('error', () => reject(new Error(`Failed to load ${src}`)), { once: true });
+                return;
+            }
+
+            const script = document.createElement('script');
+            script.src = src;
+            script.async = true;
+            script.addEventListener('load', () => {
+                script.dataset.loaded = 'true';
+                resolve();
+            }, { once: true });
+            script.addEventListener('error', () => reject(new Error(`Failed to load ${src}`)), { once: true });
+            document.head.appendChild(script);
+        });
+    }
+
+    async ensureSocketIoLoaded() {
+        if (typeof io !== 'undefined') {
+            return;
+        }
+
+        if (!this._socketIoLoadPromise) {
+            const sources = [
+                '/static/js/socket.io.min.js',
+                'https://cdn.socket.io/4.5.4/socket.io.min.js'
+            ];
+
+            this._socketIoLoadPromise = (async () => {
+                let lastError = null;
+                for (const src of sources) {
+                    try {
+                        await this.loadExternalScript(src);
+                        if (typeof io !== 'undefined') {
+                            return;
+                        }
+                    } catch (error) {
+                        lastError = error;
+                    }
+                }
+                throw lastError || new Error('Socket.IO client failed to load');
+            })();
+        }
+
+        try {
+            await this._socketIoLoadPromise;
+        } finally {
+            if (typeof io === 'undefined') {
+                this._socketIoLoadPromise = null;
+            }
+        }
+    }
     
     // 连接 WebSocket
     async connectWebSocket() {
@@ -1226,63 +1300,65 @@ class SerialToolApp {
                     resolve();
                     return;
                 }
-                // 加载 Socket.IO 客户端
-                if (typeof io === 'undefined') {
+                this.ensureSocketIoLoaded().then(() => {
+                    if (typeof io === 'undefined') {
+                        throw new Error('Socket.IO not loaded');
+                    }
+
+                    // 连接到服务器
+                    const socket = io('/serial', {
+                        transports: ['websocket', 'polling']
+                    });
+
+                    this.websocket = socket;
+
+                    // 连接成功
+                    socket.on('connected', (data) => {
+                        console.log('WebSocket 已连接:', data.client_id);
+                        this.addLog('已连接到服务器', 'info');
+                        resolve();
+                    });
+
+                    // 连接错误
+                    socket.on('connect_error', (error) => {
+                        console.error('WebSocket 连接失败:', error);
+                        this.addLog(`连接服务器失败: ${error}`, 'error');
+                        reject(error);
+                    });
+
+                    // 断开连接
+                    socket.on('disconnect', () => {
+                        console.log('WebSocket 已断开');
+                        this.addLog('与服务器断开连接', 'info');
+                    });
+
+                    // 接收串口列表
+                    socket.on('ports_list', (data) => {
+                        this.handleRemotePortsList(data);
+                    });
+
+                    // 接收串口打开结果
+                    socket.on('port_opened', (data) => {
+                        this.handleRemotePortOpened(data);
+                    });
+
+                    // 接收串口关闭结果
+                    socket.on('port_closed', (data) => {
+                        this.handleRemotePortClosed(data);
+                    });
+
+                    // 接收串口数据
+                    socket.on('serial_data', (data) => {
+                        this.handleRemoteSerialData(data);
+                    });
+
+                    // 接收数据写入结果
+                    socket.on('data_written', (data) => {
+                        this.handleRemoteDataWritten(data);
+                    });
+                }).catch((error) => {
                     alert('Socket.IO 客户端未加载\n请刷新页面重试');
-                    reject(new Error('Socket.IO not loaded'));
-                    return;
-                }
-                
-                // 连接到服务器
-                const socket = io('/serial', {
-                    transports: ['websocket', 'polling']
-                });
-                
-                this.websocket = socket;
-                
-                // 连接成功
-                socket.on('connected', (data) => {
-                    console.log('WebSocket 已连接:', data.client_id);
-                    this.addLog('已连接到服务器', 'info');
-                    resolve();
-                });
-                
-                // 连接错误
-                socket.on('connect_error', (error) => {
-                    console.error('WebSocket 连接失败:', error);
-                    this.addLog(`连接服务器失败: ${error}`, 'error');
                     reject(error);
-                });
-                
-                // 断开连接
-                socket.on('disconnect', () => {
-                    console.log('WebSocket 已断开');
-                    this.addLog('与服务器断开连接', 'info');
-                });
-                
-                // 接收串口列表
-                socket.on('ports_list', (data) => {
-                    this.handleRemotePortsList(data);
-                });
-                
-                // 接收串口打开结果
-                socket.on('port_opened', (data) => {
-                    this.handleRemotePortOpened(data);
-                });
-                
-                // 接收串口关闭结果
-                socket.on('port_closed', (data) => {
-                    this.handleRemotePortClosed(data);
-                });
-                
-                // 接收串口数据
-                socket.on('serial_data', (data) => {
-                    this.handleRemoteSerialData(data);
-                });
-                
-                // 接收数据写入结果
-                socket.on('data_written', (data) => {
-                    this.handleRemoteDataWritten(data);
                 });
                 
             } catch (error) {
@@ -2828,4 +2904,3 @@ let serialApp;
 document.addEventListener('DOMContentLoaded', () => {
     serialApp = new SerialToolApp();
 });
-

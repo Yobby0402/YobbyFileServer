@@ -4,7 +4,12 @@ Git配置管理器
 负责管理Git服务器配置（SSH密钥、服务器地址等）
 """
 import os
+import re
+import shutil
+import stat
+import subprocess
 import sys
+import tempfile
 import json
 from datetime import datetime
 from typing import Dict, List, Optional
@@ -25,6 +30,18 @@ def get_data_path(relative_path=''):
 def get_git_configs_path():
     """获取Git配置文件路径"""
     return get_data_path('file_server/git_configs.json')
+
+def get_git_ssh_keys_dir():
+    """获取程序托管的SSH密钥目录"""
+    return get_data_path('file_server/ssh_keys')
+
+def sanitize_ssh_key_name(name: str) -> str:
+    """将用户输入的密钥名称清洗为安全文件名"""
+    cleaned = re.sub(r'[^A-Za-z0-9._-]+', '_', (name or '').strip())
+    cleaned = cleaned.strip('._')
+    if not cleaned:
+        cleaned = f"id_rsa_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    return cleaned
 
 class GitConfigManager:
     """Git配置管理器"""
@@ -154,3 +171,109 @@ class GitConfigManager:
             self.save_configs()
             return True
         return False
+
+    def generate_ssh_key_pair(self, key_name: str = '', comment: str = '') -> Dict:
+        """生成并保存一对程序托管的SSH密钥"""
+        try:
+            os.makedirs(get_git_ssh_keys_dir(), exist_ok=True)
+
+            safe_name = sanitize_ssh_key_name(key_name)
+            private_key_path = os.path.normpath(os.path.join(get_git_ssh_keys_dir(), safe_name))
+            public_key_path = f"{private_key_path}.pub"
+
+            if os.path.exists(private_key_path) or os.path.exists(public_key_path):
+                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                private_key_path = os.path.normpath(os.path.join(get_git_ssh_keys_dir(), f"{safe_name}_{timestamp}"))
+                public_key_path = f"{private_key_path}.pub"
+
+            comment = (comment or '').strip()
+
+            public_key_text = ''
+            try:
+                from cryptography.hazmat.primitives import serialization
+                from cryptography.hazmat.primitives.asymmetric import rsa
+
+                private_key = rsa.generate_private_key(
+                    public_exponent=65537,
+                    key_size=4096
+                )
+                private_key_bytes = private_key.private_bytes(
+                    encoding=serialization.Encoding.PEM,
+                    format=serialization.PrivateFormat.TraditionalOpenSSL,
+                    encryption_algorithm=serialization.NoEncryption()
+                )
+
+                public_key_text = private_key.public_key().public_bytes(
+                    encoding=serialization.Encoding.OpenSSH,
+                    format=serialization.PublicFormat.OpenSSH
+                ).decode('utf-8')
+
+                if comment:
+                    public_key_text = f"{public_key_text} {comment}"
+
+                with open(private_key_path, 'wb') as private_file:
+                    private_file.write(private_key_bytes)
+
+                with open(public_key_path, 'w', encoding='utf-8') as public_file:
+                    public_file.write(public_key_text + '\n')
+            except Exception as crypto_error:
+                ssh_keygen = shutil.which('ssh-keygen')
+                if not ssh_keygen:
+                    return {
+                        'success': False,
+                        'error': f'无法生成SSH密钥。cryptography 不可用，且系统未找到 ssh-keygen。原始错误: {crypto_error}'
+                    }
+
+                temp_dir = tempfile.mkdtemp(prefix='yobboy_ssh_')
+                temp_private_path = os.path.join(temp_dir, 'generated_key')
+                command = [ssh_keygen, '-t', 'rsa', '-b', '4096', '-N', '', '-f', temp_private_path]
+                if comment:
+                    command.extend(['-C', comment])
+
+                run_kwargs = {
+                    'capture_output': True,
+                    'text': True,
+                    'check': True
+                }
+                if sys.platform.startswith('win'):
+                    run_kwargs['creationflags'] = subprocess.CREATE_NO_WINDOW
+
+                try:
+                    subprocess.run(command, **run_kwargs)
+                    with open(temp_private_path, 'rb') as private_file:
+                        private_bytes = private_file.read()
+                    with open(f"{temp_private_path}.pub", 'r', encoding='utf-8') as public_file:
+                        public_key_text = public_file.read().strip()
+
+                    with open(private_key_path, 'wb') as private_file:
+                        private_file.write(private_bytes)
+                    with open(public_key_path, 'w', encoding='utf-8') as public_file:
+                        public_file.write(public_key_text + '\n')
+                except subprocess.CalledProcessError as keygen_error:
+                    error_output = (keygen_error.stderr or keygen_error.stdout or '').strip()
+                    return {
+                        'success': False,
+                        'error': f'ssh-keygen 执行失败: {error_output or keygen_error}'
+                    }
+                finally:
+                    shutil.rmtree(temp_dir, ignore_errors=True)
+
+            try:
+                os.chmod(private_key_path, stat.S_IRUSR | stat.S_IWUSR)
+                os.chmod(public_key_path, stat.S_IRUSR | stat.S_IWUSR)
+            except Exception:
+                pass
+
+            return {
+                'success': True,
+                'private_key_path': private_key_path,
+                'public_key_path': public_key_path,
+                'public_key': public_key_text,
+                'comment': comment,
+                'key_type': 'rsa'
+            }
+        except Exception as e:
+            return {
+                'success': False,
+                'error': f'生成SSH密钥失败: {e}'
+            }

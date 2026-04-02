@@ -178,6 +178,7 @@ class TodoManager:
                 "tasks": [],
                 "phase": payload.get("phase", ""),
                 "show_in_report": payload.get("show_in_report", True),
+                "archived": bool(payload.get("archived", False)),
             }
             self._data["projects"].append(project)
             self._persist()
@@ -197,6 +198,8 @@ class TodoManager:
                 project["phase"] = payload.get("phase", "")
             if "show_in_report" in payload:
                 project["show_in_report"] = bool(payload.get("show_in_report", True))
+            if "archived" in payload:
+                project["archived"] = bool(payload.get("archived", False))
 
             project["updated_at"] = _utc_now()
             self._persist()
@@ -304,6 +307,13 @@ class TodoManager:
                     task["conclusion"] = new_value
                     update_records.append(self._build_update_record("conclusion", old_value, new_value))
 
+            if "weekly_plan" in payload:
+                old_value = task.get("weekly_plan", "")
+                new_value = payload.get("weekly_plan", "")
+                if old_value != new_value:
+                    task["weekly_plan"] = new_value
+                    update_records.append(self._build_update_record("weekly_plan", old_value, new_value))
+
             if "show_in_report" in payload:
                 old_value = task.get("show_in_report", True)
                 new_value = bool(payload.get("show_in_report", True))
@@ -406,6 +416,8 @@ class TodoManager:
         with self._lock:
             all_tasks = []
             for project in self._data["projects"]:
+                if project.get("archived", False):
+                    continue
                 for task in project.get("tasks", []):
                     task_with_project = deepcopy(task)
                     task_with_project["project_id"] = project["id"]

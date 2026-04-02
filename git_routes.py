@@ -615,6 +615,30 @@ def register_git_routes(app):
                 return jsonify({'success': False, 'error': '保存配置失败'}), 500
         except Exception as e:
             return jsonify({'success': False, 'error': str(e)}), 500
+
+    @app.route('/api/git/ssh-key/generate', methods=['POST'])
+    def git_generate_ssh_key():
+        """生成程序托管的SSH密钥"""
+        if not check_git_enabled():
+            return jsonify({'success': False, 'error': 'Git功能未启用'}), 403
+
+        if not is_logged_in():
+            return jsonify({'success': False, 'error': '未登录'}), 401
+
+        data = request.json or {}
+        key_name = data.get('key_name', '')
+        comment = data.get('comment', '')
+
+        try:
+            config_manager = get_git_config_manager()
+            result = config_manager.generate_ssh_key_pair(
+                key_name=key_name,
+                comment=comment
+            )
+            status_code = 200 if result.get('success') else 500
+            return jsonify(result), status_code
+        except Exception as e:
+            return jsonify({'success': False, 'error': str(e)}), 500
     
     @app.route('/api/git/config/delete', methods=['POST'])
     def git_config_delete():

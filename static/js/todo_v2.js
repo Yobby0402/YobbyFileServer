@@ -29,6 +29,7 @@
         expandedProjects: new Set(), // 存储展开的项目ID
         directAccess: document.body.dataset.directAccess === 'true',
         currentStyle: localStorage.getItem('todoStyle') || 'scroll', // 'scroll', 'table' 或 'report'
+        showArchivedProjects: localStorage.getItem('todoShowArchivedProjects') === 'true',
         pendingCollapsed: localStorage.getItem('pendingCollapsed') === 'true', // 待完成任务列表是否折叠
         // 表格风格相关状态
         flatTasks: [], // 扁平化的任务列表
@@ -57,6 +58,8 @@
         searchInput: document.getElementById('searchInput'),
         newProjectButton: document.getElementById('newProjectButton'),
         exportButton: document.getElementById('exportButton'),
+        toggleArchivedProjectsBtn: document.getElementById('toggleArchivedProjectsBtn'),
+        archivedProjectsCount: document.getElementById('archivedProjectsCount'),
         alertContainer: document.getElementById('alertContainer'),
         pendingOverview: document.getElementById('pendingOverview'),
         pendingHeader: document.getElementById('pendingHeader'),
@@ -109,6 +112,26 @@
             .replace(/>/g, '&gt;')
             .replace(/"/g, '&quot;')
             .replace(/'/g, '&#39;');
+    }
+
+    function formatMultilineHtml(text) {
+        return escapeHtml(text || '').replace(/\r?\n/g, '<br>');
+    }
+
+    function isProjectArchived(project) {
+        return project?.archived === true;
+    }
+
+    function getActiveProjects() {
+        return state.projects.filter(project => !isProjectArchived(project));
+    }
+
+    function getArchivedProjects() {
+        return state.projects.filter(project => isProjectArchived(project));
+    }
+
+    function getProjectsForCurrentViews() {
+        return state.showArchivedProjects ? getArchivedProjects() : getActiveProjects();
     }
 
     function formatDate(isoString) {
@@ -214,6 +237,9 @@
         
         // 收集所有任务并添加项目信息
         for (const project of projects) {
+            if (isProjectArchived(project)) {
+                continue;
+            }
             for (const task of project.tasks || []) {
                 const taskWithProject = {
                     ...task,
@@ -311,10 +337,10 @@
         return fields.some(field => field && String(field).toLowerCase().includes(lowerKeyword));
     }
 
-    function getFilteredProjects() {
+    function getFilteredProjects(projects = state.projects) {
         const searchKeyword = (state.filters.text || '').trim().toLowerCase();
 
-        return state.projects.filter(project => {
+        return projects.filter(project => {
             if (!searchKeyword) return true;
 
             // 检查项目名称
@@ -323,19 +349,38 @@
             }
 
             // 检查任务
-            return project.tasks.some(task => matchesSearch(project, task, searchKeyword));
+            return (project.tasks || []).some(task => matchesSearch(project, task, searchKeyword));
         });
     }
 
     // ===== 渲染函数 =====
 
+    function updateArchivedProjectsToggle() {
+        const archivedCount = getArchivedProjects().length;
+        if (refs.archivedProjectsCount) {
+            refs.archivedProjectsCount.textContent = String(archivedCount);
+        }
+        if (refs.toggleArchivedProjectsBtn) {
+            refs.toggleArchivedProjectsBtn.classList.toggle('active', state.showArchivedProjects);
+            refs.toggleArchivedProjectsBtn.setAttribute('aria-pressed', state.showArchivedProjects ? 'true' : 'false');
+            refs.toggleArchivedProjectsBtn.disabled = archivedCount === 0 && !state.showArchivedProjects;
+        }
+    }
+
     function renderProjects() {
         if (!refs.projectsContainer) return;
 
-        const filteredProjects = getFilteredProjects();
+        const visibleProjects = getFilteredProjects(getProjectsForCurrentViews());
+        const archivedCount = getArchivedProjects().length;
+        updateArchivedProjectsToggle();
         refs.projectsContainer.innerHTML = '';
 
-        if (filteredProjects.length === 0) {
+        if (state.showArchivedProjects) {
+            renderArchivedProjectSection(visibleProjects, archivedCount);
+            return;
+        }
+
+        if (visibleProjects.length === 0) {
             refs.projectsContainer.innerHTML = `
                 <div class="panel">
                     <p class="text-center text-muted" style="padding: 40px;">
@@ -346,7 +391,7 @@
             return;
         }
 
-        filteredProjects.forEach(project => {
+        visibleProjects.forEach(project => {
             const projectElement = createProjectElement(project);
             refs.projectsContainer.appendChild(projectElement);
         });
@@ -354,9 +399,42 @@
         // 刷新项目筛选器选项
     }
 
+    function renderArchivedProjectSection(archivedProjects, archivedCount) {
+        if (state.showArchivedProjects) {
+            const archivedSection = document.createElement('div');
+            archivedSection.className = 'project-section-header archived-project-section';
+            archivedSection.innerHTML = `
+                <div class="project-section-title">
+                    <i class="fas fa-archive"></i>
+                    已归档项目 (${archivedProjects.length}/${archivedCount})
+                </div>
+                <div class="project-section-description">归档项目默认不参与日常展示，仅在这里手动查看。</div>
+            `;
+            refs.projectsContainer.appendChild(archivedSection);
+
+            if (archivedProjects.length === 0) {
+                const emptyArchived = document.createElement('div');
+                emptyArchived.className = 'panel archived-empty-panel';
+                emptyArchived.innerHTML = `
+                    <p class="text-center text-muted" style="padding: 32px;">
+                        暂无符合当前筛选条件的已归档项目。
+                    </p>
+                `;
+                refs.projectsContainer.appendChild(emptyArchived);
+            } else {
+                archivedProjects.forEach(project => {
+                    const projectElement = createProjectElement(project);
+                    refs.projectsContainer.appendChild(projectElement);
+                });
+            }
+        }
+
+    }
+
     function createProjectElement(project) {
         const wrapper = document.createElement('div');
-        wrapper.className = 'project-table-wrapper';
+        const archived = isProjectArchived(project);
+        wrapper.className = archived ? 'project-table-wrapper archived-project' : 'project-table-wrapper';
         wrapper.dataset.projectId = project.id;
 
         const isExpanded = state.expandedProjects.has(project.id);
@@ -370,6 +448,7 @@
                     <div class="project-info">
                         <h3 class="project-name">${escapeHtml(project.name || '未命名项目')}${project.phase ? `(${escapeHtml(project.phase)})` : ''}</h3>
                         <div class="project-meta">
+                            ${archived ? '<span class="project-archived-badge"><i class="fas fa-archive"></i> 已归档<\/span>' : ''}
                             <span>创建于 ${formatDate(project.created_at)}</span>
                             <span>任务数: ${project.tasks.length}</span>
                         </div>
@@ -392,6 +471,9 @@
                         </button>
                         <button type="button" class="btn btn-sm btn-outline-secondary" data-action="edit-project" data-project-id="${project.id}">
                             <i class="fas fa-pen"></i> 编辑
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-warning" data-action="${archived ? 'unarchive-project' : 'archive-project'}" data-project-id="${project.id}">
+                            <i class="fas ${archived ? 'fa-undo' : 'fa-archive'}"></i> ${archived ? '恢复' : '归档'}
                         </button>
                         <button type="button" class="btn btn-sm btn-outline-danger" data-action="delete-project" data-project-id="${project.id}">
                             <i class="fas fa-trash"></i> 删除
@@ -790,13 +872,9 @@
 
             renderProjects();
             renderPendingOverview();
+            switchStyle(state.currentStyle);
             
             // 如果当前是表格风格，初始化并渲染表格
-            if (state.currentStyle === 'table') {
-                loadTableColumnOrder();
-                applyTableFilters();
-                renderTable();
-            }
         } catch (error) {
             showAlert('danger', error.message || String(error));
         }
@@ -835,6 +913,33 @@
             }
             await loadData();
             showAlert('success', '项目更新成功');
+            return result.project;
+        } catch (error) {
+            showAlert('danger', error.message || String(error));
+            throw error;
+        }
+    }
+
+    async function setProjectArchived(projectId, archived) {
+        if (archived && !confirm('确定要归档该项目吗？归档后默认会被隐藏。')) {
+            return;
+        }
+
+        try {
+            const response = await fetch(`/api/todo/v2/projects/${projectId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ archived }),
+            });
+            const result = await response.json();
+            if (!result.success) {
+                throw new Error(result.error || 'Failed to update archive state');
+            }
+            if (archived) {
+                state.expandedProjects.delete(projectId);
+            }
+            await loadData();
+            showAlert('success', archived ? '项目已归档' : '项目已恢复');
             return result.project;
         } catch (error) {
             showAlert('danger', error.message || String(error));
@@ -1087,6 +1192,12 @@
             case 'edit-project':
                 openEditProjectModal(projectId);
                 break;
+            case 'archive-project':
+                setProjectArchived(projectId, true);
+                break;
+            case 'unarchive-project':
+                setProjectArchived(projectId, false);
+                break;
             case 'delete-project':
                 deleteProject(projectId);
                 break;
@@ -1108,6 +1219,19 @@
         }
     }
 
+    function toggleArchivedProjects() {
+        state.showArchivedProjects = !state.showArchivedProjects;
+        localStorage.setItem('todoShowArchivedProjects', state.showArchivedProjects ? 'true' : 'false');
+        flattenTasks();
+        applyTableFilters();
+        renderProjects();
+        if (state.currentStyle === 'table') {
+            renderTable();
+        } else if (state.currentStyle === 'report') {
+            renderReportTable();
+        }
+    }
+
     function handleSearchInput(e) {
         state.filters.text = e.target.value || '';
         renderProjects();
@@ -1116,6 +1240,8 @@
         if (state.currentStyle === 'table') {
             applyTableFilters();
             renderTable();
+        } else if (state.currentStyle === 'report') {
+            renderReportTable();
         }
     }
 
@@ -1360,6 +1486,10 @@
             });
         }
 
+        if (refs.toggleArchivedProjectsBtn) {
+            refs.toggleArchivedProjectsBtn.addEventListener('click', toggleArchivedProjects);
+        }
+
         if (refs.searchInput) {
             refs.searchInput.addEventListener('input', handleSearchInput);
         }
@@ -1492,7 +1622,7 @@
 
     function flattenTasks() {
         state.flatTasks = [];
-        state.projects.forEach((project) => {
+        getProjectsForCurrentViews().forEach((project) => {
             (project.tasks || []).forEach((task, taskIndex) => {
                 const updateHistory = task.update_history || [];
                 const comments = task.comments || [];
@@ -1505,6 +1635,7 @@
                     project_id: project.id,
                     project_name: project.name,
                     project_color: project.color || '#4facfe',
+                    project_archived: isProjectArchived(project),
                     index: taskIndex + 1,
                     change_count: updateCount + commentCount,
                     update_count: updateCount,
@@ -1847,7 +1978,7 @@
     function getTableCellContent(task, colKey) {
         switch (colKey) {
             case 'project_name':
-                return `<span style="color: ${task.project_color}">${escapeHtml(task.project_name || '--')}</span>`;
+                return `<span style="color: ${task.project_color}">${escapeHtml(task.project_name || '--')}</span>${task.project_archived ? ' <span class="project-archived-badge-inline">已归档<\/span>' : ''}`;
             case 'index':
                 return String(task.index || '--');
             case 'summary':
@@ -2237,7 +2368,7 @@
         if (!refs.reportTableBody) return;
         
         // 过滤出需要显示的项目（show_in_report为true）
-        const reportProjects = state.projects.filter(project => project.show_in_report !== false);
+        const reportProjects = getProjectsForCurrentViews().filter(project => project.show_in_report !== false);
         
         if (reportProjects.length === 0) {
             refs.reportTableBody.innerHTML = '<tr><td colspan="7" class="text-center text-muted">暂无汇报数据</td></tr>';
@@ -2255,7 +2386,7 @@
         
         reportProjects.forEach(project => {
             // 获取项目中需要显示的任务（show_in_report为true）
-            const reportTasks = (project.tasks || []).filter(task => task.show_in_report !== false);
+            const reportTasks = getFilteredTasks(project).filter(task => task.show_in_report !== false);
             
             if (reportTasks.length === 0) {
                 return; // 如果没有任务需要显示，跳过这个项目
@@ -2270,7 +2401,7 @@
                 const isFirstRow = index === 0;
                 const serialNumber = index + 1; // 序号
                 const summary = escapeHtml(task.summary || '');
-                const description = escapeHtml((task.description || '').replace(/\n/g, '<br>'));
+                const description = formatMultilineHtml(task.description || '');
                 const isCompleted = (task.progress || 0) >= 100;
                 const status = isCompleted ? '已完成' : '未完成';
                 
@@ -2279,7 +2410,7 @@
                 if (isCompleted) {
                     // 已完成：显示结论（没有结论显示所有评论）
                     if (task.conclusion) {
-                        currentProgress = escapeHtml(task.conclusion).replace(/\n/g, '<br>');
+                        currentProgress = formatMultilineHtml(task.conclusion);
                     } else {
                         const comments = task.comments || [];
                         if (comments.length > 0) {
@@ -2299,7 +2430,7 @@
                 }
                 
                 // 本周计划（显示weekly_plan属性）
-                const weeklyPlan = escapeHtml((task.weekly_plan || '').replace(/\n/g, '<br>'));
+                const weeklyPlan = formatMultilineHtml(task.weekly_plan || '');
                 
                 html += '<tr class="report-row" data-project-id="' + escapeHtml(project.id) + '" data-task-id="' + escapeHtml(task.id) + '">';
                 
@@ -2307,6 +2438,9 @@
                 if (isFirstRow) {
                     html += '<td rowspan="' + rowspan + '" class="report-project-name" style="text-align: center; vertical-align: middle;">';
                     html += '<strong>' + escapeHtml(projectName) + '</strong>';
+                    if (isProjectArchived(project)) {
+                        html += '<br><span class="project-archived-badge-inline">已归档<\/span>';
+                    }
                     if (projectPhase) {
                         html += '<br><span style="color: #666; font-size: 0.9em;">(' + escapeHtml(projectPhase) + ')</span>';
                     }
@@ -2322,6 +2456,14 @@
                 html += '</tr>';
             });
         });
+
+        if (!html) {
+            refs.reportTableBody.innerHTML = '<tr><td colspan="7" class="text-center text-muted">暂无汇报数据</td></tr>';
+            if (refs.reportEmptyMessage) {
+                refs.reportEmptyMessage.style.display = 'block';
+            }
+            return;
+        }
         
         refs.reportTableBody.innerHTML = html;
         
@@ -2451,7 +2593,7 @@
     function exportReportToExcel() {
         // 调用后端API导出汇报表格
         try {
-            const reportProjects = state.projects.filter(project => project.show_in_report !== false);
+            const reportProjects = getProjectsForCurrentViews().filter(project => project.show_in_report !== false);
             if (reportProjects.length === 0) {
                 showAlert('warning', '暂无汇报数据可导出');
                 return;
@@ -2460,7 +2602,7 @@
             // 构建扁平化的任务列表（用于导出）
             const flatTasks = [];
             reportProjects.forEach(project => {
-                const reportTasks = (project.tasks || []).filter(task => task.show_in_report !== false);
+                const reportTasks = getFilteredTasks(project).filter(task => task.show_in_report !== false);
                 reportTasks.forEach((task, index) => {
                     // 构建当前进展内容
                     let currentProgress = '';
@@ -4221,47 +4363,7 @@
         applyFontSize();
         
         // 先设置风格显示状态（不渲染内容）
-        updateStyleButtons();
-        if (state.currentStyle === 'scroll') {
-            if (refs.scrollStyleContainer) {
-                refs.scrollStyleContainer.style.display = 'block';
-                refs.scrollStyleContainer.classList.add('active');
-            }
-            if (refs.tableStyleContainer) {
-                refs.tableStyleContainer.style.display = 'none';
-                refs.tableStyleContainer.classList.remove('active');
-            }
-            if (refs.reportStyleContainer) {
-                refs.reportStyleContainer.style.display = 'none';
-                refs.reportStyleContainer.classList.remove('active');
-            }
-        } else if (state.currentStyle === 'table') {
-            if (refs.scrollStyleContainer) {
-                refs.scrollStyleContainer.style.display = 'none';
-                refs.scrollStyleContainer.classList.remove('active');
-            }
-            if (refs.tableStyleContainer) {
-                refs.tableStyleContainer.style.display = 'block';
-                refs.tableStyleContainer.classList.add('active');
-            }
-            if (refs.reportStyleContainer) {
-                refs.reportStyleContainer.style.display = 'none';
-                refs.reportStyleContainer.classList.remove('active');
-            }
-        } else if (state.currentStyle === 'report') {
-            if (refs.scrollStyleContainer) {
-                refs.scrollStyleContainer.style.display = 'none';
-                refs.scrollStyleContainer.classList.remove('active');
-            }
-            if (refs.tableStyleContainer) {
-                refs.tableStyleContainer.style.display = 'none';
-                refs.tableStyleContainer.classList.remove('active');
-            }
-            if (refs.reportStyleContainer) {
-                refs.reportStyleContainer.style.display = 'block';
-                refs.reportStyleContainer.classList.add('active');
-            }
-        }
+        switchStyle(state.currentStyle);
         
         // 加载数据（数据加载完成后会自动渲染）
         loadData();
@@ -4327,13 +4429,9 @@
                 
                 renderProjects();
                 renderPendingOverview();
+                switchStyle(state.currentStyle);
                 
                 // 如果当前是表格风格，重新渲染表格
-                if (state.currentStyle === 'table') {
-                    loadTableColumnOrder();
-                    applyTableFilters();
-                    renderTable();
-                }
                 
                 showAlert('success', `成功加载文件: ${file.name}`);
             } catch (error) {

@@ -41,12 +41,24 @@
         return LEGACY_THEME_TO_COLOR[themeName] || themeName || "jasmine";
     }
 
+    function applyThemeAttributes(target, themeColor, morph) {
+        if (!target) return;
+        target.setAttribute("data-theme-color", themeColor);
+        target.setAttribute("data-theme", themeColor); // legacy compatibility
+        target.setAttribute("data-morph", morph);
+    }
+
+    function getAppliedThemeAttribute(attributeName, fallbackValue) {
+        return document.documentElement.getAttribute(attributeName)
+            || (document.body && document.body.getAttribute(attributeName))
+            || fallbackValue;
+    }
+
     function applyThemeState(themeColor, morph) {
         const safeColor = normalizeColorTheme(themeColor);
         const safeMorph = morph || "flat";
-        document.body.setAttribute("data-theme-color", safeColor);
-        document.body.setAttribute("data-theme", safeColor); // legacy compatibility
-        document.body.setAttribute("data-morph", safeMorph);
+        applyThemeAttributes(document.documentElement, safeColor, safeMorph);
+        applyThemeAttributes(document.body, safeColor, safeMorph);
         refreshThemeSelection(safeColor, safeMorph);
     }
 
@@ -232,8 +244,8 @@
     wrapper.innerHTML = floaterHTML;
     document.body.appendChild(wrapper);
     refreshThemeSelection(
-        document.body.getAttribute("data-theme-color") || "jasmine",
-        document.body.getAttribute("data-morph") || "flat"
+        getAppliedThemeAttribute("data-theme-color", "jasmine"),
+        getAppliedThemeAttribute("data-morph", "flat")
     );
 
     const btn = document.getElementById("theme-floater-btn");
@@ -270,8 +282,8 @@
             themeMenu.innerHTML = buildMenuHTML();
             document.body.appendChild(themeMenu);
             refreshThemeSelection(
-                document.body.getAttribute("data-theme-color") || "jasmine",
-                document.body.getAttribute("data-morph") || "flat"
+                getAppliedThemeAttribute("data-theme-color", "jasmine"),
+                getAppliedThemeAttribute("data-morph", "flat")
             );
 
             if (!document.getElementById("theme-menu-integrated-style")) {

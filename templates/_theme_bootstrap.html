@@ -1,0 +1,65 @@
+<script>
+    (function () {
+        const root = document.documentElement;
+        const LEGACY_THEME_TO_COLOR = {
+            jasmine: "jasmine",
+            "mint-fresh": "jasmine",
+            "mist-forest": "forest",
+            "bamboo-grove": "forest",
+            "tea-garden": "forest",
+            sunset: "sunset",
+            "golden-beach": "sunset",
+            "orange-warmth": "sunset",
+            "rose-whisper": "sunset",
+            "cherry-blossom": "sunset",
+            "sky-azure": "ocean",
+            "ocean-shallow": "ocean",
+            "tech-blue": "ocean",
+            "cloud-light": "ocean",
+            "lake-reflection": "ocean",
+            aurora: "ocean",
+            "lavender-field": "lavender",
+            "purple-dream": "lavender",
+            cyberpunk: "graphite",
+            "morning-mist": "graphite"
+        };
+
+        function normalizeTheme(themeName) {
+            return LEGACY_THEME_TO_COLOR[themeName] || themeName || "jasmine";
+        }
+
+        function applyThemeAttributes(target, themeColor, morph) {
+            if (!target) return;
+            target.setAttribute("data-theme-color", themeColor);
+            target.setAttribute("data-theme", themeColor);
+            target.setAttribute("data-morph", morph);
+        }
+
+        let legacyTheme = "jasmine";
+        let themeColor = "jasmine";
+        let morph = "flat";
+
+        try {
+            legacyTheme = localStorage.getItem("site_theme") || "jasmine";
+            themeColor = normalizeTheme(localStorage.getItem("site_theme_color") || legacyTheme);
+            morph = localStorage.getItem("site_morph") || (
+                legacyTheme === "glassmorphism" || legacyTheme === "neumorphism" || legacyTheme === "claymorphism"
+                    ? (legacyTheme === "neumorphism" ? "glassmorphism" : legacyTheme)
+                    : "flat"
+            );
+        } catch (error) {
+            themeColor = normalizeTheme(legacyTheme);
+        }
+
+        applyThemeAttributes(root, themeColor, morph);
+
+        if (document.body) {
+            applyThemeAttributes(document.body, themeColor, morph);
+            return;
+        }
+
+        document.addEventListener("DOMContentLoaded", function () {
+            applyThemeAttributes(document.body, themeColor, morph);
+        }, { once: true });
+    })();
+</script>

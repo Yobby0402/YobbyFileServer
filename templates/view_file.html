@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
+    {% include '_theme_bootstrap.html' %}
     <title>{{ filename }}</title>
     <meta charset="utf-8">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap.min.css') }}">
@@ -24,12 +25,6 @@
         .back-link a { color: var(--jasmine-green-600); text-decoration: none; }
         .back-link a:hover { text-decoration: underline; }
     </style>
-    <script>
-        (function() {
-            const savedTheme = localStorage.getItem('site_theme') || 'jasmine';
-            document.body.setAttribute('data-theme', savedTheme);
-        })();
-    </script>
 </head>
 <body>
     <div class="container">

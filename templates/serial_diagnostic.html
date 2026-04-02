@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
+    {% include '_theme_bootstrap.html' %}
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>串口诊断工具</title>
@@ -50,12 +51,6 @@
             border: 1px solid rgba(74, 144, 226, 0.2);
         }
     </style>
-    <script>
-        (function() {
-            const savedTheme = localStorage.getItem('site_theme') || 'jasmine';
-            document.body.setAttribute('data-theme', savedTheme);
-        })();
-    </script>
 </head>
 <body>
     <div class="container">
@@ -106,6 +101,7 @@
     </div>
     
     <script>
+        const SERIAL_SERVER_CONFIG = {{ (serial_server_config or {}) | tojson }};
         // 诊断功能
         function runDiagnostic() {
             const results = document.getElementById('diagnosticResults');
@@ -118,8 +114,16 @@
             
             // 1. 检查 User Agent
             const ua = navigator.userAgent;
+            const remoteSerialEnabled = Boolean(SERIAL_SERVER_CONFIG.remote_serial_enabled);
+            const certConfigured = Boolean(SERIAL_SERVER_CONFIG.https_cert_configured);
+            const compatMode = Boolean(SERIAL_SERVER_CONFIG.compat_mode);
+            const serialHttpsUrl = SERIAL_SERVER_CONFIG.serial_https_url || '';
             browserInfo.innerHTML = `
                 <p><strong>User Agent:</strong><br><code style="word-break: break-all;">${ua}</code></p>
+                <p><strong>服务器远程串口模式:</strong> ${remoteSerialEnabled ? '已启用（应使用 HTTPS）' : '未启用（默认 HTTP）'}</p>
+                <p><strong>串口 HTTPS 方式:</strong> ${compatMode ? '兼容模式（主站 HTTP，串口助手 HTTPS）' : '全站 HTTPS（原有方式）'}</p>
+                ${serialHttpsUrl ? `<p><strong>建议串口访问地址:</strong><br><code style="word-break: break-all;">${serialHttpsUrl}</code></p>` : ''}
+                <p><strong>服务器证书配置:</strong> ${certConfigured ? '已配置证书/私钥' : '未配置（可能使用临时证书）'}</p>
             `;
             
             // 2. 检查浏览器类型
@@ -195,10 +199,17 @@
                 resultsHtml += `<div class="result-item result-warning">⚠️ 协议: ${protocol} (建议使用 HTTPS 或 localhost)</div>`;
                 solutionsHtml += `<p>⚠️ 您正在使用 HTTP 协议访问非本地地址</p>`;
                 solutionsHtml += `<p><strong>建议：</strong></p>`;
-                solutionsHtml += `<ul>
-                    <li>使用 <code>http://localhost:5000</code> 访问</li>
-                    <li>或配置 HTTPS 证书</li>
-                </ul>`;
+                if (remoteSerialEnabled) {
+                    solutionsHtml += `<ul>
+                        <li>服务器已启用远程串口，请改用 <code>https://服务器地址:端口</code></li>
+                        <li>若仍是 HTTP，请在服务器 PyQt 设置检查 HTTPS 证书并重启服务</li>
+                    </ul>`;
+                } else {
+                    solutionsHtml += `<ul>
+                        <li>当前服务器远程串口未启用，保持 HTTP 正常</li>
+                        <li>如需客户端本机串口能力，请在服务器设置启用远程串口（自动 HTTPS）</li>
+                    </ul>`;
+                }
             }
             
             // 4. 检查 Web Serial API

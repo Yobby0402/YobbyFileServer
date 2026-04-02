@@ -6,226 +6,463 @@
     <title>分享文件 - {{ filename }}</title>
     <link href="{{ url_for('static', filename='css/bootstrap.min.css') }}" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/font-awesome.min.css') }}">
-        <!-- Theme System -->
     <link rel="stylesheet" href="{{ url_for('static', filename='css/themes.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/app_style.css') }}">
     <style>
         * {
-            margin: 0;
-            padding: 0;
             box-sizing: border-box;
         }
+
         body {
-            background: linear-gradient(135deg, var(--jasmine-green-600) 0%, var(--jasmine-green-400) 100%);
+            margin: 0;
             min-height: 100vh;
+            padding: 24px;
+            background:
+                radial-gradient(circle at top left, rgba(255, 255, 255, 0.22), transparent 28%),
+                linear-gradient(135deg, var(--jasmine-green-600) 0%, var(--jasmine-green-400) 100%);
+            font-family: 'Microsoft YaHei', 'Segoe UI', Arial, sans-serif;
+            color: #1f2933;
+        }
+
+        .share-shell {
+            max-width: 1180px;
+            margin: 0 auto;
+        }
+
+        .share-container {
+            background: rgba(255, 255, 255, 0.96);
+            border-radius: 24px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.18);
+            padding: 28px;
+            backdrop-filter: blur(8px);
+        }
+
+        .share-toolbar {
             display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 18px;
+            margin-bottom: 24px;
+        }
+
+        .toolbar-copy {
+            display: flex;
+            align-items: flex-start;
+            gap: 16px;
+            min-width: 0;
+        }
+
+        .file-icon {
+            width: 64px;
+            height: 64px;
+            border-radius: 18px;
+            display: inline-flex;
             align-items: center;
             justify-content: center;
-            padding: 20px;
-            font-family: 'Microsoft YaHei', 'Segoe UI', Arial, sans-serif;
+            font-size: 1.75rem;
+            color: white;
+            background: linear-gradient(135deg, var(--jasmine-green-600) 0%, var(--jasmine-green-500) 100%);
+            box-shadow: 0 12px 24px rgba(58, 140, 95, 0.28);
+            flex-shrink: 0;
         }
-        .share-container {
-            background: white;
-            border-radius: 16px;
-            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
-            padding: 45px;
-            max-width: 800px;
-            width: 100%;
-        }
-        .share-header {
-            text-align: center;
-            margin-bottom: 35px;
-            padding-bottom: 25px;
-            border-bottom: 2px solid #e9ecef;
-        }
-        .share-header .file-icon {
-            font-size: 4.5rem;
-            color: var(--jasmine-green-600);
-            margin-bottom: 20px;
-            display: block;
-        }
-        .share-header h1 {
-            color: #2c3e50;
-            font-size: 1.8rem;
+
+        .eyebrow {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 12px;
+            border-radius: 999px;
+            background: rgba(58, 140, 95, 0.12);
+            color: var(--jasmine-green-700);
+            font-size: 0.9rem;
             font-weight: 700;
             margin-bottom: 12px;
         }
-        .share-header p {
-            color: #6c757d;
-            font-size: 1rem;
+
+        .toolbar-copy h1 {
             margin: 0;
+            font-size: 1.85rem;
+            line-height: 1.25;
+            color: #233142;
+            word-break: break-word;
         }
-        .file-info {
-            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 50%);
-            border-radius: 12px;
-            padding: 25px;
-            margin-bottom: 25px;
-            border: 1px solid #dee2e6;
+
+        .toolbar-copy p {
+            margin: 10px 0 0;
+            color: #5f6c7b;
+            font-size: 1rem;
+            line-height: 1.6;
         }
-        .info-row {
+
+        .toolbar-actions {
             display: flex;
-            justify-content: space-between;
+            gap: 12px;
+            flex-shrink: 0;
+        }
+
+        .download-btn {
+            display: inline-flex;
             align-items: center;
-            padding: 12px 0;
-            border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+            gap: 10px;
+            padding: 12px 20px;
+            border-radius: 14px;
+            font-size: 1rem;
+            font-weight: 700;
+            white-space: nowrap;
+            box-shadow: 0 12px 24px rgba(25, 135, 84, 0.2);
         }
-        .info-row:last-child {
-            border-bottom: none;
+
+        .preview-card,
+        .info-card,
+        .empty-card {
+            border-radius: 20px;
+            border: 1px solid rgba(15, 23, 42, 0.08);
+            background: white;
+            overflow: hidden;
         }
-        .info-label {
-            font-weight: 600;
-            color: #495057;
-            font-size: 0.95rem;
+
+        .card-header-row {
             display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+            padding: 18px 22px;
+            border-bottom: 1px solid rgba(15, 23, 42, 0.08);
+            background: linear-gradient(180deg, rgba(248, 250, 252, 0.96) 0%, rgba(255, 255, 255, 1) 100%);
+        }
+
+        .card-header-row h2,
+        .card-header-row h3 {
+            margin: 0;
+            color: #233142;
+            font-size: 1.05rem;
+            font-weight: 700;
+        }
+
+        .preview-type {
+            padding: 6px 12px;
+            border-radius: 999px;
+            background: rgba(58, 140, 95, 0.12);
+            color: var(--jasmine-green-700);
+            font-size: 0.88rem;
+            font-weight: 700;
+        }
+
+        .preview-stage {
+            padding: 18px;
+            background:
+                linear-gradient(180deg, rgba(247, 250, 252, 0.95) 0%, rgba(255, 255, 255, 1) 100%);
+        }
+
+        .preview-stage--frame {
+            height: 72vh;
+            min-height: 520px;
+        }
+
+        .preview-frame {
+            width: 100%;
+            height: 100%;
+            min-height: 480px;
+            border: 0;
+            border-radius: 16px;
+            background: white;
+        }
+
+        .preview-image {
+            width: 100%;
+            max-height: 72vh;
+            min-height: 240px;
+            object-fit: contain;
+            display: block;
+            border-radius: 16px;
+            background: #f8fafc;
+        }
+
+        .preview-video {
+            width: 100%;
+            max-height: 72vh;
+            border-radius: 16px;
+            background: #000;
+        }
+
+        .preview-audio-wrap {
+            min-height: 200px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+            gap: 16px;
+            border-radius: 16px;
+            background:
+                radial-gradient(circle at top, rgba(58, 140, 95, 0.14), transparent 35%),
+                #f8fafc;
+        }
+
+        .preview-audio-wrap i {
+            font-size: 2.4rem;
+            color: var(--jasmine-green-600);
+        }
+
+        .preview-audio-wrap audio {
+            width: min(100%, 640px);
+        }
+
+        .preview-audio-tip {
+            margin: 0;
+            color: #5f6c7b;
+        }
+
+        .info-card {
+            margin-top: 20px;
+        }
+
+        .info-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 16px;
+            padding: 20px 22px 22px;
+        }
+
+        .info-item {
+            padding: 16px 18px;
+            border-radius: 16px;
+            background: linear-gradient(135deg, #f8fafc 0%, #eef3f8 100%);
+            border: 1px solid rgba(15, 23, 42, 0.06);
+        }
+
+        .info-label {
+            display: inline-flex;
             align-items: center;
             gap: 8px;
+            margin-bottom: 10px;
+            font-size: 0.92rem;
+            font-weight: 700;
+            color: #54606f;
         }
+
         .info-label i {
             color: var(--jasmine-green-600);
-            font-size: 1.1rem;
         }
+
         .info-value {
-            color: #2c3e50;
-            font-size: 0.95rem;
-            font-weight: 500;
-        }
-        .action-buttons {
-            display: flex;
-            gap: 15px;
-            margin-top: 30px;
-        }
-        .action-buttons .btn {
-            flex: 1;
-            padding: 14px 24px;
-            font-size: 1.05rem;
+            color: #1f2933;
+            font-size: 1rem;
             font-weight: 600;
-            border-radius: 8px;
-            border: none;
-            transition: all 0.3s ease;
+            line-height: 1.5;
+            word-break: break-word;
         }
-        .action-buttons .btn:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
+
+        .empty-card {
+            margin-top: 8px;
+            padding: 28px 24px;
+            text-align: center;
         }
-        .action-buttons .btn i {
-            margin-right: 8px;
+
+        .empty-card i {
+            font-size: 2rem;
+            color: var(--jasmine-green-600);
+            margin-bottom: 14px;
         }
-        .badge {
-            font-size: 0.85rem;
-            padding: 6px 12px;
-            font-weight: 600;
+
+        .empty-card h2 {
+            margin: 0 0 10px;
+            font-size: 1.18rem;
+            color: #233142;
         }
-        .alert {
-            border-radius: 10px;
-            padding: 16px 20px;
-            font-size: 0.95rem;
-            border: none;
+
+        .empty-card p {
+            margin: 0;
+            color: #5f6c7b;
+            line-height: 1.7;
         }
-        .alert i {
-            margin-right: 8px;
+
+        .share-footer {
+            margin-top: 18px;
+            text-align: center;
+            color: rgba(255, 255, 255, 0.92);
+            font-size: 0.92rem;
         }
-        .text-center.mt-4 {
-            margin-top: 30px;
-            padding-top: 25px;
-            border-top: 1px solid #e9ecef;
-        }
-        .text-center.mt-4 p {
-            color: #6c757d;
-            font-size: 0.9rem;
-        }
-        /* 响应式 */
-        @media (max-width: 576px) {
+
+        @media (max-width: 900px) {
+            body {
+                padding: 16px;
+            }
+
             .share-container {
-                padding: 30px 25px;
+                padding: 20px;
             }
-            .share-header h1 {
-                font-size: 1.5rem;
-            }
-            .action-buttons {
+
+            .share-toolbar {
                 flex-direction: column;
+            }
+
+            .toolbar-actions {
+                width: 100%;
+            }
+
+            .download-btn {
+                width: 100%;
+                justify-content: center;
+            }
+
+            .preview-stage--frame {
+                min-height: 420px;
+                height: 64vh;
+            }
+        }
+
+        @media (max-width: 640px) {
+            .toolbar-copy {
+                flex-direction: column;
+            }
+
+            .toolbar-copy h1 {
+                font-size: 1.45rem;
+            }
+
+            .info-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .preview-stage {
+                padding: 12px;
+            }
+
+            .preview-stage--frame {
+                min-height: 360px;
+                height: 58vh;
             }
         }
     </style>
     <script>
         (function() {
             const savedTheme = localStorage.getItem('site_theme') || 'jasmine';
-            document.body.setAttribute('data-theme', savedTheme);
+            document.documentElement.setAttribute('data-theme', savedTheme);
         })();
     </script>
 </head>
 <body>
-    <div class="share-container">
-        <div class="share-header">
-            <div class="file-icon">
-                <i class="fas fa-file-alt"></i>
+    {% set preview_url = url_for('share_preview', share_code=share_code) %}
+    <div class="share-shell">
+        <div class="share-container">
+            <div class="share-toolbar">
+                <div class="toolbar-copy">
+                    <div class="file-icon">
+                        <i class="fas fa-share-alt"></i>
+                    </div>
+                    <div>
+                        <div class="eyebrow">
+                            <i class="fas fa-eye"></i>
+                            进入页面即可直接预览
+                        </div>
+                        <h1>{{ filename }}</h1>
+                        <p>{{ link_data.description or '有人分享了一个文件给你，可直接在当前页面查看可预览的内容。' }}</p>
+                    </div>
+                </div>
+                {% if download_available %}
+                <div class="toolbar-actions">
+                    <a href="{{ url_for('share_download', share_code=share_code) }}" class="btn btn-success download-btn">
+                        <i class="fas fa-download"></i>
+                        下载文件
+                    </a>
+                </div>
+                {% endif %}
             </div>
-            <h1><i class="fas fa-share-alt"></i> 分享的文件</h1>
-            <p class="text-muted">{{ link_data.description or '有人分享了一个文件给你' }}</p>
-        </div>
 
-        <div class="file-info">
-            <div class="info-row">
-                <span class="info-label"><i class="fas fa-file"></i> 文件名：</span>
-                <span class="info-value">{{ filename }}</span>
-            </div>
-            {% if link_data.expire_time %}
-            <div class="info-row">
-                <span class="info-label"><i class="fas fa-clock"></i> 过期时间：</span>
-                <span class="info-value text-warning">{{ link_data.expire_time[:19] }}</span>
-            </div>
-            {% endif %}
-            {% if link_data.max_visits > 0 %}
-            <div class="info-row">
-                <span class="info-label"><i class="fas fa-eye"></i> 访问次数：</span>
-                <span class="info-value">
-                    <span class="badge bg-info">{{ link_data.current_visits }} / {{ link_data.max_visits }}</span>
-                </span>
-            </div>
-            {% endif %}
-            <div class="info-row">
-                <span class="info-label"><i class="fas fa-calendar"></i> 创建时间：</span>
-                <span class="info-value">{{ link_data.created_at[:19] }}</span>
-            </div>
-        </div>
-
-        <div class="action-buttons">
-            {% set ext = filename.split('.')[-1].lower() if '.' in filename else '' %}
-            {% if ext in ['drawio', 'diagram', 'dio'] %}
-            <a href="{{ url_for('share_preview', share_code=share_code) }}" 
-               class="btn btn-primary" 
-               target="_blank">
-                <i class="fas fa-project-diagram"></i> 预览图表
-            </a>
+            {% if preview_supported %}
+            <section class="preview-card">
+                <div class="card-header-row">
+                    <h2>文件预览</h2>
+                    <span class="preview-type">
+                        {% if preview_kind == 'drawio' %}Draw.io
+                        {% elif preview_kind == 'markdown' %}Markdown
+                        {% elif preview_kind == 'image' %}图片
+                        {% elif preview_kind == 'pdf' %}PDF
+                        {% elif preview_kind == 'video' %}视频
+                        {% elif preview_kind == 'audio' %}音频
+                        {% else %}在线预览
+                        {% endif %}
+                    </span>
+                </div>
+                {% if preview_kind in ['drawio', 'markdown', 'pdf'] %}
+                <div class="preview-stage preview-stage--frame">
+                    <iframe class="preview-frame" src="{{ preview_url }}" title="文件预览"></iframe>
+                </div>
+                {% elif preview_kind == 'image' %}
+                <div class="preview-stage">
+                    <img class="preview-image" src="{{ preview_url }}" alt="{{ filename }}">
+                </div>
+                {% elif preview_kind == 'video' %}
+                <div class="preview-stage">
+                    <video class="preview-video" controls preload="metadata">
+                        <source src="{{ preview_url }}">
+                        当前浏览器不支持视频播放，请下载后查看。
+                    </video>
+                </div>
+                {% elif preview_kind == 'audio' %}
+                <div class="preview-stage">
+                    <div class="preview-audio-wrap">
+                        <i class="fas fa-music"></i>
+                        <audio controls preload="metadata">
+                            <source src="{{ preview_url }}">
+                            当前浏览器不支持音频播放，请下载后查看。
+                        </audio>
+                        <p class="preview-audio-tip">你可以直接试听音频内容，也可以使用右上角按钮下载原文件。</p>
+                    </div>
+                </div>
+                {% endif %}
+            </section>
             {% else %}
-            <a href="{{ url_for('share_preview', share_code=share_code) }}" 
-               class="btn btn-primary" 
-               target="_blank">
-                <i class="fas fa-eye"></i> 在线预览
-            </a>
+            <section class="empty-card">
+                <i class="fas fa-file-alt"></i>
+                <h2>{% if is_directory %}当前分享是文件夹{% else %}当前文件暂不支持在线预览{% endif %}</h2>
+                <p>
+                    {% if is_directory %}
+                    文件夹分享暂不提供页面内预览。
+                    {% elif download_available %}
+                    该文件类型还不能在浏览器中稳定展示，请使用右上角按钮下载查看。
+                    {% else %}
+                    当前资源无法直接在分享页中展示。
+                    {% endif %}
+                </p>
+            </section>
             {% endif %}
-            <a href="{{ url_for('share_download', share_code=share_code) }}" 
-               class="btn btn-success">
-                <i class="fas fa-download"></i> 下载文件
-            </a>
-        </div>
-        
-        {% if ext in ['drawio', 'diagram', 'dio'] %}
-        <div class="alert alert-info mt-3">
-            <i class="fas fa-info-circle"></i> 
-            这是一个Draw.io图表文件，点击"预览图表"可以在线查看图表内容（只读模式）。
-        </div>
-        {% endif %}
 
-        <div class="text-center mt-4">
-            <p class="text-muted small">
-                <i class="fas fa-info-circle"></i> 
-                此链接由 Yobboy 文件服务器 生成
-            </p>
+            <section class="info-card">
+                <div class="card-header-row">
+                    <h3>分享信息</h3>
+                    {% if link_data.max_visits > 0 %}
+                    <span class="preview-type">已访问 {{ link_data.current_visits }} / {{ link_data.max_visits }}</span>
+                    {% endif %}
+                </div>
+                <div class="info-grid">
+                    <div class="info-item">
+                        <div class="info-label"><i class="fas fa-file"></i> 文件名</div>
+                        <div class="info-value">{{ filename }}</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-label"><i class="fas fa-calendar"></i> 创建时间</div>
+                        <div class="info-value">{{ link_data.created_at[:19] }}</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-label"><i class="fas fa-link"></i> 分享类型</div>
+                        <div class="info-value">{{ '文件夹' if is_directory else '文件' }}</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-label"><i class="fas fa-clock"></i> 过期时间</div>
+                        <div class="info-value">{{ link_data.expire_time[:19] if link_data.expire_time else '永不过期' }}</div>
+                    </div>
+                </div>
+            </section>
+        </div>
+
+        <div class="share-footer">
+            <i class="fas fa-info-circle"></i>
+            此链接由 Yobboy 文件服务器生成
         </div>
     </div>
 
     <script src="{{ url_for('static', filename='js/bootstrap.bundle.min.js') }}"></script>
-<script src="{{ url_for('static', filename='js/theme_floater.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/theme_floater.js') }}"></script>
 </body>
 </html>
-

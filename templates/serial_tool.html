@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
+    {% include '_theme_bootstrap.html' %}
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>串口调试助手 - Yobboy文件服务器</title>
@@ -85,12 +86,6 @@
             opacity: 1;
         }
     </style>
-    <script>
-        (function() {
-            const savedTheme = localStorage.getItem('site_theme') || 'jasmine';
-            document.body.setAttribute('data-theme', savedTheme);
-        })();
-    </script>
 </head>
 <body>
     <!-- 顶部导航栏 -->
@@ -613,7 +608,7 @@
     </div>
 
     <script src="{{ url_for('static', filename='js/bootstrap.bundle.min.js') }}"></script>
-    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <script src="{{ url_for('static', filename='js/socket.io.min.js') }}"></script>
     <!-- 浮动工具栏 -->
     <div class="floating-toolbar">
         <a href="{{ url_for('index') }}" class="toolbar-btn back-btn" title="返回主界面">
@@ -622,8 +617,11 @@
         </a>
     </div>
     
+    <script>
+        window.SERIAL_SERVER_CONFIG = {{ (serial_server_config or {}) | tojson }};
+    </script>
     <script src="{{ url_for('static', filename='js/serial_tool.js') }}?v={{ range(1, 99999) | random }}"></script>
+    <script src="{{ url_for('static', filename='js/serial_tool_shared.js') }}?v={{ range(1, 99999) | random }}"></script>
     <script src="{{ url_for('static', filename='js/theme_floater.js') }}"></script>
 </body>
 </html>
-
