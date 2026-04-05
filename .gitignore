@@ -29,6 +29,7 @@ config.ini
 
 # 数据目录
 data/
+data-备份/
 
 # 日志文件
 logs/
