@@ -1,5 +1,40 @@
 # 更新日志
 
+## R1.4-dev (2026-04-08)
+
+### ✨ 新增功能
+
+**本地 AI + MCP 集成**
+- 新增本地 AI 对话能力，支持通用/知识库/代办模式，以及流式输出与手动停止生成
+- 后端新增本地 MCP 桥接（`local_mcp_bridge.py`），本地 AI 可通过 MCP 工具统一调用待办与知识库能力
+- 新增 MCP 调用记录面板（ToDo AI 与 Draw.io AI），可追踪每次工具调用和结果
+
+**ToDo AI 变更确认链路**
+- 新增待办变更可视化操作编辑器，操作类型与项目/任务引用改为人类可读展示
+- 新增“校验 JSON”流程（`/api/local-ai/todo/validate`），支持二次确认和纠错
+- 待确认操作支持本地持久化；关闭弹窗或刷新后可恢复，悬浮 AI 按钮红色闪烁提示待执行操作
+- 变更应用成功后触发页面刷新事件，解决“已应用但列表未更新”的问题
+
+**Draw.io AI（Phase 1 + Phase 2）**
+- 新增 `drawio_validate_xml`、`drawio_summarize_xml`、`drawio_diff_summary` 三个校验/摘要工具
+- 新增 `drawio_repair_xml` 自动修复工具，并接入失败后重试反馈循环
+- 增加生成过程进度事件与 MCP 事件输出，便于前端展示诊断信息
+
+### 🛠 优化改进
+
+- 优化 Draw.io 重试上下文裁剪策略，减少长上下文导致的模型失败
+- 增加最终收口校验（repair + validate），确保 summarize/diff 与最终应用使用稳定 XML
+- 增加布局质量检测项（`LAYOUT_OVERLAP`、`LAYOUT_OUT_OF_BOUNDS`），提升图形可读性
+
+### 🐛 问题修复
+
+- 修复待办字段（如 `conclusion`、`weekly_plan`、`task_type`）被误判为评论导致更新失败的问题
+- 修复关闭确认弹窗后待执行操作丢失的问题
+- 修复刷新页面后 MCP 相关记录与对话状态显示不一致的问题
+- 修复 Draw.io 在多轮修复后仍出现最终 `xml_parse_error` 的收口失败场景
+
+---
+
 ## R1.3 (2026-04-02)
 
 ### ✨ 新增功能

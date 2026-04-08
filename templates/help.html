@@ -4,7 +4,7 @@
     {% include '_theme_bootstrap.html' %}
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>使用帮助 - Yobboy 文件服务器 R1.3</title>
+    <title>使用帮助 - Yobboy 文件服务器 R1.4-dev</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap.min.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/font-awesome.min.css') }}">
         <!-- Theme System -->
@@ -279,11 +279,11 @@
                         <i class="fas fa-compass"></i> Yobboy 文件服务器 · 使用帮助中心
                     </h1>
                     <p class="mb-3">
-                        欢迎体验 R1.3 —— 功能完善的本地文件管理和协作工具。
+                        欢迎体验 R1.4-dev —— 功能完善的本地文件管理和协作工具。
                         集成了文件浏览、在线编辑、任务管理、产品对比、图表编辑、串口调试、共享串口与持续日志等多种功能。
                         本页汇总了快速上手、核心功能、管理配置、安全提示与常见问题，帮助你和团队高效协作。
                     </p>
-                    <span class="badge-pill"><i class="fas fa-history"></i> 最后更新：2026-04-02 · 版本 R1.3</span>
+                    <span class="badge-pill"><i class="fas fa-history"></i> 最后更新：2026-04-08 · 版本 R1.4-dev</span>
                 </div>
                 <div class="d-flex flex-column flex-sm-row gap-3">
                     <a class="btn btn-soft btn-success" href="{{ url_for('serial_tool') }}">
@@ -306,6 +306,7 @@
                 <li><a href="#file-explorer"><i class="fas fa-folder-open"></i> 文件浏览器</a></li>
                 <li><a href="#git-integration"><i class="fab fa-git-alt"></i> Git版本控制集成</a></li>
                 <li><a href="#todo-center"><i class="fas fa-tasks"></i> ToDo 任务管理系统</a></li>
+                <li><a href="#ai-assistant"><i class="fas fa-robot"></i> 本地 AI 与 MCP</a></li>
                 <li><a href="#product-compare"><i class="fas fa-balance-scale"></i> 产品对比工具</a></li>
                 <li><a href="#serial-tool"><i class="fas fa-microchip"></i> 串口调试与日志</a></li>
                 <li><a href="#drawio-markdown"><i class="fas fa-pencil-ruler"></i> 编辑与预览</a></li>
@@ -354,7 +355,7 @@
             </section>
 
             <section class="help-section" id="core-features">
-                <h2><i class="fas fa-gem"></i> 核心功能速览 <span>R1.3 版本</span></h2>
+                <h2><i class="fas fa-gem"></i> 核心功能速览 <span>R1.4-dev 版本</span></h2>
                 <div class="divider"></div>
                 <div class="sub-grid">
                     <div class="feature-card">
@@ -627,6 +628,47 @@ port = 5000
                             <li>笔记列表支持搜索、排序和筛选：按日期或更新时间排序，搜索笔记内容自动匹配。</li>
                             <li>历史笔记默认折叠，点击展开查看，支持编辑和删除。</li>
                             <li>笔记保存在独立文件中，与项目描述分离管理。</li>
+                        </ul>
+                    </div>
+                </div>
+            </section>
+
+            <section class="help-section" id="ai-assistant">
+                <h2><i class="fas fa-robot"></i> 本地 AI 与 MCP <span>可追踪、可确认、可中断</span></h2>
+                <div class="divider"></div>
+                <div class="section-grid">
+                    <div class="feature-card">
+                        <h3><i class="fas fa-comments"></i> AI 对话能力</h3>
+                        <ul>
+                            <li>支持 <strong>通用 / 知识库 / 代办</strong> 三种模式，支持流式输出。</li>
+                            <li>对话生成期间提供明显“生成中”状态；支持手动停止（中断）当前生成。</li>
+                            <li>支持“强制解析为变更”用于将自然语言请求直接转为待办变更提案。</li>
+                        </ul>
+                    </div>
+                    <div class="feature-card">
+                        <h3><i class="fas fa-plug"></i> MCP 工具接入</h3>
+                        <ul>
+                            <li>本地 AI 通过 MCP 桥接调用后端工具（Todo、知识库、Draw.io 校验与修复）。</li>
+                            <li>界面提供 <strong>MCP 调用记录</strong>，可查看调用了什么工具及结果状态。</li>
+                            <li>支持本地调用与外部客户端调用并存，方便后续替换模型或扩展客户端。</li>
+                        </ul>
+                    </div>
+                    <div class="feature-card">
+                        <h3><i class="fas fa-shield-alt"></i> ToDo 变更确认与防误操作</h3>
+                        <ul>
+                            <li>AI 生成待办变更后需二次确认再执行，支持可视化编辑操作项。</li>
+                            <li>支持“校验 JSON”进行二次检查；校验通过后再应用，降低误改风险。</li>
+                            <li>待确认操作会持久化保存；关闭弹窗或刷新页面后仍可恢复并继续执行。</li>
+                            <li>有待执行操作时，AI 按钮会红色闪烁提醒。</li>
+                        </ul>
+                    </div>
+                    <div class="feature-card">
+                        <h3><i class="fas fa-project-diagram"></i> Draw.io AI 自修复流程</h3>
+                        <ul>
+                            <li>内置 `drawio_validate_xml`、`drawio_summarize_xml`、`drawio_diff_summary`、`drawio_repair_xml` 工具链。</li>
+                            <li>生成失败会自动基于校验问题进行修复重试，并展示重试进度。</li>
+                            <li>最终输出前执行收口校验，减少“中途可过、最终失败”的 XML 解析问题。</li>
+                            <li>支持布局问题检测（重叠/越界），辅助定位图形可读性问题。</li>
                         </ul>
                     </div>
                 </div>
