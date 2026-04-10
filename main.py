@@ -753,7 +753,7 @@ def init_serial_socketio(socketio):
             'timestamp': entry['ts'],
             'entry': entry,
         }
-        socketio.emit('serial_entry', payload, namespace='/serial', room=channel_room(entry['channel_id']))
+        # 仅广播 serial_data，避免客户端同时监听 serial_entry + serial_data 时重复显示
         socketio.emit('serial_data', payload, namespace='/serial', room=channel_room(entry['channel_id']))
 
     def apply_serial_actions(actions):

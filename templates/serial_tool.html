@@ -154,124 +154,57 @@
                     </div>
                 </div>
 
-                <!-- 串口配置 -->
-                <div class="card" id="portConfigCard" style="display: none;">
-                    <div class="card-header">
-                        <strong>串口配置</strong>
-                        <span class="badge float-end" id="currentPortName" style="background: var(--t-success); color: white;">-</span>
+                <!-- 监控显示（固定于左侧，非浮层） -->
+                <div class="card mb-3" id="monitorDisplayCard">
+                    <div class="card-header py-2">
+                        <strong>监控显示</strong>
                     </div>
-                    <div class="card-body">
-                        <div class="mb-3">
-                            <label class="form-label">波特率</label>
-                            <select class="form-select form-select-sm" id="baudRate">
-                                <option value="300">300</option>
-                                <option value="1200">1200</option>
-                                <option value="2400">2400</option>
-                                <option value="4800">4800</option>
-                                <option value="9600" selected>9600</option>
-                                <option value="14400">14400</option>
-                                <option value="19200">19200</option>
-                                <option value="38400">38400</option>
-                                <option value="57600">57600</option>
-                                <option value="115200">115200</option>
-                                <option value="230400">230400</option>
-                                <option value="460800">460800</option>
-                                <option value="921600">921600</option>
-                            </select>
+                    <div class="card-body py-2 px-3">
+                        <div class="data-format-tabs" id="serialMonitorOptions">
+                            <div class="small text-muted mb-1">显示模式</div>
+                            <div class="btn-group btn-group-sm mb-2 w-100 flex-wrap" role="group">
+                                <input type="radio" class="btn-check" name="displayMode" id="modeBubble" value="bubble" checked>
+                                <label class="btn btn-outline-success" for="modeBubble">
+                                    <i class="fas fa-comments"></i> 气泡
+                                </label>
+                                <input type="radio" class="btn-check" name="displayMode" id="modeTerminal" value="terminal">
+                                <label class="btn btn-outline-success" for="modeTerminal">
+                                    <i class="fas fa-terminal"></i> 终端
+                                </label>
+                            </div>
+                            <div class="small text-muted mb-1">数据格式</div>
+                            <div class="btn-group btn-group-sm w-100 flex-wrap" role="group">
+                                <input type="radio" class="btn-check" name="dataFormat" id="formatText" value="text" checked>
+                                <label class="btn btn-outline-primary" for="formatText">文本</label>
+                                <input type="radio" class="btn-check" name="dataFormat" id="formatHex" value="hex">
+                                <label class="btn btn-outline-primary" for="formatHex">HEX</label>
+                                <input type="radio" class="btn-check" name="dataFormat" id="formatDec" value="dec">
+                                <label class="btn btn-outline-primary" for="formatDec">十进制</label>
+                                <input type="radio" class="btn-check" name="dataFormat" id="formatBin" value="bin">
+                                <label class="btn btn-outline-primary" for="formatBin">二进制</label>
+                            </div>
+                            <hr class="my-2 opacity-25">
+                            <div class="form-check form-check-sm mb-1">
+                                <input class="form-check-input" type="checkbox" id="showSerialTimestamp" checked>
+                                <label class="form-check-label small" for="showSerialTimestamp">显示时间戳</label>
+                            </div>
+                            <div class="form-check form-check-sm mb-0">
+                                <input class="form-check-input" type="checkbox" id="showSerialTimestampMs" checked>
+                                <label class="form-check-label small text-muted" for="showSerialTimestampMs">时间戳含毫秒（气泡底部 / 终端行首）</label>
+                            </div>
                         </div>
-                        <div class="mb-3">
-                            <label class="form-label">数据位</label>
-                            <select class="form-select form-select-sm" id="dataBits">
-                                <option value="7">7</option>
-                                <option value="8" selected>8</option>
-                            </select>
-                        </div>
-                        <div class="mb-3">
-                            <label class="form-label">停止位</label>
-                            <select class="form-select form-select-sm" id="stopBits">
-                                <option value="1" selected>1</option>
-                                <option value="2">2</option>
-                            </select>
-                        </div>
-                        <div class="mb-3">
-                            <label class="form-label">校验位</label>
-                            <select class="form-select form-select-sm" id="parity">
-                                <option value="none" selected>无</option>
-                                <option value="even">偶校验</option>
-                                <option value="odd">奇校验</option>
-                            </select>
-                        </div>
-                        <div class="mb-3">
-                            <label class="form-label">流控制</label>
-                            <select class="form-select form-select-sm" id="flowControl">
-                                <option value="none" selected>无</option>
-                                <option value="hardware">硬件流控</option>
-                            </select>
-                        </div>
-                        <button class="btn btn-sm btn-success w-100" id="applyConfigBtn">
-                            <i class="fas fa-check"></i> 应用配置
-                        </button>
                     </div>
                 </div>
 
-                <!-- 持续日志管理 -->
-                <div class="card mt-3">
-                    <div class="card-header d-flex justify-content-between align-items-center">
-                        <strong>持续日志</strong>
-                        <div class="btn-group btn-group-sm">
-                            <button class="btn btn-outline-light" id="refreshCapturePortsBtn" title="刷新串口列表">
-                                <i class="fas fa-sync-alt"></i>
-                            </button>
-                            <button class="btn btn-outline-light" id="refreshCaptureStatusBtn" title="刷新日志状态">
-                                <i class="fas fa-redo"></i>
-                            </button>
-                        </div>
+                <!-- 当前连接参数（打开串口时已固定，仅展示） -->
+                <div class="card" id="portConfigCard" style="display: none;">
+                    <div class="card-header">
+                        <strong>当前连接</strong>
+                        <span class="badge float-end" id="currentPortName" style="background: var(--t-success); color: white;">-</span>
                     </div>
-                    <div class="card-body">
-                        <div class="mb-2">
-                            <label class="form-label">串口设备</label>
-                            <select class="form-select form-select-sm" id="capturePortSelect">
-                                <option value="">请选择服务器串口</option>
-                            </select>
-                        </div>
-                        <div class="row g-2">
-                            <div class="col-6">
-                                <label class="form-label">波特率</label>
-                                <input type="number" class="form-control form-control-sm" id="captureBaudRate" value="9600" min="110" step="10">
-                            </div>
-                            <div class="col-6">
-                                <label class="form-label">数据位</label>
-                                <select class="form-select form-select-sm" id="captureDataBits">
-                                    <option value="7">7</option>
-                                    <option value="8" selected>8</option>
-                                </select>
-                            </div>
-                        </div>
-                        <div class="row g-2 mt-2">
-                            <div class="col-6">
-                                <label class="form-label">校验位</label>
-                                <select class="form-select form-select-sm" id="captureParity">
-                                    <option value="none" selected>无</option>
-                                    <option value="even">偶校验</option>
-                                    <option value="odd">奇校验</option>
-                                </select>
-                            </div>
-                            <div class="col-6">
-                                <label class="form-label">停止位</label>
-                                <select class="form-select form-select-sm" id="captureStopBits">
-                                    <option value="1" selected>1</option>
-                                    <option value="2">2</option>
-                                </select>
-                            </div>
-                        </div>
-                        <button class="btn btn-sm btn-success w-100 mt-3" id="startCaptureBtn">
-                            <i class="fas fa-play-circle"></i> 开启持续日志
-                        </button>
-                    </div>
-                    <div class="list-group list-group-flush capture-session-list" id="captureSessionList">
-                        <div class="list-group-item text-muted small text-center py-2">
-                            暂无持续日志任务
-                        </div>
+                    <div class="card-body small">
+                        <p class="text-muted mb-0" id="portInfoSummary">—</p>
+                        <p class="text-muted mt-2 mb-0 small">参数在连接时已确定；若要修改请断开并重新添加串口。</p>
                     </div>
                 </div>
             </div>
@@ -297,34 +230,6 @@
                         </div>
                     </div>
                     <div class="card-body p-0 position-relative">
-                        <!-- 显示模式切换 -->
-                        <div class="data-format-tabs">
-                            <div class="btn-group btn-group-sm mb-2" role="group">
-                                <input type="radio" class="btn-check" name="displayMode" id="modeBubble" value="bubble" checked>
-                                <label class="btn btn-outline-success" for="modeBubble">
-                                    <i class="fas fa-comments"></i> 气泡
-                                </label>
-                                
-                                <input type="radio" class="btn-check" name="displayMode" id="modeTerminal" value="terminal">
-                                <label class="btn btn-outline-success" for="modeTerminal">
-                                    <i class="fas fa-terminal"></i> 终端
-                                </label>
-                            </div>
-                            <div class="btn-group btn-group-sm" role="group">
-                                <input type="radio" class="btn-check" name="dataFormat" id="formatText" value="text" checked>
-                                <label class="btn btn-outline-primary" for="formatText">文本</label>
-                                
-                                <input type="radio" class="btn-check" name="dataFormat" id="formatHex" value="hex">
-                                <label class="btn btn-outline-primary" for="formatHex">HEX</label>
-                                
-                                <input type="radio" class="btn-check" name="dataFormat" id="formatDec" value="dec">
-                                <label class="btn btn-outline-primary" for="formatDec">十进制</label>
-                                
-                                <input type="radio" class="btn-check" name="dataFormat" id="formatBin" value="bin">
-                                <label class="btn btn-outline-primary" for="formatBin">二进制</label>
-                            </div>
-                        </div>
-                        
                         <!-- 数据显示区域 - 气泡模式 -->
                         <div id="dataDisplay" class="data-display"></div>
                         
@@ -332,6 +237,7 @@
                         <div id="terminalContainer" class="terminal-container" style="display: none;">
                             <!-- 终端快捷键工具栏 -->
                             <div class="terminal-shortcuts">
+                                <span class="text-light small me-2 d-none d-md-inline">行模式：输入后按 Enter 发送一行（末尾自动 CR+LF）；Ctrl+C / Ctrl+D 等仍即时发送。</span>
                                 <button class="btn btn-sm btn-outline-light" id="termCtrlC" title="发送 Ctrl+C (中断)">
                                     <i class="fas fa-stop-circle"></i> Ctrl+C
                                 </button>
@@ -524,37 +430,6 @@
         </div>
     </div>
 
-    <!-- 持续日志内容查看模态框 -->
-    <div class="modal fade" id="captureLogViewModal" tabindex="-1">
-        <div class="modal-dialog modal-xl">
-            <div class="modal-content">
-                <div class="modal-header d-flex justify-content-between align-items-center">
-                    <h5 class="modal-title">
-                        <i class="fas fa-file-alt"></i>
-                        <span id="captureLogViewTitle">持续日志记录</span>
-                    </h5>
-                    <div class="d-flex align-items-center gap-2">
-                        <span class="badge bg-secondary" id="captureLogViewStats">-- 条 · -- 字节</span>
-                        <button type="button" class="btn btn-sm btn-outline-primary" id="captureLogViewRefreshBtn" title="刷新">
-                            <i class="fas fa-sync-alt"></i>
-                        </button>
-                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                    </div>
-                </div>
-                <div class="modal-body p-0">
-                    <div class="border-bottom px-3 py-2 bg-light small">
-                        <span class="text-success"><i class="fas fa-arrow-down"></i> RX</span>
-                        <span class="text-primary ms-2"><i class="fas fa-arrow-up"></i> TX</span>
-                    </div>
-                    <pre id="captureLogViewContent" class="mb-0 p-3 small" style="max-height: 70vh; overflow: auto; white-space: pre-wrap; word-break: break-all; font-size: 12px;"></pre>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
-                </div>
-            </div>
-        </div>
-    </div>
-
     <!-- 帮助模态框 -->
     <div class="modal fade" id="helpModal" tabindex="-1">
         <div class="modal-dialog modal-lg">
@@ -585,6 +460,9 @@
                     
                     <h6 class="mt-3"><i class="fas fa-terminal text-warning"></i> 常用功能</h6>
                     <ul>
+                        <li><strong>监控显示</strong>：显示模式与数据格式、时间戳选项在左侧「串口列表」下方的固定面板中设置（可关闭时间戳或关闭毫秒）</li>
+                        <li><strong>终端模式</strong>：普通字符先进入当前行，按 <kbd>Enter</kbd> 发送整行并在末尾自动发送 CR+LF；控制键（Ctrl+C、方向键等）仍立即发送</li>
+                        <li><strong>后台记录</strong>：选中串口条目右侧圆点/停止按钮可开关服务器侧文件记录；日常调试用数据监控区即可</li>
                         <li><strong>数据格式切换</strong>：支持文本、HEX、十进制、二进制显示</li>
                         <li><strong>保存日志</strong>：将接收到的所有数据保存为文本文件</li>
                         <li><strong>快捷指令</strong>：预设常用命令，一键发送</li>

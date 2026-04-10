@@ -335,19 +335,25 @@ body {
     transition: all 0.2s ease;
 }
 
-/* 数据格式切换标签 */
-.data-format-tabs {
-    position: absolute;
-    top: 10px;
-    right: 10px;
-    z-index: 10;
-    background: rgba(255, 255, 255, 0.95);
-    padding: 8px;
-    border-radius: 6px;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+/* 监控显示选项（左侧固定区域，非浮层） */
+.left-panel .data-format-tabs {
+    position: static;
+    z-index: auto;
+    background: transparent;
+    padding: 0;
+    box-shadow: none;
     display: flex;
     flex-direction: column;
-    gap: 5px;
+    gap: 0;
+}
+
+.left-panel .data-format-tabs .btn-group {
+    justify-content: flex-start;
+}
+
+.left-panel .data-format-tabs .btn-group .btn {
+    flex: 1 1 auto;
+    min-width: 0;
 }
 
 /* 终端模式容器 */
@@ -672,11 +678,6 @@ textarea.form-control {
 @media (max-width: 768px) {
     .main-container {
         padding: 10px;
-    }
-    
-    .data-format-tabs {
-        position: static;
-        margin-bottom: 10px;
     }
     
     .stats-bar {

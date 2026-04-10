@@ -66,7 +66,7 @@
         return state || '待机';
     }
 
-    function formatTerminalRecord(record, dataFormat) {
+    function formatTerminalRecord(record, dataFormat, app) {
         if (!record) return '';
 
         let content = '';
@@ -89,10 +89,14 @@
                 break;
         }
 
+        const prefix =
+            app && typeof app.formatTerminalTimePrefix === 'function'
+                ? app.formatTerminalTimePrefix(record.timestamp)
+                : '';
         if (record.direction === 'tx') {
-            return `[TX] ${content}`;
+            return `${prefix}[TX] ${content}`;
         }
-        return content;
+        return `${prefix}${content}`;
     }
 
     SerialToolApp.prototype.init = function patchedInit() {
@@ -326,7 +330,6 @@
             socket.on('channel_state', (data) => this.handleChannelState(data?.channel));
             socket.on('port_opened', (data) => this.handleRemotePortOpened(data));
             socket.on('port_closed', (data) => this.handleRemotePortClosed(data));
-            socket.on('serial_entry', (data) => this.handleRemoteSerialEvent(data));
             socket.on('serial_data', (data) => this.handleRemoteSerialEvent(data));
             socket.on('data_written', (data) => this.handleRemoteDataWritten(data));
             socket.on('browser_channel_activate', (data) => this.handleBrowserChannelActivate(data));
@@ -739,7 +742,7 @@
 
         display.innerHTML = '';
         const terminalText = this.getSortedPortRecords(this.currentPort)
-            .map((record) => formatTerminalRecord(record, this.dataFormat))
+            .map((record) => formatTerminalRecord(record, this.dataFormat, this))
             .join('');
 
         if (terminalText) {
@@ -762,7 +765,7 @@
             return originalDisplayTerminalData.call(this, data);
         }
 
-        this.appendToTerminalDisplay(formatTerminalRecord(data, this.dataFormat));
+        this.appendToTerminalDisplay(formatTerminalRecord(data, this.dataFormat, this));
     };
 
     SerialToolApp.prototype.loadHistoricalLog = async function patchedLoadHistoricalLog(portId, options = {}) {
@@ -924,20 +927,20 @@
 
             if (isRemote) {
                 if (portInfo.connected) {
-                    actionButtons.push(`<button class="btn btn-sm btn-outline-danger" onclick="serialApp.disconnectPort('${portId}')"><i class="fas fa-times"></i></button>`);
+                    actionButtons.push(`<button type="button" class="btn btn-sm btn-outline-danger" title="断开与此串口的连接" aria-label="断开连接" onclick="serialApp.disconnectPort('${portId}')"><i class="fas fa-times"></i></button>`);
                 } else if (portInfo.available !== false) {
-                    actionButtons.push(`<button class="btn btn-sm btn-outline-primary" onclick="serialApp.connectSharedChannel('${portId}')"><i class="fas fa-plug"></i></button>`);
+                    actionButtons.push(`<button type="button" class="btn btn-sm btn-outline-primary" title="连接此串口以收发数据" aria-label="连接串口" onclick="serialApp.connectSharedChannel('${portId}')"><i class="fas fa-plug"></i></button>`);
                 }
                 if (portInfo.captureActive) {
-                    actionButtons.push(`<button class="btn btn-sm btn-outline-warning" onclick="serialApp.toggleCaptureForPort('${portId}', false)"><i class="fas fa-stop"></i></button>`);
+                    actionButtons.push(`<button type="button" class="btn btn-sm btn-outline-warning" title="停止服务器侧后台持续记录（不影响当前监控区）" aria-label="停止后台记录" onclick="serialApp.toggleCaptureForPort('${portId}', false)"><i class="fas fa-stop"></i></button>`);
                 } else {
-                    actionButtons.push(`<button class="btn btn-sm btn-outline-success" onclick="serialApp.toggleCaptureForPort('${portId}', true)"><i class="fas fa-circle"></i></button>`);
+                    actionButtons.push(`<button type="button" class="btn btn-sm btn-outline-success" title="在服务器侧开启后台持续记录，便于事后查看文件" aria-label="开启后台记录" onclick="serialApp.toggleCaptureForPort('${portId}', true)"><i class="fas fa-circle"></i></button>`);
                 }
                 if (portInfo.isSharedByMe) {
-                    actionButtons.push(`<button class="btn btn-sm btn-outline-secondary" onclick="serialApp.unregisterSharedPort('${portId}')"><i class="fas fa-unlink"></i></button>`);
+                    actionButtons.push(`<button type="button" class="btn btn-sm btn-outline-secondary" title="取消将本机串口共享到服务器" aria-label="取消共享" onclick="serialApp.unregisterSharedPort('${portId}')"><i class="fas fa-unlink"></i></button>`);
                 }
             } else if (portInfo.connected) {
-                actionButtons.push(`<button class="btn btn-sm btn-outline-danger" onclick="serialApp.disconnectPort('${portId}')"><i class="fas fa-times"></i></button>`);
+                actionButtons.push(`<button type="button" class="btn btn-sm btn-outline-danger" title="断开连接" aria-label="断开连接" onclick="serialApp.disconnectPort('${portId}')"><i class="fas fa-times"></i></button>`);
             }
 
             item.innerHTML = `

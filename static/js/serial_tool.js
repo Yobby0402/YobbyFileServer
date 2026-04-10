@@ -21,6 +21,9 @@ class SerialToolApp {
         this.bufferTimeout = null; // 缓冲超时定时器
         this.displayMode = 'bubble'; // 显示模式：bubble 或 terminal
         this.localEcho = true; // 本地回显：是否显示用户输入的字符
+        this.termLineBuffer = ''; // 终端模式：当前行缓冲（回车整行发送）
+        this.showTimestamp = true; // 气泡底部 / 终端行首是否显示时间
+        this.showMilliseconds = true; // 时间戳是否含毫秒
         this.captureSessions = new Map(); // 持续日志会话
         this.historyMarkers = new Map(); // 已加载日志的时间戳
         this.capturePortOptions = []; // 可用串口列表
@@ -43,8 +46,6 @@ class SerialToolApp {
         // 初始化模态框
         this.initModals();
 
-        // 加载持续日志信息
-        this.loadCapturePorts();
         this.loadCaptureStatus();
         
         console.log('串口调试助手已初始化');
@@ -269,6 +270,20 @@ class SerialToolApp {
             if (appendCRLF) {
                 document.getElementById('appendCRLF').checked = appendCRLF === 'true';
             }
+            if (localStorage.getItem('serialToolShowTimestamp') === 'false') {
+                this.showTimestamp = false;
+            }
+            if (localStorage.getItem('serialToolShowMilliseconds') === 'false') {
+                this.showMilliseconds = false;
+            }
+            if (!this.showTimestamp) {
+                this.showMilliseconds = false;
+            }
+            const chkTs = document.getElementById('showSerialTimestamp');
+            const chkMs = document.getElementById('showSerialTimestampMs');
+            if (chkTs) chkTs.checked = this.showTimestamp;
+            if (chkMs) chkMs.checked = this.showMilliseconds;
+            this.updateTimestampOptionsUi();
         } catch (error) {
             console.error('加载设置失败:', error);
         }
@@ -295,11 +310,45 @@ class SerialToolApp {
                 console.error('保存快捷指令失败:', result.error);
             }
             
-            // 保存其他设置到 localStorage
             localStorage.setItem('serialToolAppendCRLF', document.getElementById('appendCRLF').checked);
+            this.persistTimestampSettings();
         } catch (error) {
             console.error('保存设置失败:', error);
         }
+    }
+
+    persistTimestampSettings() {
+        localStorage.setItem('serialToolShowTimestamp', this.showTimestamp ? 'true' : 'false');
+        localStorage.setItem('serialToolShowMilliseconds', this.showMilliseconds ? 'true' : 'false');
+    }
+
+    updateTimestampOptionsUi() {
+        const chkMs = document.getElementById('showSerialTimestampMs');
+        if (chkMs) {
+            chkMs.disabled = !this.showTimestamp;
+        }
+    }
+
+    /** 气泡模式底部时间文案；不显示时返回空串 */
+    formatBubbleTimeLabel(date) {
+        if (!this.showTimestamp) return '';
+        const d = date instanceof Date ? date : new Date(date);
+        if (Number.isNaN(d.getTime())) return '';
+        const h = d.getHours().toString().padStart(2, '0');
+        const m = d.getMinutes().toString().padStart(2, '0');
+        const s = d.getSeconds().toString().padStart(2, '0');
+        let out = `${h}:${m}:${s}`;
+        if (this.showMilliseconds) {
+            out += `.${d.getMilliseconds().toString().padStart(3, '0')}`;
+        }
+        return out;
+    }
+
+    /** 终端模式下行首前缀（含括号），无时间戳时返回空串 */
+    formatTerminalTimePrefix(date) {
+        if (!this.showTimestamp) return '';
+        const inner = this.formatBubbleTimeLabel(date);
+        return inner ? `[${inner}] ` : '';
     }
     
     async loadCapturePorts(force = false) {
@@ -827,11 +876,11 @@ class SerialToolApp {
             this.addPort();
         });
         
-        // 应用配置
-        document.getElementById('applyConfigBtn').addEventListener('click', () => {
-            this.applyPortConfig();
-        });
-        
+        const applyConfigBtn = document.getElementById('applyConfigBtn');
+        if (applyConfigBtn) {
+            applyConfigBtn.addEventListener('click', () => this.applyPortConfig());
+        }
+
         // 数据显示控制
         document.getElementById('clearDataBtn').addEventListener('click', () => {
             this.clearData();
@@ -857,13 +906,44 @@ class SerialToolApp {
             });
         });
         
-        // 数据格式切换
         document.querySelectorAll('input[name="dataFormat"]').forEach(radio => {
             radio.addEventListener('change', (e) => {
                 this.dataFormat = e.target.value;
                 this.refreshDataDisplay();
+                if (this.displayMode === 'terminal') {
+                    this.refreshTerminalDisplay();
+                }
             });
         });
+
+        const chkSerialTs = document.getElementById('showSerialTimestamp');
+        if (chkSerialTs) {
+            chkSerialTs.addEventListener('change', (e) => {
+                this.showTimestamp = e.target.checked;
+                if (!this.showTimestamp) {
+                    this.showMilliseconds = false;
+                    const chkMs = document.getElementById('showSerialTimestampMs');
+                    if (chkMs) chkMs.checked = false;
+                }
+                this.updateTimestampOptionsUi();
+                this.persistTimestampSettings();
+                this.refreshDataDisplay();
+                if (this.displayMode === 'terminal') {
+                    this.refreshTerminalDisplay();
+                }
+            });
+        }
+        const chkSerialMs = document.getElementById('showSerialTimestampMs');
+        if (chkSerialMs) {
+            chkSerialMs.addEventListener('change', (e) => {
+                this.showMilliseconds = e.target.checked;
+                this.persistTimestampSettings();
+                this.refreshDataDisplay();
+                if (this.displayMode === 'terminal') {
+                    this.refreshTerminalDisplay();
+                }
+            });
+        }
         
         // 真实终端交互 - 实时发送字符
         this.setupInteractiveTerminal();
@@ -983,6 +1063,28 @@ class SerialToolApp {
         if (value === 'e' || value === 'even') return 'even';
         if (value === 'o' || value === 'odd') return 'odd';
         return value;
+    }
+
+    formatParityLabel(parity) {
+        const value = (parity == null ? 'N' : String(parity)).toUpperCase();
+        const map = { N: '无', E: '偶', O: '奇', NONE: '无', EVEN: '偶', ODD: '奇', M: '标记', S: '空格' };
+        return map[value] || value;
+    }
+
+    updatePortInfoSummary(portInfo) {
+        const el = document.getElementById('portInfoSummary');
+        if (!el) return;
+        if (!portInfo) {
+            el.textContent = '—';
+            return;
+        }
+        const c = portInfo.config || {};
+        const br = c.baudRate ?? c.baudrate ?? '--';
+        const db = c.dataBits ?? c.bytesize ?? '--';
+        const sb = c.stopBits ?? c.stopbits ?? '--';
+        const par = this.formatParityLabel(c.parity);
+        const fc = c.flowControl === 'hardware' ? 'RTS/CTS' : '无';
+        el.textContent = `波特率 ${br} · 数据位 ${db} · 停止位 ${sb} · 校验 ${par} · 流控 ${fc}`;
     }
 
     buildRemotePortId(device, baudRate) {
@@ -1685,7 +1787,7 @@ class SerialToolApp {
         const terminalContainer = document.getElementById('terminalContainer');
         
         if (this.displayMode === 'terminal') {
-            // 切换到终端模式
+            this.termLineBuffer = '';
             bubbleDisplay.style.display = 'none';
             terminalContainer.style.display = 'flex';
             
@@ -1698,7 +1800,7 @@ class SerialToolApp {
                 if (input) input.focus();
             }, 100);
         } else {
-            // 切换到气泡模式
+            this.termLineBuffer = '';
             bubbleDisplay.style.display = 'block';
             terminalContainer.style.display = 'none';
             
@@ -1715,7 +1817,7 @@ class SerialToolApp {
         display.innerHTML = '';
         
         // 重新显示所有历史数据
-        this.dataLog.forEach(data => {
+        this.dataLog.forEach((data) => {
             if (data.portId === this.currentPort) {
                 let content = '';
                 switch (this.dataFormat) {
@@ -1736,8 +1838,8 @@ class SerialToolApp {
                             .join(' ') + ' ';
                         break;
                 }
-                
-                this.appendToTerminalDisplay(content);
+                const prefix = this.formatTerminalTimePrefix(data.timestamp);
+                this.appendToTerminalDisplay(prefix + content);
             }
         });
         
@@ -1779,8 +1881,8 @@ class SerialToolApp {
                 break;
         }
         
-        // 直接追加到终端显示区域
-        this.appendToTerminalDisplay(content);
+        const prefix = this.formatTerminalTimePrefix(data.timestamp);
+        this.appendToTerminalDisplay(prefix + content);
     }
     
     // 绑定终端快捷键按钮
@@ -1818,50 +1920,56 @@ class SerialToolApp {
         }
     }
     
-    // 设置交互式终端（使用隐藏 input 方案）
+    // 终端：行缓冲 + 隐藏 input（Enter 发送整行并附带 \\r\\n；控制序列仍立即发送）
     setupInteractiveTerminal() {
         const input = document.getElementById('terminalInput');
         const display = document.getElementById('terminalDisplay');
         
         if (!input || !display) {
-            console.warn('Terminal input or display not found');
             return;
         }
         
-        // 防止多次绑定
         if (input._terminalSetup) return;
         input._terminalSetup = true;
         
-        console.log('Setting up interactive terminal with hidden input');
+        const resetInputCaret = () => {
+            setTimeout(() => {
+                if (input === document.activeElement) {
+                    input.setSelectionRange(0, 0);
+                }
+            }, 0);
+        };
         
-        // 键盘事件处理 - 同步函数，立即阻止
         input.addEventListener('keydown', (e) => {
-            // 只在终端模式时处理
             if (this.displayMode !== 'terminal') {
                 return;
             }
             
-            console.log('Terminal input keydown:', e.key, 'input.value before:', JSON.stringify(input.value));
-            
             const needsPort = this.currentPort !== null;
             let handled = false;
             
-            // 处理特殊键（同步处理，立即阻止）
             if (e.ctrlKey && !e.altKey && !e.shiftKey) {
                 if (e.key === 'c') {
                     e.preventDefault();
+                    this.termLineBuffer = '';
                     if (this.localEcho) this.appendToTerminalDisplay('^C\n');
                     if (needsPort) this.sendRawBytes([0x03]);
                     input.value = '';
                     handled = true;
                 } else if (e.key === 'd') {
                     e.preventDefault();
-                    if (this.localEcho) this.appendToTerminalDisplay('^D\n');
-                    if (needsPort) this.sendRawBytes([0x04]);
+                    if (this.termLineBuffer.length === 0) {
+                        if (this.localEcho) this.appendToTerminalDisplay('^D\n');
+                        if (needsPort) this.sendRawBytes([0x04]);
+                    } else {
+                        this.termLineBuffer = this.termLineBuffer.slice(0, -1);
+                        if (this.localEcho) this.handleBackspaceInTerminal();
+                    }
                     input.value = '';
                     handled = true;
                 } else if (e.key === 'z') {
                     e.preventDefault();
+                    this.termLineBuffer = '';
                     if (this.localEcho) this.appendToTerminalDisplay('^Z\n');
                     if (needsPort) this.sendRawBytes([0x1A]);
                     input.value = '';
@@ -1869,192 +1977,113 @@ class SerialToolApp {
                 } else if (e.key === 'l') {
                     e.preventDefault();
                     this.clearTerminalScreen();
+                    this.termLineBuffer = '';
                     input.value = '';
                     handled = true;
                 }
             } else if (e.key === 'Enter') {
                 e.preventDefault();
-                console.log('Enter blocked, appending newline, needsPort:', needsPort, 'localEcho:', this.localEcho);
+                if (needsPort) {
+                    const lineBytes = new TextEncoder().encode(this.termLineBuffer);
+                    const payload = new Uint8Array(lineBytes.length + 2);
+                    payload.set(lineBytes);
+                    payload.set([0x0d, 0x0a], lineBytes.length);
+                    this.sendRawBytes(Array.from(payload));
+                }
                 if (this.localEcho) {
                     this.appendToTerminalDisplay('\n');
                 }
-                if (needsPort) {
-                    console.log('Calling sendRawBytes with CR+LF');
-                    this.sendRawBytes([0x0D, 0x0A]);
-                }
-                input.value = ''; // 清空 input
+                this.termLineBuffer = '';
+                input.value = '';
                 handled = true;
             } else if (e.key === 'Backspace') {
                 e.preventDefault();
-                console.log('Backspace pressed, localEcho:', this.localEcho);
-                if (needsPort) {
-                    console.log('Sending BS to serial port');
+                if (this.termLineBuffer.length > 0) {
+                    this.termLineBuffer = this.termLineBuffer.slice(0, -1);
+                    if (this.localEcho) this.handleBackspaceInTerminal();
+                } else if (needsPort) {
                     this.sendRawBytes([0x08]);
                 }
-                if (this.localEcho) {
-                    this.handleBackspaceInTerminal();
-                }
-                input.value = ''; // 清空 input 防止触发 input 事件
+                input.value = '';
                 handled = true;
             } else if (e.key === 'Tab') {
                 e.preventDefault();
-                if (this.localEcho) {
-                    this.appendToTerminalDisplay('\t'); // Tab 字符
-                }
-                if (needsPort) this.sendRawBytes([0x09]);
+                this.termLineBuffer += '\t';
+                if (this.localEcho) this.appendToTerminalDisplay('\t');
                 input.value = '';
                 handled = true;
             } else if (e.key === 'Escape') {
                 e.preventDefault();
-                if (needsPort) this.sendRawBytes([0x1B]);
+                if (needsPort) this.sendRawBytes([0x1b]);
                 input.value = '';
                 handled = true;
-            } else if (e.key === 'ArrowUp') {
+            } else if (e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
                 e.preventDefault();
                 e.stopPropagation();
-                if (needsPort) this.sendRawBytes([0x1B, 0x5B, 0x41]);
+                const seq = {
+                    ArrowUp: [0x1b, 0x5b, 0x41],
+                    ArrowDown: [0x1b, 0x5b, 0x42],
+                    ArrowRight: [0x1b, 0x5b, 0x43],
+                    ArrowLeft: [0x1b, 0x5b, 0x44],
+                }[e.key];
+                if (needsPort) this.sendRawBytes(seq);
                 input.value = '';
-                // 强制重置光标位置
-                setTimeout(() => {
-                    input.setSelectionRange(0, 0);
-                    input.focus();
-                }, 0);
+                resetInputCaret();
+                input.focus();
                 handled = true;
-            } else if (e.key === 'ArrowDown') {
+            } else if (e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
                 e.preventDefault();
-                e.stopPropagation();
-                if (needsPort) this.sendRawBytes([0x1B, 0x5B, 0x42]);
+                this.termLineBuffer += e.key;
+                if (this.localEcho) this.appendToTerminalDisplay(e.key);
                 input.value = '';
-                setTimeout(() => {
-                    input.setSelectionRange(0, 0);
-                    input.focus();
-                }, 0);
-                handled = true;
-            } else if (e.key === 'ArrowRight') {
-                e.preventDefault();
-                e.stopPropagation();
-                if (needsPort) this.sendRawBytes([0x1B, 0x5B, 0x43]);
-                input.value = '';
-                setTimeout(() => {
-                    input.setSelectionRange(0, 0);
-                    input.focus();
-                }, 0);
-                handled = true;
-            } else if (e.key === 'ArrowLeft') {
-                e.preventDefault();
-                e.stopPropagation();
-                if (needsPort) this.sendRawBytes([0x1B, 0x5B, 0x44]);
-                input.value = '';
-                setTimeout(() => {
-                    input.setSelectionRange(0, 0);
-                    input.focus();
-                }, 0);
                 handled = true;
             }
             
-            return !handled;
+            if (handled) {
+                e.stopPropagation();
+            }
         });
         
-        // input 事件 - 捕获普通字符输入
-        let lastProcessedValue = '';
-        let processingInput = false;
-        
-        input.addEventListener('input', (e) => {
-            // 防止重复处理
-            if (processingInput) {
-                console.log('Already processing input, skipping');
-                return;
-            }
-            
-            processingInput = true;
-            
-            // 立即保存并清空值
+        // 输入法组合完成后整段进入行缓冲，不逐字发送
+        input.addEventListener('input', () => {
+            if (this.displayMode !== 'terminal') return;
             const value = input.value;
+            if (!value) return;
             input.value = '';
-            
-            console.log('input event triggered, displayMode:', this.displayMode, 'value:', JSON.stringify(value), 'length:', value.length);
-            
-            if (this.displayMode !== 'terminal') {
-                console.log('Not in terminal mode, ignoring input');
-                processingInput = false;
-                return;
+            for (const ch of value) {
+                this.termLineBuffer += ch;
+                if (this.localEcho) this.appendToTerminalDisplay(ch);
             }
-            
-            // 过滤空值或重复值
-            if (!value || value === lastProcessedValue) {
-                console.log('Empty or duplicate value, skipping');
-                processingInput = false;
-                return;
-            }
-            
-            lastProcessedValue = value;
-            
-            console.log('Input value chars:', value.split('').map(c => c.charCodeAt(0)), 'localEcho:', this.localEcho);
-            
-            // 只在本地回显开启时显示用户输入
-            if (this.localEcho) {
-                this.appendToTerminalDisplay(value);
-            }
-            
-            if (this.currentPort) {
-                console.log('Sending input to serial port');
-                const bytes = new TextEncoder().encode(value);
-                console.log('Encoded bytes:', Array.from(bytes));
-                this.sendRawBytes(Array.from(bytes));
-            } else {
-                console.warn('No current port, not sending');
-            }
-            
-            // 重置标志和光标位置
-            setTimeout(() => {
-                processingInput = false;
-                lastProcessedValue = '';
-                // 确保光标位置在开头
-                if (input === document.activeElement) {
-                    input.setSelectionRange(0, 0);
-                }
-            }, 50);
+            resetInputCaret();
         });
         
-        // 点击显示区域时聚焦到 input
         display.addEventListener('click', () => {
             input.focus();
-            // 确保光标位置在开头
-            setTimeout(() => {
-                input.setSelectionRange(0, 0);
-            }, 0);
+            resetInputCaret();
         });
         
-        // 当 input 获得焦点时，确保光标位置在开头
-        input.addEventListener('focus', () => {
-            setTimeout(() => {
-                input.setSelectionRange(0, 0);
-            }, 0);
-        });
+        input.addEventListener('focus', () => resetInputCaret());
         
-        // 监听 selectionchange 事件，防止光标被移动
         document.addEventListener('selectionchange', () => {
             if (this.displayMode === 'terminal' && document.activeElement === input) {
-                // 如果光标位置不在开头，强制重置
                 if (input.selectionStart !== 0 || input.selectionEnd !== 0) {
                     input.setSelectionRange(0, 0);
                 }
             }
         });
         
-        // 粘贴支持
         input.addEventListener('paste', (e) => {
             if (this.displayMode !== 'terminal') return;
-            
             e.preventDefault();
             const text = e.clipboardData.getData('text/plain');
-            if (text) {
-                this.appendToTerminalDisplay(text);
-                if (this.currentPort) {
-                    const bytes = new TextEncoder().encode(text);
-                    this.sendRawBytes(Array.from(bytes));
+            if (!text) return;
+            for (const ch of text) {
+                this.termLineBuffer += ch;
+                if (this.localEcho) {
+                    this.appendToTerminalDisplay(ch === '\r' ? '' : ch === '\n' ? '\n' : ch);
                 }
             }
+            resetInputCaret();
         });
     }
     
@@ -2186,11 +2215,13 @@ class SerialToolApp {
             return;
         }
         
-        // 使用统一的 sendRawBytes 方法
         await this.sendRawBytes([charCode]);
         
-        // 在终端显示控制字符标记
-        const charName = this.getControlCharName(charCode);
+        if (this.displayMode === 'terminal') {
+            if (charCode === 0x03 || charCode === 0x1a) {
+                this.termLineBuffer = '';
+            }
+        }
         
         if (this.displayMode === 'terminal' && this.localEcho) {
             // 终端模式且本地回显开启时才显示
@@ -2205,27 +2236,14 @@ class SerialToolApp {
             }
         }
         
-        console.log('Control char sent:', charName);
-    }
-    
-    // 获取控制字符名称
-    getControlCharName(charCode) {
-        const names = {
-            0x03: '^C (Ctrl+C)',
-            0x04: '^D (Ctrl+D)',
-            0x09: '\\t (Tab)',
-            0x1A: '^Z (Ctrl+Z)',
-            0x1B: 'ESC'
-        };
-        return names[charCode] || `0x${charCode.toString(16).toUpperCase().padStart(2, '0')}`;
     }
     
     // 清空终端屏幕
     clearTerminalScreen() {
+        this.termLineBuffer = '';
         const display = document.getElementById('terminalDisplay');
         if (display) {
             display.innerHTML = '';
-            // 添加初始光标
             const cursor = document.createElement('span');
             cursor.className = 'terminal-cursor';
             cursor.textContent = '\u00A0';
@@ -2249,13 +2267,8 @@ class SerialToolApp {
         const wrapper = document.createElement('div');
         wrapper.className = `message-wrapper ${data.direction}`;
         
-        // 格式化时间戳，包含毫秒
         const date = data.timestamp instanceof Date ? data.timestamp : new Date(data.timestamp);
-        const hours = date.getHours().toString().padStart(2, '0');
-        const minutes = date.getMinutes().toString().padStart(2, '0');
-        const seconds = date.getSeconds().toString().padStart(2, '0');
-        const milliseconds = date.getMilliseconds().toString().padStart(3, '0');
-        const timestamp = `${hours}:${minutes}:${seconds}.${milliseconds}`;
+        const timeLabel = this.formatBubbleTimeLabel(date);
         
         const badge = data.direction === 'rx' ? 'RX' : 'TX';
         
@@ -2284,10 +2297,13 @@ class SerialToolApp {
         
         const bubble = document.createElement('div');
         bubble.className = `message-bubble${isHex ? ' hex' : ''}`;
+        const timeRow = timeLabel
+            ? `<div class="message-time">${this.escapeHtml(timeLabel)}</div>`
+            : '';
         bubble.innerHTML = `
             <div class="message-badge">${badge}</div>
             <div class="message-content">${this.escapeHtml(content)}</div>
-            <div class="message-time">${timestamp}</div>
+            ${timeRow}
         `;
         
         wrapper.appendChild(bubble);
@@ -2468,14 +2484,9 @@ class SerialToolApp {
         const portInfo = this.ports.get(portId);
         const { resetHistory = false } = options;
         
-        // 更新配置显示
         document.getElementById('portConfigCard').style.display = 'block';
         document.getElementById('currentPortName').textContent = portInfo?.name || portId;
-        document.getElementById('baudRate').value = portInfo?.config?.baudRate || 9600;
-        document.getElementById('dataBits').value = portInfo?.config?.dataBits || 8;
-        document.getElementById('stopBits').value = portInfo?.config?.stopBits || 1;
-        document.getElementById('parity').value = this.normalizeParityForForm(portInfo?.config?.parity);
-        document.getElementById('flowControl').value = portInfo?.config?.flowControl || 'none';
+        this.updatePortInfoSummary(portInfo);
         
         // 启用发送按钮
         const sendBtn = document.getElementById('sendBtn');
@@ -2567,6 +2578,7 @@ class SerialToolApp {
         this.rxBytes = 0;
         this.txBytes = 0;
         this.updateStats();
+        this.termLineBuffer = '';
         
         // 清空数据缓冲
         this.dataBuffer = { rx: null, tx: null };

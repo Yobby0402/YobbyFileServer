@@ -11,6 +11,7 @@ import threading
 from typing import Optional, Dict
 from flask import request, jsonify, current_app, session
 from routes import is_logged_in
+from git_manager import _git_base_cmd
 
 # 全局字典存储克隆进度（线程安全）
 # 使用字典存储进度信息，格式：{progress_id: {'status': ..., 'progress': ..., ...}}
@@ -264,8 +265,7 @@ def register_git_routes(app):
             default_config = config_manager.get_default_config()
             env = manager._get_git_env(default_config) if hasattr(manager, '_get_git_env') else None
             
-            # 执行Git命令
-            git_cmd = ['git'] + command.split()
+            git_cmd = _git_base_cmd() + command.split()
             result = _run_subprocess(
                 git_cmd,
                 cwd=full_path,

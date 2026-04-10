@@ -1,0 +1,50 @@
+# 便于在 main 与 dev-com 同步提交的变更文件清单
+# 更新日期以 git 提交为准；合并到另一分支时请以本清单核对 diff。
+# 本文件自身：git_sync_file_manifest.txt
+
+## 串口助手 UI/逻辑（终端行模式、去重推送、左侧信息区、后台记录按钮提示等）
+- main.py
+- static/js/serial_tool.js
+- static/js/serial_tool_shared.js
+- templates/serial_tool.html
+
+## 此前推送相关（若两分支尚未同步）
+- .gitignore
+
+## 建议在另一分支应用修改的方式
+# 在已提交的分支上：
+#   git checkout main
+#   git merge dev-com
+#   或：git cherry-pick <commit-hash>
+# 推送前确认：git status
+
+## 附录 A：fatal: detected dubious ownership in repository
+# 与 SSH 密钥无关，是 Git 2.35+ 对「仓库目录属主与运行 Git 的进程用户不一致」的保护。
+# 文件服务器集成 Git：已在代码中对子进程与 GitPython 统一附加 -c safe.directory=*（仅作用于本应用发起的 git）。
+# 若你在本机命令行操作其它目录仍报错，可对该仓库执行：
+#   git config --global --add safe.directory "该仓库绝对路径"
+
+## 集成 Git 规避 dubious ownership（代码变更）
+- git_manager.py
+- git_routes.py
+
+## 附录 B：同一 GitHub 用户使用两把 SSH 密钥「无缝」切换
+# 两把公钥都添加到同一 GitHub 账户后，服务端任意一把都能认证。
+# 若本机 ssh-agent 多把钥匙导致连错、或需固定用某把钥匙连某远程：
+# 编辑 ~/.ssh/config（Windows：C:\Users\<你>\.ssh\config），例如：
+#
+#   Host github.com
+#     HostName github.com
+#     User git
+#     IdentityFile ~/.ssh/id_ed25519_key_a
+#     IdentitiesOnly yes
+#
+#   Host github-b.com
+#     HostName github.com
+#     User git
+#     IdentityFile ~/.ssh/id_ed25519_key_b
+#     IdentitiesOnly yes
+#
+# 远程地址与 Host 对齐：
+#   git remote set-url origin git@github-b.com:Yobby0402/YobbyFileServer.git
+# 用哪把钥匙就改成对应的 Host（github.com 或 github-b.com）。
