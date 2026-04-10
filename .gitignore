@@ -15,6 +15,24 @@ build/
 # IDE
 .vscode/
 .idea/
+
+# 各编辑器 / Agent 工具同步生成的隐藏目录与副本（禁止入库；勿再提交）
+.agent/
+.claude/
+.codebuddy/
+.codex/
+.continue/
+.cursor/
+.gemini/
+.github/prompts/
+.kiro/
+.opencode/
+.qoder/
+.roo/
+.trae/
+.windsurf/
+.tmp_choice_inline.js
+.tmp_*.js
 *.swp
 *.swo
 *~
