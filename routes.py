@@ -363,6 +363,12 @@ def init_app(app):
     # 初始化产品对比管理器
     app.config['PRODUCT_COMPARE_MANAGER'] = product_compare_manager
 
+    from local_ai_paths import ensure_ai_layout
+    ensure_ai_layout()
+
+    from local_ai_routes import register_local_ai_routes
+    register_local_ai_routes(app)
+
     # 初始化Draw.io静态文件目录（静默检查，不影响运行）
     # Draw.io是可选功能，不存在也不影响文件浏览器功能
     

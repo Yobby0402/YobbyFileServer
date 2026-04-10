@@ -1830,13 +1830,6 @@ html[data-morph="claymorphism"] .todo-header #toggleArchivedProjectsBtn.active .
     padding: 20px;
 }
 
-.report-table-controls {
-    display: flex;
-    gap: 10px;
-    margin-bottom: 15px;
-    justify-content: flex-end;
-}
-
 .report-table-container {
     overflow-x: auto;
     width: 100%;

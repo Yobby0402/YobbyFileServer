@@ -1694,6 +1694,7 @@
     <!-- 本地 JS 资源 -->
     <script src="{{ url_for('static', filename='js/jquery-3.6.0.min.js') }}"></script>
     <script src="{{ url_for('static', filename='js/bootstrap.bundle.min.js') }}"></script>
+    {% include 'partials/local_ai_dock.html' %}
 
     <!-- CodeMirror 核心 -->
     <script src="{{ url_for('static', filename='libs/codemirror/lib/codemirror.js') }}"></script>
@@ -1827,6 +1828,14 @@
                                     // 应用简单的代码高亮
                                     applySimpleHighlighting();
 
+                                    if (window.YobboyLocalAI && typeof window.YobboyLocalAI.onPreviewMdTxt === 'function') {
+                                        if (['md', 'markdown', 'txt'].includes(fileExt)) {
+                                            window.YobboyLocalAI.onPreviewMdTxt(filepath, filename);
+                                        } else if (typeof window.YobboyLocalAI.hideKnowledgeBar === 'function') {
+                                            window.YobboyLocalAI.hideKnowledgeBar();
+                                        }
+                                    }
+
                                     // 滚动到预览区域
                                     const previewSection = document.getElementById('previewSection');
                                     if (previewSection) {
@@ -1837,6 +1846,9 @@
                         })
                         .catch(error => {
                             console.error('Fetch error:', error);
+                            if (window.YobboyLocalAI && typeof window.YobboyLocalAI.hideKnowledgeBar === 'function') {
+                                window.YobboyLocalAI.hideKnowledgeBar();
+                            }
                             if (previewContent) {
                                 previewContent.innerHTML = '<div class="alert alert-danger mt-3" role="alert"><i class="fas fa-exclamation-circle"></i> 无法加载预览内容</div>';
                             }

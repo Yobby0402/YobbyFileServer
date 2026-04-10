@@ -89,6 +89,29 @@
         fontSizeInput: document.getElementById('fontSizeInput'),
     };
 
+    /** 汇报表与导出共用的数据块（仅含 show_in_report 为 true 的项目与任务） */
+    function getReportProjectBlocks() {
+        const blocks = [];
+        const reportProjects = getProjectsForCurrentViews()
+            .filter(project => project.show_in_report !== false);
+
+        reportProjects.forEach(project => {
+            const reportTasks = getFilteredTasks(project)
+                .filter(task => task.show_in_report !== false);
+            if (reportTasks.length > 0) {
+                blocks.push({ project, tasks: reportTasks });
+            }
+        });
+        return blocks;
+    }
+
+    function updateReportHeaderActionsVisibility() {
+        const show = state.currentStyle === 'report';
+        const disp = show ? '' : 'none';
+        if (refs.exportReportBtn) refs.exportReportBtn.style.display = disp;
+        if (refs.fullscreenReportBtn) refs.fullscreenReportBtn.style.display = disp;
+    }
+
     const modals = {
         createProject: refs.createProjectForm ? new bootstrap.Modal(document.getElementById('createProjectModal')) : null,
         editProject: refs.editProjectForm ? new bootstrap.Modal(document.getElementById('editProjectModal')) : null,
@@ -2360,17 +2383,17 @@
                 renderReportTable();
             }
         }
+        updateReportHeaderActionsVisibility();
     }
 
     // ===== 汇报表格渲染 =====
     
     function renderReportTable() {
         if (!refs.reportTableBody) return;
-        
-        // 过滤出需要显示的项目（show_in_report为true）
-        const reportProjects = getProjectsForCurrentViews().filter(project => project.show_in_report !== false);
-        
-        if (reportProjects.length === 0) {
+
+        const projectBlocks = getReportProjectBlocks();
+
+        if (projectBlocks.length === 0) {
             refs.reportTableBody.innerHTML = '<tr><td colspan="7" class="text-center text-muted">暂无汇报数据</td></tr>';
             if (refs.reportEmptyMessage) {
                 refs.reportEmptyMessage.style.display = 'block';
@@ -2384,14 +2407,7 @@
         
         let html = '';
         
-        reportProjects.forEach(project => {
-            // 获取项目中需要显示的任务（show_in_report为true）
-            const reportTasks = getFilteredTasks(project).filter(task => task.show_in_report !== false);
-            
-            if (reportTasks.length === 0) {
-                return; // 如果没有任务需要显示，跳过这个项目
-            }
-            
+        projectBlocks.forEach(({ project, tasks: reportTasks }) => {
             // 项目名称单元格的行数
             const rowspan = reportTasks.length;
             const projectName = project.name || '未命名项目';
@@ -2476,6 +2492,36 @@
                 });
                 // 添加当前行的选中状态
                 this.classList.add('selected');
+            });
+        });
+
+        refs.reportTableBody.querySelectorAll('.report-project-name').forEach(cell => {
+            cell.setAttribute('title', '右键：关闭该项目的「显示在汇报页」');
+            cell.addEventListener('contextmenu', function (e) {
+                e.preventDefault();
+                e.stopPropagation();
+                const tr = cell.closest('tr');
+                const pid = tr && tr.getAttribute('data-project-id');
+                if (!pid) return;
+                if (!confirm('确定关闭该项目的「显示在汇报页」吗？\n\n将保存到数据文件，之后可在「编辑项目」中重新勾选。')) {
+                    return;
+                }
+                updateProject(pid, { show_in_report: false }).catch(() => {});
+            });
+        });
+        refs.reportTableBody.querySelectorAll('.report-summary').forEach(cell => {
+            cell.setAttribute('title', '右键：关闭该任务的「显示在汇报页」');
+            cell.addEventListener('contextmenu', function (e) {
+                e.preventDefault();
+                e.stopPropagation();
+                const tr = cell.closest('tr');
+                const pid = tr && tr.getAttribute('data-project-id');
+                const tid = tr && tr.getAttribute('data-task-id');
+                if (!pid || !tid) return;
+                if (!confirm('确定关闭该任务的「显示在汇报页」吗？\n\n将保存到数据文件，之后可在「编辑任务」中重新勾选。')) {
+                    return;
+                }
+                updateTask(pid, tid, { show_in_report: false }).catch(() => {});
             });
         });
         
@@ -2593,16 +2639,15 @@
     function exportReportToExcel() {
         // 调用后端API导出汇报表格
         try {
-            const reportProjects = getProjectsForCurrentViews().filter(project => project.show_in_report !== false);
-            if (reportProjects.length === 0) {
+            const projectBlocks = getReportProjectBlocks();
+            if (projectBlocks.length === 0) {
                 showAlert('warning', '暂无汇报数据可导出');
                 return;
             }
             
             // 构建扁平化的任务列表（用于导出）
             const flatTasks = [];
-            reportProjects.forEach(project => {
-                const reportTasks = getFilteredTasks(project).filter(task => task.show_in_report !== false);
+            projectBlocks.forEach(({ project, tasks: reportTasks }) => {
                 reportTasks.forEach((task, index) => {
                     // 构建当前进展内容
                     let currentProgress = '';
@@ -4328,6 +4373,9 @@
 
     function init() {
         attachEventListeners();
+        window.addEventListener('yobboy:todo-updated', function () {
+            loadData();
+        });
         
         // 初始化风格切换（三态切换）
         if (refs.styleScrollBtn) {

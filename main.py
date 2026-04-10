@@ -24,6 +24,14 @@ from shared_serial_hub import (
     SOURCE_SERVER_PYSERIAL,
     shared_serial_hub,
 )
+
+# Windows 上先加载 torch，可避免某些环境里 PyQt5 之后再导入 torch 时 c10.dll 初始化失败。
+try:
+    if importlib.util.find_spec('torch') is not None:
+        import torch as _torch_preload  # noqa: F401
+except Exception:
+    _torch_preload = None
+
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                                 QPushButton, QTextEdit, QLabel, QGroupBox, QMessageBox, 
                                 QSystemTrayIcon, QMenu, QAction, QDialog, QLineEdit, 
@@ -1101,6 +1109,170 @@ def init_serial_socketio(socketio):
             emit_serial_entry(entry)
 
 
+LOCAL_AI_CONFIG_KEYS = (
+    'LOCAL_AI_API_BASE_URL',
+    'LOCAL_AI_API_MODEL',
+    'LOCAL_AI_SKILLS_DIR',
+    'LOCAL_AI_MODELS_DIR',
+    'LOCAL_AI_HF_HOME',
+    'LOCAL_AI_APPEND_SKILLS',
+    'LOCAL_AI_DEVICE',
+    'LOCAL_AI_TORCH_DTYPE',
+    'LOCAL_AI_MAX_NEW_TOKENS',
+    'LOCAL_AI_DRAWIO_MAX_NEW_TOKENS',
+    'LOCAL_AI_TEMPERATURE',
+    'LOCAL_AI_TOP_P',
+    'LOCAL_AI_LLAMA_CTX',
+    'LOCAL_AI_LLAMA_GPU_LAYERS',
+    'LOCAL_AI_PROMPT_CONTEXT_CAP',
+    'LOCAL_AI_USE_MCP_BRIDGE',
+)
+
+
+def local_ai_settings_dict_from_ini(ini_config=None):
+    """解析 [local_ai] 为字典（GUI / read_runtime_settings 与 Flask 共用逻辑）。"""
+    from local_ai_paths import (
+        default_hf_home,
+        default_models_dir,
+        default_skills_dir,
+        project_base_dir,
+        resolve_project_path,
+    )
+
+    base = project_base_dir()
+    d = {
+        'LOCAL_AI_API_BASE_URL': 'http://127.0.0.1:1234/v1',
+        'LOCAL_AI_API_MODEL': '',
+        'LOCAL_AI_SKILLS_DIR': default_skills_dir(),
+        'LOCAL_AI_MODELS_DIR': default_models_dir(),
+        'LOCAL_AI_HF_HOME': default_hf_home(),
+        'LOCAL_AI_APPEND_SKILLS': True,
+        'LOCAL_AI_DEVICE': 'auto',
+        'LOCAL_AI_TORCH_DTYPE': 'bfloat16',
+        'LOCAL_AI_MAX_NEW_TOKENS': 512,
+        'LOCAL_AI_DRAWIO_MAX_NEW_TOKENS': 8192,
+        'LOCAL_AI_TEMPERATURE': 0.7,
+        'LOCAL_AI_TOP_P': 0.95,
+        'LOCAL_AI_LLAMA_CTX': 4096,
+        'LOCAL_AI_LLAMA_GPU_LAYERS': -1,
+        'LOCAL_AI_PROMPT_CONTEXT_CAP': 4096,
+        'LOCAL_AI_USE_MCP_BRIDGE': True,
+    }
+    if ini_config and ini_config.has_section('local_ai'):
+        la = ini_config['local_ai']
+        if (la.get('api_base_url') or '').strip():
+            d['LOCAL_AI_API_BASE_URL'] = la.get('api_base_url').strip()
+        if la.get('api_model') is not None:
+            d['LOCAL_AI_API_MODEL'] = (la.get('api_model') or '').strip()
+        if (la.get('skills_dir') or '').strip():
+            d['LOCAL_AI_SKILLS_DIR'] = resolve_project_path(la.get('skills_dir'), base)
+        if (la.get('models_dir') or '').strip():
+            d['LOCAL_AI_MODELS_DIR'] = resolve_project_path(la.get('models_dir'), base)
+        if (la.get('hf_home') or '').strip():
+            d['LOCAL_AI_HF_HOME'] = resolve_project_path(la.get('hf_home'), base)
+        if (la.get('append_skills') or '').strip():
+            d['LOCAL_AI_APPEND_SKILLS'] = la.get('append_skills', 'true').strip().lower() in (
+                '1',
+                'true',
+                'yes',
+                'on',
+            )
+        if (la.get('device') or '').strip():
+            d['LOCAL_AI_DEVICE'] = la.get('device').strip()
+        if (la.get('torch_dtype') or '').strip():
+            d['LOCAL_AI_TORCH_DTYPE'] = la.get('torch_dtype').strip()
+        try:
+            d['LOCAL_AI_MAX_NEW_TOKENS'] = int(la.get('max_new_tokens', '512'))
+        except ValueError:
+            pass
+        try:
+            d['LOCAL_AI_DRAWIO_MAX_NEW_TOKENS'] = int(la.get('drawio_max_new_tokens', '8192'))
+        except ValueError:
+            pass
+        try:
+            d['LOCAL_AI_LLAMA_CTX'] = int(la.get('llama_ctx', '4096'))
+        except ValueError:
+            pass
+        try:
+            raw_pcap = (la.get('prompt_context_cap') or '4096').strip().lower()
+            if raw_pcap in ('0', 'none', 'off', ''):
+                d['LOCAL_AI_PROMPT_CONTEXT_CAP'] = 0
+            else:
+                d['LOCAL_AI_PROMPT_CONTEXT_CAP'] = int(raw_pcap or '4096')
+        except ValueError:
+            pass
+        try:
+            d['LOCAL_AI_LLAMA_GPU_LAYERS'] = int(la.get('llama_gpu_layers', '-1'))
+        except ValueError:
+            pass
+        try:
+            d['LOCAL_AI_TEMPERATURE'] = float(la.get('temperature', '0.7'))
+        except ValueError:
+            pass
+        try:
+            d['LOCAL_AI_TOP_P'] = float(la.get('top_p', '0.95'))
+        except ValueError:
+            pass
+        if (la.get('use_mcp_bridge') or '').strip():
+            d['LOCAL_AI_USE_MCP_BRIDGE'] = la.get('use_mcp_bridge', 'true').strip().lower() in (
+                '1',
+                'true',
+                'yes',
+                'on',
+            )
+    return d
+
+
+def _append_local_ai_to_settings_data(settings_data, ini_config=None):
+    settings_data.update(local_ai_settings_dict_from_ini(ini_config))
+
+
+def _write_local_ai_section_to_config(config, settings_data):
+    """把 settings_data 中的 LOCAL_AI_* 写入 configparser 的 [local_ai]（路径尽量存相对项目根）。"""
+    from local_ai_paths import project_base_dir
+
+    base = project_base_dir()
+
+    def _rel(p):
+        if not p:
+            return ''
+        try:
+            rel = os.path.relpath(str(p), base)
+            if not rel.startswith('..'):
+                return rel.replace('\\', '/')
+        except ValueError:
+            pass
+        return os.path.normpath(str(p)).replace('\\', '/')
+
+    if not config.has_section('local_ai'):
+        config.add_section('local_ai')
+    la = config['local_ai']
+    la['api_base_url'] = str(settings_data.get('LOCAL_AI_API_BASE_URL', '') or '')
+    la['api_model'] = str(settings_data.get('LOCAL_AI_API_MODEL', '') or '')
+    la['skills_dir'] = _rel(settings_data.get('LOCAL_AI_SKILLS_DIR', '') or '')
+    la['models_dir'] = _rel(settings_data.get('LOCAL_AI_MODELS_DIR', '') or '')
+    la['hf_home'] = _rel(settings_data.get('LOCAL_AI_HF_HOME', '') or '')
+    la['append_skills'] = str(bool(settings_data.get('LOCAL_AI_APPEND_SKILLS', True))).lower()
+    la['device'] = str(settings_data.get('LOCAL_AI_DEVICE', 'auto') or 'auto')
+    la['torch_dtype'] = str(settings_data.get('LOCAL_AI_TORCH_DTYPE', 'bfloat16') or 'bfloat16')
+    la['max_new_tokens'] = str(int(settings_data.get('LOCAL_AI_MAX_NEW_TOKENS', 512) or 512))
+    la['drawio_max_new_tokens'] = str(int(settings_data.get('LOCAL_AI_DRAWIO_MAX_NEW_TOKENS', 8192) or 8192))
+    la['llama_ctx'] = str(int(settings_data.get('LOCAL_AI_LLAMA_CTX', 4096) or 4096))
+    _pcap_w = settings_data.get('LOCAL_AI_PROMPT_CONTEXT_CAP', 4096)
+    la['prompt_context_cap'] = str(int(4096 if _pcap_w is None else _pcap_w))
+    la['llama_gpu_layers'] = str(int(settings_data.get('LOCAL_AI_LLAMA_GPU_LAYERS', -1) or -1))
+    la['temperature'] = str(float(settings_data.get('LOCAL_AI_TEMPERATURE', 0.7) or 0.7))
+    la['top_p'] = str(float(settings_data.get('LOCAL_AI_TOP_P', 0.95) or 0.95))
+    la['use_mcp_bridge'] = str(bool(settings_data.get('LOCAL_AI_USE_MCP_BRIDGE', True))).lower()
+
+
+def apply_local_ai_config(app, ini_config=None):
+    """本地 AI 默认项 + 可选 [local_ai] 段覆盖。Skill 与模型默认目录为项目下 AI/skills、AI/models。"""
+    d = local_ai_settings_dict_from_ini(ini_config)
+    for k, v in d.items():
+        app.config[k] = v
+
+
 def load_or_create_config(app):
     """加载或创建配置文件"""
     config_file = app.config['CONFIG_FILE']
@@ -1144,6 +1316,7 @@ def load_or_create_config(app):
             app.config['SERIAL_HTTPS_PORT'] = serial_https_port
             app.config['HTTPS_CERT_FILE'] = https_cert_file
             app.config['HTTPS_KEY_FILE'] = https_key_file
+            apply_local_ai_config(app, config)
             
             # 检查路径是否有效（仅警告，不修改配置）
             if not os.path.isdir(app.config['ROOT_DIR']):
@@ -1175,6 +1348,7 @@ def load_or_create_config(app):
             app.config['SERIAL_HTTPS_PORT'] = default_serial_https_port(app.config['PORT'])
             app.config['HTTPS_CERT_FILE'] = ''
             app.config['HTTPS_KEY_FILE'] = ''
+            apply_local_ai_config(app, config)
             save_config(app)
     else:
         # 配置文件不存在，创建默认配置
@@ -1191,6 +1365,7 @@ def load_or_create_config(app):
         app.config['SERIAL_HTTPS_PORT'] = default_serial_https_port(app.config['PORT'])
         app.config['HTTPS_CERT_FILE'] = ''
         app.config['HTTPS_KEY_FILE'] = ''
+        apply_local_ai_config(app, None)
         save_config(app)
 
 
@@ -1219,8 +1394,10 @@ def read_runtime_settings(create_if_missing=True, config_file=None):
         'HTTPS_KEY_FILE': ''
     }
 
+    config_read_from_disk = False
     if os.path.exists(config_file):
         config.read(config_file, encoding='utf-8')
+        config_read_from_disk = True
         if 'settings' in config:
             settings = config['settings']
             root_dir = settings.get('root_dir', default_root_dir)
@@ -1247,12 +1424,19 @@ def read_runtime_settings(create_if_missing=True, config_file=None):
             )
             settings_data['HTTPS_CERT_FILE'] = settings.get('https_cert_file', '').strip()
             settings_data['HTTPS_KEY_FILE'] = settings.get('https_key_file', '').strip()
+            _append_local_ai_to_settings_data(settings_data, config)
             return settings_data
         app_logger.warning("[警告] 配置文件缺少 [settings] 段，使用默认配置")
     elif not create_if_missing:
+        _append_local_ai_to_settings_data(settings_data, None)
         return settings_data
     else:
         app_logger.info("配置文件不存在，创建默认配置")
+
+    if config_read_from_disk:
+        _append_local_ai_to_settings_data(settings_data, config)
+    else:
+        _append_local_ai_to_settings_data(settings_data, None)
 
     if create_if_missing:
         save_runtime_settings(settings_data, config_file=config_file)
@@ -1301,6 +1485,8 @@ def save_runtime_settings(settings_data, config_file=None):
     https_key_file = (settings_data.get('HTTPS_KEY_FILE', existing_https_key_file) or '').strip()
 
     config = configparser.ConfigParser()
+    if os.path.exists(config_file):
+        config.read(config_file, encoding='utf-8')
     config['settings'] = {
         'root_dir': settings_data.get('ROOT_DIR', os.path.expanduser("~")),
         'password': settings_data.get('PASSWORD', 'password'),
@@ -1316,12 +1502,15 @@ def save_runtime_settings(settings_data, config_file=None):
         'https_cert_file': https_cert_file,
         'https_key_file': https_key_file
     }
+    if any(k in settings_data for k in LOCAL_AI_CONFIG_KEYS):
+        _write_local_ai_section_to_config(config, settings_data)
     with open(config_file, 'w', encoding='utf-8') as f:
         config.write(f)
 
 
 def save_config(app):
     """保存当前配置到文件"""
+    la_defaults = local_ai_settings_dict_from_ini(None)
     settings_data = {
         'CONFIG_FILE': app.config['CONFIG_FILE'],
         'ROOT_DIR': app.config['ROOT_DIR'],
@@ -1338,6 +1527,8 @@ def save_config(app):
         'HTTPS_CERT_FILE': app.config.get('HTTPS_CERT_FILE', ''),
         'HTTPS_KEY_FILE': app.config.get('HTTPS_KEY_FILE', '')
     }
+    for k in LOCAL_AI_CONFIG_KEYS:
+        settings_data[k] = app.config.get(k, la_defaults.get(k))
     save_runtime_settings(settings_data, config_file=app.config['CONFIG_FILE'])
     app_logger.info("配置已保存到: %s", app.config['CONFIG_FILE'])
 
@@ -2532,10 +2723,11 @@ class SettingsDialog(QDialog):
         current_serial_https_port=DEFAULT_SERIAL_HTTPS_PORT,
         current_https_cert_file='',
         current_https_key_file='',
+        local_ai_settings=None,
     ):
         super().__init__(parent)
         self.setWindowTitle("服务器设置")
-        self.setMinimumWidth(500)
+        self.setMinimumWidth(620)
         self.current_root = current_root
         self.current_password = current_password
         self.current_admin_password = current_admin_password
@@ -2565,6 +2757,11 @@ class SettingsDialog(QDialog):
         self.new_serial_https_port = self.current_serial_https_port
         self.new_https_cert_file = current_https_cert_file
         self.new_https_key_file = current_https_key_file
+        self._local_ai_saved = local_ai_settings_dict_from_ini(None)
+        if local_ai_settings:
+            for _k, _v in local_ai_settings.items():
+                if _k in LOCAL_AI_CONFIG_KEYS and _v is not None:
+                    self._local_ai_saved[_k] = _v
         
         # 设置窗口样式
         self.setStyleSheet("""
@@ -2660,11 +2857,15 @@ class SettingsDialog(QDialog):
         advanced_tab = QWidget()
         tab_widget.addTab(basic_tab, "基础")
         tab_widget.addTab(advanced_tab, "高级")
+        ai_tab = QWidget()
+        tab_widget.addTab(ai_tab, "本地 AI")
 
         basic_layout = QVBoxLayout(basic_tab)
         basic_layout.setContentsMargins(0, 8, 0, 0)
         advanced_layout = QVBoxLayout(advanced_tab)
         advanced_layout.setContentsMargins(0, 8, 0, 0)
+        ai_layout = QVBoxLayout(ai_tab)
+        ai_layout.setContentsMargins(0, 8, 0, 0)
 
         basic_form_layout = QFormLayout()
         basic_form_layout.setSpacing(15)
@@ -2672,11 +2873,16 @@ class SettingsDialog(QDialog):
         advanced_form_layout = QFormLayout()
         advanced_form_layout.setSpacing(15)
         advanced_form_layout.setContentsMargins(0, 10, 0, 10)
+        ai_form_layout = QFormLayout()
+        ai_form_layout.setSpacing(12)
+        ai_form_layout.setContentsMargins(0, 10, 0, 10)
 
         basic_layout.addLayout(basic_form_layout)
         advanced_layout.addLayout(advanced_form_layout)
+        ai_layout.addLayout(ai_form_layout)
         basic_layout.addStretch()
         advanced_layout.addStretch()
+        ai_layout.addStretch()
 
         # 默认先写入基础页
         form_layout = basic_form_layout
@@ -3061,7 +3267,111 @@ class SettingsDialog(QDialog):
             self.git_external_app_hint.setVisible(enabled)
         
         self.git_enabled_checkbox.stateChanged.connect(on_git_enabled_changed)
-        
+
+        # —— 本地 AI ——
+        lai = self._local_ai_saved
+        ai_hint = QLabel(
+            "当前主后端为 LM Studio API。请先在 LM Studio 中加载模型并启动本地服务器，"
+            "此处只负责连接测试与参数配置。网页面板将直接复用该连接。"
+        )
+        ai_hint.setWordWrap(True)
+        ai_hint.setStyleSheet(
+            "font-size: 9pt; color: #555; font-weight: normal; padding: 8px; "
+            "background: #f0f4ff; border-radius: 6px;"
+        )
+        ai_form_layout.addRow("", ai_hint)
+
+        try:
+            import local_ai_engine as _la_dep
+            _deps = _la_dep.inference_dependencies()
+        except Exception:
+            _deps = {
+                'lm_studio_mode': True,
+            }
+        dep_parts = []
+        dep_parts.append("桌面设置用于测试 LM Studio 连接；网页面板仅显示状态并直接对话。")
+        self.local_ai_deps_label = QLabel(" · ".join(dep_parts))
+        self.local_ai_deps_label.setWordWrap(True)
+        self.local_ai_deps_label.setStyleSheet(
+            "font-size: 9pt; color: #333; font-weight: normal; padding: 6px; "
+            "background: #fafafa; border-radius: 4px;"
+        )
+        ai_form_layout.addRow(QLabel("依赖检测："), self.local_ai_deps_label)
+
+        self.local_ai_api_base_edit = QLineEdit(str(lai.get('LOCAL_AI_API_BASE_URL', '') or ''))
+        self.local_ai_api_base_edit.setPlaceholderText("http://127.0.0.1:1234/v1（或 …/api/v1，与 LM Studio 列表一致）")
+        ai_form_layout.addRow(QLabel("LM Studio API："), self.local_ai_api_base_edit)
+
+        self.local_ai_api_model_edit = QLineEdit(str(lai.get('LOCAL_AI_API_MODEL', '') or ''))
+        self.local_ai_api_model_edit.setPlaceholderText("留空则自动使用 LM Studio 当前第一个已加载模型")
+        ai_form_layout.addRow(QLabel("模型 ID："), self.local_ai_api_model_edit)
+
+        api_test_button = QPushButton("测试 LM Studio 连接")
+        api_test_button.setObjectName("browseButton")
+        api_test_button.clicked.connect(self.test_local_ai_api)
+        ai_form_layout.addRow("", api_test_button)
+
+        no_dir_hint = QLabel(
+            "开启 OpenAI Compatible Server 后，填「API 根路径」即可（不是整段 /models URL）。"
+            "常见为 http://127.0.0.1:1234/v1；若软件列出 /api/v1/models/，则填 http://127.0.0.1:1234/api/v1。"
+            "只填 http://127.0.0.1:1234 时，程序会自动依次尝试 /v1 与 /api/v1。"
+            "对话会使用 OpenAI 兼容的 /v1/chat/completions（若你填的是 /api/v1，程序会自动改到 /v1）。"
+        )
+        no_dir_hint.setWordWrap(True)
+        no_dir_hint.setStyleSheet("font-size: 8pt; color: #888; font-weight: normal;")
+        ai_form_layout.addRow("", no_dir_hint)
+
+        skills_row = QWidget()
+        skills_h = QHBoxLayout(skills_row)
+        skills_h.setContentsMargins(0, 0, 0, 0)
+        self.local_ai_skills_edit = QLineEdit(str(lai.get('LOCAL_AI_SKILLS_DIR', '') or ''))
+        self.local_ai_skills_edit.setPlaceholderText("默认 AI/skills")
+        skills_h.addWidget(self.local_ai_skills_edit, 1)
+        skills_btn = QPushButton("📁")
+        skills_btn.setObjectName("browseButton")
+        skills_btn.clicked.connect(self.browse_local_ai_skills_dir)
+        skills_h.addWidget(skills_btn)
+        ai_form_layout.addRow(QLabel("Skill 目录："), skills_row)
+
+        self.local_ai_append_skills_cb = QCheckBox("在系统提示前附加 Skill 文档")
+        self.local_ai_append_skills_cb.setChecked(bool(lai.get('LOCAL_AI_APPEND_SKILLS', True)))
+        self.local_ai_append_skills_cb.setStyleSheet("QCheckBox { font-size: 10pt; font-weight: normal; }")
+        ai_form_layout.addRow("", self.local_ai_append_skills_cb)
+
+        self.local_ai_use_mcp_cb = QCheckBox("启用 MCP 工具调用（关闭后仅使用纯对话，不执行 MCP 工具）")
+        self.local_ai_use_mcp_cb.setChecked(bool(lai.get('LOCAL_AI_USE_MCP_BRIDGE', True)))
+        self.local_ai_use_mcp_cb.setStyleSheet("QCheckBox { font-size: 10pt; font-weight: normal; }")
+        ai_form_layout.addRow("", self.local_ai_use_mcp_cb)
+
+        self.local_ai_max_tokens_edit = QLineEdit(str(int(lai.get('LOCAL_AI_MAX_NEW_TOKENS', 512) or 512)))
+        self.local_ai_max_tokens_edit.setPlaceholderText("512")
+        ai_form_layout.addRow(QLabel("最大输出 (tokens)："), self.local_ai_max_tokens_edit)
+
+        self.local_ai_drawio_max_tokens_edit = QLineEdit(
+            str(int(lai.get('LOCAL_AI_DRAWIO_MAX_NEW_TOKENS', 8192) or 8192))
+        )
+        self.local_ai_drawio_max_tokens_edit.setPlaceholderText("8192")
+        self.local_ai_drawio_max_tokens_edit.setToolTip(
+            "仅用于 Draw.io 页的「AI 绘图」：生成 mxfile XML 需要更长输出。\n须小于等于 LM Studio 上下文剩余空间。"
+        )
+        ai_form_layout.addRow(QLabel("Draw.io 生成上限 (tokens)："), self.local_ai_drawio_max_tokens_edit)
+        _lctx = int(lai.get('LOCAL_AI_LLAMA_CTX', 4096) or 4096)
+        _pcap = int(lai.get('LOCAL_AI_PROMPT_CONTEXT_CAP', 4096) or 4096)
+        _ctx_one = _lctx if _pcap <= 0 else min(_lctx, _pcap)
+        self.local_ai_context_tokens_edit = QLineEdit(str(max(512, _ctx_one)))
+        self.local_ai_context_tokens_edit.setPlaceholderText("4096")
+        self.local_ai_context_tokens_edit.setToolTip(
+            "与 LM Studio 里该模型的 Context length 保持一致。\n保存时会同时写入配置中的两项内部字段，无需再改 config.ini。"
+        )
+        ai_form_layout.addRow(QLabel("上下文长度 (tokens)："), self.local_ai_context_tokens_edit)
+        _ctx_hint = QLabel(
+            "须与 LM Studio 加载模型时的 Context length 一致（例如 4096、8192、10000）。"
+            "保存后程序按此长度估算截断与 Skill 体积；过大或过小都会导致无回复或多余截断。"
+        )
+        _ctx_hint.setWordWrap(True)
+        _ctx_hint.setStyleSheet("font-size: 8pt; color: #888; font-weight: normal;")
+        ai_form_layout.addRow("", _ctx_hint)
+
         layout.addWidget(tab_widget, 1)
         
         # 按钮区域
@@ -3166,6 +3476,40 @@ class SettingsDialog(QDialog):
         if file_path:
             self.https_key_edit.setText(file_path)
             self.new_https_key_file = file_path
+
+    def test_local_ai_api(self):
+        try:
+            import local_ai_engine
+
+            cfg = {
+                'LOCAL_AI_API_BASE_URL': self.local_ai_api_base_edit.text().strip(),
+                'LOCAL_AI_API_MODEL': self.local_ai_api_model_edit.text().strip(),
+            }
+            res = local_ai_engine.probe_connection(cfg, timeout=5.0)
+            if res.get('success'):
+                models = res.get('models') or []
+                picked = res.get('model') or '（未选择）'
+                QMessageBox.information(
+                    self,
+                    "连接成功",
+                    "LM Studio 已连接。\n\n"
+                    f"接口地址: {res.get('api_root')}\n"
+                    f"当前模型: {picked}\n"
+                    f"可见模型数: {len(models)}",
+                )
+            else:
+                QMessageBox.warning(self, "连接失败", res.get('error') or '未知错误')
+        except Exception as e:
+            QMessageBox.warning(self, "连接失败", str(e))
+
+    def browse_local_ai_skills_dir(self):
+        from local_ai_paths import default_skills_dir
+        start = self.local_ai_skills_edit.text().strip() or default_skills_dir()
+        directory = QFileDialog.getExistingDirectory(
+            self, "选择 Skill 目录", start, QFileDialog.ShowDirsOnly | QFileDialog.DontResolveSymlinks
+        )
+        if directory:
+            self.local_ai_skills_edit.setText(directory)
     
     def accept(self):
         """确认保存"""
@@ -3274,6 +3618,59 @@ class SettingsDialog(QDialog):
             if admin_pass != self.current_admin_password:
                 QMessageBox.critical(self, "错误", "管理员密码错误！无法修改目录。")
                 return
+
+        try:
+            max_new = int(self.local_ai_max_tokens_edit.text().strip())
+            if max_new < 1 or max_new > 65536:
+                raise ValueError("range")
+        except ValueError:
+            QMessageBox.warning(self, "错误", "本地 AI 页中的最大输出 token 参数无效")
+            return
+
+        try:
+            drawio_max = int(self.local_ai_drawio_max_tokens_edit.text().strip())
+            if drawio_max < 512 or drawio_max > 65536:
+                raise ValueError("drawio_range")
+        except ValueError:
+            QMessageBox.warning(self, "错误", "Draw.io 生成上限须为 512～65536 之间的整数")
+            return
+
+        try:
+            ctx_one = int(self.local_ai_context_tokens_edit.text().strip())
+            if ctx_one < 512 or ctx_one > 262144:
+                raise ValueError("ctx")
+        except ValueError:
+            QMessageBox.warning(self, "错误", "本地 AI 页中的上下文长度须为 512～262144 之间的整数")
+            return
+
+        la_defaults = local_ai_settings_dict_from_ini(None)
+        prev = dict(self._local_ai_saved)
+
+        self._local_ai_saved = {
+            'LOCAL_AI_API_BASE_URL': self.local_ai_api_base_edit.text().strip()
+            or la_defaults['LOCAL_AI_API_BASE_URL'],
+            'LOCAL_AI_API_MODEL': self.local_ai_api_model_edit.text().strip(),
+            'LOCAL_AI_MODEL_DIR': '',
+            'LOCAL_AI_MODEL_ID': '',
+            'LOCAL_AI_GGUF_PATH': '',
+            'LOCAL_AI_SKILLS_DIR': self.local_ai_skills_edit.text().strip()
+            or la_defaults['LOCAL_AI_SKILLS_DIR'],
+            'LOCAL_AI_MODELS_DIR': prev.get('LOCAL_AI_MODELS_DIR') or la_defaults['LOCAL_AI_MODELS_DIR'],
+            'LOCAL_AI_HF_HOME': prev.get('LOCAL_AI_HF_HOME') or la_defaults['LOCAL_AI_HF_HOME'],
+            'LOCAL_AI_APPEND_SKILLS': self.local_ai_append_skills_cb.isChecked(),
+            'LOCAL_AI_DEVICE': 'auto',
+            'LOCAL_AI_TORCH_DTYPE': 'float16',
+            'LOCAL_AI_MAX_NEW_TOKENS': max_new,
+            'LOCAL_AI_DRAWIO_MAX_NEW_TOKENS': drawio_max,
+            'LOCAL_AI_LLAMA_CTX': ctx_one,
+            'LOCAL_AI_PROMPT_CONTEXT_CAP': ctx_one,
+            'LOCAL_AI_LLAMA_GPU_LAYERS': prev.get(
+                'LOCAL_AI_LLAMA_GPU_LAYERS', la_defaults['LOCAL_AI_LLAMA_GPU_LAYERS']
+            ),
+            'LOCAL_AI_TEMPERATURE': prev.get('LOCAL_AI_TEMPERATURE', la_defaults['LOCAL_AI_TEMPERATURE']),
+            'LOCAL_AI_TOP_P': prev.get('LOCAL_AI_TOP_P', la_defaults['LOCAL_AI_TOP_P']),
+            'LOCAL_AI_USE_MCP_BRIDGE': self.local_ai_use_mcp_cb.isChecked(),
+        }
         
         super().accept()
     
@@ -3298,6 +3695,7 @@ class SettingsDialog(QDialog):
             self.new_serial_https_port,
             self.new_https_cert_file,
             self.new_https_key_file,
+            self._local_ai_saved,
         )
 
 
@@ -4153,6 +4551,7 @@ class MainWindow(QMainWindow):
         current_serial_https_port = settings.get('SERIAL_HTTPS_PORT', default_serial_https_port(current_port))
         current_https_cert_file = settings.get('HTTPS_CERT_FILE', '')
         current_https_key_file = settings.get('HTTPS_KEY_FILE', '')
+        current_local_ai = {k: settings.get(k) for k in LOCAL_AI_CONFIG_KEYS}
         
         # 显示设置对话框
         dialog = SettingsDialog(
@@ -4170,6 +4569,7 @@ class MainWindow(QMainWindow):
             current_serial_https_port,
             current_https_cert_file,
             current_https_key_file,
+            local_ai_settings=current_local_ai,
         )
         if dialog.exec_() == QDialog.Accepted:
             (
@@ -4186,12 +4586,13 @@ class MainWindow(QMainWindow):
                 new_serial_https_port,
                 new_https_cert_file,
                 new_https_key_file,
+                new_local_ai,
             ) = dialog.get_settings()
             
             # 保存配置
             try:
                 config_file = get_config_path()
-                save_runtime_settings({
+                save_payload = {
                     'CONFIG_FILE': config_file,
                     'ROOT_DIR': new_root,
                     'PASSWORD': new_password,
@@ -4205,13 +4606,16 @@ class MainWindow(QMainWindow):
                     'REMOTE_SERIAL_HTTPS_MODE': new_remote_serial_https_mode,
                     'SERIAL_HTTPS_PORT': new_serial_https_port,
                     'HTTPS_CERT_FILE': new_https_cert_file,
-                    'HTTPS_KEY_FILE': new_https_key_file
-                }, config_file=config_file)
+                    'HTTPS_KEY_FILE': new_https_key_file,
+                }
+                save_payload.update(new_local_ai)
+                save_runtime_settings(save_payload, config_file=config_file)
                 
                 close_behavior_text = "最小化到托盘" if new_close_to_tray else "直接退出程序"
                 git_enabled_text = "已启用" if new_git_enabled else "已禁用"
                 git_workdir_text = new_git_workdir if new_git_workdir else "未设置"
                 remote_serial_text = "已启用" if new_remote_serial_enabled else "已禁用"
+                mcp_enabled_text = "已启用" if bool(new_local_ai.get('LOCAL_AI_USE_MCP_BRIDGE', True)) else "已禁用"
                 remote_serial_mode_text = (
                     "兼容模式（主站 HTTP + 串口 HTTPS）"
                     if new_remote_serial_https_mode == REMOTE_SERIAL_HTTPS_MODE_COMPAT
@@ -4236,7 +4640,11 @@ class MainWindow(QMainWindow):
                     f"{'串口 HTTPS 模式: ' + remote_serial_mode_text if new_remote_serial_enabled else ''}\n"
                     f"{'串口 HTTPS 端口: ' + str(new_serial_https_port) if new_remote_serial_enabled and new_remote_serial_https_mode == REMOTE_SERIAL_HTTPS_MODE_COMPAT else ''}\n"
                     f"HTTPS证书: {cert_summary}\n"
-                    f"{'Git工作目录: ' + git_workdir_text if new_git_enabled else ''}\n\n"
+                    f"{'Git工作目录: ' + git_workdir_text if new_git_enabled else ''}\n"
+                    f"LM Studio API: {new_local_ai.get('LOCAL_AI_API_BASE_URL', '')}\n"
+                    f"LM Studio 模型: {new_local_ai.get('LOCAL_AI_API_MODEL', '') or '（自动取当前已加载模型）'}\n"
+                    f"MCP 工具调用: {mcp_enabled_text}\n"
+                    f"（[local_ai] 已写入配置文件，网页面板将直接复用 LM Studio 连接）\n\n"
                     f"您可以重新启动服务器使用新配置。"
                 )
                 

@@ -8,6 +8,7 @@
         <!-- Theme System -->
     <link rel="stylesheet" href="{{ url_for('static', filename='css/themes.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/app_style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/local_ai.css') }}">
     <style>
         body, html {
             height: 100%;
@@ -309,9 +310,40 @@
         </div>
         <iframe id="drawio-iframe" src="" style="display: none;"></iframe>
     </div>
+
+    <div id="drawioAiDock" class="drawio-ai-dock" aria-label="Draw.io AI 侧栏">
+        <button type="button" id="drawioAiTab" class="drawio-ai-tab" aria-expanded="false" title="打开/关闭 AI 绘图助手"><span class="drawio-ai-tab-text"><span class="drawio-ai-tab-line">AI</span><span class="drawio-ai-tab-line">绘图</span></span></button>
+        <div id="drawioAiPanel" class="drawio-ai-panel">
+            <div class="drawio-ai-panel-header">
+                <span>AI 生成图表</span>
+                <small>需 LM Studio；建议 8k+ 上下文</small>
+            </div>
+            <div id="drawioAiStatus" class="drawio-ai-toolbar" style="font-size:0.78rem;color:#555;"></div>
+            <div class="drawio-ai-toolbar">
+                <label><input type="checkbox" id="drawioAiAttach" checked /> 附带当前画布 XML（修改类指令建议勾选）</label>
+                <div id="drawioAiThumbRow" class="drawio-ai-thumbs" aria-live="polite"></div>
+                <span style="font-size:0.72rem;color:#666;width:100%;">可选：编辑 <code>AI/skills/drawio-ai-local.md</code> 加入本地约束（离线，不联网）。刷新后 localStorage 仅存文字说明，附图需重新上传。</span>
+            </div>
+            <details class="drawio-ai-toolbar" style="padding-top:6px;padding-bottom:6px;">
+                <summary style="cursor:pointer;">MCP 调用记录</summary>
+                <div id="drawioAiMcpList" class="drawio-ai-mcp-list"></div>
+            </details>
+            <div id="drawioAiMessages" class="drawio-ai-messages"></div>
+            <div class="drawio-ai-compose">
+                <textarea id="drawioAiInput" placeholder="描述流程图、架构图，或说明如何修改当前图… Enter 发送，Shift+Enter 换行"></textarea>
+                <div class="drawio-ai-compose-actions">
+                    <button type="button" id="drawioAiPickImages" class="drawio-ai-multimodal" title="添加附图（多模态，需 vision 模型）">多模态配图</button>
+                    <input type="file" id="drawioAiImages" accept="image/*" multiple class="drawio-ai-file" tabindex="-1" aria-hidden="true" />
+                    <button type="button" id="drawioAiSend" class="drawio-ai-send">发送</button>
+                    <button type="button" id="drawioAiClearHist" class="drawio-ai-secondary">清空对话</button>
+                </div>
+            </div>
+        </div>
+    </div>
     
     <script src="{{ url_for('static', filename='js/jquery-3.6.0.min.js') }}"></script>
     <script src="{{ url_for('static', filename='js/bootstrap.bundle.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/drawio_ai_panel.js') }}"></script>
     <script>
         // 从服务器传递的数据
         let currentFilepath = {{ filepath|tojson|safe }} || null;
@@ -319,6 +351,13 @@
         let isModified = false;
         let drawioIframe = null;
         let drawioReady = false;
+        let lastAutosaveXml = null;
+
+        function getDiagramXmlForAi() {
+            if (lastAutosaveXml && lastAutosaveXml.length) return lastAutosaveXml;
+            if (initialContent && initialContent.length) return initialContent;
+            return '';
+        }
         
         // 提取当前目录路径（用于保存新文件）
         let currentDir = '';
@@ -499,7 +538,6 @@
             document.getElementById('file-input').addEventListener('change', handleFileSelect);
             
             // 全局autosave监听器（捕获所有autosave事件）
-            let lastAutosaveXml = null;
             window.addEventListener('message', function(e) {
                 try {
                     let data = e.data;
@@ -596,6 +634,14 @@
                     console.error('[ERROR] 处理原始消息失败:', err);
                 }
             });
+
+            if (typeof DrawioAiPanel !== 'undefined') {
+                DrawioAiPanel.init({
+                    getIframe: function () { return drawioIframe; },
+                    getCurrentXml: getDiagramXmlForAi,
+                    onApplied: function () { isModified = true; }
+                });
+            }
         });
         
         // 打开本地文件

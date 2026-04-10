@@ -11,7 +11,21 @@ openpyxl>=3.1.0
 markdown
 GitPython>=3.1.40
 cryptography
+psutil>=5.9.0
+
+# --- 本地 AI（按需安装；不要直接整段复制到下面主列表）---
+# Transformers + 本地/ Hub 权重（推荐：Gemma 放在 AI/models/ ，配 config.ini model_id）
+#   pip install transformers torch accelerate
+# 显存信息（可选，装其一即可）
+#   pip install nvidia-ml-py
+# 默认 Hub 模型: google/gemma-4-E2B-it；本地目录示例: AI/models/gemma-4-E2B-it（需含 config.json）
+#
+# --- GGUF 才需要 llama-cpp-python（与上面二选一即可）---
+# 不要写进本文件主列表，避免无预编译轮子时走 CMake 源码编译失败。
+# Windows 优先用预编译轮子，在 PowerShell 中单独执行：
+#   pip install llama-cpp-python --prefer-binary
+# 若仍失败：① 以管理员清理临时目录后重试 ② 安装 “Visual Studio Build Tools” + CMake 再 pip
+# ③ 到 https://github.com/abetlen/llama-cpp-python/releases 下载与 Python 版本、CPU/GPU 匹配的 .whl 后 pip install xxx.whl
 
 # Git功能（可选）
-# 如需使用Git集成功能，请在设置中启用Git功能，然后安装：
-# pip install GitPython>=3.1.40
+# 如需使用Git集成功能，请在设置中启用Git功能，然后确保已安装：GitPython>=3.1.40

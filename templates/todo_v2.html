@@ -172,6 +172,12 @@
                         <button type="button" class="btn btn-outline-light" id="toggleArchivedProjectsBtn">
                             <i class="fas fa-archive"></i> 已归档项目 <span class="badge bg-secondary ms-1" id="archivedProjectsCount">0</span>
                         </button>
+                        <button type="button" class="btn btn-sm btn-success" id="exportReportBtn" style="display: none;" title="导出当前汇报表">
+                            <i class="fas fa-file-excel"></i> 导出汇报Excel
+                        </button>
+                        <button type="button" class="btn btn-sm btn-info" id="fullscreenReportBtn" style="display: none;" title="汇报区域全屏">
+                            <i class="fas fa-expand"></i> 全屏查看
+                        </button>
                         {% if direct_access %}
                         <span class="badge bg-warning text-dark">后门模式</span>
                         {% endif %}
@@ -233,14 +239,6 @@
             <!-- 汇报风格显示区域 -->
             <div id="reportStyleContainer" class="style-container report-style" style="display: none;">
                 <div class="report-table-wrapper">
-                    <div class="report-table-controls">
-                        <button type="button" class="btn btn-sm btn-success" id="exportReportBtn">
-                            <i class="fas fa-file-excel"></i> 导出Excel
-                        </button>
-                        <button type="button" class="btn btn-sm btn-info" id="fullscreenReportBtn">
-                            <i class="fas fa-expand"></i> 全屏查看
-                        </button>
-                    </div>
                     <div class="report-table-container" id="reportTableContainer">
                         <table class="report-table" id="reportTable">
                             <thead>
@@ -992,6 +990,7 @@
     </div>
 
     <script src="{{ url_for('static', filename='js/bootstrap.bundle.min.js') }}"></script>
+    {% include 'partials/local_ai_dock.html' %}
     <!-- CodeMirror 编辑器 -->
     <script src="{{ url_for('static', filename='libs/codemirror/lib/codemirror.js') }}"></script>
     <script src="{{ url_for('static', filename='libs/codemirror/mode/markdown/markdown.js') }}"></script>

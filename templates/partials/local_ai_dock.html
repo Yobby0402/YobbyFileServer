@@ -1,0 +1,119 @@
+<link rel="stylesheet" href="{{ url_for('static', filename='css/local_ai.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/github-markdown-light.min.css') }}">
+<script src="{{ url_for('static', filename='libs/marked/marked.min.js') }}"></script>
+<script src="{{ url_for('static', filename='libs/purify/purify.min.js') }}"></script>
+
+<div class="local-ai-panel-backdrop" id="localAiBackdrop" aria-hidden="true"></div>
+<div class="local-ai-panel" id="localAiPanel" role="dialog" aria-label="本地 AI 对话">
+    <div class="local-ai-panel-header" id="localAiDragHandle" title="拖动移动窗口">
+        <span><i class="fas fa-robot"></i> 本地 AI <span class="local-ai-badge-generating" id="localAiGeneratingBadge" hidden>生成中…</span></span>
+        <div class="local-ai-header-actions">
+            <button type="button" id="localAiResetLayoutBtn" class="local-ai-icon-btn" title="重置位置与大小">&olarr;</button>
+            <button type="button" id="localAiCloseBtn" class="local-ai-icon-btn" title="关闭">&times;</button>
+        </div>
+    </div>
+    <div class="local-ai-status-block">
+        <div class="local-ai-status-line" id="localAiStatusLine">状态加载中…</div>
+        <div class="local-ai-status-line" id="localAiKbLine" style="display:none;"></div>
+        <div class="local-ai-meter-row" id="localAiRamRow">
+            <span class="local-ai-meter-label" id="localAiRamLabel">内存</span>
+            <div class="local-ai-meter-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="localAiRamTrack">
+                <div class="local-ai-meter-fill" id="localAiRamFill"></div>
+            </div>
+            <span class="local-ai-meter-caption" id="localAiRamCaption">—</span>
+        </div>
+        <div class="local-ai-meter-row local-ai-meter-row--vram" id="localAiVramRow" hidden>
+            <span class="local-ai-meter-label" id="localAiVramLabel">显存</span>
+            <div class="local-ai-meter-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="localAiVramTrack">
+                <div class="local-ai-meter-fill local-ai-meter-fill--vram" id="localAiVramFill"></div>
+            </div>
+            <span class="local-ai-meter-caption" id="localAiVramCaption">—</span>
+        </div>
+    </div>
+    <div class="local-ai-controls">
+        <span class="small text-muted local-ai-hint-span" title="连接与模型选择在桌面设置的 LM Studio 配置中完成">由桌面设置管理连接</span>
+        <button type="button" class="btn btn-sm btn-outline-warning" id="localAiPendingPatchBtn" title="有待执行的待办操作">待执行操作</button>
+        <button type="button" class="btn btn-sm btn-outline-secondary" id="localAiClearHistBtn" title="清空本机历史">清历史</button>
+    </div>
+    <div class="local-ai-mcp-panel">
+        <div class="local-ai-mcp-header">
+            <span class="local-ai-mcp-title">MCP 调用记录</span>
+            <div class="local-ai-mcp-actions">
+                <button type="button" class="btn btn-sm btn-outline-secondary" id="localAiMcpToggleBtn">展开</button>
+                <button type="button" class="btn btn-sm btn-outline-secondary" id="localAiMcpClearBtn">清空</button>
+            </div>
+        </div>
+        <div class="local-ai-mcp-list" id="localAiMcpList" hidden></div>
+    </div>
+    <div class="local-ai-main" id="localAiMain">
+        <div class="local-ai-messages" id="localAiMessages"></div>
+        <div class="local-ai-side" id="localAiSide" hidden>
+            <div class="local-ai-side-header">
+                <div class="local-ai-side-title">任务卡片</div>
+                <div class="local-ai-side-actions">
+                    <button type="button" class="local-ai-side-btn" id="localAiTaskCardCloseBtn" title="关闭">&times;</button>
+                </div>
+            </div>
+            <div class="local-ai-task-card" id="localAiTaskCard"></div>
+        </div>
+    </div>
+    <div class="local-ai-input-tools">
+        <div class="local-ai-mode-seg" id="localAiModeSeg" role="group" aria-label="对话模式">
+            <button type="button" class="local-ai-mode-btn active" data-mode="general" title="通用">通用</button>
+            <button type="button" class="local-ai-mode-btn" data-mode="knowledge" title="知识库检索">知识库</button>
+            <button type="button" class="local-ai-mode-btn" data-mode="todo" title="待办">待办</button>
+        </div>
+        <label class="mb-0 small ms-1 local-ai-force-wrap" id="localAiForceMutateWrap" style="display:none;"
+            title="创建/修改/删除待办时请勾选；若句子里有「哪些、列出、统计」等词，不勾选容易被当成纯查询。">
+            <input type="checkbox" id="localAiForceMutate" /> 强制解析为变更
+        </label>
+    </div>
+    <div class="local-ai-input-row">
+        <textarea id="localAiInput" placeholder="输入消息… (Enter 发送，Shift+Enter 换行)" rows="2"></textarea>
+        <button type="button" class="btn btn-primary" id="localAiSendBtn">发送</button>
+        <button type="button" class="btn btn-outline-danger" id="localAiStopBtn" style="display:none;">停止</button>
+    </div>
+</div>
+
+<button type="button" class="toolbar-btn local-ai-fab" id="localAiOpenBtn" title="本地 AI">
+    <i class="fas fa-robot"></i>
+    <span class="tooltip-text">本地 AI</span>
+</button>
+
+<div class="modal fade" id="localAiTodoPatchModal" tabindex="-1">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">确认待办变更</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p class="fw-semibold mb-1">说明</p>
+                <p class="small text-muted mb-2" id="localAiPatchSummary"></p>
+                <details class="mb-3">
+                    <summary class="small text-secondary" style="cursor:pointer;">人类可读摘要</summary>
+                    <pre class="bg-light p-2 rounded small mt-2 mb-0" id="localAiPatchPreview" style="max-height:200px;overflow:auto;white-space:pre-wrap;"></pre>
+                </details>
+                <div class="small mb-2" id="localAiPatchValidateStatus"></div>
+                <label class="form-label small fw-semibold">操作编辑器（推荐）</label>
+                <div id="localAiPatchOpsEditor"></div>
+                <div class="mt-2">
+                    <button type="button" class="btn btn-sm btn-outline-primary" id="localAiPatchAddOpBtn">添加操作</button>
+                </div>
+                <details class="mt-3">
+                    <summary class="small text-secondary" style="cursor:pointer;">高级：原始 JSON</summary>
+                    <label class="form-label small fw-semibold mt-2" for="localAiPatchOpsJson">操作列表 JSON（高级用户）</label>
+                    <textarea class="form-control font-monospace small" id="localAiPatchOpsJson" rows="14" spellcheck="false"
+                        autocomplete="off"></textarea>
+                </details>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-outline-secondary" id="localAiPatchValidateBtn">校验 JSON</button>
+                <button type="button" class="btn btn-primary" id="localAiPatchApplyBtn">确认应用</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="{{ url_for('static', filename='js/local_ai_panel.js') }}"></script>

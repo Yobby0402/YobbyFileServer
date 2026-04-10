@@ -54,3 +54,13 @@ YobboyFileServer.exe
 
 # 其他
 更新完成.txt
+
+# 本地 AI 模型与权重（体积过大，勿提交）
+AI/models/**
+!AI/models/.gitkeep
+
+# 本地 HTTPS 开发证书
+.https/
+
+# 根目录大型依赖归档（可选本地保留）
+llama_cpp_python-*.tar.gz
