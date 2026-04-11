@@ -1120,6 +1120,7 @@ LOCAL_AI_CONFIG_KEYS = (
     'LOCAL_AI_TORCH_DTYPE',
     'LOCAL_AI_MAX_NEW_TOKENS',
     'LOCAL_AI_DRAWIO_MAX_NEW_TOKENS',
+    'LOCAL_AI_DRAWIO_OUTPUT',
     'LOCAL_AI_TEMPERATURE',
     'LOCAL_AI_TOP_P',
     'LOCAL_AI_LLAMA_CTX',
@@ -1151,6 +1152,7 @@ def local_ai_settings_dict_from_ini(ini_config=None):
         'LOCAL_AI_TORCH_DTYPE': 'bfloat16',
         'LOCAL_AI_MAX_NEW_TOKENS': 512,
         'LOCAL_AI_DRAWIO_MAX_NEW_TOKENS': 8192,
+        'LOCAL_AI_DRAWIO_OUTPUT': 'text_dsl',
         'LOCAL_AI_TEMPERATURE': 0.7,
         'LOCAL_AI_TOP_P': 0.95,
         'LOCAL_AI_LLAMA_CTX': 4096,
@@ -1189,6 +1191,10 @@ def local_ai_settings_dict_from_ini(ini_config=None):
             d['LOCAL_AI_DRAWIO_MAX_NEW_TOKENS'] = int(la.get('drawio_max_new_tokens', '8192'))
         except ValueError:
             pass
+        if (la.get('drawio_output') or '').strip():
+            _dout = la.get('drawio_output', 'text_dsl').strip().lower()
+            if _dout in ('text_dsl', 'xml'):
+                d['LOCAL_AI_DRAWIO_OUTPUT'] = _dout
         try:
             d['LOCAL_AI_LLAMA_CTX'] = int(la.get('llama_ctx', '4096'))
         except ValueError:
@@ -1257,6 +1263,10 @@ def _write_local_ai_section_to_config(config, settings_data):
     la['torch_dtype'] = str(settings_data.get('LOCAL_AI_TORCH_DTYPE', 'bfloat16') or 'bfloat16')
     la['max_new_tokens'] = str(int(settings_data.get('LOCAL_AI_MAX_NEW_TOKENS', 512) or 512))
     la['drawio_max_new_tokens'] = str(int(settings_data.get('LOCAL_AI_DRAWIO_MAX_NEW_TOKENS', 8192) or 8192))
+    _dout_w = str(settings_data.get('LOCAL_AI_DRAWIO_OUTPUT', 'text_dsl') or 'text_dsl').strip().lower()
+    if _dout_w not in ('text_dsl', 'xml'):
+        _dout_w = 'text_dsl'
+    la['drawio_output'] = _dout_w
     la['llama_ctx'] = str(int(settings_data.get('LOCAL_AI_LLAMA_CTX', 4096) or 4096))
     _pcap_w = settings_data.get('LOCAL_AI_PROMPT_CONTEXT_CAP', 4096)
     la['prompt_context_cap'] = str(int(4096 if _pcap_w is None else _pcap_w))
@@ -3352,9 +3362,26 @@ class SettingsDialog(QDialog):
         )
         self.local_ai_drawio_max_tokens_edit.setPlaceholderText("8192")
         self.local_ai_drawio_max_tokens_edit.setToolTip(
-            "仅用于 Draw.io 页的「AI 绘图」：生成 mxfile XML 需要更长输出。\n须小于等于 LM Studio 上下文剩余空间。"
+            "仅用于 Draw.io 页的「AI 绘图」：生成 yobboy-flow 或 mxfile 需要足够输出长度。\n须小于等于 LM Studio 上下文剩余空间。"
         )
         ai_form_layout.addRow(QLabel("Draw.io 生成上限 (tokens)："), self.local_ai_drawio_max_tokens_edit)
+
+        self.local_ai_drawio_output_combo = QComboBox()
+        self.local_ai_drawio_output_combo.addItem("yobboy-flow 文本（推荐，可带坐标）", "text_dsl")
+        self.local_ai_drawio_output_combo.addItem("直接输出 XML / mxfile（旧版）", "xml")
+        _dout_cur = str(lai.get("LOCAL_AI_DRAWIO_OUTPUT", "text_dsl") or "text_dsl").strip().lower()
+        if _dout_cur not in ("text_dsl", "xml"):
+            _dout_cur = "text_dsl"
+        for _i in range(self.local_ai_drawio_output_combo.count()):
+            if self.local_ai_drawio_output_combo.itemData(_i) == _dout_cur:
+                self.local_ai_drawio_output_combo.setCurrentIndex(_i)
+                break
+        self.local_ai_drawio_output_combo.setToolTip(
+            "yobboy-flow：模型只写类 Mermaid 文本，由本机转换为可编辑 draw.io；"
+            "xml：模型直接输出 <mxfile>（弱模型易语法错误）。"
+        )
+        ai_form_layout.addRow(QLabel("Draw.io AI 输出格式："), self.local_ai_drawio_output_combo)
+
         _lctx = int(lai.get('LOCAL_AI_LLAMA_CTX', 4096) or 4096)
         _pcap = int(lai.get('LOCAL_AI_PROMPT_CONTEXT_CAP', 4096) or 4096)
         _ctx_one = _lctx if _pcap <= 0 else min(_lctx, _pcap)
@@ -3662,6 +3689,7 @@ class SettingsDialog(QDialog):
             'LOCAL_AI_TORCH_DTYPE': 'float16',
             'LOCAL_AI_MAX_NEW_TOKENS': max_new,
             'LOCAL_AI_DRAWIO_MAX_NEW_TOKENS': drawio_max,
+            'LOCAL_AI_DRAWIO_OUTPUT': str(self.local_ai_drawio_output_combo.currentData() or 'text_dsl'),
             'LOCAL_AI_LLAMA_CTX': ctx_one,
             'LOCAL_AI_PROMPT_CONTEXT_CAP': ctx_one,
             'LOCAL_AI_LLAMA_GPU_LAYERS': prev.get(
@@ -4617,7 +4645,7 @@ class MainWindow(QMainWindow):
                 remote_serial_text = "已启用" if new_remote_serial_enabled else "已禁用"
                 mcp_enabled_text = "已启用" if bool(new_local_ai.get('LOCAL_AI_USE_MCP_BRIDGE', True)) else "已禁用"
                 remote_serial_mode_text = (
-                    "兼容模式（主站 HTTP + 串口 HTTPS）"
+                     "兼容模式（主站 HTTP + 串口 HTTPS）"
                     if new_remote_serial_https_mode == REMOTE_SERIAL_HTTPS_MODE_COMPAT
                     else "全站 HTTPS（原有方式）"
                 )

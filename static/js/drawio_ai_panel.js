@@ -96,7 +96,7 @@
     }
 
     function extractAllFencedBlocks(t) {
-        var re = /```(?:xml|drawio)?\s*([\s\S]*?)```/gi;
+        var re = /```(?:xml|drawio|yobboy-flow|flow|diagram)?\s*([\s\S]*?)```/gi;
         var out = [];
         var m;
         while ((m = re.exec(t)) !== null) {
@@ -322,6 +322,14 @@
         var t = maybeDecodeEntities(stripBom(raw));
         if (!t) return null;
 
+        if (global.YobboyFlow) {
+            var tr = global.YobboyFlow.tryConvertReply(t);
+            if (tr.ok) {
+                var yXml = sanitizeMxfileForDrawio(tr.xml);
+                if (isWellFormedXml(yXml)) return yXml;
+            }
+        }
+
         var candidates = [];
         var fenced = extractAllFencedBlocks(t);
         for (var i = 0; i < fenced.length; i++) {
@@ -455,6 +463,7 @@
 
         var messages = loadHist();
         var lastAssistantRaw = '';
+        var drawioOutputMode = 'text_dsl';
         var streaming = false;
         var mcpLogs = loadMcpLogs();
         var progressChars = 0;
@@ -640,9 +649,16 @@
                     statusEl.textContent = '未登录或不可用';
                     return;
                 }
+                if (j.drawio_output === 'xml' || j.drawio_output === 'text_dsl') {
+                    drawioOutputMode = j.drawio_output;
+                }
                 if (j.loaded) {
+                    var outMode = j.drawio_output === 'xml' ? 'XML' : 'yobboy-flow';
                     statusEl.textContent =
-                        '已连接 · ' + (j.model_id || j.configured_model || '模型');
+                        '已连接 · ' +
+                        (j.model_id || j.configured_model || '模型') +
+                        ' · Draw.io:' +
+                        outMode;
                 } else {
                     statusEl.textContent = '未连接 LM Studio：' + (j.load_error || '请加载模型');
                 }
@@ -666,7 +682,9 @@
                         type: 'text',
                         text:
                             q ||
-                            '请根据附图生成或还原为 draw.io 图（输出完整 <mxfile>…</mxfile>，勿在 XML 外套 Markdown）。',
+                            drawioOutputMode === 'xml'
+                                ? '请根据附图生成或还原为 draw.io 图（输出完整 <mxfile>…</mxfile>，勿在 XML 外套 Markdown）。'
+                                : '请根据附图生成或还原为 draw.io 图：输出 ```yobboy-flow 围栏内文本（勿输出 <mxfile> XML）。',
                     },
                 ];
                 for (var ti = 0; ti < thumbs.length; ti++) {
@@ -772,6 +790,16 @@
                         } else if (e.event === 'drawio_validation' && e.data) {
                             var valid = e.data.valid;
                             var msg = valid ? 'XML 校验通过' : 'XML 校验未通过';
+                            if (valid && Array.isArray(e.data.issues)) {
+                                var hasLay = e.data.issues.some(function (x) {
+                                    return (
+                                        x &&
+                                        (x.code === 'LAYOUT_OVERLAP' ||
+                                            x.code === 'LAYOUT_OUT_OF_BOUNDS')
+                                    );
+                                });
+                                if (hasLay) msg += '（含布局提示，可在编辑器内微调）';
+                            }
                             addMcpLog({
                                 tool: 'drawio_validate_xml(result)',
                                 ok: !!valid,
@@ -914,7 +942,7 @@
             var xml = normalizeDiagramXml(raw);
             if (!xml) {
                 alert(
-                    '未能得到可用的图表 XML。\n\n可能原因：\n1) 模型回复里没有完整 <mxfile>…</mxfile>，或只有半截/被 max tokens 截断；\n2) 未转义的 < > & 导致解析失败；\n3) 刷新页面后请先再发一条生成指令，或从对话里复制 XML 手动导入。\n\n建议在 LM Studio 提高 Context 与输出上限，并在设置里调大「Draw.io 生成上限」。'
+                    '未能得到可用的图表。\n\n可能原因：\n1) 当前为 yobboy-flow 模式时，回复中缺少 ```yobboy-flow 围栏或语法错误；\n2) XML 模式时缺少完整 <mxfile>…</mxfile> 或输出被截断；\n3) 特殊字符导致解析失败。\n\n可提高 LM Studio 输出上限，或在程序设置中将 Draw.io AI 输出格式改为 yobboy-flow（推荐）后重试。'
                 );
                 return;
             }

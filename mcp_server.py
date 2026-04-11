@@ -21,6 +21,7 @@ import uuid
 from typing import Any, Callable, Dict, List, Optional, Tuple
 import xml.etree.ElementTree as ET
 
+import drawio_text_dsl
 import knowledge_store
 import todo_ai_bridge
 from local_ai_paths import project_base_dir
@@ -40,6 +41,23 @@ _DEFAULT_CONFIRM_TTL_SECONDS = 300
 _DEFAULT_IDEMPOTENCY_TTL_SECONDS = 900
 _DEFAULT_KB_FILE_BYTES = 200_000
 _MAX_XML_CHARS = 2_000_000
+_MAX_DSL_TEXT_CHARS = 512_000
+
+# 布局类问题仅作提示，不阻断 Draw.io AI 管线（弱模型常产生轻微重叠/越界，可在编辑器内手调）。
+_DRAWIO_NON_BLOCKING_ISSUE_CODES = frozenset({"LAYOUT_OVERLAP", "LAYOUT_OUT_OF_BOUNDS"})
+
+
+def _drawio_validation_has_blocker(issues: List[Dict[str, Any]]) -> bool:
+    for item in issues:
+        if not isinstance(item, dict):
+            return True
+        code = str(item.get("code") or "").strip()
+        if not code:
+            return True
+        if code in _DRAWIO_NON_BLOCKING_ISSUE_CODES:
+            continue
+        return True
+    return False
 
 
 class MCPError(Exception):
@@ -260,6 +278,78 @@ def _repair_drawio_xml_candidate(raw: str) -> Tuple[str, List[str]]:
         changes.append("escaped_bare_ampersands")
         s = esc
     return s, changes
+
+
+def _structural_repair_mxfile_tree(root: ET.Element) -> Tuple[str, List[str]]:
+    """
+    在已能 parse 的 mxfile 树上：为重复 mxCell id 重命名、删除悬空边。
+    """
+    changes: List[str] = []
+    if str(root.tag).lower() != "mxfile":
+        try:
+            return ET.tostring(root, encoding="unicode", method="xml"), changes
+        except Exception:
+            return "", changes
+
+    cells = list(root.iter("mxCell"))
+    all_ids: set[str] = set()
+    max_num = 1
+    for c in cells:
+        cid = str(c.attrib.get("id", "")).strip()
+        if cid:
+            all_ids.add(cid)
+            if cid.isdigit():
+                try:
+                    max_num = max(max_num, int(cid))
+                except ValueError:
+                    pass
+
+    seen: set[str] = set()
+    for c in cells:
+        cid = str(c.attrib.get("id", "")).strip()
+        if not cid:
+            max_num += 1
+            while str(max_num) in all_ids:
+                max_num += 1
+            nid = str(max_num)
+            c.set("id", nid)
+            all_ids.add(nid)
+            seen.add(nid)
+            changes.append("filled_missing_mxcell_id")
+            continue
+        if cid in seen:
+            max_num += 1
+            while str(max_num) in all_ids:
+                max_num += 1
+            nid = str(max_num)
+            c.set("id", nid)
+            all_ids.add(nid)
+            seen.add(nid)
+            changes.append("renamed_duplicate_mxcell_id")
+            continue
+        seen.add(cid)
+
+    valid_ids = set(seen)
+    for parent in root.iter():
+        to_del: List[ET.Element] = []
+        for child in list(parent):
+            if child.tag != "mxCell":
+                continue
+            if str(child.attrib.get("edge", "")) != "1":
+                continue
+            src = str(child.attrib.get("source", "")).strip()
+            tgt = str(child.attrib.get("target", "")).strip()
+            if not src or not tgt or src not in valid_ids or tgt not in valid_ids:
+                to_del.append(child)
+        for ch in to_del:
+            parent.remove(ch)
+            changes.append("removed_dangling_edge")
+
+    try:
+        out = ET.tostring(root, encoding="unicode", method="xml")
+    except Exception:
+        out = ""
+    return out, changes
 
 
 def _drawio_metrics(root: ET.Element) -> Dict[str, Any]:
@@ -631,6 +721,16 @@ class YFSMCPServer:
                 },
                 "handler": self.drawio_repair_xml,
             },
+            "drawio_text_dsl_to_xml": {
+                "description": "将 yobboy-flow 类 Mermaid 文本（可含坐标）转换为可编辑 draw.io mxfile XML",
+                "inputSchema": {
+                    "type": "object",
+                    "required": ["text"],
+                    "properties": {"text": {"type": "string", "minLength": 1}},
+                    "additionalProperties": False,
+                },
+                "handler": self.drawio_text_dsl_to_xml,
+            },
         }
 
     def _guard_ops(self, ops: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -923,7 +1023,7 @@ class YFSMCPServer:
             )
         return _ok(
             {
-                "valid": len(issues) == 0,
+                "valid": not _drawio_validation_has_blocker(issues),
                 "issues": issues,
                 "metrics": {"xml_chars": len(frag), **m},
             },
@@ -971,6 +1071,13 @@ class YFSMCPServer:
         raw = _safe_len_text(args.get("xml"), _MAX_XML_CHARS, "xml")
         repaired, changes = _repair_drawio_xml_candidate(raw)
         _, root, parse_err = self._parse_drawio_xml(repaired, "xml")
+        if root is not None and str(root.tag).lower() == "mxfile":
+            struct_xml, struct_changes = _structural_repair_mxfile_tree(root)
+            if struct_changes:
+                changes.extend(struct_changes)
+            if struct_xml:
+                repaired = struct_xml
+                _, root, parse_err = self._parse_drawio_xml(repaired, "xml")
         valid = root is not None and str(root.tag).lower() == "mxfile"
         issues: List[Dict[str, Any]] = []
         metrics: Dict[str, Any] = {"xml_chars": len(repaired)}
@@ -990,6 +1097,39 @@ class YFSMCPServer:
                 "changes": changes,
                 "issues": issues,
                 "metrics": metrics,
+            },
+            trace_id,
+        )
+
+    def drawio_text_dsl_to_xml(self, args: Dict[str, Any], trace_id: str) -> Dict[str, Any]:
+        txt = _safe_len_text(args.get("text"), _MAX_DSL_TEXT_CHARS, "text")
+        try:
+            xml_out = drawio_text_dsl.convert_model_reply_to_mxfile(txt)
+        except drawio_text_dsl.DrawioTextDslError as e:
+            return _ok(
+                {
+                    "ok_parse": False,
+                    "error": str(e),
+                    "xml": "",
+                    "changes": [],
+                },
+                trace_id,
+            )
+        repaired, changes = _repair_drawio_xml_candidate(xml_out)
+        _, root, parse_err = self._parse_drawio_xml(repaired, "xml")
+        if root is not None and str(root.tag).lower() == "mxfile":
+            struct_xml, struct_changes = _structural_repair_mxfile_tree(root)
+            if struct_changes:
+                changes.extend(struct_changes)
+            if struct_xml:
+                repaired = struct_xml
+        return _ok(
+            {
+                "ok_parse": True,
+                "error": None,
+                "xml": repaired,
+                "changes": changes,
+                "xml_parse_note": parse_err,
             },
             trace_id,
         )

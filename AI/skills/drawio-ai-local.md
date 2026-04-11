@@ -1,30 +1,32 @@
-# Draw.io 本地 Skill（补充规则）
+# Draw.io 本地 Skill（yobboy-flow）
 
-仅补充 **system 消息未展开的写法细节**。输出仍须：**只输出一份完整 `<mxfile>…</mxfile>`**，无 Markdown、无代码围栏、无正文解释。
+在 **Draw.io AI 输出格式 = yobboy-flow（推荐）** 时，模型应只输出围栏内文本，**不要**写 `<mxfile>`。以下补充 **yobboy-flow** 写法；若你在设置里切回「直接 XML」，请改回只输出完整 mxfile 的规则。
 
-**附图**：消息里若有图，按图还原形状与连线，文字进 `value`；输出仍为单份 mxfile。
+## 语法速查
 
----
+- 可选首行：`kind: yobboy-flow-v1`
+- 注释：`# ...`
+- 节点：`node <id> <标签> [形状] [@ x y width height]`
+- 连线：`edge <from> -> <to> ["标签"]`，或简写一行 `<from> -> <to>`
+- 形状：`rect`（默认）、`rounded`、`diamond`、`ellipse`、`circle`、`parallelogram`
+- 省略 `@` 时由系统自动网格排版；需要可编辑布局时尽量写 `@`
 
-## 1. 结构（漏一项即损坏）
+## 弱模型建议
 
-- 层级唯一：`mxfile` → `diagram` → `mxGraphModel` → `root` → **仅并列** `mxCell`；**必须写 `</diagram></mxfile>`**，勿只关 `mxfile`。
-- 骨架头两个 cell 固定：`<mxCell id="0"/>`、`<mxCell id="1" parent="0"/>`；其余 shape 从 `id="2"` 起递增，**全文 id 不重复**。
-- 形状：`vertex="1"`、`parent="1"`，子元素只能是 `<mxGeometry …/>`，**禁止 `mxCell` 套 `mxCell`**。
-- 连线：`edge="1"`、`parent="1"`，`source` / `target` 指向已存在的 id。
-- 同一 `<mxCell …>` 上**同一属性名只出现一次**（勿重复 `edge=`、`vertex=` 等）。
-- 属性值里的 `&` 必须写 `&amp;`；尽量少用 `<!-- 注释 -->`。
+- 单图 **节点 ≤ 16**、**边 ≤ 24**；大图拆多轮。
+- `id` 仅用字母数字与 `_-.`，全图唯一。
+- 标签里若有 `& < >`，用引号包起来。
+- **不要**输出 ```mermaid 或 ```xml。
+- 自动连线按 **左→右** 从方块**左右边**出入（不会从顶/底主接，避免出现中间一条竖线、两侧摆块的「竹子」布局）；声明 `node` 时仍建议 **从左到右** 排 `@`；边标签尽量短。
 
-## 2. 弱模型建议（减少报错）
+## 一行多节点范例
 
-- **优先单页、单 `diagram`**；一次生成 **形状 ≤ 10** 更稳；大图让用户多轮并附带「当前图表」XML 增量改。
-- 样式从简：`style="rounded=1;whiteSpace=wrap;html=1;"` 即可；少用大段 `style`、少用复杂折点数组。
-- 边：`edgeStyle=orthogonalEdgeStyle;endArrow=classic;html=1`，尽量带 `exitX/exitY/entryX/entryY`（如 0.5）；同两点多条边时用不同 `exitY`/`entryY` 略错开。
-
-## 3. 一行可解析范例（对齐后再扩写）
-
-```xml
-<mxfile><diagram id="d1" name="Page-1"><mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/><mxCell id="2" value="A" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="40" y="40" width="96" height="40" as="geometry"/></mxCell><mxCell id="3" value="B" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="220" y="40" width="96" height="40" as="geometry"/></mxCell><mxCell id="4" style="edgeStyle=orthogonalEdgeStyle;exitX=1;exitY=0.5;entryX=0;entryY=0.5;endArrow=classic;html=1;" edge="1" parent="1" source="2" target="3"><mxGeometry relative="1" as="geometry"/></mxCell></root></mxGraphModel></diagram></mxfile>
+```yobboy-flow
+node a "A" rounded @ 40 40 90 44
+node b "B" rect @ 200 40 90 44
+edge a -> b
 ```
 
-生成前先对照本节：闭合标签、root 内并列、id 与 source/target 一致。
+## 与原生 Mermaid
+
+本格式由 **YobboyFileServer 自带解析器** 转为带 `mxGeometry` 的 mxfile，**带 `@` 的坐标不会被 Mermaid 布局覆盖**。不要依赖 draw.io 内置「仅 Mermaid 字符串」导入路径来描述带坐标图。

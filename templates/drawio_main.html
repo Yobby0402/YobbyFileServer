@@ -322,7 +322,7 @@
             <div class="drawio-ai-toolbar">
                 <label><input type="checkbox" id="drawioAiAttach" checked /> 附带当前画布 XML（修改类指令建议勾选）</label>
                 <div id="drawioAiThumbRow" class="drawio-ai-thumbs" aria-live="polite"></div>
-                <span style="font-size:0.72rem;color:#666;width:100%;">可选：编辑 <code>AI/skills/drawio-ai-local.md</code> 加入本地约束（离线，不联网）。刷新后 localStorage 仅存文字说明，附图需重新上传。</span>
+                <span style="font-size:0.72rem;color:#666;width:100%;">默认使用 <strong>yobboy-flow</strong> 文本生成图（可在程序设置改回直接 XML）。可选：编辑 <code>AI/skills/drawio-ai-local.md</code> 补充规则（离线）。刷新后 localStorage 仅存文字说明，附图需重新上传。</span>
             </div>
             <details class="drawio-ai-toolbar" style="padding-top:6px;padding-bottom:6px;">
                 <summary style="cursor:pointer;">MCP 调用记录</summary>
@@ -343,6 +343,7 @@
     
     <script src="{{ url_for('static', filename='js/jquery-3.6.0.min.js') }}"></script>
     <script src="{{ url_for('static', filename='js/bootstrap.bundle.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/drawio_text_dsl.js') }}"></script>
     <script src="{{ url_for('static', filename='js/drawio_ai_panel.js') }}"></script>
     <script>
         // 从服务器传递的数据

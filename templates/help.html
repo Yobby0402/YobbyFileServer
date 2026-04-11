@@ -665,7 +665,7 @@ port = 5000
                     <div class="feature-card">
                         <h3><i class="fas fa-project-diagram"></i> Draw.io AI 自修复流程</h3>
                         <ul>
-                            <li>内置 `drawio_validate_xml`、`drawio_summarize_xml`、`drawio_diff_summary`、`drawio_repair_xml` 工具链。</li>
+                            <li>默认由模型输出 **yobboy-flow** 类 Mermaid 文本（可带坐标），服务端转为可编辑 mxfile；可在设置中切回直接输出 XML。内置 `drawio_text_dsl_to_xml`、`drawio_validate_xml`、`drawio_summarize_xml`、`drawio_diff_summary`、`drawio_repair_xml` 工具链。</li>
                             <li>生成失败会自动基于校验问题进行修复重试，并展示重试进度。</li>
                             <li>最终输出前执行收口校验，减少“中途可过、最终失败”的 XML 解析问题。</li>
                             <li>支持布局问题检测（重叠/越界），辅助定位图形可读性问题。</li>

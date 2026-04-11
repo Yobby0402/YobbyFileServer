@@ -14,6 +14,7 @@ from typing import Any, Dict, Generator, List, Optional
 
 from flask import Response, current_app, jsonify, request, session, stream_with_context
 
+import drawio_text_dsl
 import knowledge_store
 import local_ai_engine
 import local_mcp_bridge
@@ -37,6 +38,37 @@ DRAWIO_SYSTEM = """你是 draw.io（diagrams.net）图表生成助手。
 
 **元素提示**：矩形 <mxCell id="2" value="标题" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="40" y="40" width="120" height="60" as="geometry"/></mxCell>；连线需有效 source/target。"""
 
+DRAWIO_TEXT_DSL_SYSTEM = """你是 **yobboy-flow** 图表文本生成助手（类 Mermaid，但支持坐标，便于导入 draw.io 后可编辑）。
+
+**输出（必须遵守）**
+1. **只输出一个** Markdown 代码围栏：首行 ```yobboy-flow ，末行 ```；围栏内为纯文本，**禁止**输出 `<mxfile>`、XML、或围栏外的解释文字。
+2. 首行可写 `kind: yobboy-flow-v1`（可选）；`#` 开头为注释。
+3. **节点**：`node <id> <标签或引号标签> [形状] [@ x y width height]`
+   - `id`：字母数字、`_`、`-`、`.`；**全局唯一**。
+   - 形状（可选）：`rect` | `rounded` | `diamond` | `ellipse` | `circle` | `parallelogram`（默认 `rect`）。
+   - `@` 后四个数字为像素坐标与宽高；省略则由系统自动网格排版。
+4. **连线**：`edge <from> -> <to> ["线上标签"]`；或 Mermaid 简写一行 `<from> -> <to> [标签]`（未事先 `node` 声明的端点会自动生成默认节点）。
+5. 若用户消息中含「当前图表」XML，请通读后输出 **整图** 的 yobboy-flow 文本（反映修改后完整结构），勿输出 XML。
+6. **附图**：若有图片，尽量还原为 node/edge；坐标可估算，单图节点建议 ≤ 16 个以利弱模型稳定。
+
+**正例**
+```yobboy-flow
+kind: yobboy-flow-v1
+# 登录流程
+node A "开始" rounded @ 40 40 100 50
+node B "校验" rect @ 220 40 120 60
+edge A -> B
+B -> C
+node C "结束" diamond @ 400 40 100 60
+edge B -> C "成功"
+```
+
+**反例（禁止）**
+- 输出 `<mxfile>...</mxfile>`
+- 围栏语言写成 ```xml 或混入 HTML
+
+**与 Mermaid 关系**：不要输出 ```mermaid；本格式由本地解析器转为可编辑 draw.io，**带 @ 的布局不会被 Mermaid 覆盖**。"""
+
 _DRAWIO_XML_ATTACH_CAP = 120000
 
 
@@ -59,17 +91,25 @@ def _last_user_plain_text(messages: List[Dict[str, Any]]) -> str:
     return ""
 
 
-def _append_drawio_current_xml_to_last_user(
-    msgs: List[Dict[str, Any]], raw_xml: str, truncated_note: str
+def _append_drawio_context_to_last_user(
+    msgs: List[Dict[str, Any]], raw_xml: str, truncated_note: str, *, text_dsl: bool
 ) -> None:
     if not (raw_xml or "").strip():
         return
-    suffix = (
-        "\n\n---\n[当前 draw.io 图表 XML；若用户要求修改，请输出**完整** <mxfile>…</mxfile>]\n"
-        + truncated_note
-        + "\n\n"
-        + raw_xml
-    )
+    if text_dsl:
+        suffix = (
+            "\n\n---\n[当前图表 draw.io XML，仅供参考；请通读后输出 **完整** 修改结果的 **yobboy-flow** 文本（```yobboy-flow 围栏），**禁止** 输出 <mxfile> XML。]\n"
+            + truncated_note
+            + "\n\n"
+            + raw_xml
+        )
+    else:
+        suffix = (
+            "\n\n---\n[当前 draw.io 图表 XML；若用户要求修改，请输出**完整** <mxfile>…</mxfile>]\n"
+            + truncated_note
+            + "\n\n"
+            + raw_xml
+        )
     for idx in range(len(msgs) - 1, -1, -1):
         if msgs[idx].get("role") != "user":
             continue
@@ -213,6 +253,11 @@ def _persist_local_ai_ini(app) -> None:
         "drawio_max_new_tokens",
         str(int(app.config.get("LOCAL_AI_DRAWIO_MAX_NEW_TOKENS", 8192) or 8192)),
     )
+    cfg.set(
+        "local_ai",
+        "drawio_output",
+        str(app.config.get("LOCAL_AI_DRAWIO_OUTPUT", "text_dsl") or "text_dsl"),
+    )
     with open(path, "w", encoding="utf-8") as f:
         cfg.write(f)
 
@@ -235,6 +280,7 @@ def _app_ai_config() -> Dict[str, Any]:
         "LOCAL_AI_MODELS_DIR": c.get("LOCAL_AI_MODELS_DIR", ""),
         "LOCAL_AI_HF_HOME": c.get("LOCAL_AI_HF_HOME", ""),
         "LOCAL_AI_DRAWIO_MAX_NEW_TOKENS": c.get("LOCAL_AI_DRAWIO_MAX_NEW_TOKENS", 8192),
+        "LOCAL_AI_DRAWIO_OUTPUT": c.get("LOCAL_AI_DRAWIO_OUTPUT", "text_dsl"),
     }
 
 
@@ -256,6 +302,9 @@ def register_local_ai_routes(app) -> None:
         st = local_ai_engine.get_status(cfg)
         skills_dir = c.get("LOCAL_AI_SKILLS_DIR", "") or ""
         models_dir = c.get("LOCAL_AI_MODELS_DIR", "") or ""
+        _do = str(c.get("LOCAL_AI_DRAWIO_OUTPUT", "text_dsl") or "text_dsl").strip().lower()
+        if _do not in ("text_dsl", "xml"):
+            _do = "text_dsl"
         return jsonify(
             {
                 "success": True,
@@ -266,6 +315,7 @@ def register_local_ai_routes(app) -> None:
                 "hf_home": c.get("LOCAL_AI_HF_HOME", "") or "",
                 "append_skills": bool(c.get("LOCAL_AI_APPEND_SKILLS", True)),
                 "skill_files": local_ai_skills.list_skill_files(skills_dir),
+                "drawio_output": _do,
             }
         )
 
@@ -308,7 +358,16 @@ def register_local_ai_routes(app) -> None:
             )
 
         def generate() -> Generator[str, None, None]:
-            yield _sse("meta", {"mode": mode})
+            drawio_out_meta = "text_dsl"
+            if mode == "drawio":
+                drawio_out_meta = str(
+                    current_app.config.get("LOCAL_AI_DRAWIO_OUTPUT", "text_dsl") or "text_dsl"
+                ).strip().lower()
+                if drawio_out_meta not in ("text_dsl", "xml"):
+                    drawio_out_meta = "text_dsl"
+                yield _sse("meta", {"mode": mode, "drawio_output": drawio_out_meta})
+            else:
+                yield _sse("meta", {"mode": mode})
 
             if mode == "drawio":
                 if not local_ai_engine.get_status(cfg)["loaded"]:
@@ -326,7 +385,10 @@ def register_local_ai_routes(app) -> None:
                         f"\n（当前图表 XML 已截断至前 {_DRAWIO_XML_ATTACH_CAP} 字符；图很大时请分步修改。）"
                     )
                 msgs_work = copy.deepcopy(messages)
-                _append_drawio_current_xml_to_last_user(msgs_work, raw_xml, truncated_note)
+                text_dsl = drawio_out_meta == "text_dsl"
+                _append_drawio_context_to_last_user(
+                    msgs_work, raw_xml, truncated_note, text_dsl=text_dsl
+                )
                 try:
                     drawio_max = int(cfg.get("LOCAL_AI_DRAWIO_MAX_NEW_TOKENS", 8192) or 8192)
                 except (TypeError, ValueError):
@@ -336,7 +398,7 @@ def register_local_ai_routes(app) -> None:
                     cfg.get("LOCAL_AI_SKILLS_DIR") or "",
                     max_chars=14000,
                 )
-                system: str = DRAWIO_SYSTEM
+                system: str = DRAWIO_TEXT_DSL_SYSTEM if text_dsl else DRAWIO_SYSTEM
                 if drawio_skill:
                     system = system + "\n\n---\n\n" + drawio_skill
                 max_attempts = 3
@@ -378,7 +440,49 @@ def register_local_ai_routes(app) -> None:
                         )
                     except Exception as e:
                         raw_out = f"[生成失败] {e}"
-                    final_out = raw_out or ""
+                    model_raw = raw_out or ""
+                    final_out = model_raw
+                    if text_dsl:
+                        try:
+                            final_out = drawio_text_dsl.convert_model_reply_to_mxfile(model_raw)
+                        except drawio_text_dsl.DrawioTextDslError as e:
+                            final_issues = [{"code": "TEXT_DSL_ERROR", "message": str(e)}]
+                            if attempt >= max_attempts:
+                                yield _sse(
+                                    "error",
+                                    {
+                                        "message": "yobboy-flow 解析失败，请重试或检查模型输出格式。",
+                                        "details": {"issues": final_issues},
+                                    },
+                                )
+                                yield _sse("done", {})
+                                return
+                            retry_user_msg = (
+                                "你上一次输出的 yobboy-flow 无法解析。请按语法修正，只输出 ```yobboy-flow 围栏内文本，"
+                                "**不要**输出 <mxfile> XML 或 ```xml。\n\n解析错误：\n"
+                                + str(e)
+                                + "\n\n上一次输出：\n"
+                                + model_raw[:8000]
+                            )
+                            prev_clip = model_raw[:8000]
+                            msgs_loop = (
+                                copy.deepcopy(retry_base_msgs)
+                                + [{"role": "assistant", "content": prev_clip}]
+                                + [{"role": "user", "content": retry_user_msg}]
+                            )
+                            yield _sse(
+                                "drawio_retry",
+                                {"attempt": attempt + 1, "reason": "text_dsl_parse_failed"},
+                            )
+                            yield _sse(
+                                "drawio_progress",
+                                {
+                                    "attempt": attempt + 1,
+                                    "phase": "retrying",
+                                    "received_chars": len(model_raw),
+                                },
+                            )
+                            continue
 
                     mcp_val, mcp_meta = _mcp_call_with_meta(
                         "drawio_validate_xml",
@@ -432,15 +536,26 @@ def register_local_ai_routes(app) -> None:
                         )
                     if not issue_lines:
                         issue_lines.append("- VALIDATION_ERROR: 未通过校验")
-                    retry_user_msg = (
-                        "你上一次输出的 draw.io XML 未通过校验，请根据以下错误修复并重新输出。"
-                        "\n要求：只输出完整 <mxfile>...</mxfile>，不要任何解释文本。"
-                        "\n\n校验问题：\n"
-                        + "\n".join(issue_lines)
-                        + "\n\n上一次输出：\n"
-                        + final_out[:8000]
-                    )
-                    prev_clip = final_out[:8000]
+                    if text_dsl:
+                        retry_user_msg = (
+                            "由 yobboy-flow 转换得到的 draw.io 图未通过校验。请调整节点 id、连线端点、布局或简化图形后重新输出。"
+                            "\n要求：只输出 ```yobboy-flow 围栏，不要输出 XML。"
+                            "\n\n校验问题：\n"
+                            + "\n".join(issue_lines)
+                            + "\n\n上一次 yobboy-flow 原文：\n"
+                            + model_raw[:8000]
+                        )
+                        prev_clip = model_raw[:8000]
+                    else:
+                        retry_user_msg = (
+                            "你上一次输出的 draw.io XML 未通过校验，请根据以下错误修复并重新输出。"
+                            "\n要求：只输出完整 <mxfile>...</mxfile>，不要任何解释文本。"
+                            "\n\n校验问题：\n"
+                            + "\n".join(issue_lines)
+                            + "\n\n上一次输出：\n"
+                            + final_out[:8000]
+                        )
+                        prev_clip = final_out[:8000]
                     msgs_loop = (
                         copy.deepcopy(retry_base_msgs)
                         + [{"role": "assistant", "content": prev_clip}]

@@ -44,7 +44,8 @@ def load_drawio_local_skill(skills_dir: str, max_chars: int = 14000) -> str:
         if len(body) > max_chars:
             body = body[:max_chars] + "\n\n...[Draw.io 本地 Skill 过长已截断]"
         return (
-            "[以下为管理员提供的本地 Draw.io 补充说明；仍须遵守主系统提示：只输出完整 <mxfile>]\n\n"
+            "[以下为管理员提供的本地 Draw.io / yobboy-flow 补充说明；须遵守主系统提示中的输出格式"
+            "（yobboy-flow 文本或完整 <mxfile>，取决于当前 Draw.io AI 输出模式）。]\n\n"
             + body
         )
     return ""
