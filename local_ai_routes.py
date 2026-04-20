@@ -129,6 +129,26 @@ def _append_drawio_context_to_last_user(
         break
 
 
+def _drawio_progress_payload(
+    attempt: int,
+    phase: str,
+    received_chars: int = 0,
+    *,
+    message: str = "",
+    details: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    payload: Dict[str, Any] = {
+        "attempt": int(attempt),
+        "phase": str(phase or ""),
+        "received_chars": int(received_chars or 0),
+    }
+    if message:
+        payload["message"] = str(message)
+    if details:
+        payload["details"] = details
+    return payload
+
+
 def _auth_ok() -> bool:
     return "logged_in" in session
 
@@ -389,6 +409,16 @@ def register_local_ai_routes(app) -> None:
                 _append_drawio_context_to_last_user(
                     msgs_work, raw_xml, truncated_note, text_dsl=text_dsl
                 )
+                yield _sse(
+                    "drawio_progress",
+                    _drawio_progress_payload(
+                        1,
+                        "preparing",
+                        0,
+                        message="正在准备上下文、技能规则与输出格式",
+                        details={"output": drawio_out_meta, "has_current_xml": bool(raw_xml)},
+                    ),
+                )
                 try:
                     drawio_max = int(cfg.get("LOCAL_AI_DRAWIO_MAX_NEW_TOKENS", 8192) or 8192)
                 except (TypeError, ValueError):
@@ -409,10 +439,26 @@ def register_local_ai_routes(app) -> None:
                 final_out = ""
                 final_valid = False
                 final_issues: List[Dict[str, Any]] = []
+                final_display_meta: Dict[str, Any] = {
+                    "output": drawio_out_meta,
+                    "family": "unknown",
+                    "direction": "unknown",
+                    "routing": "unknown",
+                }
                 for attempt in range(1, max_attempts + 1):
                     try:
                         raw_out = ""
                         last_emit = 0
+                        yield _sse(
+                            "drawio_progress",
+                            _drawio_progress_payload(
+                                attempt,
+                                "generating",
+                                0,
+                                message="正在调用模型生成图表文本",
+                                details={"output": drawio_out_meta},
+                            ),
+                        )
                         for piece in local_ai_engine.stream_generate(
                             cfg, msgs_loop, system=system, max_new_tokens=drawio_max
                         ):
@@ -423,27 +469,43 @@ def register_local_ai_routes(app) -> None:
                             if now - last_emit >= 240:
                                 yield _sse(
                                     "drawio_progress",
-                                    {
-                                        "attempt": attempt,
-                                        "phase": "generating",
-                                        "received_chars": now,
-                                    },
+                                    _drawio_progress_payload(
+                                        attempt,
+                                        "generating",
+                                        now,
+                                        message="模型正在生成图表内容",
+                                    ),
                                 )
                                 last_emit = now
                         yield _sse(
                             "drawio_progress",
-                            {
-                                "attempt": attempt,
-                                "phase": "generated",
-                                "received_chars": len(raw_out),
-                            },
+                            _drawio_progress_payload(
+                                attempt,
+                                "generated",
+                                len(raw_out),
+                                message="模型输出完成，准备进入解析与校验",
+                            ),
                         )
                     except Exception as e:
                         raw_out = f"[生成失败] {e}"
                     model_raw = raw_out or ""
                     final_out = model_raw
                     if text_dsl:
+                        yield _sse(
+                            "drawio_progress",
+                            _drawio_progress_payload(
+                                attempt,
+                                "parsing",
+                                len(model_raw),
+                                message="正在解析 yobboy-flow 并推断图表布局信息",
+                            ),
+                        )
                         try:
+                            final_display_meta = {
+                                "output": drawio_out_meta,
+                                **drawio_text_dsl.analyze_model_reply(model_raw),
+                            }
+                            yield _sse("drawio_generation_meta", final_display_meta)
                             final_out = drawio_text_dsl.convert_model_reply_to_mxfile(model_raw)
                         except drawio_text_dsl.DrawioTextDslError as e:
                             final_issues = [{"code": "TEXT_DSL_ERROR", "message": str(e)}]
@@ -476,14 +538,32 @@ def register_local_ai_routes(app) -> None:
                             )
                             yield _sse(
                                 "drawio_progress",
-                                {
-                                    "attempt": attempt + 1,
-                                    "phase": "retrying",
-                                    "received_chars": len(model_raw),
-                                },
+                                _drawio_progress_payload(
+                                    attempt + 1,
+                                    "retrying",
+                                    len(model_raw),
+                                    message="解析失败，正在准备带错误反馈的自动重试",
+                                ),
                             )
                             continue
+                    else:
+                        final_display_meta = {
+                            "output": drawio_out_meta,
+                            "family": "unknown",
+                            "direction": "unknown",
+                            "routing": "mxfile_direct",
+                        }
+                        yield _sse("drawio_generation_meta", final_display_meta)
 
+                    yield _sse(
+                        "drawio_progress",
+                        _drawio_progress_payload(
+                            attempt,
+                            "validating",
+                            len(final_out),
+                            message="正在校验 draw.io XML 结构与布局",
+                        ),
+                    )
                     mcp_val, mcp_meta = _mcp_call_with_meta(
                         "drawio_validate_xml",
                         {"xml": final_out},
@@ -505,11 +585,25 @@ def register_local_ai_routes(app) -> None:
                     yield _sse("mcp_call", mcp_meta_r)
                     yield _sse(
                         "drawio_progress",
-                        {"attempt": attempt, "phase": "repairing", "received_chars": len(final_out)},
+                        _drawio_progress_payload(
+                            attempt,
+                            "repairing",
+                            len(final_out),
+                            message="校验未通过，正在尝试自动修复 XML",
+                        ),
                     )
                     rep_data = (mcp_repair.get("data") if (mcp_repair and mcp_repair.get("ok")) else {}) or {}
                     if rep_data.get("repaired_xml"):
                         repaired_xml = str(rep_data.get("repaired_xml") or "")
+                        yield _sse(
+                            "drawio_progress",
+                            _drawio_progress_payload(
+                                attempt,
+                                "validating",
+                                len(repaired_xml),
+                                message="修复完成，正在复检 XML",
+                            ),
+                        )
                         mcp_val2, mcp_meta2 = _mcp_call_with_meta(
                             "drawio_validate_xml",
                             {"xml": repaired_xml},
@@ -564,11 +658,12 @@ def register_local_ai_routes(app) -> None:
                     yield _sse("drawio_retry", {"attempt": attempt + 1, "reason": "validation_failed"})
                     yield _sse(
                         "drawio_progress",
-                        {
-                            "attempt": attempt + 1,
-                            "phase": "retrying",
-                            "received_chars": len(final_out),
-                        },
+                        _drawio_progress_payload(
+                            attempt + 1,
+                            "retrying",
+                            len(final_out),
+                            message="校验失败，正在根据错误信息重新生成",
+                        ),
                     )
 
                 if not final_valid:
@@ -594,6 +689,15 @@ def register_local_ai_routes(app) -> None:
                     timeout_sec=12.0,
                 )
                 yield _sse("mcp_call", mcp_meta_rf)
+                yield _sse(
+                    "drawio_progress",
+                    _drawio_progress_payload(
+                        max_attempts,
+                        "finalizing",
+                        len(final_out),
+                        message="正在做最终修复与收口校验",
+                    ),
+                )
                 if mcp_repair_final and mcp_repair_final.get("ok"):
                     rf_data = mcp_repair_final.get("data") or {}
                     if rf_data.get("repaired_xml"):
@@ -627,6 +731,15 @@ def register_local_ai_routes(app) -> None:
                 for i in range(0, len(final_out), 800):
                     yield _sse("token", {"t": final_out[i : i + 800]})
 
+                yield _sse(
+                    "drawio_progress",
+                    _drawio_progress_payload(
+                        max_attempts,
+                        "summarizing",
+                        len(final_out),
+                        message="正在汇总图表统计与变化信息",
+                    ),
+                )
                 mcp_sum, mcp_meta2 = _mcp_call_with_meta(
                     "drawio_summarize_xml",
                     {"xml": final_out},
@@ -636,6 +749,15 @@ def register_local_ai_routes(app) -> None:
                 if mcp_sum and mcp_sum.get("ok"):
                     yield _sse("drawio_summary", mcp_sum.get("data") or {})
                 if raw_xml:
+                    yield _sse(
+                        "drawio_progress",
+                        _drawio_progress_payload(
+                            max_attempts,
+                            "diffing",
+                            len(final_out),
+                            message="正在比较当前图与原图的变化",
+                        ),
+                    )
                     mcp_diff, mcp_meta3 = _mcp_call_with_meta(
                         "drawio_diff_summary",
                         {"old_xml": raw_xml, "new_xml": final_out},
@@ -644,6 +766,15 @@ def register_local_ai_routes(app) -> None:
                     yield _sse("mcp_call", mcp_meta3)
                     if mcp_diff and mcp_diff.get("ok"):
                         yield _sse("drawio_diff", mcp_diff.get("data") or {})
+                yield _sse(
+                    "drawio_progress",
+                    _drawio_progress_payload(
+                        max_attempts,
+                        "completed",
+                        len(final_out),
+                        message="图表生成完成，可应用到画布",
+                    ),
+                )
                 yield _sse("done", {})
                 return
 

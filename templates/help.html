@@ -283,7 +283,7 @@
                         集成了文件浏览、在线编辑、任务管理、产品对比、图表编辑、串口调试、共享串口与持续日志等多种功能。
                         本页汇总了快速上手、核心功能、管理配置、安全提示与常见问题，帮助你和团队高效协作。
                     </p>
-                    <span class="badge-pill"><i class="fas fa-history"></i> 最后更新：2026-04-08 · 版本 R1.4-dev</span>
+                    <span class="badge-pill"><i class="fas fa-history"></i> 最后更新：2026-04-16 · 文档同步 R1.4-dev / R1.3</span>
                 </div>
                 <div class="d-flex flex-column flex-sm-row gap-3">
                     <a class="btn btn-soft btn-success" href="{{ url_for('serial_tool') }}">
@@ -345,11 +345,15 @@
                     </div>
                     <div class="feature-card header">
                         <h3><i class="fas fa-th-large"></i> 步骤 3 · 选择功能</h3>
-                        <p>登录成功后进入选择界面，可一键打开：</p>
+                        <p>登录成功后进入<strong>选择界面</strong>，按卡片进入各模块：</p>
                         <ul>
-                            <li>文件浏览器、Draw.io 编辑器、Markdown 预览</li>
-                            <li>ToDo 时间轴中心、串口调试助手、3D 模型查看、分享管理等</li>
+                            <li><strong>文件浏览器</strong> — 预览、在线编辑、上传与分享</li>
+                            <li><strong>ToDo 任务管理</strong> — 项目/任务、汇报视图、会议记录、Excel 导出</li>
+                            <li><strong>产品对比</strong> — 属性、雷达图、参数排序</li>
+                            <li><strong>Draw.io 编辑器</strong> — 离线绘图与保存到服务器（R1.4-dev 支持 AI 辅助）</li>
+                            <li><strong>串口调试助手</strong> — 本地 Web Serial、远程/共享串口、持续日志</li>
                         </ul>
+                        <p class="mb-0 mt-2" style="font-size:0.92rem;opacity:0.9">详细步骤见仓库内 <code>快速开始.md</code>；本地 AI / MCP 为 R1.4-dev 实验能力，需自行部署兼容 OpenAI API 的模型服务。</p>
                     </div>
                 </div>
             </section>
@@ -361,11 +365,12 @@
                     <div class="feature-card">
                         <h3><i class="fas fa-tasks"></i> ToDo 任务管理系统</h3>
                         <ul>
-                            <li>项目-任务层级结构，支持项目分组、任务排序、进度跟踪。</li>
-                            <li>表格视图、卡片视图和汇报视图三种展示方式。</li>
-                            <li>支持Markdown格式的项目描述和任务详细描述。</li>
-                            <li>评论系统、更新历史记录、Excel导出功能。</li>
-                            <li>待完成概览卡片，按逾期/今日/即将到期分类。</li>
+                            <li>项目-任务层级结构，支持项目分组、任务拖拽排序、进度与归档。</li>
+                            <li>表格视图、卡片视图与<strong>汇报视图</strong>；汇报页支持列宽调整与导出 Excel。</li>
+                            <li><strong>R1.4-dev</strong>：汇报视图顶部工具栏提供「导出汇报 Excel」「全屏查看」等；可在汇报表中右键项目名称/任务简述，快速关闭「展示在汇报页」。</li>
+                            <li>Markdown 项目/任务描述、评论与更新历史、待完成概览（已设截止日期的待办卡片）。</li>
+                            <li>会议记录（按日期的笔记）、灵活配置的 Excel 导出。</li>
+                            <li><strong>R1.4-dev</strong>：本地 AI / MCP 辅助待办，变更需二次确认后再写入。</li>
                         </ul>
                     </div>
                     <div class="feature-card">
@@ -393,6 +398,7 @@
                             <li>自定义产品属性、通用参数配置、雷达图可视化对比。</li>
                             <li>智能分析最优产品和参数排序功能。</li>
                             <li>归属分类和颜色标识，支持多产品对比。</li>
+                            <li><strong>R1.4-dev</strong>：玻璃/粘土拟态主题下强化多选勾选框的选中样式。</li>
                         </ul>
                     </div>
                 </div>
@@ -597,6 +603,7 @@ port = 5000
                         <ul>
                             <li>创建、编辑、删除项目，设置项目主题色和描述。</li>
                             <li>项目表格可折叠展开，显示项目名称、创建时间、任务数、整体进度、项目阶段。</li>
+                            <li>支持<strong>项目归档</strong>：暂停或已结项可归档，主列表更清爽，可随时查看已归档项目。</li>
                             <li>项目描述支持Markdown编辑和预览。</li>
                             <li>为项目添加外部链接或文件浏览器链接。</li>
                         </ul>
@@ -614,10 +621,10 @@ port = 5000
                     <div class="feature-card">
                         <h3><i class="fas fa-chart-line"></i> 待完成概览与导出</h3>
                         <ul>
-                            <li>卡片方式展示待完成任务，按逾期/今日/即将到期分类。</li>
-                            <li>支持灵活配置的Excel导出，包括时间范围、列选择等。</li>
-                            <li>汇报视图：选择展示到汇报页的项目和任务，展示所有任务的简述。</li>
-                            <li>汇报表格Excel导出：一键导出汇报视图为Excel，自动调整列宽和行高，支持筛选功能。</li>
+                            <li>卡片方式展示<strong>已设截止日期</strong>的待办任务，按逾期/今日/即将到期分类；无截止日期的任务不参与卡片列表（统计仍可显示「未设置」等）。</li>
+                            <li>支持灵活配置的 Excel 导出（时间范围、列选择等）。</li>
+                            <li>汇报视图：勾选「展示在汇报页」的项目/任务进入汇报表；当前进展列对未完成汇总评论、对已完成展示结论。</li>
+                            <li><strong>R1.4-dev</strong>：汇报视图顶部工具栏提供「导出汇报 Excel」（与当前表一致）、「全屏查看」；可在汇报表右键项目名/任务简述快速关闭汇报展示。</li>
                         </ul>
                     </div>
                     <div class="feature-card">
@@ -724,6 +731,7 @@ port = 5000
                             <li>完全离线，内置中文界面与完整版图库。</li>
                             <li>支持 Ctrl+S 保存到服务器，Ctrl+Shift+S 另存为本地。</li>
                             <li>导出 PNG / SVG / PDF；支持导入外部 draw.io 文件。</li>
+                            <li><strong>R1.4-dev</strong>：AI 辅助生成/修改图表，内置校验、摘要、差异说明与自动修复工具链（详见「本地 AI 与 MCP」一节）。</li>
                         </ul>
                     </div>
                     <div class="feature-card">
@@ -814,7 +822,9 @@ port = 5000
                     <div class="feature-card">
                         <h3><i class="fas fa-cog"></i> 设置对话框</h3>
                         <ul>
-                            <li>修改根目录、登录密码、管理员密码、关闭行为。</li>
+                            <li>修改根目录、登录密码、管理员密码、监听端口（1–65535）、关闭行为（退出或最小化到托盘）。</li>
+                            <li>串口：启用<strong>远程串口</strong>；若主站为 HTTP，可按需开启<strong>串口 HTTPS 兼容入口</strong>以满足 Web Serial 安全上下文。</li>
+                            <li>Git：启用 Git、工作目录、服务器与外部程序配置；可在 GUI 内生成 SSH 密钥并查看公钥（R1.3+）。</li>
                             <li>保存后自动应用，必要时自动重启服务器。</li>
                         </ul>
                     </div>
@@ -910,7 +920,8 @@ port = 5000
                         <h3><i class="fas fa-life-ring"></i> 获取帮助</h3>
                         <ul>
                             <li>打开 GUI → 帮助 → 使用帮助（会自动启动服务器并打开本页）。</li>
-                            <li>选择页底部点击“使用帮助”链接（路径：<code>/help</code>）。</li>
+                            <li>选择页底部点击「使用帮助」链接（路径：<code>/help</code>）。</li>
+                            <li>仓库内 <code>快速开始.md</code>、<code>功能说明.md</code> 与 <code>CHANGELOG.md</code> 与界面说明互补。</li>
                             <li>常见错误可在日志窗口或 <code>logs</code> 目录中定位。</li>
                         </ul>
                     </div>
@@ -947,410 +958,3 @@ port = 5000
 <script src="{{ url_for('static', filename='js/theme_floater.js') }}"></script>
 </body>
 </html>
-<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-    {% include '_theme_bootstrap.html' %}
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>使用帮助 - Yobboy文件服务器</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap.min.css') }}">
-        <!-- Theme System -->
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/themes.css') }}">
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/app_style.css') }}">
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/font-awesome.min.css') }}">
-    <style>
-        body {
-            font-family: 'Microsoft YaHei', Arial, sans-serif;
-            background: linear-gradient(135deg, var(--jasmine-green-600) 0%, var(--jasmine-green-400) 100%);
-            min-height: 100vh;
-            padding: 20px;
-        }
-        
-        .help-container {
-            max-width: 1000px;
-            margin: 0 auto;
-            background: white;
-            border-radius: 15px;
-            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
-            padding: 40px;
-        }
-        
-        .help-header {
-            text-align: center;
-            margin-bottom: 40px;
-            border-bottom: 3px solid var(--jasmine-green-600);
-            padding-bottom: 20px;
-        }
-        
-        .help-header h1 {
-            color: var(--jasmine-green-600);
-            font-size: 2.5rem;
-            font-weight: bold;
-            margin-bottom: 10px;
-        }
-        
-        .help-header p {
-            color: #6c757d;
-            font-size: 1.1rem;
-        }
-        
-        .help-section {
-            margin-bottom: 40px;
-        }
-        
-        .help-section h2 {
-            color: var(--jasmine-green-600);
-            font-size: 1.8rem;
-            font-weight: bold;
-            margin-bottom: 20px;
-            display: flex;
-            align-items: center;
-        }
-        
-        .help-section h2 i {
-            margin-right: 15px;
-            font-size: 1.5rem;
-        }
-        
-        .help-section h3 {
-            color: var(--jasmine-green-400);
-            font-size: 1.3rem;
-            font-weight: bold;
-            margin-top: 25px;
-            margin-bottom: 15px;
-        }
-        
-        .help-section p, .help-section li {
-            color: #495057;
-            font-size: 1rem;
-            line-height: 1.8;
-            margin-bottom: 10px;
-        }
-        
-        .help-section ul {
-            padding-left: 20px;
-        }
-        
-        .help-section li {
-            margin-bottom: 15px;
-        }
-        
-        .feature-card {
-            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
-            border-radius: 10px;
-            padding: 20px;
-            margin-bottom: 20px;
-            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
-        }
-        
-        .feature-card h4 {
-            color: var(--jasmine-green-600);
-            font-weight: bold;
-            margin-bottom: 10px;
-        }
-        
-        .feature-card p {
-            color: #495057;
-            margin-bottom: 0;
-        }
-        
-        .back-button {
-            text-align: center;
-            margin-top: 40px;
-        }
-        
-        .back-button a {
-            display: inline-block;
-            padding: 12px 30px;
-            background: linear-gradient(135deg, var(--jasmine-green-600) 0%, var(--jasmine-green-400) 100%);
-            color: white;
-            text-decoration: none;
-            border-radius: 25px;
-            font-weight: bold;
-            transition: all 0.3s ease;
-        }
-        
-        .back-button a:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.3);
-        }
-        
-        .tip-box {
-            background: #fff3cd;
-            border-left: 4px solid #ffc107;
-            padding: 15px 20px;
-            border-radius: 5px;
-            margin: 20px 0;
-        }
-        
-        .tip-box strong {
-            color: #856404;
-        }
-        
-        .tip-box p {
-            color: #856404;
-            margin-bottom: 0;
-        }
-        
-        .code-block {
-            background: #f8f9fa;
-            border: 1px solid #dee2e6;
-            border-radius: 5px;
-            padding: 15px;
-            font-family: 'Consolas', 'Courier New', monospace;
-            font-size: 0.9rem;
-            color: #212529;
-            margin: 15px 0;
-            overflow-x: auto;
-        }
-    </style>
-</head>
-<body>
-    <div class="help-container">
-        <div class="help-header">
-            <h1>📖 Yobboy文件服务器使用帮助</h1>
-            <p>欢迎使用Yobboy文件服务器！本指南将帮助您快速上手。</p>
-        </div>
-        
-        <!-- 快速开始 -->
-        <div class="help-section">
-            <h2><i class="fas fa-rocket"></i>快速开始</h2>
-            
-            <h3>1. 启动服务器</h3>
-            <p><strong>方式一：使用图形界面（推荐）</strong></p>
-            <ul>
-                <li>双击运行 <code>YobboyFileServer.exe</code></li>
-                <li>点击 <strong>"启动服务器"</strong> 按钮</li>
-                <li>服务器启动后，界面会显示访问地址</li>
-                <li>在浏览器中打开显示的任何一个地址即可访问</li>
-            </ul>
-            
-            <div class="tip-box">
-                <strong>💡 提示：</strong>
-                <p>图形界面提供了菜单栏，可以方便地访问各种功能：</p>
-                <ul style="margin-top: 10px; margin-bottom: 0;">
-                    <li><strong>文件菜单：</strong>设置服务器根目录和密码、退出程序</li>
-                    <li><strong>窗口菜单：</strong>最小化到系统托盘（服务器会在后台继续运行）</li>
-                    <li><strong>帮助菜单：</strong>查看使用帮助、关于信息</li>
-                </ul>
-            </div>
-            
-            <h3>2. 登录系统</h3>
-            <ul>
-                <li>首次访问会进入登录页面</li>
-                <li>输入密码（默认密码：<code>ats123</code>）</li>
-                <li>登录成功后会进入功能选择页面</li>
-            </ul>
-            
-            <h3>3. 选择功能</h3>
-            <p>登录后您可以选择以下功能：</p>
-            <div class="feature-card">
-                <h4>📁 文件浏览器</h4>
-                <p>浏览、预览和下载服务器上的文件。支持多种文件格式查看，全离线模式，仅局域网内访问。</p>
-            </div>
-            <div class="feature-card">
-                <h4>📊 Draw.io 编辑器</h4>
-                <p>创建和编辑流程图、架构图等。支持本地文件上传和服务器保存，全离线模式，不依赖第三方服务。</p>
-            </div>
-        </div>
-        
-        <!-- 文件浏览器功能 -->
-        <div class="help-section">
-            <h2><i class="fas fa-folder-open"></i>文件浏览器功能</h2>
-            
-            <h3>支持的文件类型</h3>
-            <ul>
-                <li><strong>图片文件：</strong>JPG, PNG, GIF, BMP, SVG, WebP - 直接在线预览</li>
-                <li><strong>Markdown文件：</strong>MD, MARKDOWN - 渲染后显示，支持图片相对路径</li>
-                <li><strong>PDF文件：</strong>直接在浏览器中预览</li>
-                <li><strong>视频文件：</strong>MP4, AVI, MOV, WMV - 在线播放</li>
-                <li><strong>代码文件：</strong>Python, JavaScript, HTML, CSS等 - 语法高亮显示</li>
-                <li><strong>Draw.io文件：</strong>DRAWIO, DIO, DIAGRAM, XML - 在线预览和编辑</li>
-            </ul>
-            
-            <h3>主要操作</h3>
-            <ul>
-                <li><strong>浏览文件：</strong>点击文件夹可以进入该目录</li>
-                <li><strong>预览文件：</strong>点击文件名在弹窗中预览文件内容</li>
-                <li><strong>下载文件：</strong>点击下载按钮将文件保存到本地</li>
-                <li><strong>返回上级：</strong>使用面包屑导航快速跳转到上级目录</li>
-            </ul>
-            
-            <h3>服务器设置</h3>
-            <p>如果需要更改服务器配置（根目录和密码）：</p>
-            <ul>
-                <li><strong>图形界面：</strong>点击菜单栏 <strong>"文件 → 设置"</strong>，在弹出的设置对话框中：
-                    <ul style="margin-top: 5px;">
-                        <li>点击"浏览"按钮选择新的根目录</li>
-                        <li>在密码框中输入新密码</li>
-                        <li>点击"保存设置"按钮</li>
-                        <li>如果服务器正在运行，会自动先停止服务器</li>
-                    </ul>
-                </li>
-                <li><strong>Web界面：</strong>访问 <code>/set_root</code> 路径可以设置根目录</li>
-                <li><strong>配置文件：</strong>直接编辑 <code>config.ini</code> 文件，然后重启服务器</li>
-                <li>更改设置后需要重启服务器使配置生效</li>
-            </ul>
-        </div>
-        
-        <!-- Draw.io编辑器功能 -->
-        <div class="help-section">
-            <h2><i class="fas fa-paint-brush"></i>Draw.io 编辑器功能</h2>
-            
-            <h3>主要特性</h3>
-            <ul>
-                <li><strong>完全离线：</strong>无需连接外部服务，所有功能均在本地运行</li>
-                <li><strong>丰富的图形库：</strong>流程图、UML图、网络图、思维导图等</li>
-                <li><strong>实时保存：</strong>可以将图表保存到服务器或导出到本地</li>
-                <li><strong>多种导出格式：</strong>支持PNG、JPG、SVG、PDF等格式导出</li>
-            </ul>
-            
-            <h3>基本操作</h3>
-            <ul>
-                <li><strong>创建新图表：</strong>进入Draw.io编辑器后，从左侧图形库拖拽元素到画布</li>
-                <li><strong>保存图表：</strong>使用 <code>Ctrl+S</code> 或点击保存按钮将图表保存到服务器</li>
-                <li><strong>打开现有图表：</strong>从文件浏览器中点击.drawio文件即可编辑</li>
-                <li><strong>导出图表：</strong>点击 <strong>文件 → 导出为</strong> 选择导出格式</li>
-            </ul>
-            
-            <div class="tip-box">
-                <strong>💡 提示：</strong>
-                <p>Draw.io编辑器支持快捷键操作，常用的有：<code>Ctrl+C</code> 复制，<code>Ctrl+V</code> 粘贴，<code>Ctrl+Z</code> 撤销，<code>Delete</code> 删除选中元素。</p>
-            </div>
-        </div>
-        
-        <!-- 配置说明 -->
-        <div class="help-section">
-            <h2><i class="fas fa-cog"></i>配置说明</h2>
-            
-            <h3>配置文件位置</h3>
-            <p>配置文件 <code>config.ini</code> 保存在以下位置：</p>
-            <ul>
-                <li><strong>优先：</strong>程序运行目录</li>
-                <li><strong>备选：</strong>用户主目录下的 <code>.yobboy_file_server</code> 文件夹</li>
-            </ul>
-            
-            <h3>配置项说明</h3>
-            <div class="code-block">
-[settings]<br>
-root_dir = C:\your\path\here  # 文件浏览器根目录<br>
-password = ats123              # 登录密码
-            </div>
-            
-            <h3>修改配置的三种方式</h3>
-            <p><strong>方式一：使用GUI设置界面（推荐）</strong></p>
-            <ul>
-                <li>在图形界面中点击菜单栏 <strong>"文件 → 设置"</strong></li>
-                <li>在设置对话框中修改根目录和密码</li>
-                <li>点击"保存设置"即可，无需手动重启</li>
-                <li>如果服务器正在运行，系统会自动先停止服务器</li>
-            </ul>
-            
-            <p><strong>方式二：手动编辑配置文件</strong></p>
-            <ul>
-                <li>找到并打开 <code>config.ini</code> 文件</li>
-                <li>修改 <code>root_dir</code> 和 <code>password</code> 的值</li>
-                <li>保存文件后重启服务器使更改生效</li>
-            </ul>
-            
-            <p><strong>方式三：Web界面设置</strong></p>
-            <ul>
-                <li>登录后访问 <code>/set_root</code> 路径设置根目录</li>
-                <li>修改密码需要编辑配置文件</li>
-            </ul>
-        </div>
-        
-        <!-- 安全说明 -->
-        <div class="help-section">
-            <h2><i class="fas fa-shield-alt"></i>安全与隐私</h2>
-            <ul>
-                <li><strong>局域网访问：</strong>服务器仅在局域网内可访问，不暴露到公网</li>
-                <li><strong>密码保护：</strong>所有功能均需要登录后才能使用</li>
-                <li><strong>离线运行：</strong>完全离线运行，不会向外部发送任何数据</li>
-                <li><strong>访问记录：</strong>所有访问记录保存在 <code>logs</code> 目录中，可随时查询</li>
-                <li><strong>路径安全：</strong>系统会自动防止路径遍历攻击，确保只能访问根目录下的文件</li>
-            </ul>
-            
-            <div class="tip-box">
-                <strong>⚠️ 注意：</strong>
-                <p>请妥善保管登录密码，不要在不受信任的设备上使用。如果怀疑密码泄露，请及时通过GUI设置界面或编辑配置文件修改密码。</p>
-            </div>
-        </div>
-        
-        <!-- 常见问题 -->
-        <div class="help-section">
-            <h2><i class="fas fa-question-circle"></i>常见问题</h2>
-            
-            <h3>Q: 服务器启动失败怎么办？</h3>
-            <p>A: 请检查以下几点：</p>
-            <ul>
-                <li>端口5000是否被其他程序占用</li>
-                <li>防火墙是否阻止了程序运行</li>
-                <li>查看日志文件获取详细错误信息</li>
-            </ul>
-            
-            <h3>Q: 无法访问服务器？</h3>
-            <p>A: 请确认：</p>
-            <ul>
-                <li>服务器是否已成功启动（查看GUI界面状态）</li>
-                <li>访问地址是否正确（使用GUI界面显示的地址）</li>
-                <li>客户端和服务器在同一局域网内</li>
-                <li>防火墙未阻止端口5000</li>
-            </ul>
-            
-            <h3>Q: 文件预览不正常？</h3>
-            <p>A: 不同文件类型的预览要求：</p>
-            <ul>
-                <li>PDF文件需要浏览器支持PDF预览</li>
-                <li>视频文件需要浏览器支持对应的编码格式</li>
-                <li>Markdown文件中的相对路径图片需要与MD文件在同一根目录下</li>
-            </ul>
-            
-            <h3>Q: 如何在其他设备访问？</h3>
-            <p>A: 操作步骤：</p>
-            <ul>
-                <li>确保所有设备在同一局域网内（连接同一WiFi或路由器）</li>
-                <li>在GUI界面查看服务器IP地址</li>
-                <li>在其他设备的浏览器中输入 <code>http://服务器IP:5000</code></li>
-                <li>输入登录密码即可访问</li>
-            </ul>
-            
-            <h3>Q: 如何修改服务器根目录和密码？</h3>
-            <p>A: 最简单的方法：</p>
-            <ul>
-                <li>在GUI界面点击菜单栏 <strong>"文件 → 设置"</strong></li>
-                <li>在弹出的设置对话框中修改根目录和密码</li>
-                <li>点击"保存设置"按钮即可</li>
-                <li>如果服务器正在运行，会自动先停止</li>
-                <li>保存后可以重新启动服务器使用新配置</li>
-            </ul>
-            
-            <h3>Q: 如何访问帮助文档？</h3>
-            <p>A: 有两种方式：</p>
-            <ul>
-                <li><strong>GUI界面：</strong>点击菜单栏 <strong>"帮助 → 使用帮助"</strong>，系统会自动打开浏览器显示帮助页面（如果服务器未运行会先启动）</li>
-                <li><strong>Web界面：</strong>在选择页面底部点击"使用帮助"链接，或直接访问 <code>/help</code> 路径</li>
-            </ul>
-            
-            <h3>Q: GUI窗口关闭后服务器会停止吗？</h3>
-            <p>A: 取决于操作方式：</p>
-            <ul>
-                <li><strong>最小化到托盘：</strong>点击菜单栏 <strong>"窗口 → 最小化到托盘"</strong>，窗口隐藏但服务器继续运行</li>
-                <li><strong>关闭窗口：</strong>直接关闭窗口会提示是否退出，服务器会停止</li>
-                <li><strong>托盘图标：</strong>双击系统托盘图标可以重新显示窗口</li>
-            </ul>
-        </div>
-        
-        <!-- 返回按钮 -->
-        <div class="back-button">
-            <a href="javascript:history.back()"><i class="fas fa-arrow-left"></i> 返回</a>
-            <a href="/" style="margin-left: 15px;"><i class="fas fa-home"></i> 首页</a>
-        </div>
-    </div>
-    
-    <script src="{{ url_for('static', filename='js/bootstrap.bundle.min.js') }}"></script>
-<script src="{{ url_for('static', filename='js/theme_floater.js') }}"></script>
-</body>
-</html>
-

@@ -4,6 +4,7 @@ import sys
 import re
 import configparser
 import json
+import logging
 import math
 import unicodedata
 from datetime import datetime
@@ -21,30 +22,15 @@ from todo_extended_manager import todo_extended_manager
 from serial_manager import serial_manager
 from shared_serial_hub import shared_serial_hub
 from product_compare_manager import product_compare_manager
+from logging_setup import parse_log_level
 
-# 日志输出函数（统一输出到标准输出，GUI会捕获）
+_routes_logger = logging.getLogger('yobboy_file_server.routes')
+
+
 def log_message(message, level='INFO'):
-    """输出日志消息到标准输出（会被GUI捕获）"""
-    prefix = {
-        'INFO': '[Git]',
-        'DEBUG': '[Git-DEBUG]',
-        'WARNING': '[Git-WARNING]',
-        'ERROR': '[Git-ERROR]'
-    }.get(level, '[Git]')
-    
-    # 确保输出到标准输出，使用UTF-8编码
-    try:
-        message_str = f"{prefix} {message}\n"
-        sys.stdout.write(message_str)
-        sys.stdout.flush()
-    except Exception:
-        # 如果编码失败，尝试使用错误替换
-        try:
-            message_str = f"{prefix} {message}\n".encode('utf-8', errors='replace').decode('utf-8', errors='replace')
-            sys.stdout.write(message_str)
-            sys.stdout.flush()
-        except Exception:
-            pass  # 如果都失败了，忽略
+    """路由层 Git 相关日志（委托给统一 logging 树）。"""
+    _routes_logger.log(parse_log_level(level, logging.INFO), '%s', message)
+
 
 # 检查用户是否已登录的函数
 def is_logged_in():
@@ -220,7 +206,7 @@ def load_favorites():
         else:
             return {'groups': [], 'items': []}
     except Exception as e:
-        print(f"加载收藏数据失败: {e}")
+        _routes_logger.warning("加载收藏数据失败: %s", e)
         return {'groups': [], 'items': []}
 
 # 保存收藏数据
@@ -233,7 +219,7 @@ def save_favorites(data):
             json.dump(data, f, ensure_ascii=False, indent=4)
         return True
     except Exception as e:
-        print(f"保存收藏数据失败: {e}")
+        _routes_logger.warning("保存收藏数据失败: %s", e)
         return False
 
 def _excel_display_width(value):
@@ -391,16 +377,16 @@ def init_app(app):
             # 注册Git路由
             register_git_routes(app)
             
-            print("[OK] Git功能已启用")
+            _routes_logger.info("Git功能已启用")
         except ImportError as e:
-            print(f"[警告] Git功能启用失败: {e}")
-            print("  请安装GitPython: pip install GitPython")
+            _routes_logger.warning("Git功能启用失败: %s", e)
+            _routes_logger.warning("请安装 GitPython: pip install GitPython")
             app.config['GIT_ENABLED'] = False
         except Exception as e:
-            print(f"[错误] Git功能初始化失败: {e}")
+            _routes_logger.error("Git功能初始化失败: %s", e)
             app.config['GIT_ENABLED'] = False
     else:
-        print("[信息] Git功能已禁用（可在设置中启用）")
+        _routes_logger.info("Git功能已禁用（可在设置中启用）")
         # 即使Git功能未启用，也注册所有Git路由返回403，避免404错误
         # 注意：/api/git/status 不在这个列表中，因为它需要总是可用来检查Git状态
         git_routes = [
@@ -1051,10 +1037,10 @@ def init_app(app):
                         
                         result.append(node)
                     except Exception as e:
-                        print(f"Error processing item {item} in {dir_path}: {e}")
+                        _routes_logger.warning("Error processing item %s in %s: %s", item, dir_path, e)
                         continue
             except Exception as e:
-                print(f"Error building tree for {dir_path}: {e}")
+                _routes_logger.warning("Error building tree for %s: %s", dir_path, e)
             
             return result
 
@@ -1115,10 +1101,10 @@ def init_app(app):
                         
                         result.append(node)
                     except Exception as e:
-                        print(f"Error processing item {item} in {dir_path}: {e}")
+                        _routes_logger.warning("Error processing item %s in %s: %s", item, dir_path, e)
                         continue
             except Exception as e:
-                print(f"Error building tree for {dir_path}: {e}")
+                _routes_logger.warning("Error building tree for %s: %s", dir_path, e)
             
             return result
 
@@ -3203,31 +3189,27 @@ def init_app(app):
             
             # 使用配置文件中的密码进行验证
             configured_password = current_app.config.get('PASSWORD')  # 修正：使用大写的键名
-            
-            # === 调试输出 ===
-            print("=" * 60)
-            print("[登录调试信息]")
-            print(f"用户输入的密码: '{password}'")
-            print(f"用户输入密码长度: {len(password) if password else 0}")
-            print(f"配置的正确密码: '{configured_password}'")
-            print(f"配置密码长度: {len(configured_password) if configured_password else 0}")
-            print(f"配置文件路径: {current_app.config.get('CONFIG_FILE')}")
-            print(f"密码匹配: {password == configured_password}")
-            print("=" * 60)
-            # === 调试输出结束 ===
-            
+
+            _routes_logger.debug(
+                "登录尝试（脱敏）: supplied_len=%s configured_len=%s config_file=%s match=%s",
+                len(password or ''),
+                len(configured_password or ''),
+                current_app.config.get('CONFIG_FILE'),
+                password == configured_password,
+            )
+
             if not configured_password:
                 # 如果没有配置密码，使用默认密码并记录警告
                 configured_password = 'ats123'
-                print("[警告] 未找到配置密码，使用默认密码 'ats123'")
-            
+                _routes_logger.warning("未找到配置密码，已使用内置默认值（请在设置中修改）")
+
             if password == configured_password:
                 session['logged_in'] = True
-                print(f"[成功] 用户登录成功")
+                _routes_logger.info("用户登录成功")
                 # 登录后重定向到选择页面
                 return redirect(url_for('index'))
             else:
-                print(f"[失败] 密码不匹配 - 用户输入: '{password}', 正确密码: '{configured_password}'")
+                _routes_logger.warning("登录失败: 密码不匹配")
                 return render_template('login.html', error="密码错误")
         return render_template('login.html')
     
@@ -3777,34 +3759,29 @@ def init_app(app):
         filepath = request.args.get('filepath', '')
         diagram_content = ''
         
-        print(f"[DEBUG] drawio_main - filepath参数: '{filepath}'")
+        _routes_logger.debug("drawio_main filepath=%r", filepath)
         
         if filepath:
             # 从服务器加载文件
             root_dir = current_app.config.get('ROOT_DIR')
-            print(f"[DEBUG] ROOT_DIR: '{root_dir}'")
+            _routes_logger.debug("drawio_main ROOT_DIR=%r", root_dir)
             
             # 处理路径
             full_path = os.path.join(root_dir, filepath.lstrip('/'))
-            print(f"[DEBUG] 完整路径: '{full_path}'")
+            _routes_logger.debug("drawio_main full_path=%r", full_path)
             
             try:
                 full_path = os.path.normpath(full_path)
-                print(f"[DEBUG] 标准化路径: '{full_path}'")
-                print(f"[DEBUG] 文件存在: {os.path.exists(full_path)}")
+                _routes_logger.debug("drawio_main normpath=%r exists=%s", full_path, os.path.exists(full_path))
                 
                 if full_path.startswith(os.path.normpath(root_dir)) and os.path.exists(full_path):
                     with open(full_path, 'r', encoding='utf-8') as f:
                         diagram_content = f.read()
-                    print(f"[DEBUG] 成功读取文件，内容长度: {len(diagram_content)}")
-                    print(f"[DEBUG] 文件前100字符: {diagram_content[:100] if diagram_content else 'EMPTY'}")
-                    print(f"[DEBUG] 是否包含<mxfile: {'<mxfile' in diagram_content}")
+                    _routes_logger.debug("drawio_main read ok len=%s preview100=%r has_mxfile=%s", len(diagram_content), (diagram_content[:100] if diagram_content else ''), '<mxfile' in diagram_content)
                 else:
-                    print(f"[DEBUG] 路径验证失败或文件不存在")
+                    _routes_logger.debug("drawio_main path invalid or missing")
             except Exception as e:
-                print(f"[ERROR] 加载文件失败: {e}")
-                import traceback
-                traceback.print_exc()
+                _routes_logger.error("drawio_main load failed: %s", e, exc_info=True)
         
         return render_template('drawio_main.html', filepath=filepath, diagram_content=diagram_content)
     
@@ -3891,8 +3868,7 @@ def init_app(app):
             response.headers['Content-Type'] = 'text/html; charset=utf-8'
             return response
         except Exception as e:
-            # 使用print替代logger
-            print(f"Error loading Draw.io index: {str(e)}")
+            _routes_logger.error("Error loading Draw.io index: %s", e)
             return "Error loading Draw.io editor", 500
     
     # 重新添加编辑功能路由，但使用正确的iframe src
@@ -3961,9 +3937,9 @@ def init_app(app):
         if not os.path.exists(directory):
             try:
                 os.makedirs(directory, exist_ok=True)
-                print(f"[INFO] 创建目录: {directory}")
+                _routes_logger.info("创建目录: %s", directory)
             except Exception as e:
-                print(f"[ERROR] 创建目录失败: {e}")
+                _routes_logger.error("创建目录失败: %s", e)
                 return jsonify({'error': f'创建目录失败: {e}'}), 400
         
         # 保存文件

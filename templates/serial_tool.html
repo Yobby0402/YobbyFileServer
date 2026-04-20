@@ -169,7 +169,11 @@
                                 </label>
                                 <input type="radio" class="btn-check" name="displayMode" id="modeTerminal" value="terminal">
                                 <label class="btn btn-outline-success" for="modeTerminal">
-                                    <i class="fas fa-terminal"></i> 终端
+                                    <i class="fas fa-terminal"></i> 普通终端
+                                </label>
+                                <input type="radio" class="btn-check" name="displayMode" id="modeTerminalRepl" value="terminalRepl">
+                                <label class="btn btn-outline-success" for="modeTerminalRepl">
+                                    <i class="fas fa-keyboard"></i> REPL终端
                                 </label>
                             </div>
                             <div class="small text-muted mb-1">数据格式</div>
@@ -192,6 +196,38 @@
                                 <input class="form-check-input" type="checkbox" id="showSerialTimestampMs" checked>
                                 <label class="form-check-label small text-muted" for="showSerialTimestampMs">时间戳含毫秒（气泡底部 / 终端行首）</label>
                             </div>
+                            <hr class="my-2 opacity-25">
+                            <div class="small text-muted mb-1">气泡 RX 分帧</div>
+                            <div class="form-check form-check-sm mb-1">
+                                <input class="form-check-input" type="checkbox" id="bubbleRxStreaming">
+                                <label class="form-check-label small" for="bubbleRxStreaming">实时增长气泡（未分帧前同一气泡变长）</label>
+                            </div>
+                            <div class="mb-1">
+                                <label class="form-label small mb-0 text-muted" for="bubbleFrameMode">帧结束条件（均配合下方空闲超时收尾）</label>
+                                <select class="form-select form-select-sm" id="bubbleFrameMode">
+                                    <option value="idle">仅空闲超时</option>
+                                    <option value="newline">换行（0x0A）</option>
+                                    <option value="delimiter">结束字节串</option>
+                                    <option value="regex">正则（仅文本格式）</option>
+                                </select>
+                            </div>
+                            <div class="mb-1" id="bubbleIdleMsRow">
+                                <label class="form-label small mb-0 text-muted" for="bubbleIdleMs">空闲超时（毫秒）</label>
+                                <input type="number" class="form-control form-control-sm" id="bubbleIdleMs" value="100" min="0" step="1">
+                            </div>
+                            <div class="mb-1" id="bubbleDelimiterRow" style="display: none;">
+                                <label class="form-label small mb-0 text-muted" for="bubbleDelimiterText">结束串（支持 \n \r \t \xHH \uHHHH）</label>
+                                <input type="text" class="form-control form-control-sm" id="bubbleDelimiterText" placeholder="例如 \r\n" autocomplete="off">
+                            </div>
+                            <div class="form-check form-check-sm mb-1" id="bubbleIncludeDelimiterRow" style="display: none;">
+                                <input class="form-check-input" type="checkbox" id="bubbleIncludeDelimiter" checked>
+                                <label class="form-check-label small" for="bubbleIncludeDelimiter">帧内容包含结束串</label>
+                            </div>
+                            <div class="mb-1" id="bubbleRegexRow" style="display: none;">
+                                <label class="form-label small mb-0 text-muted" for="bubbleRegexPattern">正则（须整段匹配当前缓冲区）</label>
+                                <input type="text" class="form-control form-control-sm" id="bubbleRegexPattern" placeholder="例如 ^OK\\r\\n$" autocomplete="off">
+                            </div>
+                            <p class="small text-muted mb-0" id="bubbleFrameHint">任意模式下均在「空闲超时」后收尾未结束的帧；正则需匹配整段缓冲区文本。</p>
                         </div>
                     </div>
                 </div>

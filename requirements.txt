@@ -12,6 +12,7 @@ markdown
 GitPython>=3.1.40
 cryptography
 psutil>=5.9.0
+colorama>=0.4.6
 
 # --- 本地 AI（按需安装；不要直接整段复制到下面主列表）---
 # Transformers + 本地/ Hub 权重（推荐：Gemma 放在 AI/models/ ，配 config.ini model_id）

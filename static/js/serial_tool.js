@@ -17,8 +17,19 @@ class SerialToolApp {
         this.timerInterval = null; // 定时发送定时器
         this.commands = []; // 快捷指令列表
         this.websocket = null; // WebSocket 连接
-        this.dataBuffer = { rx: null, tx: null }; // 数据缓冲，用于合并连续数据
-        this.bufferTimeout = null; // 缓冲超时定时器
+        this.dataBuffer = { rx: null, tx: null }; // 已弃用 RX 合并；保留结构供旧逻辑/清空
+        this.bufferTimeout = null; // 已弃用；保留清空时清除
+        /** 气泡 RX 分帧：按 portId 隔离缓冲与空闲定时器 */
+        this.bubbleRxByPort = new Map();
+        this.bubbleStreaming = false; // 气泡是否随接收实时增长
+        this.bubbleFrameMode = 'idle'; // idle | newline | delimiter | regex
+        this.bubbleIdleMs = 100;
+        this.bubbleDelimiterText = '';
+        this.bubbleRegexPattern = '';
+        this.bubbleIncludeDelimiter = true;
+        this._bubbleDelimiterBytes = new Uint8Array(0);
+        this._bubbleRegexCached = '';
+        this._bubbleRegexObj = null;
         this.displayMode = 'bubble'; // 显示模式：bubble 或 terminal
         this.localEcho = true; // 本地回显：是否显示用户输入的字符
         this.termLineBuffer = ''; // 终端模式：当前行缓冲（回车整行发送）
@@ -29,6 +40,8 @@ class SerialToolApp {
         this.capturePortOptions = []; // 可用串口列表
         this.captureStatusRefreshTimer = null; // 持续日志状态定时刷新
         this.serverConfig = window.SERIAL_SERVER_CONFIG || {};
+        this._sendDataInProgress = false; // 定时发送时串行化，避免叠压与连弹窗
+        this._lastSendFailureAlertAt = 0;
 
         this.init();
     }
@@ -284,6 +297,7 @@ class SerialToolApp {
             if (chkTs) chkTs.checked = this.showTimestamp;
             if (chkMs) chkMs.checked = this.showMilliseconds;
             this.updateTimestampOptionsUi();
+            this.loadBubbleSettingsFromStorage();
         } catch (error) {
             console.error('加载设置失败:', error);
         }
@@ -312,9 +326,76 @@ class SerialToolApp {
             
             localStorage.setItem('serialToolAppendCRLF', document.getElementById('appendCRLF').checked);
             this.persistTimestampSettings();
+            this.persistBubbleSettings();
         } catch (error) {
             console.error('保存设置失败:', error);
         }
+    }
+
+    loadBubbleSettingsFromStorage() {
+        const vStream = localStorage.getItem('serialToolBubbleStreaming');
+        if (vStream === 'true') this.bubbleStreaming = true;
+        else if (vStream === 'false') this.bubbleStreaming = false;
+
+        const mode = localStorage.getItem('serialToolBubbleFrameMode');
+        if (mode && ['idle', 'newline', 'delimiter', 'regex'].includes(mode)) {
+            this.bubbleFrameMode = mode;
+        }
+
+        const idle = localStorage.getItem('serialToolBubbleIdleMs');
+        if (idle != null && idle !== '') {
+            const n = parseInt(idle, 10);
+            if (Number.isFinite(n)) this.bubbleIdleMs = Math.max(0, n);
+        }
+
+        const del = localStorage.getItem('serialToolBubbleDelimiter');
+        if (del != null) this.bubbleDelimiterText = del;
+
+        const re = localStorage.getItem('serialToolBubbleRegex');
+        if (re != null) this.bubbleRegexPattern = re;
+
+        const inc = localStorage.getItem('serialToolBubbleIncludeDelimiter');
+        this.bubbleIncludeDelimiter = inc !== 'false';
+
+        const chk = document.getElementById('bubbleRxStreaming');
+        if (chk) chk.checked = this.bubbleStreaming;
+
+        const modeEl = document.getElementById('bubbleFrameMode');
+        if (modeEl) modeEl.value = this.bubbleFrameMode;
+
+        const idleEl = document.getElementById('bubbleIdleMs');
+        if (idleEl) idleEl.value = String(this.bubbleIdleMs);
+
+        const delEl = document.getElementById('bubbleDelimiterText');
+        if (delEl) delEl.value = this.bubbleDelimiterText;
+
+        const reEl = document.getElementById('bubbleRegexPattern');
+        if (reEl) reEl.value = this.bubbleRegexPattern;
+
+        const incEl = document.getElementById('bubbleIncludeDelimiter');
+        if (incEl) incEl.checked = this.bubbleIncludeDelimiter;
+
+        this.updateBubbleDelimiterCache();
+        this.updateBubbleRegexCache();
+        this.syncBubbleOptionsUi();
+    }
+
+    persistBubbleSettings() {
+        const chk = document.getElementById('bubbleRxStreaming');
+        const modeEl = document.getElementById('bubbleFrameMode');
+        const idleEl = document.getElementById('bubbleIdleMs');
+        const delEl = document.getElementById('bubbleDelimiterText');
+        const reEl = document.getElementById('bubbleRegexPattern');
+        const incEl = document.getElementById('bubbleIncludeDelimiter');
+        if (chk) localStorage.setItem('serialToolBubbleStreaming', chk.checked ? 'true' : 'false');
+        if (modeEl) localStorage.setItem('serialToolBubbleFrameMode', modeEl.value || 'idle');
+        if (idleEl) {
+            const n = parseInt(idleEl.value, 10);
+            localStorage.setItem('serialToolBubbleIdleMs', String(Number.isFinite(n) ? Math.max(0, n) : 100));
+        }
+        if (delEl) localStorage.setItem('serialToolBubbleDelimiter', delEl.value || '');
+        if (reEl) localStorage.setItem('serialToolBubbleRegex', reEl.value || '');
+        if (incEl) localStorage.setItem('serialToolBubbleIncludeDelimiter', incEl.checked ? 'true' : 'false');
     }
 
     persistTimestampSettings() {
@@ -326,6 +407,427 @@ class SerialToolApp {
         const chkMs = document.getElementById('showSerialTimestampMs');
         if (chkMs) {
             chkMs.disabled = !this.showTimestamp;
+        }
+    }
+
+    updateBubbleDelimiterCache() {
+        this._bubbleDelimiterBytes = this.parseBubbleDelimiterBytes(this.bubbleDelimiterText || '');
+    }
+
+    updateBubbleRegexCache() {
+        const p = this.bubbleRegexPattern || '';
+        if (p === this._bubbleRegexCached && this._bubbleRegexObj !== undefined) {
+            return;
+        }
+        this._bubbleRegexCached = p;
+        if (!p.trim()) {
+            this._bubbleRegexObj = null;
+            return;
+        }
+        try {
+            this._bubbleRegexObj = new RegExp(p, 'su');
+        } catch {
+            this._bubbleRegexObj = null;
+        }
+    }
+
+    parseBubbleDelimiterBytes(text) {
+        if (!text) return new Uint8Array(0);
+        const bytes = [];
+        for (let i = 0; i < text.length; i++) {
+            const c = text[i];
+            if (c === '\\' && i + 1 < text.length) {
+                const n = text[++i];
+                if (n === 'n') bytes.push(10);
+                else if (n === 'r') bytes.push(13);
+                else if (n === 't') bytes.push(9);
+                else if (n === '\\') bytes.push(92);
+                else if (n === 'x' && i + 2 < text.length) {
+                    const h = text.slice(i + 1, i + 3);
+                    if (/^[0-9A-Fa-f]{2}$/.test(h)) {
+                        bytes.push(parseInt(h, 16));
+                        i += 2;
+                    } else bytes.push(n.charCodeAt(0));
+                } else if (n === 'u' && i + 4 < text.length) {
+                    const h = text.slice(i + 1, i + 5);
+                    if (/^[0-9A-Fa-f]{4}$/.test(h)) {
+                        const cp = parseInt(h, 16);
+                        for (const b of new TextEncoder().encode(String.fromCodePoint(cp))) bytes.push(b);
+                        i += 4;
+                    } else bytes.push(n.charCodeAt(0));
+                } else bytes.push(n.charCodeAt(0));
+            } else {
+                bytes.push(...new TextEncoder().encode(c));
+            }
+        }
+        return new Uint8Array(bytes);
+    }
+
+    indexOfSubarray(haystack, needle) {
+        if (!needle.length) return -1;
+        outer: for (let i = 0; i <= haystack.length - needle.length; i++) {
+            for (let j = 0; j < needle.length; j++) {
+                if (haystack[i + j] !== needle[j]) continue outer;
+            }
+            return i;
+        }
+        return -1;
+    }
+
+    concatUint8Arrays(a, b) {
+        const out = new Uint8Array(a.length + b.length);
+        out.set(a);
+        out.set(b, a.length);
+        return out;
+    }
+
+    getOrInitBubbleRxSession(portId) {
+        let s = this.bubbleRxByPort.get(portId);
+        if (!s) {
+            s = {
+                buf: new Uint8Array(0),
+                startTs: null,
+                idleTimer: null,
+                lastSeq: null,
+                openWrapper: null,
+                openContentEl: null,
+                openTimeEl: null,
+            };
+            this.bubbleRxByPort.set(portId, s);
+        }
+        return s;
+    }
+
+    clearBubbleRxIdleTimer(session) {
+        if (session.idleTimer) {
+            clearTimeout(session.idleTimer);
+            session.idleTimer = null;
+        }
+    }
+
+    removeBubblePartialDom(session) {
+        if (session.openWrapper && session.openWrapper.parentNode) {
+            session.openWrapper.remove();
+        }
+        session.openWrapper = null;
+        session.openContentEl = null;
+        session.openTimeEl = null;
+    }
+
+    trySliceNextRxFrame(session) {
+        const buf = session.buf;
+        if (!buf.length) return null;
+        const mode = this.bubbleFrameMode;
+        if (mode === 'idle') return null;
+
+        if (mode === 'newline') {
+            const idx = buf.indexOf(0x0a);
+            if (idx === -1) return null;
+            const frame = buf.slice(0, idx + 1);
+            const rest = buf.slice(idx + 1);
+            return { frame, rest };
+        }
+
+        if (mode === 'delimiter') {
+            const delim = this._bubbleDelimiterBytes;
+            if (!delim.length) return null;
+            const i = this.indexOfSubarray(buf, delim);
+            if (i === -1) return null;
+            let frame;
+            let rest;
+            if (this.bubbleIncludeDelimiter) {
+                frame = buf.slice(0, i + delim.length);
+                rest = buf.slice(i + delim.length);
+            } else {
+                frame = buf.slice(0, i);
+                rest = buf.slice(i + delim.length);
+            }
+            return { frame, rest };
+        }
+
+        if (mode === 'regex') {
+            if (this.dataFormat !== 'text') return null;
+            this.updateBubbleRegexCache();
+            const re = this._bubbleRegexObj;
+            if (!re) return null;
+            const text = new TextDecoder('utf-8', { fatal: false }).decode(buf);
+            const m = re.exec(text);
+            if (!m || m.index !== 0 || m[0].length !== text.length) return null;
+            return { frame: buf.slice(0), rest: new Uint8Array(0) };
+        }
+
+        return null;
+    }
+
+    formatBubblePayload(bytes) {
+        let content = '';
+        let isHex = false;
+        switch (this.dataFormat) {
+            case 'text':
+                content = new TextDecoder('utf-8', { fatal: false }).decode(bytes);
+                break;
+            case 'hex':
+                content = Array.from(bytes)
+                    .map((b) => b.toString(16).padStart(2, '0').toUpperCase())
+                    .join(' ');
+                isHex = true;
+                break;
+            case 'dec':
+                content = Array.from(bytes).join(' ');
+                break;
+            case 'bin':
+                content = Array.from(bytes)
+                    .map((b) => b.toString(2).padStart(8, '0'))
+                    .join(' ');
+                break;
+            default:
+                content = new TextDecoder().decode(bytes);
+        }
+        return { content, isHex };
+    }
+
+    ensureRxPartialBubble(portId, portName, session) {
+        if (this.displayMode !== 'bubble') return;
+        const display = document.getElementById('dataDisplay');
+        if (!display) return;
+
+        if (!session.openWrapper) {
+            const wrapper = document.createElement('div');
+            wrapper.className = 'message-wrapper rx';
+            const bubble = document.createElement('div');
+            const { isHex } = this.formatBubblePayload(session.buf);
+            bubble.className = `message-bubble${isHex ? ' hex' : ''}`;
+            const badge = document.createElement('div');
+            badge.className = 'message-badge';
+            badge.textContent = 'RX';
+            const contentEl = document.createElement('div');
+            contentEl.className = 'message-content';
+            bubble.appendChild(badge);
+            bubble.appendChild(contentEl);
+            const timeLabel = this.formatBubbleTimeLabel(session.startTs || new Date());
+            let timeEl = null;
+            if (timeLabel) {
+                timeEl = document.createElement('div');
+                timeEl.className = 'message-time';
+                timeEl.textContent = timeLabel;
+                bubble.appendChild(timeEl);
+            }
+            wrapper.appendChild(bubble);
+            display.appendChild(wrapper);
+            session.openWrapper = wrapper;
+            session.openContentEl = contentEl;
+            session.openTimeEl = timeEl;
+        }
+    }
+
+    updateRxPartialBubbleContent(session) {
+        if (!session.openContentEl) return;
+        const { content, isHex } = this.formatBubblePayload(session.buf);
+        session.openContentEl.textContent = content;
+        const bubble = session.openContentEl.closest('.message-bubble');
+        if (bubble) {
+            bubble.classList.toggle('hex', Boolean(isHex));
+        }
+        if (session.openTimeEl && session.startTs) {
+            const tl = this.formatBubbleTimeLabel(session.startTs);
+            session.openTimeEl.textContent = tl;
+            session.openTimeEl.style.display = tl ? '' : 'none';
+        }
+        const display = document.getElementById('dataDisplay');
+        if (display && this.autoScroll) {
+            requestAnimationFrame(() => {
+                display.scrollTop = display.scrollHeight;
+            });
+        }
+    }
+
+    finalizeRxBubbleRecord(portId, portName, frameBytes, timestamp, seq) {
+        const record = {
+            portId,
+            portName,
+            direction: 'rx',
+            data: frameBytes,
+            timestamp: timestamp instanceof Date ? timestamp : new Date(timestamp),
+            format: this.dataFormat,
+        };
+        if (seq != null) record.seq = seq;
+        this.dataLog.push(record);
+        if (typeof this.trimPortRecords === 'function') {
+            this.trimPortRecords(portId);
+        }
+        const pinfo = this.ports.get(portId);
+        if (pinfo && pinfo.type === 'remote') {
+            this.historyMarkers.set(portId, new Date(Date.now() - 500).toISOString());
+        }
+        return record;
+    }
+
+    displayRxRecord(record, session) {
+        const allow = !this.isPaused && record.portId === this.currentPort;
+        if (!allow) return;
+
+        if (this.isTerminalMode()) {
+            this.displayTerminalData(record);
+            return;
+        }
+
+        if (session && session.openWrapper && this.bubbleStreaming) {
+            const { content, isHex } = this.formatBubblePayload(record.data);
+            if (session.openContentEl) {
+                session.openContentEl.textContent = content;
+            }
+            const bubble = session.openContentEl?.closest('.message-bubble');
+            if (bubble) {
+                bubble.classList.toggle('hex', Boolean(isHex));
+            }
+            if (session.openTimeEl) {
+                const tl = this.formatBubbleTimeLabel(record.timestamp);
+                session.openTimeEl.textContent = tl;
+                session.openTimeEl.style.display = tl ? '' : 'none';
+            }
+            session.openWrapper = null;
+            session.openContentEl = null;
+            session.openTimeEl = null;
+            const display = document.getElementById('dataDisplay');
+            if (display && this.autoScroll) {
+                requestAnimationFrame(() => {
+                    display.scrollTop = display.scrollHeight;
+                });
+            }
+            return;
+        }
+        this.displayData(record);
+    }
+
+    ingestRxForDisplay(portId, chunk, timestamp, options = {}) {
+        if (!chunk || !chunk.length) return;
+        const portInfo = this.ports.get(portId);
+        const portName = portInfo?.name || portId;
+        const seq = options.seq != null ? options.seq : undefined;
+        const session = this.getOrInitBubbleRxSession(portId);
+        if (seq != null) session.lastSeq = seq;
+
+        const ts = timestamp instanceof Date ? timestamp : new Date(timestamp);
+        const wasEmpty = session.buf.length === 0;
+        session.buf = this.concatUint8Arrays(session.buf, chunk);
+        if (wasEmpty && session.buf.length) {
+            session.startTs = ts;
+        }
+
+        const paused = this.isPaused;
+        const allowPartialDom =
+            !paused &&
+            portId === this.currentPort &&
+            this.displayMode === 'bubble' &&
+            this.bubbleStreaming;
+
+        while (this.bubbleFrameMode !== 'idle') {
+            const split = this.trySliceNextRxFrame(session);
+            if (!split) break;
+
+            const frameTs = session.startTs || ts;
+            const record = this.finalizeRxBubbleRecord(
+                portId,
+                portName,
+                split.frame,
+                frameTs,
+                session.lastSeq
+            );
+            this.displayRxRecord(record, session);
+
+            session.buf = split.rest;
+            if (session.buf.length) {
+                session.startTs = new Date();
+            } else {
+                session.startTs = null;
+            }
+        }
+
+        if (allowPartialDom && session.buf.length) {
+            this.ensureRxPartialBubble(portId, portName, session);
+            this.updateRxPartialBubbleContent(session);
+        } else {
+            this.removeBubblePartialDom(session);
+        }
+
+        this.clearBubbleRxIdleTimer(session);
+        const idleMs = Math.max(0, Number(this.bubbleIdleMs) || 0);
+        session.idleTimer = setTimeout(() => this.flushBubbleRxIdle(portId), idleMs);
+    }
+
+    flushBubbleRxIdle(portId) {
+        const session = this.bubbleRxByPort.get(portId);
+        if (!session) return;
+        session.idleTimer = null;
+        if (!session.buf.length) return;
+
+        const portInfo = this.ports.get(portId);
+        const portName = portInfo?.name || portId;
+
+        const frameTs = session.startTs || new Date();
+        const record = this.finalizeRxBubbleRecord(
+            portId,
+            portName,
+            session.buf,
+            frameTs,
+            session.lastSeq
+        );
+        session.buf = new Uint8Array(0);
+        session.startTs = null;
+        this.displayRxRecord(record, session);
+    }
+
+    flushBubbleRxPort(portId) {
+        const session = this.bubbleRxByPort.get(portId);
+        if (!session) return;
+        this.clearBubbleRxIdleTimer(session);
+        if (session.buf.length) {
+            this.flushBubbleRxIdle(portId);
+        }
+    }
+
+    flushAllBubbleRxPending() {
+        for (const portId of Array.from(this.bubbleRxByPort.keys())) {
+            this.flushBubbleRxPort(portId);
+        }
+    }
+
+    applyBubbleSettingsFromUi() {
+        const st = document.getElementById('bubbleRxStreaming');
+        const modeEl = document.getElementById('bubbleFrameMode');
+        const idleEl = document.getElementById('bubbleIdleMs');
+        const delEl = document.getElementById('bubbleDelimiterText');
+        const reEl = document.getElementById('bubbleRegexPattern');
+        const incEl = document.getElementById('bubbleIncludeDelimiter');
+        if (st) this.bubbleStreaming = st.checked;
+        if (modeEl) this.bubbleFrameMode = modeEl.value || 'idle';
+        if (idleEl) {
+            const n = parseInt(idleEl.value, 10);
+            this.bubbleIdleMs = Number.isFinite(n) ? Math.max(0, n) : 100;
+        }
+        if (delEl) this.bubbleDelimiterText = delEl.value || '';
+        if (reEl) this.bubbleRegexPattern = reEl.value || '';
+        if (incEl) this.bubbleIncludeDelimiter = incEl.checked;
+        this.updateBubbleDelimiterCache();
+        this.updateBubbleRegexCache();
+        this.syncBubbleOptionsUi();
+    }
+
+    syncBubbleOptionsUi() {
+        const delRow = document.getElementById('bubbleDelimiterRow');
+        const reRow = document.getElementById('bubbleRegexRow');
+        const incRow = document.getElementById('bubbleIncludeDelimiterRow');
+        const hint = document.getElementById('bubbleFrameHint');
+        const mode = this.bubbleFrameMode;
+        if (delRow) delRow.style.display = mode === 'delimiter' ? '' : 'none';
+        if (reRow) reRow.style.display = mode === 'regex' ? '' : 'none';
+        if (incRow) incRow.style.display = mode === 'delimiter' ? '' : 'none';
+        if (hint) {
+            const isText = this.dataFormat === 'text';
+            hint.textContent =
+                mode === 'regex' && !isText
+                    ? '当前为 HEX/数值格式，正则分帧不会生效，仅空闲超时收尾。'
+                    : '任意模式下均在「空闲超时」后收尾未结束的帧；正则需匹配整段缓冲区文本。';
         }
     }
 
@@ -349,6 +851,27 @@ class SerialToolApp {
         if (!this.showTimestamp) return '';
         const inner = this.formatBubbleTimeLabel(date);
         return inner ? `[${inner}] ` : '';
+    }
+
+    isTerminalMode() {
+        return this.displayMode === 'terminal' || this.displayMode === 'terminalRepl';
+    }
+
+    isTerminalReplMode() {
+        return this.displayMode === 'terminalRepl';
+    }
+
+    syncTerminalModeUi() {
+        const container = document.getElementById('terminalContainer');
+        if (container) {
+            container.classList.toggle('terminal-repl', this.isTerminalReplMode());
+            container.classList.toggle('terminal-display-only', this.displayMode === 'terminal');
+        }
+
+        const localEchoCheckbox = document.getElementById('localEcho');
+        if (localEchoCheckbox) {
+            localEchoCheckbox.disabled = !this.isTerminalReplMode();
+        }
     }
     
     async loadCapturePorts(force = false) {
@@ -909,8 +1432,9 @@ class SerialToolApp {
         document.querySelectorAll('input[name="dataFormat"]').forEach(radio => {
             radio.addEventListener('change', (e) => {
                 this.dataFormat = e.target.value;
+                this.syncBubbleOptionsUi();
                 this.refreshDataDisplay();
-                if (this.displayMode === 'terminal') {
+                if (this.isTerminalMode()) {
                     this.refreshTerminalDisplay();
                 }
             });
@@ -928,7 +1452,7 @@ class SerialToolApp {
                 this.updateTimestampOptionsUi();
                 this.persistTimestampSettings();
                 this.refreshDataDisplay();
-                if (this.displayMode === 'terminal') {
+                if (this.isTerminalMode()) {
                     this.refreshTerminalDisplay();
                 }
             });
@@ -939,10 +1463,44 @@ class SerialToolApp {
                 this.showMilliseconds = e.target.checked;
                 this.persistTimestampSettings();
                 this.refreshDataDisplay();
-                if (this.displayMode === 'terminal') {
+                if (this.isTerminalMode()) {
                     this.refreshTerminalDisplay();
                 }
             });
+        }
+
+        const onBubbleSettingChanged = () => {
+            this.applyBubbleSettingsFromUi();
+            this.persistBubbleSettings();
+            this.flushAllBubbleRxPending();
+            this.refreshDataDisplay();
+            if (this.isTerminalMode()) {
+                this.refreshTerminalDisplay();
+            }
+        };
+        const bubbleRxStreaming = document.getElementById('bubbleRxStreaming');
+        if (bubbleRxStreaming) {
+            bubbleRxStreaming.addEventListener('change', onBubbleSettingChanged);
+        }
+        const bubbleFrameMode = document.getElementById('bubbleFrameMode');
+        if (bubbleFrameMode) {
+            bubbleFrameMode.addEventListener('change', onBubbleSettingChanged);
+        }
+        const bubbleIdleMs = document.getElementById('bubbleIdleMs');
+        if (bubbleIdleMs) {
+            bubbleIdleMs.addEventListener('change', onBubbleSettingChanged);
+        }
+        const bubbleDelimiterText = document.getElementById('bubbleDelimiterText');
+        if (bubbleDelimiterText) {
+            bubbleDelimiterText.addEventListener('change', onBubbleSettingChanged);
+        }
+        const bubbleRegexPattern = document.getElementById('bubbleRegexPattern');
+        if (bubbleRegexPattern) {
+            bubbleRegexPattern.addEventListener('change', onBubbleSettingChanged);
+        }
+        const bubbleIncludeDelimiter = document.getElementById('bubbleIncludeDelimiter');
+        if (bubbleIncludeDelimiter) {
+            bubbleIncludeDelimiter.addEventListener('change', onBubbleSettingChanged);
         }
         
         // 真实终端交互 - 实时发送字符
@@ -1130,11 +1688,7 @@ class SerialToolApp {
     
     // 添加串口
     async addPort() {
-        if (this.connectionMode === 'local') {
-            await this.addLocalPort();
-        } else {
-            await this.addRemotePort();
-        }
+        await this.addLocalPort();
     }
     
     // 添加本地串口
@@ -1157,9 +1711,10 @@ class SerialToolApp {
             const port = await navigator.serial.requestPort();
             
             // 获取串口信息
-            const info = port.getInfo();
-            const portId = `port_${Date.now()}`;
-            const portName = `COM${info.usbProductId || '?'}`;
+            const info = port.getInfo ? port.getInfo() : {};
+            const portId = `port_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`;
+            const generatedName = `Local ${info.usbVendorId || 'NA'}-${info.usbProductId || 'NA'}`;
+            const portName = (config.displayName || '').trim() || generatedName;
             
             // 使用用户配置的参数打开串口
             await port.open({
@@ -1174,11 +1729,16 @@ class SerialToolApp {
             const portInfo = {
                 id: portId,
                 name: portName,
+                device: portName,
                 type: 'local',  // 本地串口标识
                 port: port,
                 config: config,
                 reader: null,
-                connected: true
+                connected: true,
+                sharedChannelId: null,
+                sharedDisplayName: null,
+                sharedChannelState: null,
+                shareState: 'private'
             };
             
             this.ports.set(portId, portInfo);
@@ -1196,6 +1756,15 @@ class SerialToolApp {
             if (!this.startTime) {
                 this.startTime = Date.now();
                 this.startUptimeTimer();
+            }
+
+            if (config.shareEnabled && typeof this.shareLocalPortEntry === 'function') {
+                try {
+                    await this.shareLocalPortEntry(portId);
+                } catch (shareError) {
+                    console.error('共享本地串口失败:', shareError);
+                    alert(`本地串口已添加，但共享失败: ${shareError.message || shareError}`);
+                }
             }
             
             console.log(`成功连接串口: ${portName}`);
@@ -1219,6 +1788,14 @@ class SerialToolApp {
                                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                             </div>
                             <div class="modal-body">
+                                <div class="mb-3">
+                                    <label class="form-label">显示名称（可选）</label>
+                                    <input type="text" class="form-control" id="modalDisplayName" placeholder="默认自动生成">
+                                </div>
+                                <div class="form-check form-switch mb-3">
+                                    <input class="form-check-input" type="checkbox" id="modalShareEnabled">
+                                    <label class="form-check-label" for="modalShareEnabled">添加后立即共享该串口</label>
+                                </div>
                                 <div class="mb-3">
                                     <label class="form-label">波特率</label>
                                     <select class="form-select" id="modalBaudRate">
@@ -1293,7 +1870,9 @@ class SerialToolApp {
                     dataBits: parseInt(document.getElementById('modalDataBits').value),
                     stopBits: parseInt(document.getElementById('modalStopBits').value),
                     parity: document.getElementById('modalParity').value,
-                    flowControl: document.getElementById('modalFlowControl').value
+                    flowControl: document.getElementById('modalFlowControl').value,
+                    displayName: document.getElementById('modalDisplayName').value.trim(),
+                    shareEnabled: document.getElementById('modalShareEnabled').checked
                 };
                 modal.hide();
                 resolve(config);
@@ -1638,52 +2217,8 @@ class SerialToolApp {
         // 更新接收字节数
         this.rxBytes += dataBytes.length;
         this.updateStats();
-        
-        // 如果暂停，只记录不显示
-        if (this.isPaused) {
-            this.dataLog.push({
-                portId: portId,
-                portName: this.ports.get(portId)?.name || portId,
-                direction: 'rx',
-                data: dataBytes,
-                timestamp: timestamp,
-                format: this.dataFormat
-            });
-            this.historyMarkers.set(portId, new Date(Date.now() - 500).toISOString());
-            return;
-        }
-        
-        // 合并数据到缓冲区（与本地串口相同的逻辑）
-        if (!this.dataBuffer.rx) {
-            this.dataBuffer.rx = {
-                portId: portId,
-                portName: this.ports.get(portId)?.name || portId,
-                direction: 'rx',
-                data: dataBytes,
-                timestamp: timestamp,
-                format: this.dataFormat
-            };
-        } else {
-            const combined = new Uint8Array(this.dataBuffer.rx.data.length + dataBytes.length);
-            combined.set(this.dataBuffer.rx.data);
-            combined.set(dataBytes, this.dataBuffer.rx.data.length);
-            this.dataBuffer.rx.data = combined;
-        }
-        
-        // 清除之前的超时
-        if (this.bufferTimeout) {
-            clearTimeout(this.bufferTimeout);
-        }
-        
-        // 设置新的超时，100ms 内没有新数据则显示
-        this.bufferTimeout = setTimeout(() => {
-            if (this.dataBuffer.rx && portId === this.currentPort) {
-                this.dataLog.push(this.dataBuffer.rx);
-                this.displayData(this.dataBuffer.rx);
-                this.dataBuffer.rx = null;
-            }
-            this.historyMarkers.set(portId, new Date(Date.now() - 500).toISOString());
-        }, 100);
+
+        this.ingestRxForDisplay(portId, dataBytes, timestamp);
     }
     
     // 处理远程数据写入结果
@@ -1691,7 +2226,7 @@ class SerialToolApp {
         if (data.success) {
             console.log(`数据已发送: ${data.bytes_written} 字节`);
         } else {
-            alert(`发送数据失败: ${data.error}`);
+            this.reportSendWriteFailure(data.error || '未知错误');
         }
     }
     
@@ -1733,76 +2268,41 @@ class SerialToolApp {
         // 更新接收字节数
         this.rxBytes += value.length;
         this.updateStats();
-        
-        // 如果暂停，只记录不显示
-        if (this.isPaused) {
-            this.dataLog.push({
-                portId: portId,
-                portName: portInfo.name,
-                direction: 'rx',
-                data: value,
-                timestamp: new Date(),
-                format: this.dataFormat
-            });
-            return;
+
+        this.ingestRxForDisplay(portId, value, new Date());
+
+        if (typeof this.forwardLocalSharedRx === 'function') {
+            this.forwardLocalSharedRx(portId, value);
         }
-        
-        // 合并数据到缓冲区
-        if (!this.dataBuffer.rx) {
-            // 创建新的接收数据缓冲
-            this.dataBuffer.rx = {
-                portId: portId,
-                portName: portInfo.name,
-                direction: 'rx',
-                data: value,
-                timestamp: new Date(),
-                format: this.dataFormat
-            };
-        } else {
-            // 合并到现有缓冲
-            const combined = new Uint8Array(this.dataBuffer.rx.data.length + value.length);
-            combined.set(this.dataBuffer.rx.data);
-            combined.set(value, this.dataBuffer.rx.data.length);
-            this.dataBuffer.rx.data = combined;
-        }
-        
-        // 清除之前的超时
-        if (this.bufferTimeout) {
-            clearTimeout(this.bufferTimeout);
-        }
-        
-        // 设置新的超时，100ms 内没有新数据则显示
-        this.bufferTimeout = setTimeout(() => {
-            if (this.dataBuffer.rx && portId === this.currentPort) {
-                this.dataLog.push(this.dataBuffer.rx);
-                this.displayData(this.dataBuffer.rx);
-                this.dataBuffer.rx = null;
-            }
-        }, 100);
     }
     
     // 切换显示模式
     switchDisplayMode() {
+        this.flushAllBubbleRxPending();
         const bubbleDisplay = document.getElementById('dataDisplay');
         const terminalContainer = document.getElementById('terminalContainer');
         
-        if (this.displayMode === 'terminal') {
+        if (this.isTerminalMode()) {
             this.termLineBuffer = '';
             bubbleDisplay.style.display = 'none';
             terminalContainer.style.display = 'flex';
+            this.syncTerminalModeUi();
             
             // 刷新终端显示
             this.refreshTerminalDisplay();
             
             // 聚焦到终端输入框
-            setTimeout(() => {
-                const input = document.getElementById('terminalInput');
-                if (input) input.focus();
-            }, 100);
+            if (this.isTerminalReplMode()) {
+                setTimeout(() => {
+                    const input = document.getElementById('terminalInput');
+                    if (input) input.focus();
+                }, 100);
+            }
         } else {
             this.termLineBuffer = '';
             bubbleDisplay.style.display = 'block';
             terminalContainer.style.display = 'none';
+            this.syncTerminalModeUi();
             
             // 刷新气泡显示
             this.refreshDataDisplay();
@@ -1819,6 +2319,9 @@ class SerialToolApp {
         // 重新显示所有历史数据
         this.dataLog.forEach((data) => {
             if (data.portId === this.currentPort) {
+                if (this.isTerminalReplMode() && data.direction === 'tx') {
+                    return;
+                }
                 let content = '';
                 switch (this.dataFormat) {
                     case 'text':
@@ -1839,7 +2342,8 @@ class SerialToolApp {
                         break;
                 }
                 const prefix = this.formatTerminalTimePrefix(data.timestamp);
-                this.appendToTerminalDisplay(prefix + content);
+                const directionPrefix = data.direction === 'tx' ? '[TX] ' : '';
+                this.appendToTerminalDisplay(prefix + directionPrefix + content);
             }
         });
         
@@ -1851,13 +2355,13 @@ class SerialToolApp {
         
         // 聚焦到输入框
         const input = document.getElementById('terminalInput');
-        if (input) input.focus();
+        if (input && this.isTerminalReplMode()) input.focus();
     }
     
     // 在终端模式显示数据
     displayTerminalData(data) {
         // 只显示接收的数据（发送的已经在界面上显示了）
-        if (data.direction !== 'rx') {
+        if (this.isTerminalReplMode() && data.direction !== 'rx') {
             return;
         }
         
@@ -1882,7 +2386,8 @@ class SerialToolApp {
         }
         
         const prefix = this.formatTerminalTimePrefix(data.timestamp);
-        this.appendToTerminalDisplay(prefix + content);
+        const directionPrefix = data.direction === 'tx' ? '[TX] ' : '';
+        this.appendToTerminalDisplay(prefix + directionPrefix + content);
     }
     
     // 绑定终端快捷键按钮
@@ -1941,7 +2446,7 @@ class SerialToolApp {
         };
         
         input.addEventListener('keydown', (e) => {
-            if (this.displayMode !== 'terminal') {
+            if (!this.isTerminalReplMode()) {
                 return;
             }
             
@@ -2046,7 +2551,7 @@ class SerialToolApp {
         
         // 输入法组合完成后整段进入行缓冲，不逐字发送
         input.addEventListener('input', () => {
-            if (this.displayMode !== 'terminal') return;
+            if (!this.isTerminalReplMode()) return;
             const value = input.value;
             if (!value) return;
             input.value = '';
@@ -2058,6 +2563,7 @@ class SerialToolApp {
         });
         
         display.addEventListener('click', () => {
+            if (!this.isTerminalReplMode()) return;
             input.focus();
             resetInputCaret();
         });
@@ -2065,7 +2571,7 @@ class SerialToolApp {
         input.addEventListener('focus', () => resetInputCaret());
         
         document.addEventListener('selectionchange', () => {
-            if (this.displayMode === 'terminal' && document.activeElement === input) {
+            if (this.isTerminalReplMode() && document.activeElement === input) {
                 if (input.selectionStart !== 0 || input.selectionEnd !== 0) {
                     input.setSelectionRange(0, 0);
                 }
@@ -2073,7 +2579,7 @@ class SerialToolApp {
         });
         
         input.addEventListener('paste', (e) => {
-            if (this.displayMode !== 'terminal') return;
+            if (!this.isTerminalReplMode()) return;
             e.preventDefault();
             const text = e.clipboardData.getData('text/plain');
             if (!text) return;
@@ -2182,6 +2688,9 @@ class SerialToolApp {
                 } finally {
                     writer.releaseLock();
                 }
+                if (typeof this.mirrorLocalSharedTx === 'function') {
+                    await this.mirrorLocalSharedTx(this.currentPort, data);
+                }
             } else if (portInfo.type === 'remote') {
                 if (this.websocket && this.websocket.connected) {
                     this.websocket.emit('write_data', {
@@ -2217,13 +2726,13 @@ class SerialToolApp {
         
         await this.sendRawBytes([charCode]);
         
-        if (this.displayMode === 'terminal') {
+        if (this.isTerminalReplMode()) {
             if (charCode === 0x03 || charCode === 0x1a) {
                 this.termLineBuffer = '';
             }
         }
         
-        if (this.displayMode === 'terminal' && this.localEcho) {
+        if (this.isTerminalReplMode() && this.localEcho) {
             // 终端模式且本地回显开启时才显示
             if (charCode === 0x03) {
                 this.appendToTerminalDisplay('^C\n');
@@ -2258,7 +2767,7 @@ class SerialToolApp {
     // 显示数据（聊天气泡样式）
     displayData(data) {
         // 根据显示模式选择不同的显示方法
-        if (this.displayMode === 'terminal') {
+        if (this.isTerminalMode()) {
             this.displayTerminalData(data);
             return;
         }
@@ -2320,6 +2829,7 @@ class SerialToolApp {
     
     // 刷新数据显示
     refreshDataDisplay() {
+        this.flushAllBubbleRxPending();
         const display = document.getElementById('dataDisplay');
         display.innerHTML = '';
         
@@ -2330,68 +2840,106 @@ class SerialToolApp {
         });
     }
     
+    haltScheduledSend(reason) {
+        if (!this.timerInterval) return;
+        this.stopTimerSend();
+        const en = document.getElementById('enableTimer');
+        if (en) en.checked = false;
+        this.addLog(`定时发送已停止：${reason}`, 'error');
+    }
+
+    reportSendWriteFailure(message) {
+        const msg = message || '未知错误';
+        console.error('发送数据失败:', msg);
+        const hadTimer = !!this.timerInterval;
+        if (hadTimer) {
+            this.stopTimerSend();
+            const en = document.getElementById('enableTimer');
+            if (en) en.checked = false;
+        }
+        this.addLog(`发送失败：${msg}`, 'error');
+        const now = Date.now();
+        if (!this._lastSendFailureAlertAt || now - this._lastSendFailureAlertAt > 1500) {
+            this._lastSendFailureAlertAt = now;
+            alert(hadTimer ? `发送失败，定时发送已停止：${msg}` : `发送数据失败：${msg}`);
+        }
+    }
+
     // 发送数据
     async sendData() {
-        if (!this.currentPort) {
-            alert('请先选择一个串口');
+        const timerActive = !!this.timerInterval;
+        if (timerActive && this._sendDataInProgress) {
             return;
         }
-        
+
+        if (!this.currentPort) {
+            if (timerActive) this.haltScheduledSend('请先选择一个串口');
+            else alert('请先选择一个串口');
+            return;
+        }
+
         const portInfo = this.ports.get(this.currentPort);
         if (!portInfo || !portInfo.connected) {
-            alert('串口未连接');
+            if (timerActive) this.haltScheduledSend('串口未连接');
+            else alert('串口未连接');
             return;
         }
-        
+
         const input = document.getElementById('sendInput').value;
         if (!input) {
-            alert('请输入要发送的数据');
+            if (timerActive) this.haltScheduledSend('发送内容为空');
+            else alert('请输入要发送的数据');
             return;
         }
-        
+
+        if (this.sendFormat === 'hex') {
+            const hexStr = input.replace(/\s+/g, '');
+            if (!/^[0-9A-Fa-f]*$/.test(hexStr)) {
+                if (timerActive) this.haltScheduledSend('HEX 格式错误');
+                else alert('HEX 格式错误，请输入有效的十六进制字符');
+                return;
+            }
+        }
+
+        if (timerActive) {
+            this._sendDataInProgress = true;
+        }
+
         try {
             let dataToSend;
-            
+
             if (this.sendFormat === 'hex') {
-                // HEX 格式
                 const hexStr = input.replace(/\s+/g, '');
-                if (!/^[0-9A-Fa-f]*$/.test(hexStr)) {
-                    alert('HEX 格式错误，请输入有效的十六进制字符');
-                    return;
-                }
                 const bytes = [];
                 for (let i = 0; i < hexStr.length; i += 2) {
                     bytes.push(parseInt(hexStr.substr(i, 2), 16));
                 }
                 dataToSend = new Uint8Array(bytes);
             } else {
-                // 文本格式
                 let text = input;
                 if (document.getElementById('appendCRLF').checked) {
                     text += '\r\n';
                 }
                 dataToSend = new TextEncoder().encode(text);
             }
-            
-            // 判断是本地串口还是远程串口
+
             if (portInfo.type === 'remote') {
-                // 远程串口：通过 WebSocket 发送
                 this.websocket.emit('write_data', {
                     port_id: this.currentPort,
                     data: Array.from(dataToSend)
                 });
             } else {
-                // 本地串口：直接写入
                 const writer = portInfo.port.writable.getWriter();
                 await writer.write(dataToSend);
                 writer.releaseLock();
+                if (typeof this.mirrorLocalSharedTx === 'function') {
+                    await this.mirrorLocalSharedTx(this.currentPort, dataToSend);
+                }
             }
-            
-            // 更新发送字节数
+
             this.txBytes += dataToSend.length;
             this.updateStats();
-            
-            // 立即显示发送的数据（不缓冲）
+
             const data = {
                 portId: this.currentPort,
                 portName: portInfo.name,
@@ -2400,24 +2948,20 @@ class SerialToolApp {
                 timestamp: new Date(),
                 format: this.dataFormat
             };
-            
+
             this.dataLog.push(data);
-            
-            // 如果有接收数据缓冲，先显示它
-            if (this.dataBuffer.rx) {
-                this.dataLog.push(this.dataBuffer.rx);
-                this.displayData(this.dataBuffer.rx);
-                this.dataBuffer.rx = null;
-            }
-            
-            // 显示发送的数据
+
+            // 不在此处 flush RX：否则每次发送都会截断「仅空闲超时」等规则下的接收帧
+
             this.displayData(data);
-            
+
             console.log('数据已发送');
-            
         } catch (error) {
-            console.error('发送数据失败:', error);
-            alert(`发送数据失败: ${error.message}`);
+            this.reportSendWriteFailure(error?.message || String(error));
+        } finally {
+            if (timerActive) {
+                this._sendDataInProgress = false;
+            }
         }
     }
     
@@ -2480,6 +3024,7 @@ class SerialToolApp {
     
     // 选中串口
     async selectPort(portId, options = {}) {
+        this.flushAllBubbleRxPending();
         this.currentPort = portId;
         const portInfo = this.ports.get(portId);
         const { resetHistory = false } = options;
@@ -2504,6 +3049,13 @@ class SerialToolApp {
     async disconnectPort(portId) {
         const portInfo = this.ports.get(portId);
         if (!portInfo) return;
+
+        this.flushBubbleRxPort(portId);
+        const sess = this.bubbleRxByPort.get(portId);
+        if (sess) {
+            this.removeBubblePartialDom(sess);
+            this.bubbleRxByPort.delete(portId);
+        }
         
         try {
             // 断开前自动保存日志
@@ -2580,12 +3132,16 @@ class SerialToolApp {
         this.updateStats();
         this.termLineBuffer = '';
         
-        // 清空数据缓冲
         this.dataBuffer = { rx: null, tx: null };
         if (this.bufferTimeout) {
             clearTimeout(this.bufferTimeout);
             this.bufferTimeout = null;
         }
+        this.bubbleRxByPort.forEach((sess) => {
+            this.clearBubbleRxIdleTimer(sess);
+            this.removeBubblePartialDom(sess);
+        });
+        this.bubbleRxByPort.clear();
     }
     
     // 切换暂停

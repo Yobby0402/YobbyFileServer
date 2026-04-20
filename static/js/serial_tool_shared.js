@@ -102,13 +102,23 @@
     SerialToolApp.prototype.init = function patchedInit() {
         this.mySharedChannelIds = new Set();
         this.browserSharedPorts = new Map();
+        this.sharedChannelToLocalPortId = new Map();
         this.remoteCatalogLoaded = false;
         this.historyPageSize = 200;
         this.maxHistoryEntriesPerPort = 1000;
-        return originalInit.call(this);
+        const result = originalInit.call(this);
+        this.connectWebSocket()
+            .then(() => this.requestSharedChannels())
+            .catch(() => this.requestSharedChannels(false));
+        return result;
     };
 
     SerialToolApp.prototype.ensureSharedUiElements = function ensureSharedUiElements() {
+        const modeCard = document.querySelector('input[name="connectionMode"]')?.closest('.card');
+        if (modeCard) {
+            modeCard.remove();
+        }
+
         const addPortBtn = document.getElementById('addPortBtn');
         if (addPortBtn && !document.getElementById('sharePortBtn')) {
             let actionContainer = addPortBtn.parentElement;
@@ -129,6 +139,14 @@
             actionContainer.appendChild(sharePortBtn);
         }
 
+        const sharePortBtn = document.getElementById('sharePortBtn');
+        if (sharePortBtn) {
+            sharePortBtn.remove();
+        }
+        if (addPortBtn) {
+            addPortBtn.title = '添加本地串口，可在添加时选择是否共享';
+        }
+
         const tabs = document.querySelector('.data-format-tabs');
         if (tabs && !document.getElementById('loadMoreHistoryBtn')) {
             const loadMoreHistoryBtn = document.createElement('button');
@@ -146,9 +164,7 @@
     SerialToolApp.prototype.updateSharedUiElements = function updateSharedUiElements() {
         const sharePortBtn = document.getElementById('sharePortBtn');
         if (sharePortBtn) {
-            const visible = this.connectionMode === 'remote';
-            sharePortBtn.style.display = visible ? 'inline-flex' : 'none';
-            sharePortBtn.disabled = !visible;
+            sharePortBtn.remove();
         }
     };
 
@@ -215,6 +231,72 @@
         }
     };
 
+    SerialToolApp.prototype.findLocalPortIdBySharedChannel = function findLocalPortIdBySharedChannel(channelId) {
+        if (!channelId) return null;
+        const mappedPortId = this.sharedChannelToLocalPortId.get(channelId);
+        if (mappedPortId && this.ports.has(mappedPortId)) {
+            return mappedPortId;
+        }
+        for (const [portId, info] of this.ports.entries()) {
+            if (info?.type === 'local' && info.sharedChannelId === channelId) {
+                this.sharedChannelToLocalPortId.set(channelId, portId);
+                return portId;
+            }
+        }
+        return null;
+    };
+
+    SerialToolApp.prototype.applyLocalSharedChannel = function applyLocalSharedChannel(portId, channel) {
+        const portInfo = this.ports.get(portId);
+        if (!portInfo || !channel?.channel_id) return false;
+
+        this.sharedChannelToLocalPortId.set(channel.channel_id, portId);
+        this.mySharedChannelIds.add(channel.channel_id);
+        this.browserSharedPorts.set(channel.channel_id, {
+            ...(this.browserSharedPorts.get(channel.channel_id) || {}),
+            port: portInfo.port,
+            config: portInfo.config || {},
+            localPortId: portId,
+            mirrorLocal: true,
+            active: Boolean(portInfo.connected),
+            closing: false,
+        });
+
+        portInfo.sharedChannelId = channel.channel_id;
+        portInfo.sharedDisplayName = channel.display_name || channel.device || portInfo.name;
+        portInfo.sharedChannelState = channel.state || 'standby';
+        portInfo.shareState = 'shared';
+        portInfo.sourceType = channel.source_type || SOURCE_BROWSER_SERIAL;
+        portInfo.subscriberCount = channel.subscriber_count || 0;
+        portInfo.captureActive = Boolean(channel.capture_active);
+        portInfo.captureStartedAt = channel.capture_started_at || null;
+        portInfo.latestSeq = channel.latest_seq || 0;
+        portInfo.lastError = channel.last_error || '';
+        this.ports.set(portId, portInfo);
+        return true;
+    };
+
+    SerialToolApp.prototype.clearLocalSharedChannel = function clearLocalSharedChannel(portId, channelId) {
+        const portInfo = this.ports.get(portId);
+        if (!portInfo) return;
+        const targetChannelId = channelId || portInfo.sharedChannelId;
+        if (targetChannelId) {
+            this.sharedChannelToLocalPortId.delete(targetChannelId);
+            this.mySharedChannelIds.delete(targetChannelId);
+            this.browserSharedPorts.delete(targetChannelId);
+        }
+        portInfo.sharedChannelId = null;
+        portInfo.sharedDisplayName = null;
+        portInfo.sharedChannelState = null;
+        portInfo.shareState = 'private';
+        portInfo.subscriberCount = 0;
+        portInfo.captureActive = false;
+        portInfo.captureStartedAt = null;
+        portInfo.latestSeq = 0;
+        portInfo.lastError = '';
+        this.ports.set(portId, portInfo);
+    };
+
     SerialToolApp.prototype.handleSharedChannels = function handleSharedChannels(payload) {
         const channels = Array.isArray(payload?.channels) ? payload.channels : [];
         const validIds = new Set();
@@ -224,6 +306,12 @@
             validIds.add(channel.channel_id);
             this.applySharedChannel(channel);
         });
+
+        for (const [channelId, localPortId] of Array.from(this.sharedChannelToLocalPortId.entries())) {
+            if (!validIds.has(channelId)) {
+                this.clearLocalSharedChannel(localPortId, channelId);
+            }
+        }
 
         this.ports.forEach((info, portId) => {
             if (info?.type === 'remote' && !validIds.has(portId) && !info.captureOnly) {
@@ -240,6 +328,12 @@
     };
 
     SerialToolApp.prototype.applySharedChannel = function applySharedChannel(channel) {
+        const localPortId = this.findLocalPortIdBySharedChannel(channel?.channel_id);
+        if (localPortId && channel?.source_type === SOURCE_BROWSER_SERIAL) {
+            this.applyLocalSharedChannel(localPortId, channel);
+            return;
+        }
+
         const existing = this.ports.get(channel.channel_id) || {};
         const config = channel.config || {};
 
@@ -360,6 +454,55 @@
         this.websocket.emit('open_port', { channel_id: channelId });
     };
 
+    SerialToolApp.prototype.shareLocalPortEntry = async function shareLocalPortEntry(portId) {
+        const portInfo = this.ports.get(portId);
+        if (!portInfo || portInfo.type !== 'local') return;
+        if (portInfo.sharedChannelId) return;
+        if (!this.websocket || !this.websocket.connected) {
+            await this.connectWebSocket();
+        }
+
+        const browserPortInfo = portInfo.port?.getInfo ? portInfo.port.getInfo() : {};
+        const config = portInfo.config || {};
+        const result = await createSocketRequest(
+            this.websocket,
+            'register_browser_port',
+            'browser_port_registered',
+            {
+                display_name: portInfo.name || portInfo.device || 'Local Serial',
+                baudrate: config.baudRate || config.baudrate || 9600,
+                bytesize: config.dataBits || config.bytesize || 8,
+                parity: webSerialParityToSocket(config.parity || 'none'),
+                stopbits: config.stopBits || config.stopbits || 1,
+                browser_port: browserPortInfo,
+            }
+        );
+
+        if (!result.success || !result.channel) {
+            throw new Error(result.error || 'share_local_port_failed');
+        }
+
+        this.applyLocalSharedChannel(portId, result.channel);
+        this.renderPortList();
+        this.renderCapturePorts();
+        this.addLog(`已共享本地串口: ${portInfo.name || portId}`, 'info');
+        this.requestSharedChannels();
+    };
+
+    SerialToolApp.prototype.toggleLocalPortSharing = async function toggleLocalPortSharing(portId, shouldShare) {
+        const portInfo = this.ports.get(portId);
+        if (!portInfo || portInfo.type !== 'local') return;
+        try {
+            if (shouldShare) {
+                await this.shareLocalPortEntry(portId);
+            } else if (portInfo.sharedChannelId) {
+                await this.unregisterSharedPort(portInfo.sharedChannelId);
+            }
+        } catch (error) {
+            alert(`串口共享操作失败: ${error.message || error}`);
+        }
+    };
+
     SerialToolApp.prototype.shareLocalPort = async function shareLocalPort() {
         if (!('serial' in navigator)) {
             alert('当前浏览器不支持 Web Serial API');
@@ -415,12 +558,15 @@
     SerialToolApp.prototype.unregisterSharedPort = async function unregisterSharedPort(channelId) {
         const localShared = this.browserSharedPorts.get(channelId);
         if (!localShared) return;
+        const localPortId = localShared.localPortId || this.sharedChannelToLocalPortId.get(channelId);
         if (!this.websocket || !this.websocket.connected) {
             await this.connectWebSocket();
         }
 
         try {
-            await this.sleepSharedBrowserPort(channelId, false);
+            if (!localShared.mirrorLocal) {
+                await this.sleepSharedBrowserPort(channelId, false);
+            }
             const result = await createSocketRequest(
                 this.websocket,
                 'unregister_browser_port',
@@ -432,6 +578,9 @@
             }
             this.browserSharedPorts.delete(channelId);
             this.mySharedChannelIds.delete(channelId);
+            if (localPortId) {
+                this.clearLocalSharedChannel(localPortId, channelId);
+            }
             if (this.ports.has(channelId) && !this.captureSessions.has(channelId)) {
                 this.ports.delete(channelId);
             }
@@ -447,6 +596,16 @@
     SerialToolApp.prototype.ensureSharedBrowserPortActive = async function ensureSharedBrowserPortActive(channelId, socketConfig) {
         const sharedPort = this.browserSharedPorts.get(channelId);
         if (!sharedPort) throw new Error('shared port not found');
+
+        if (sharedPort.mirrorLocal) {
+            const portInfo = this.ports.get(sharedPort.localPortId);
+            if (!portInfo || !portInfo.connected) {
+                throw new Error('local port is not connected');
+            }
+            sharedPort.active = true;
+            sharedPort.closing = false;
+            return;
+        }
 
         if (!sharedPort.active) {
             const config = sharedPort.config || {};
@@ -519,6 +678,16 @@
         sharedPort.closing = true;
         sharedPort.active = false;
 
+        if (sharedPort.mirrorLocal) {
+            if (notifyServer && this.websocket && this.websocket.connected) {
+                this.websocket.emit('browser_channel_ready', {
+                    channel_id: channelId,
+                    active: false,
+                });
+            }
+            return;
+        }
+
         if (sharedPort.reader) {
             try {
                 await sharedPort.reader.cancel();
@@ -582,6 +751,9 @@
             const writer = sharedPort.port.writable.getWriter();
             try {
                 await writer.write(new Uint8Array(data.data || []));
+                if (sharedPort.mirrorLocal && typeof this.appendMirroredLocalTx === 'function') {
+                    this.appendMirroredLocalTx(sharedPort.localPortId, new Uint8Array(data.data || []));
+                }
             } finally {
                 writer.releaseLock();
             }
@@ -595,6 +767,44 @@
                 success: false,
                 error: error.message || String(error),
             });
+        }
+    };
+
+    SerialToolApp.prototype.forwardLocalSharedRx = function forwardLocalSharedRx(portId, value) {
+        const portInfo = this.ports.get(portId);
+        if (!portInfo?.sharedChannelId || !this.websocket || !this.websocket.connected) return;
+        this.websocket.emit('browser_port_data', {
+            channel_id: portInfo.sharedChannelId,
+            data: Array.from(value || []),
+        });
+    };
+
+    SerialToolApp.prototype.mirrorLocalSharedTx = async function mirrorLocalSharedTx(portId, value) {
+        const portInfo = this.ports.get(portId);
+        if (!portInfo?.sharedChannelId || !this.websocket || !this.websocket.connected) return;
+        this.websocket.emit('browser_port_tx', {
+            channel_id: portInfo.sharedChannelId,
+            data: Array.from(value || []),
+        });
+    };
+
+    SerialToolApp.prototype.appendMirroredLocalTx = function appendMirroredLocalTx(portId, value) {
+        const portInfo = this.ports.get(portId);
+        if (!portInfo) return;
+        const dataBytes = value instanceof Uint8Array ? value : new Uint8Array(value || []);
+        const record = {
+            portId,
+            portName: portInfo.name || portId,
+            direction: 'tx',
+            data: dataBytes,
+            timestamp: new Date(),
+            format: this.dataFormat,
+        };
+        this.txBytes += dataBytes.length;
+        this.updateStats();
+        this.dataLog.push(record);
+        if (!this.isPaused && this.currentPort === portId) {
+            this.displayData(record);
         }
     };
 
@@ -663,22 +873,29 @@
         const dataBytes = new Uint8Array(data.data || []);
         const timestamp = data.timestamp ? new Date(data.timestamp) : new Date();
         const portInfo = this.ports.get(portId) || {};
-        const record = {
-            portId,
-            portName: portInfo.name || portId,
-            direction,
-            data: dataBytes,
-            timestamp,
-            format: this.dataFormat,
-            seq: data.entry?.seq ?? null,
-        };
+        const seq = data.entry?.seq ?? null;
 
         if (direction === 'rx') {
             this.rxBytes += dataBytes.length;
-        } else {
-            this.txBytes += dataBytes.length;
+            this.updateStats();
+            if (typeof this.ingestRxForDisplay === 'function') {
+                this.ingestRxForDisplay(portId, dataBytes, timestamp, { seq });
+            }
+            return;
         }
+
+        this.txBytes += dataBytes.length;
         this.updateStats();
+
+        const record = {
+            portId,
+            portName: portInfo.name || portId,
+            direction: 'tx',
+            data: dataBytes,
+            timestamp,
+            format: this.dataFormat,
+        };
+        if (seq != null) record.seq = seq;
 
         this.dataLog.push(record);
         this.trimPortRecords(portId);
@@ -715,7 +932,10 @@
     };
 
     SerialToolApp.prototype.refreshDataDisplay = function patchedRefreshDataDisplay() {
-        if (this.displayMode === 'terminal') {
+        if (typeof this.flushAllBubbleRxPending === 'function') {
+            this.flushAllBubbleRxPending();
+        }
+        if (this.isTerminalMode()) {
             this.refreshTerminalDisplay();
             return;
         }
@@ -742,6 +962,7 @@
 
         display.innerHTML = '';
         const terminalText = this.getSortedPortRecords(this.currentPort)
+            .filter((record) => !(this.isTerminalReplMode() && record.direction === 'tx'))
             .map((record) => formatTerminalRecord(record, this.dataFormat, this))
             .join('');
 
@@ -765,6 +986,9 @@
             return originalDisplayTerminalData.call(this, data);
         }
 
+        if (this.isTerminalReplMode() && data.direction === 'tx') {
+            return;
+        }
         this.appendToTerminalDisplay(formatTerminalRecord(data, this.dataFormat, this));
     };
 
@@ -817,7 +1041,7 @@
             });
 
             if (portId === this.currentPort) {
-                if (this.displayMode === 'terminal') {
+                if (this.isTerminalMode()) {
                     this.refreshTerminalDisplay();
                 } else {
                     this.refreshDataDisplay();
@@ -963,6 +1187,98 @@
         });
     };
 
+    SerialToolApp.prototype.renderPortList = function unifiedRenderPortList() {
+        const portList = document.getElementById('portList');
+        if (!portList) return;
+
+        const entries = Array.from(this.ports.entries()).filter(([, info]) => info && !info.hidden);
+
+        if (entries.length === 0) {
+            portList.innerHTML = `
+                <div class="text-center text-muted p-3">
+                    <i class="fas fa-plug"></i>
+                    <p class="mb-0 mt-2">暂无可用串口</p>
+                    <small>已共享串口会自动出现；点击“添加”可选择本地串口</small>
+                </div>
+            `;
+            return;
+        }
+
+        entries.sort((left, right) => {
+            const rank = (info) => {
+                if (info.type === 'local' && info.sharedChannelId) return 0;
+                if (info.type === 'local') return 1;
+                if (info.connected) return 2;
+                if (info.available === false) return 4;
+                return 3;
+            };
+            return rank(left[1]) - rank(right[1]) || String(left[1].name || left[0]).localeCompare(String(right[1].name || right[0]));
+        });
+
+        portList.innerHTML = '';
+        entries.forEach(([portId, portInfo]) => {
+            const item = document.createElement('div');
+            const isLocal = portInfo.type === 'local';
+            const isLocalShared = isLocal && Boolean(portInfo.sharedChannelId);
+            const className = isLocal
+                ? (isLocalShared ? 'port-local-shared' : 'port-local-private')
+                : 'port-remote-shared';
+            item.className = `port-item ${className} ${portId === this.currentPort ? 'active' : ''}`;
+
+            const config = portInfo.config || {};
+            const actionButtons = [];
+            const typeIcon = isLocal ? '💻' : getRemoteSourceIcon(portInfo.sourceType);
+            const badgeClass = isLocal
+                ? (isLocalShared ? 'local-shared' : 'local-private')
+                : 'remote-shared';
+            const badgeText = isLocal
+                ? (isLocalShared ? '本地已共享' : '本地未共享')
+                : '远程共享';
+            const stateText = isLocal
+                ? (isLocalShared ? `共享状态：${formatChannelState(portInfo.sharedChannelState, false)}` : '仅本机可用')
+                : formatChannelState(portInfo.channelState, portInfo.connected);
+            const logBadge = portInfo.captureActive ? '<span class="badge bg-warning text-dark ms-2">日志</span>' : '';
+
+            if (isLocal) {
+                if (isLocalShared) {
+                    actionButtons.push(`<button type="button" class="btn btn-sm btn-outline-warning" title="取消共享" aria-label="取消共享" onclick="serialApp.toggleLocalPortSharing('${portId}', false)"><i class="fas fa-unlink"></i></button>`);
+                } else {
+                    actionButtons.push(`<button type="button" class="btn btn-sm btn-outline-success" title="共享串口" aria-label="共享串口" onclick="serialApp.toggleLocalPortSharing('${portId}', true)"><i class="fas fa-share-alt"></i></button>`);
+                }
+                actionButtons.push(`<button type="button" class="btn btn-sm btn-outline-danger" title="关闭本地串口" aria-label="关闭本地串口" onclick="serialApp.disconnectPort('${portId}')"><i class="fas fa-times"></i></button>`);
+            } else {
+                if (portInfo.connected) {
+                    actionButtons.push(`<button type="button" class="btn btn-sm btn-outline-danger" title="断开连接" aria-label="断开连接" onclick="serialApp.disconnectPort('${portId}')"><i class="fas fa-times"></i></button>`);
+                } else if (portInfo.available !== false) {
+                    actionButtons.push(`<button type="button" class="btn btn-sm btn-outline-primary" title="使用该共享串口" aria-label="使用共享串口" onclick="serialApp.connectSharedChannel('${portId}')"><i class="fas fa-plug"></i></button>`);
+                }
+                if (portInfo.captureActive) {
+                    actionButtons.push(`<button type="button" class="btn btn-sm btn-outline-warning" title="停止后台记录" aria-label="停止后台记录" onclick="serialApp.toggleCaptureForPort('${portId}', false)"><i class="fas fa-stop"></i></button>`);
+                } else {
+                    actionButtons.push(`<button type="button" class="btn btn-sm btn-outline-success" title="开启后台记录" aria-label="开启后台记录" onclick="serialApp.toggleCaptureForPort('${portId}', true)"><i class="fas fa-circle"></i></button>`);
+                }
+            }
+
+            item.innerHTML = `
+                <div class="port-info">
+                    <span class="port-name">${typeIcon} ${this.escapeHtml(portInfo.name || portId)}<span class="port-badge ${badgeClass}">${badgeText}</span>${logBadge}</span>
+                    <span class="port-config">${config.baudRate || config.baudrate || '--'} bps, ${config.dataBits || config.bytesize || '--'} ${String(config.parity || 'N')} ${config.stopBits || config.stopbits || '--'} (${stateText})</span>
+                </div>
+                <div class="port-status">
+                    <span class="status-indicator ${portInfo.connected || portInfo.channelState === 'active' || portInfo.sharedChannelState === 'active' ? 'connected' : 'disconnected'}"></span>
+                    <div class="port-actions">${actionButtons.join('')}</div>
+                </div>
+            `;
+
+            item.addEventListener('click', (event) => {
+                if (!event.target.closest('.port-actions')) {
+                    this.selectPort(portId, { resetHistory: true });
+                }
+            });
+            portList.appendChild(item);
+        });
+    };
+
     SerialToolApp.prototype.toggleCaptureForPort = async function toggleCaptureForPort(portId, shouldStart) {
         if (!portId) return;
         try {
@@ -999,7 +1315,13 @@
 
     SerialToolApp.prototype.disconnectPort = async function patchedDisconnectPort(portId) {
         const portInfo = this.ports.get(portId);
-        if (!portInfo || portInfo.type === 'local') {
+        if (!portInfo) {
+            return originalDisconnectPort.call(this, portId);
+        }
+        if (portInfo.type === 'local') {
+            if (portInfo.sharedChannelId) {
+                await this.unregisterSharedPort(portInfo.sharedChannelId);
+            }
             return originalDisconnectPort.call(this, portId);
         }
 

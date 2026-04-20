@@ -20,7 +20,11 @@
 
     function toPersistable(messages) {
         return messages.map(function (m) {
-            if (m.role !== 'user') return { role: m.role, content: m.content };
+            if (m.role !== 'user') {
+                var out = { role: m.role, content: m.content };
+                if (m.meta && typeof m.meta === 'object') out.meta = m.meta;
+                return out;
+            }
             var c = m.content;
             if (typeof c === 'string') return { role: 'user', content: c };
             if (Array.isArray(c)) {
@@ -37,6 +41,35 @@
             }
             return { role: 'user', content: String(c || '') };
         });
+    }
+
+    function drawioPhaseLabel(phase) {
+        var map = {
+            preparing: '准备上下文',
+            generating: '模型生成',
+            generated: '生成完成',
+            parsing: '解析文本',
+            validating: '校验 XML',
+            repairing: '自动修复',
+            retrying: '自动重试',
+            finalizing: '最终收口',
+            summarizing: '汇总结果',
+            diffing: '对比变更',
+            completed: '生成完成',
+        };
+        return map[String(phase || '')] || String(phase || '');
+    }
+
+    function formatDrawioMeta(meta) {
+        if (!meta || typeof meta !== 'object') return '';
+        var parts = [];
+        if (meta.output) parts.push('输出 ' + (meta.output === 'xml' ? 'XML' : 'yobboy-flow'));
+        if (meta.family && meta.family !== 'unknown') parts.push('图族 ' + String(meta.family));
+        if (meta.direction && meta.direction !== 'unknown') parts.push('方向 ' + String(meta.direction));
+        if (meta.routing && meta.routing !== 'unknown') parts.push('路由 ' + String(meta.routing));
+        if (meta.node_count != null) parts.push('节点 ' + Number(meta.node_count || 0));
+        if (meta.edge_count != null) parts.push('连线 ' + Number(meta.edge_count || 0));
+        return parts.join(' · ');
     }
 
     function parseSseBlocks(textChunk, carry) {
@@ -468,6 +501,7 @@
         var mcpLogs = loadMcpLogs();
         var progressChars = 0;
         var progressPhase = '';
+        var progressMessage = '';
 
         function renderMcpLogs() {
             if (!mcpListEl) return;
@@ -579,7 +613,7 @@
             scrollMsgs();
         }
 
-        function appendAssistantTurn(raw, hint) {
+        function appendAssistantTurn(raw, hint, meta) {
             if (!msgsEl) return;
             var wrap = document.createElement('div');
             wrap.className = 'drawio-ai-msg drawio-ai-msg--assistant';
@@ -590,6 +624,16 @@
                 '· 已生成图表回复（约 ' +
                 (raw && raw.length ? raw.length : 0) +
                 ' 字符），可使用下方按钮应用到画布';
+            wrap.appendChild(short);
+            var metaText = formatDrawioMeta(meta);
+            if (metaText) {
+                var metaLine = document.createElement('div');
+                metaLine.className = 'drawio-ai-msg--assistant-short';
+                metaLine.style.opacity = '0.82';
+                metaLine.style.fontSize = '0.78rem';
+                metaLine.textContent = '· ' + metaText;
+                wrap.appendChild(metaLine);
+            }
             var row = document.createElement('div');
             row.className = 'drawio-ai-turn-actions';
             var snap = raw;
@@ -610,7 +654,6 @@
             });
             row.appendChild(btnApply);
             row.appendChild(btnCopy);
-            wrap.appendChild(short);
             wrap.appendChild(row);
             msgsEl.appendChild(wrap);
             scrollMsgs();
@@ -622,7 +665,7 @@
             for (var i = 0; i < messages.length; i++) {
                 var m = messages[i];
                 if (m.role === 'assistant') {
-                    appendAssistantTurn(m.content, null);
+                    appendAssistantTurn(m.content, null, m.meta || null);
                 } else {
                     appendUserBubble(userDisplayText(m.content), null);
                 }
@@ -709,6 +752,7 @@
 
             streaming = true;
             lastAssistantRaw = '';
+            var generationMeta = null;
             if (sendBtn) sendBtn.disabled = true;
             if (pickBtn) pickBtn.disabled = true;
             var asstEl = document.createElement('div');
@@ -717,9 +761,10 @@
             loadingBox.className = 'drawio-ai-loading';
             loadingBox.innerHTML =
                 '<div class="drawio-ai-loading-spinner" role="status" aria-label="加载中"></div>' +
-                '<div>正在生成图表…</div>' +
+                '<div class="drawio-ai-loading-title">正在准备图表生成…</div>' +
                 '<div class="drawio-ai-progress-track" aria-hidden="true"><div class="drawio-ai-progress-ind"></div></div>' +
                 '<div class="drawio-ai-loading-meta">已用 0.0 秒 · 已接收 0 字符</div>';
+            var titleEl = loadingBox.querySelector('.drawio-ai-loading-title');
             var metaEl = loadingBox.querySelector('.drawio-ai-loading-meta');
             asstEl.appendChild(loadingBox);
             if (msgsEl) msgsEl.appendChild(asstEl);
@@ -730,13 +775,17 @@
                 if (!metaEl) return;
                 var sec = ((performance.now() - t0) / 1000).toFixed(1);
                 var shownChars = Math.max(lastAssistantRaw.length, progressChars);
+                if (titleEl) {
+                    titleEl.textContent = progressMessage || '正在' + drawioPhaseLabel(progressPhase || 'generating') + '…';
+                }
                 metaEl.textContent =
                     '已用 ' +
                     sec +
                     ' 秒 · 已接收 ' +
                     shownChars +
                     ' 字符' +
-                    (progressPhase ? ' · 阶段: ' + progressPhase : '');
+                    (progressPhase ? ' · 阶段: ' + drawioPhaseLabel(progressPhase) : '') +
+                    (generationMeta ? ' · ' + formatDrawioMeta(generationMeta) : '');
             }, 200);
 
             function finishOk() {
@@ -745,7 +794,7 @@
                 if (asstEl && asstEl.parentNode) asstEl.parentNode.removeChild(asstEl);
                 var hint =
                     '· 生成完成（约 ' + snap.length + ' 字符），可使用下方按钮应用到画布';
-                appendAssistantTurn(snap, hint);
+                appendAssistantTurn(snap, hint, generationMeta);
             }
 
             function finishErr(msg) {
@@ -785,6 +834,9 @@
                         } else if (e.event === 'drawio_progress' && e.data) {
                             progressChars = Math.max(progressChars, Number(e.data.received_chars || 0));
                             progressPhase = String(e.data.phase || '');
+                            progressMessage = String(e.data.message || '');
+                        } else if (e.event === 'drawio_generation_meta' && e.data) {
+                            generationMeta = e.data;
                         } else if (e.event === 'mcp_call' && e.data) {
                             addMcpLog(e.data);
                         } else if (e.event === 'drawio_validation' && e.data) {
@@ -880,7 +932,7 @@
                         }
                     }
                 }
-                messages.push({ role: 'assistant', content: lastAssistantRaw });
+                messages.push({ role: 'assistant', content: lastAssistantRaw, meta: generationMeta || undefined });
                 saveHist(messages);
                 finishOk();
             } catch (err) {
@@ -890,6 +942,7 @@
                 streaming = false;
                 progressChars = 0;
                 progressPhase = '';
+                progressMessage = '';
                 if (sendBtn) sendBtn.disabled = false;
                 if (pickBtn) pickBtn.disabled = false;
             }

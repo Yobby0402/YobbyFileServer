@@ -1,10 +1,13 @@
 import json
+import logging
 import os
 import sys
 import threading
 from copy import deepcopy
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
+
+_todo_ext_log = logging.getLogger('yobboy_file_server.todo_extended')
 
 
 def _get_base_dir() -> str:
@@ -76,7 +79,7 @@ class TodoExtendedManager:
             with open(self.storage_path, "w", encoding="utf-8") as f:
                 json.dump(self._data, f, ensure_ascii=False, indent=2)
         except Exception as e:
-            print(f"Error persisting extended data: {e}")
+            _todo_ext_log.error("Error persisting extended data: %s", e)
 
     # ===== 项目描述相关 =====
 

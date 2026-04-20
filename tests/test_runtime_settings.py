@@ -34,6 +34,7 @@ class RuntimeSettingsTests(unittest.TestCase):
                 "GIT_ENABLED": True,
                 "GIT_WORKDIR": tmpdir,
                 "GIT_EXTERNAL_APP_PATH": "C:\\tool\\code.exe",
+                "LOG_LEVEL": "WARNING",
             }
             save_runtime_settings(expected, config_file=config_path)
             actual = read_runtime_settings(create_if_missing=False, config_file=config_path)
@@ -45,6 +46,7 @@ class RuntimeSettingsTests(unittest.TestCase):
             self.assertEqual(actual["GIT_ENABLED"], expected["GIT_ENABLED"])
             self.assertEqual(actual["GIT_WORKDIR"], expected["GIT_WORKDIR"])
             self.assertEqual(actual["GIT_EXTERNAL_APP_PATH"], expected["GIT_EXTERNAL_APP_PATH"])
+            self.assertEqual(actual["LOG_LEVEL"], "WARNING")
 
     def test_create_default_file_when_missing(self):
         with tempfile.TemporaryDirectory() as tmpdir:

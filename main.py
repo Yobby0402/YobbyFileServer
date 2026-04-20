@@ -2,6 +2,7 @@
 import os
 import sys
 import shutil
+import subprocess
 import configparser
 import json
 import logging
@@ -14,9 +15,16 @@ from datetime import datetime, timedelta
 import ctypes
 import socket
 import ipaddress
-from logging.handlers import TimedRotatingFileHandler
 from flask import Flask, request, session
 from flask_socketio import SocketIO, emit, join_room, leave_room
+from logging_setup import (
+    get_logs_dir,
+    app_logger,
+    connection_logger,
+    ensure_connection_logger_handler,
+    apply_log_level_from_sources,
+    configure_flask_app_logger,
+)
 import routes
 from serial_manager import serial_manager
 from shared_serial_hub import (
@@ -100,30 +108,6 @@ def get_config_path():
         fallback_path = os.path.join(config_dir, config_name)
         app_logger.warning("[调试] 程序目录不可写(%s)，使用用户目录: %s", e, fallback_path)
         return fallback_path
-
-
-def get_logs_dir():
-    """获取日志目录，优先exe/py所在目录，否则用户目录"""
-    # 获取程序所在目录（打包后是exe目录，开发时是.py文件目录）
-    if getattr(sys, 'frozen', False):
-        # 打包环境：exe所在目录
-        base_dir = os.path.dirname(sys.executable)
-    else:
-        # 开发环境：.py文件所在目录
-        base_dir = os.path.dirname(os.path.abspath(__file__))
-    
-    logs_dir = os.path.join(base_dir, "logs")
-    try:
-        os.makedirs(logs_dir, exist_ok=True)
-        test_file = os.path.join(logs_dir, '.test')
-        with open(test_file, 'w'):
-            pass
-        os.remove(test_file)
-        return logs_dir
-    except:
-        logs_dir = os.path.join(os.path.expanduser("~"), ".yobboy_file_server", "logs")
-        os.makedirs(logs_dir, exist_ok=True)
-        return logs_dir
 
 
 DEFAULT_SERIAL_HTTPS_PORT = 5443
@@ -278,52 +262,6 @@ def prepare_https_runtime(settings_data):
             cert_source = 'adhoc'
 
     return runtime_info, ssl_context, cert_source
-
-
-# =============================
-# Flask 应用日志配置
-# =============================
-
-def _create_rotating_handler(log_file, level=logging.INFO, delay=True):
-    """创建按天轮转的日志处理器。"""
-    handler = TimedRotatingFileHandler(
-        filename=log_file,
-        when='midnight',
-        interval=1,
-        backupCount=14,
-        encoding='utf-8',
-        delay=delay
-    )
-    handler.suffix = "%Y-%m-%d"
-    handler.setLevel(level)
-    handler.setFormatter(logging.Formatter(
-        '%(asctime)s - %(levelname)s - %(name)s - %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
-    ))
-    return handler
-
-
-_logs_dir = get_logs_dir()
-app_logger = logging.getLogger("yobboy_file_server")
-app_logger.setLevel(logging.INFO)
-if not app_logger.handlers:
-    app_logger.addHandler(_create_rotating_handler(os.path.join(_logs_dir, "app.log"), logging.INFO))
-app_logger.propagate = False
-
-connection_logger = logging.getLogger("file_server_connections")
-connection_logger.setLevel(logging.INFO)
-connection_logger.propagate = False
-
-
-def ensure_connection_logger_handler():
-    """
-    懒加载 access.log handler，避免 GUI 主进程在仅导入模块时占用日志文件句柄，
-    导致 Flask 子进程轮转 access.log 时触发 WinError 32。
-    """
-    if not connection_logger.handlers:
-        connection_logger.addHandler(
-            _create_rotating_handler(os.path.join(_logs_dir, "access.log"), logging.INFO, delay=True)
-        )
 
 
 # IP地址缓存（避免重复查询）
@@ -495,7 +433,7 @@ def create_app(debug=False):
     template_dir = get_resource_path('templates')
     static_dir = get_resource_path('static')
 
-    app = Flask(__name__, template_folder=template_dir, static_folder=static_dir)
+    app = Flask('yobboy_file_server.web', template_folder=template_dir, static_folder=static_dir)
     app.secret_key = 'your_super_secret_key_change_this_in_production'
     app.config['CONFIG_FILE'] = get_config_path()
     app.config['DEFAULT_ROOT_DIR'] = os.path.expanduser("~")
@@ -529,7 +467,9 @@ def create_app(debug=False):
                       ping_interval=25)
     init_serial_socketio(socketio)
     app.socketio = socketio
-    
+
+    configure_flask_app_logger(app)
+
     return app
 
 
@@ -1083,6 +1023,14 @@ def init_serial_socketio(socketio):
         entry = shared_serial_hub.append_rx_entry(channel_id, bytes(data.get('data', [])))
         emit_serial_entry(entry)
 
+    @socketio.on('browser_port_tx', namespace='/serial')
+    def handle_browser_port_tx(data):
+        channel_id = (data.get('channel_id') or '').strip()
+        if not shared_serial_hub.is_browser_owner(channel_id, request.sid):
+            return
+        entry = shared_serial_hub.append_tx_entry(channel_id, bytes(data.get('data', [])), actor='owner')
+        emit_serial_entry(entry)
+
     @socketio.on('browser_write_result', namespace='/serial')
     def handle_browser_write_result(data):
         ack, entry, error = shared_serial_hub.complete_browser_write(
@@ -1311,7 +1259,9 @@ def load_or_create_config(app):
             )
             https_cert_file = settings.get('https_cert_file', '').strip()
             https_key_file = settings.get('https_key_file', '').strip()
-            
+            log_level_raw = (settings.get('log_level', 'INFO') or 'INFO').strip()
+            app.config['LOG_LEVEL'] = (log_level_raw or 'INFO').upper()
+
             # 保存配置到app中（即使路径不存在也保留用户设置）
             app.config['ROOT_DIR'] = os.path.normpath(root_dir) if root_dir else app.config['DEFAULT_ROOT_DIR']
             app.config['PASSWORD'] = password
@@ -1327,7 +1277,8 @@ def load_or_create_config(app):
             app.config['HTTPS_CERT_FILE'] = https_cert_file
             app.config['HTTPS_KEY_FILE'] = https_key_file
             apply_local_ai_config(app, config)
-            
+            apply_log_level_from_sources(ini_level=app.config['LOG_LEVEL'], app_debug=app.debug)
+
             # 检查路径是否有效（仅警告，不修改配置）
             if not os.path.isdir(app.config['ROOT_DIR']):
                 app_logger.warning("[警告] 配置的根目录 '%s' 不存在或无效", app.config['ROOT_DIR'])
@@ -1358,7 +1309,9 @@ def load_or_create_config(app):
             app.config['SERIAL_HTTPS_PORT'] = default_serial_https_port(app.config['PORT'])
             app.config['HTTPS_CERT_FILE'] = ''
             app.config['HTTPS_KEY_FILE'] = ''
+            app.config['LOG_LEVEL'] = 'INFO'
             apply_local_ai_config(app, config)
+            apply_log_level_from_sources(ini_level='INFO', app_debug=app.debug)
             save_config(app)
     else:
         # 配置文件不存在，创建默认配置
@@ -1375,7 +1328,9 @@ def load_or_create_config(app):
         app.config['SERIAL_HTTPS_PORT'] = default_serial_https_port(app.config['PORT'])
         app.config['HTTPS_CERT_FILE'] = ''
         app.config['HTTPS_KEY_FILE'] = ''
+        app.config['LOG_LEVEL'] = 'INFO'
         apply_local_ai_config(app, None)
+        apply_log_level_from_sources(ini_level='INFO', app_debug=app.debug)
         save_config(app)
 
 
@@ -1401,7 +1356,8 @@ def read_runtime_settings(create_if_missing=True, config_file=None):
         'REMOTE_SERIAL_HTTPS_MODE': REMOTE_SERIAL_HTTPS_MODE_FULL,
         'SERIAL_HTTPS_PORT': default_serial_https_port(5000),
         'HTTPS_CERT_FILE': '',
-        'HTTPS_KEY_FILE': ''
+        'HTTPS_KEY_FILE': '',
+        'LOG_LEVEL': 'INFO',
     }
 
     config_read_from_disk = False
@@ -1434,6 +1390,9 @@ def read_runtime_settings(create_if_missing=True, config_file=None):
             )
             settings_data['HTTPS_CERT_FILE'] = settings.get('https_cert_file', '').strip()
             settings_data['HTTPS_KEY_FILE'] = settings.get('https_key_file', '').strip()
+            settings_data['LOG_LEVEL'] = (
+                (settings.get('log_level', 'INFO') or 'INFO').strip() or 'INFO'
+            ).upper()
             _append_local_ai_to_settings_data(settings_data, config)
             return settings_data
         app_logger.warning("[警告] 配置文件缺少 [settings] 段，使用默认配置")
@@ -1461,11 +1420,13 @@ def save_runtime_settings(settings_data, config_file=None):
     existing_serial_https_port = default_serial_https_port(settings_data.get('PORT', 5000))
     existing_https_cert_file = ''
     existing_https_key_file = ''
+    existing_log_level = 'INFO'
     if os.path.exists(config_file):
         existing_config = configparser.ConfigParser()
         existing_config.read(config_file, encoding='utf-8')
         if 'settings' in existing_config:
             existing_settings = existing_config['settings']
+            existing_log_level = (existing_settings.get('log_level', 'INFO') or 'INFO').strip() or 'INFO'
             existing_remote_serial_enabled = existing_settings.get('remote_serial_enabled', 'false').lower() == 'true'
             existing_remote_serial_https_mode = normalize_remote_serial_https_mode(
                 existing_settings.get('remote_serial_https_mode', REMOTE_SERIAL_HTTPS_MODE_FULL)
@@ -1510,7 +1471,8 @@ def save_runtime_settings(settings_data, config_file=None):
         'remote_serial_https_mode': remote_serial_https_mode,
         'serial_https_port': str(serial_https_port),
         'https_cert_file': https_cert_file,
-        'https_key_file': https_key_file
+        'https_key_file': https_key_file,
+        'log_level': (settings_data.get('LOG_LEVEL') or existing_log_level or 'INFO').strip().lower(),
     }
     if any(k in settings_data for k in LOCAL_AI_CONFIG_KEYS):
         _write_local_ai_section_to_config(config, settings_data)
@@ -1535,7 +1497,8 @@ def save_config(app):
         'REMOTE_SERIAL_HTTPS_MODE': app.config.get('REMOTE_SERIAL_HTTPS_MODE', REMOTE_SERIAL_HTTPS_MODE_FULL),
         'SERIAL_HTTPS_PORT': app.config.get('SERIAL_HTTPS_PORT', default_serial_https_port(app.config.get('PORT', 5000))),
         'HTTPS_CERT_FILE': app.config.get('HTTPS_CERT_FILE', ''),
-        'HTTPS_KEY_FILE': app.config.get('HTTPS_KEY_FILE', '')
+        'HTTPS_KEY_FILE': app.config.get('HTTPS_KEY_FILE', ''),
+        'LOG_LEVEL': app.config.get('LOG_LEVEL', 'INFO'),
     }
     for k in LOCAL_AI_CONFIG_KEYS:
         settings_data[k] = app.config.get(k, la_defaults.get(k))
@@ -3853,6 +3816,8 @@ class MainWindow(QMainWindow):
         self.log_receiver = LogMessageReceiver()
         self.log_receiver.message.connect(self.append_log)
         self.log_queue = []
+        self._stdout_buffer = ""
+        self._stderr_buffer = ""
         self.log_timer = QTimer()
         self.log_timer.timeout.connect(self.flush_log_queue)
         self.log_timer.start(100)
@@ -4335,8 +4300,14 @@ class MainWindow(QMainWindow):
         # 如果所有编码都失败，使用UTF-8并忽略错误
         if stdout is None:
             stdout = stdout_bytes.decode('utf-8', errors='replace')
-        
-        lines = stdout.splitlines(keepends=True)
+
+        self._stdout_buffer += stdout
+        lines = self._stdout_buffer.splitlines(keepends=True)
+        if lines and not lines[-1].endswith(('\n', '\r')):
+            self._stdout_buffer = lines.pop()
+        else:
+            self._stdout_buffer = ""
+
         for line in lines:
             self.log_receiver.message.emit(line)
             if "Running on" in line:
@@ -4372,10 +4343,19 @@ class MainWindow(QMainWindow):
         # 如果所有编码都失败，使用UTF-8并忽略错误
         if stderr is None:
             stderr = stderr_bytes.decode('utf-8', errors='replace')
-        
-        lines = stderr.splitlines(keepends=True)
+
+        self._stderr_buffer += stderr
+        lines = self._stderr_buffer.splitlines(keepends=True)
+        if lines and not lines[-1].endswith(('\n', '\r')):
+            self._stderr_buffer = lines.pop()
+        else:
+            self._stderr_buffer = ""
+
         for line in lines:
-            self.log_receiver.message.emit(f"[STDERR] {line}")
+            if line.startswith("[STDERR] "):
+                self.log_receiver.message.emit(line)
+            else:
+                self.log_receiver.message.emit(f"[STDERR] {line}")
 
     def start_server(self):
         """启动服务器的槽函数"""
@@ -4620,6 +4600,7 @@ class MainWindow(QMainWindow):
             # 保存配置
             try:
                 config_file = get_config_path()
+                prev_rt = read_runtime_settings(create_if_missing=False, config_file=config_file)
                 save_payload = {
                     'CONFIG_FILE': config_file,
                     'ROOT_DIR': new_root,
@@ -4635,6 +4616,7 @@ class MainWindow(QMainWindow):
                     'SERIAL_HTTPS_PORT': new_serial_https_port,
                     'HTTPS_CERT_FILE': new_https_cert_file,
                     'HTTPS_KEY_FILE': new_https_key_file,
+                    'LOG_LEVEL': prev_rt.get('LOG_LEVEL', 'INFO'),
                 }
                 save_payload.update(new_local_ai)
                 save_runtime_settings(save_payload, config_file=config_file)
@@ -4926,26 +4908,39 @@ def run_flask_app(info_file_path=None):
     # 注意：load_or_create_config 现在在 create_app() 中调用
     application = create_app(debug=debug)
     
-    # === 显示加载的配置信息 ===
-    print("=" * 60)
-    print("[服务器配置信息]")
-    print(f"配置文件路径: {application.config.get('CONFIG_FILE')}")
-    print(f"根目录: {application.config.get('ROOT_DIR')}")
-    print(f"登录密码长度: {len(application.config.get('PASSWORD', ''))}")
-    print(f"Git功能: {'已启用' if application.config.get('GIT_ENABLED') else '已禁用'}")
-    print(f"Git工作目录: {application.config.get('GIT_WORKDIR', '未设置')}")
-    print(f"Git外部软件路径: {application.config.get('GIT_EXTERNAL_APP_PATH', '未设置')}")
-    print(
-        f"远程串口: {'已启用' if application.config.get('REMOTE_SERIAL_ENABLED') else '已禁用'}"
+    # === 显示加载的配置信息（写入统一日志，便于 GUI 捕获 stdout）===
+    apply_log_level_from_sources(
+        ini_level=application.config.get('LOG_LEVEL', 'INFO'),
+        app_debug=application.debug,
     )
-    print(
-        f"串口 HTTPS 模式: {normalize_remote_serial_https_mode(application.config.get('REMOTE_SERIAL_HTTPS_MODE', REMOTE_SERIAL_HTTPS_MODE_FULL))}"
+    app_logger.info("=" * 60)
+    app_logger.info("[服务器配置信息]")
+    app_logger.info("配置文件路径: %s", application.config.get('CONFIG_FILE'))
+    app_logger.info("根目录: %s", application.config.get('ROOT_DIR'))
+    app_logger.info("登录密码长度: %s", len(application.config.get('PASSWORD', '') or ''))
+    app_logger.info("Git功能: %s", '已启用' if application.config.get('GIT_ENABLED') else '已禁用')
+    app_logger.info("Git工作目录: %s", application.config.get('GIT_WORKDIR', '未设置'))
+    app_logger.info("Git外部软件路径: %s", application.config.get('GIT_EXTERNAL_APP_PATH', '未设置'))
+    app_logger.info(
+        "远程串口: %s",
+        '已启用' if application.config.get('REMOTE_SERIAL_ENABLED') else '已禁用',
     )
-    print(
-        f"串口 HTTPS 端口: {normalize_serial_https_port(application.config.get('SERIAL_HTTPS_PORT', default_serial_https_port(application.config.get('PORT', 5000))), main_port=application.config.get('PORT', 5000))}"
+    app_logger.info(
+        "串口 HTTPS 模式: %s",
+        normalize_remote_serial_https_mode(
+            application.config.get('REMOTE_SERIAL_HTTPS_MODE', REMOTE_SERIAL_HTTPS_MODE_FULL)
+        ),
     )
-    print("=" * 60)
-    # === 配置信息结束 ===
+    app_logger.info(
+        "串口 HTTPS 端口: %s",
+        normalize_serial_https_port(
+            application.config.get(
+                'SERIAL_HTTPS_PORT', default_serial_https_port(application.config.get('PORT', 5000))
+            ),
+            main_port=application.config.get('PORT', 5000),
+        ),
+    )
+    app_logger.info("=" * 60)
     
     host = "0.0.0.0"
     port = application.config.get('PORT', 5000)
@@ -5029,9 +5024,11 @@ def run_flask_app(info_file_path=None):
             app_logger.error(
                 "[serial] 如需 HTTPS，请安装 cryptography 或在 config.ini 配置 https_cert_file/https_key_file。"
             )
-            print("[警告] 远程串口已启用，但当前无法启动 HTTPS：缺少 cryptography 且未配置有效证书。")
-            print("[提示] 执行: pip install cryptography")
-            print("[提示] 或在 config.ini 设置 https_cert_file / https_key_file 后重启服务。")
+            app_logger.warning(
+                "远程串口已启用，但当前无法启动 HTTPS：缺少 cryptography 且未配置有效证书。"
+            )
+            app_logger.warning("请执行: pip install cryptography")
+            app_logger.warning("或在 config.ini 设置 https_cert_file / https_key_file 后重启服务。")
 
     if (
         remote_serial_enabled
@@ -5045,7 +5042,10 @@ def run_flask_app(info_file_path=None):
             "[serial] Compatibility HTTPS port is already in use: %s",
             serial_https_port,
         )
-        print(f"[警告] 串口 HTTPS 端口 {serial_https_port} 已被占用，兼容模式下的 HTTPS 入口未启动。")
+        app_logger.warning(
+            "串口 HTTPS 端口 %s 已被占用，兼容模式下的 HTTPS 入口未启动。",
+            serial_https_port,
+        )
 
     application.config['SERVER_SCHEME'] = primary_scheme
     application.config['PRIMARY_SERVER_SCHEME'] = primary_scheme
@@ -5054,25 +5054,27 @@ def run_flask_app(info_file_path=None):
     application.config['SERIAL_HTTPS_ACTIVE'] = serial_https_active
 
     local_ips = get_local_ips()
-    print(f" * Running on all addresses ({host})")
+    app_logger.info(" * Running on all addresses (%s)", host)
 
     if remote_serial_enabled and remote_serial_https_mode == REMOTE_SERIAL_HTTPS_MODE_COMPAT:
         for ip in local_ips:
             if ip != '0.0.0.0':
-                print(f" * Main site: http://{ip}:{port}")
-        print(f" * Main WebSocket endpoint: ws://<server>:{port}/serial")
+                app_logger.info(" * Main site: http://%s:%s", ip, port)
+        app_logger.info(" * Main WebSocket endpoint: ws://<server>:%s/serial", port)
         if serial_https_active:
             for ip in local_ips:
                 if ip != '0.0.0.0':
-                    print(f" * Serial HTTPS: https://{ip}:{serial_https_port}/serial_tool")
-            print(f" * Serial WebSocket endpoint: wss://<server>:{serial_https_port}/serial")
+                    app_logger.info(" * Serial HTTPS: https://%s:%s/serial_tool", ip, serial_https_port)
+            app_logger.info(" * Serial WebSocket endpoint: wss://<server>:%s/serial", serial_https_port)
         else:
-            print("[说明] 当前兼容模式仅启动 HTTP 主站，串口 HTTPS 入口尚未就绪。")
+            app_logger.info("[说明] 当前兼容模式仅启动 HTTP 主站，串口 HTTPS 入口尚未就绪。")
     else:
         for ip in local_ips:
             if ip != '0.0.0.0':
-                print(f" * Running on {primary_scheme}://{ip}:{port}")
-        print(f" * WebSocket endpoint: {serial_websocket_scheme}://<server>:{port}/serial")
+                app_logger.info(" * Running on %s://%s:%s", primary_scheme, ip, port)
+        app_logger.info(
+            " * WebSocket endpoint: %s://<server>:%s/serial", serial_websocket_scheme, port
+        )
 
     sys.stdout.flush()
 
@@ -5091,7 +5093,7 @@ def run_flask_app(info_file_path=None):
                 application.socketio.run(application, **run_kwargs)
             except Exception as e:
                 app_logger.error("[serial] Failed to start compatibility HTTPS listener: %s", e)
-                print(f"[错误] 兼容模式下的串口 HTTPS 监听启动失败: {e}")
+                app_logger.error("兼容模式下的串口 HTTPS 监听启动失败: %s", e)
 
         serial_https_thread = threading.Thread(
             target=run_serial_https_listener,

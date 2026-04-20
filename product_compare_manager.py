@@ -3,6 +3,7 @@
 管理产品对比文件的创建、读取、更新和删除
 """
 import json
+import logging
 import os
 import sys
 import threading
@@ -10,6 +11,8 @@ from copy import deepcopy
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
+
+_product_compare_log = logging.getLogger('yobboy_file_server.product_compare')
 
 
 def _get_base_dir() -> str:
@@ -137,7 +140,7 @@ class ProductCompareManager:
                     })
                 except Exception as e:
                     # 如果修复后仍然无法解析，跳过该文件
-                    print(f"[警告] 无法读取文件 {filename}: {str(e)}")
+                    _product_compare_log.warning("无法读取文件 %s: %s", filename, e)
                     continue
 
             # 按更新时间倒序排列

@@ -3,6 +3,7 @@
 Git配置管理器
 负责管理Git服务器配置（SSH密钥、服务器地址等）
 """
+import logging
 import os
 import re
 import shutil
@@ -13,6 +14,9 @@ import tempfile
 import json
 from datetime import datetime
 from typing import Dict, List, Optional
+
+_git_cfg_logger = logging.getLogger('yobboy_file_server.git_config')
+
 
 def get_data_path(relative_path=''):
     """获取data文件夹路径"""
@@ -67,7 +71,7 @@ class GitConfigManager:
                 self.save_configs(default_config)
                 return default_config
         except Exception as e:
-            print(f"[错误] 加载Git配置失败: {e}")
+            _git_cfg_logger.error("加载Git配置失败: %s", e)
             return {
                 'configs': [],
                 'default_config_id': None
@@ -82,7 +86,7 @@ class GitConfigManager:
                 json.dump(data, f, ensure_ascii=False, indent=4)
             return True
         except Exception as e:
-            print(f"[错误] 保存Git配置失败: {e}")
+            _git_cfg_logger.error("保存Git配置失败: %s", e)
             return False
     
     def get_all_configs(self) -> List[Dict]:

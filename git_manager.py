@@ -3,9 +3,12 @@
 Git操作管理器
 负责执行Git相关操作（初始化、克隆、提交、同步等）
 """
+import logging
 import os
 import sys
 import platform
+
+from logging_setup import parse_log_level
 import subprocess
 from typing import Dict, List, Optional, Tuple, Callable
 
@@ -26,31 +29,14 @@ try:
     GIT_AVAILABLE = True
 except ImportError:
     GIT_AVAILABLE = False
-    print("[警告] GitPython未安装，Git功能不可用")
+    logging.getLogger('yobboy_file_server.git').warning('GitPython未安装，Git功能不可用')
 
-# 日志输出函数（统一输出到标准输出，GUI会捕获）
+_git_logger = logging.getLogger('yobboy_file_server.git')
+
+
 def log_message(message, level='INFO'):
-    """输出日志消息到标准输出（会被GUI捕获）"""
-    prefix = {
-        'INFO': '[Git]',
-        'DEBUG': '[Git-DEBUG]',
-        'WARNING': '[Git-WARNING]',
-        'ERROR': '[Git-ERROR]'
-    }.get(level, '[Git]')
-    
-    # 确保输出到标准输出，使用UTF-8编码
-    try:
-        message_str = f"{prefix} {message}\n"
-        sys.stdout.write(message_str)
-        sys.stdout.flush()
-    except Exception:
-        # 如果编码失败，尝试使用错误替换
-        try:
-            message_str = f"{prefix} {message}\n".encode('utf-8', errors='replace').decode('utf-8', errors='replace')
-            sys.stdout.write(message_str)
-            sys.stdout.flush()
-        except Exception:
-            pass  # 如果都失败了，忽略
+    """Git 模块统一日志（写入 yobboy_file_server.git，与 app.log / 控制台一致）。"""
+    _git_logger.log(parse_log_level(level, logging.INFO), '%s', message)
 
 def _get_subprocess_kwargs():
     """

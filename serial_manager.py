@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import sys
 import threading
@@ -60,8 +61,10 @@ try:
     import serial.serialutil  # noqa: F401, E402
     from serial.serialutil import SerialException
 except ImportError as e:
-    print(f"[错误] {e}")
+    logging.getLogger('yobboy_file_server.serial').error('pyserial 导入失败: %s', e)
     raise
+
+_serial_log = logging.getLogger('yobboy_file_server.serial')
 
 
 class SerialPortManager:
@@ -133,7 +136,7 @@ class SerialPortManager:
                     timeout=timeout,
                 )
             except SerialException as exc:
-                print(f"[错误] 打开串口失败 {device}: {exc}")
+                _serial_log.error("打开串口失败 %s: %s", device, exc)
                 return False
 
             self.ports[port_id] = {
@@ -157,7 +160,7 @@ class SerialPortManager:
                 self.listeners[port_id][listener_id] = callback
 
             self._start_reading_thread(port_id)
-            print(f"[成功] 串口 {device} 已打开 (ID: {port_id})")
+            _serial_log.info("串口 %s 已打开 (ID: %s)", device, port_id)
             return True
 
     def release_port(
@@ -188,12 +191,12 @@ class SerialPortManager:
         """向串口写入数据。"""
         with self._lock:
             if port_id not in self.ports:
-                print(f"[警告] 串口 {port_id} 不存在")
+                _serial_log.warning("串口 %s 不存在", port_id)
                 return -1
 
             ser = self.ports[port_id]["serial"]
             if not ser.is_open:
-                print(f"[警告] 串口 {port_id} 未打开")
+                _serial_log.warning("串口 %s 未打开", port_id)
                 return -1
 
             try:
@@ -202,7 +205,7 @@ class SerialPortManager:
                 self._append_log_entry(port_id, "tx", data)
                 return bytes_written
             except Exception as exc:  # pylint: disable=broad-except
-                print(f"[错误] 写入数据失败: {exc}")
+                _serial_log.error("写入数据失败: %s", exc)
                 return -1
 
     def get_port_info(self, port_id: str) -> Optional[Dict]:
@@ -223,7 +226,7 @@ class SerialPortManager:
     def close_all(self) -> None:
         for port_id in list(self.ports.keys()):
             self.close_port(port_id)
-        print("[关闭] 所有串口已关闭")
+        _serial_log.info("所有串口已关闭")
 
     # ------------------------------------------------------------------ #
     # 持续日志
@@ -301,7 +304,7 @@ class SerialPortManager:
                 "bytes_logged": 0,
             }
             self.log_sessions[target_port_id] = session
-            print(f"[日志] 启动串口 {device} 持续日志 -> {filepath}")
+            _serial_log.info("启动串口 %s 持续日志 -> %s", device, filepath)
             # 返回时移除 file_handle（无法 JSON 序列化）
             session_copy = session.copy()
             session_copy.pop("file_handle", None)
@@ -319,7 +322,7 @@ class SerialPortManager:
             # 如果没有其他监听器，则关闭串口
             if not self.listeners.get(port_id):
                 self._close_port_locked(port_id)
-            print(f"[日志] 停止串口 {port_id} 持续日志")
+            _serial_log.info("停止串口 %s 持续日志", port_id)
             return True
 
     def get_logging_status(self) -> List[Dict]:
@@ -416,14 +419,14 @@ class SerialPortManager:
                                 dispatcher(port_id, data)
                     time.sleep(0.01)
                 except Exception as exc:  # pylint: disable=broad-except
-                    print(f"[错误] 读取串口 {port_id} 数据失败: {exc}")
+                    _serial_log.error("读取串口 %s 数据失败: %s", port_id, exc)
                     time.sleep(0.1)
 
         thread = threading.Thread(target=read_loop, daemon=True)
         thread.start()
         thread_info["thread"] = thread
         self.reading_threads[port_id] = thread_info
-        print(f"[启动] 串口 {port_id} 读取线程已启动")
+        _serial_log.info("串口 %s 读取线程已启动", port_id)
 
     def _build_dispatcher(self, port_id: str) -> Callable[[str, bytes], None]:
         def dispatcher(pid: str, data: bytes) -> None:
@@ -433,7 +436,7 @@ class SerialPortManager:
                 try:
                     callback(pid, data)
                 except Exception as exc:  # pylint: disable=broad-except
-                    print(f"[错误] 监听回调执行失败: {exc}")
+                    _serial_log.error("监听回调执行失败: %s", exc)
 
         return dispatcher
 
@@ -485,7 +488,7 @@ class SerialPortManager:
             if ser.is_open:
                 ser.close()
         finally:
-            print(f"[关闭] 串口 {port_id} 已释放")
+            _serial_log.info("串口 %s 已释放", port_id)
         return True
 
     def _get_base_dir(self) -> str:
