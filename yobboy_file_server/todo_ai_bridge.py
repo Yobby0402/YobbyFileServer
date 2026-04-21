@@ -9,7 +9,7 @@ import re
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
-from todo_manager import TodoManager
+from .todo_manager import TodoManager
 
 _MAX_TASKS_PER_PROJECT = 48
 _MAX_TASKS_PER_PROJECT_INCOMPLETE = 120

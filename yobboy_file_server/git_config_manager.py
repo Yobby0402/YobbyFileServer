@@ -15,6 +15,8 @@ import json
 from datetime import datetime
 from typing import Dict, List, Optional
 
+from .paths import project_base_dir
+
 _git_cfg_logger = logging.getLogger('yobboy_file_server.git_config')
 
 
@@ -22,10 +24,10 @@ def get_data_path(relative_path=''):
     """获取data文件夹路径"""
     if getattr(sys, 'frozen', False):
         # 打包环境：exe 所在目录
-        base_path = os.path.dirname(sys.executable)
+        base_path = project_base_dir()
     else:
         # 开发环境：.py 文件所在目录
-        base_path = os.path.dirname(os.path.abspath(__file__))
+        base_path = project_base_dir()
     data_dir = os.path.join(base_path, 'data')
     if relative_path:
         return os.path.join(data_dir, relative_path)

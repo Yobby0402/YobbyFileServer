@@ -7,11 +7,7 @@ import os
 import sys
 from typing import Optional, Tuple
 
-
-def project_base_dir() -> str:
-    if getattr(sys, "frozen", False):
-        return os.path.dirname(sys.executable)
-    return os.path.dirname(os.path.abspath(__file__))
+from .paths import project_base_dir
 
 
 def ai_root() -> str:

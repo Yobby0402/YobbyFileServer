@@ -7,12 +7,12 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 from uuid import uuid4
 
+from .paths import project_base_dir
+
 
 def _get_base_dir() -> str:
     """获取程序运行的基础目录（兼容打包与开发模式）"""
-    if getattr(sys, "frozen", False):
-        return os.path.dirname(sys.executable)
-    return os.path.dirname(os.path.abspath(__file__))
+    return project_base_dir()
 
 
 def _ensure_data_dir() -> str:

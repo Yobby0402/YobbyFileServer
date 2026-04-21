@@ -1,5 +1,4 @@
-from yobboy_file_server.main import *  # noqa: F401,F403
-from yobboy_file_server.main import MainWindow, run_flask_app
+from .main import MainWindow, run_flask_app
 
 import sys
 from PyQt5.QtWidgets import QApplication

@@ -16,13 +16,14 @@ from markdown_it import MarkdownIt
 from mdit_py_plugins import tasklists, deflist, footnote
 from urllib.parse import quote # 导入 quote 用于编码文件名
 import posixpath # 用于处理 URL 路径
-from share_links import ShareLinkManager  # 导入分享链接管理器
-from todo_manager import todo_manager
-from todo_extended_manager import todo_extended_manager
-from serial_manager import serial_manager
-from shared_serial_hub import shared_serial_hub
-from product_compare_manager import product_compare_manager
-from logging_setup import parse_log_level
+from .share_links import ShareLinkManager  # 导入分享链接管理器
+from .todo_manager import todo_manager
+from .todo_extended_manager import todo_extended_manager
+from .serial_manager import serial_manager
+from .shared_serial_hub import shared_serial_hub
+from .product_compare_manager import product_compare_manager
+from .logging_setup import parse_log_level
+from .paths import project_base_dir, project_path
 
 _routes_logger = logging.getLogger('yobboy_file_server.routes')
 
@@ -180,10 +181,10 @@ def get_data_path(relative_path=''):
     """获取data文件夹路径"""
     if getattr(sys, 'frozen', False):
         # 打包环境：exe 所在目录
-        base_path = os.path.dirname(sys.executable)
+        base_path = project_base_dir()
     else:
         # 开发环境：.py 文件所在目录
-        base_path = os.path.dirname(os.path.abspath(__file__))
+        base_path = project_base_dir()
     data_dir = os.path.join(base_path, 'data')
     if relative_path:
         return os.path.join(data_dir, relative_path)
@@ -349,10 +350,10 @@ def init_app(app):
     # 初始化产品对比管理器
     app.config['PRODUCT_COMPARE_MANAGER'] = product_compare_manager
 
-    from local_ai_paths import ensure_ai_layout
+    from .local_ai_paths import ensure_ai_layout
     ensure_ai_layout()
 
-    from local_ai_routes import register_local_ai_routes
+    from .local_ai_routes import register_local_ai_routes
     register_local_ai_routes(app)
 
     # 初始化Draw.io静态文件目录（静默检查，不影响运行）
@@ -364,9 +365,9 @@ def init_app(app):
     if git_enabled:
         # 尝试加载Git模块
         try:
-            from git_manager import GitManager
-            from git_config_manager import GitConfigManager
-            from git_routes import register_git_routes
+            from .git_manager import GitManager
+            from .git_config_manager import GitConfigManager
+            from .git_routes import register_git_routes
             
             git_manager = GitManager()
             git_config_manager = GitConfigManager()
@@ -452,7 +453,6 @@ def init_app(app):
             return redirect(url_for('login'))
         
         return render_template('choice.html')
-
 
     @app.route('/todo/v2')
     def todo_v2_page():
@@ -3563,9 +3563,9 @@ def init_app(app):
             from datetime import datetime
             
             if getattr(sys, 'frozen', False):
-                base_dir = os.path.dirname(sys.executable)
+                base_dir = project_base_dir()
             else:
-                base_dir = os.path.dirname(os.path.abspath(__file__))
+                base_dir = project_base_dir()
             
             log_dir = os.path.join(base_dir, 'logs', 'serial_logs')
             os.makedirs(log_dir, exist_ok=True)
@@ -3601,9 +3601,9 @@ def init_app(app):
             import os
             
             if getattr(sys, 'frozen', False):
-                base_dir = os.path.dirname(sys.executable)
+                base_dir = project_base_dir()
             else:
-                base_dir = os.path.dirname(os.path.abspath(__file__))
+                base_dir = project_base_dir()
             
             log_dir = os.path.join(base_dir, 'logs', 'serial_logs')
             
@@ -3641,9 +3641,9 @@ def init_app(app):
             import os
             
             if getattr(sys, 'frozen', False):
-                base_dir = os.path.dirname(sys.executable)
+                base_dir = project_base_dir()
             else:
-                base_dir = os.path.dirname(os.path.abspath(__file__))
+                base_dir = project_base_dir()
             
             log_dir = os.path.join(base_dir, 'logs', 'serial_logs')
             filepath = os.path.join(log_dir, filename)
@@ -3683,9 +3683,9 @@ def init_app(app):
             commands = data.get('commands', [])
             
             if getattr(sys, 'frozen', False):
-                base_dir = os.path.dirname(sys.executable)
+                base_dir = project_base_dir()
             else:
-                base_dir = os.path.dirname(os.path.abspath(__file__))
+                base_dir = project_base_dir()
             
             config_dir = os.path.join(base_dir, 'logs')
             os.makedirs(config_dir, exist_ok=True)
@@ -3712,9 +3712,9 @@ def init_app(app):
             import os
             
             if getattr(sys, 'frozen', False):
-                base_dir = os.path.dirname(sys.executable)
+                base_dir = project_base_dir()
             else:
-                base_dir = os.path.dirname(os.path.abspath(__file__))
+                base_dir = project_base_dir()
             
             filepath = os.path.join(base_dir, 'logs', 'serial_commands.json')
             
@@ -3797,11 +3797,11 @@ def init_app(app):
         # 使用正确的路径获取方式，支持打包环境
         if getattr(sys, 'frozen', False):
             # 打包环境：static在exe所在目录
-            base_dir = os.path.dirname(sys.executable)
+            base_dir = project_base_dir()
             drawio_dir = os.path.join(base_dir, 'static', 'drawio')
         else:
             # 开发环境
-            drawio_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static', 'drawio')
+            drawio_dir = project_path('static', 'drawio')
         
         drawio_index = os.path.join(drawio_dir, 'index.html')
         
@@ -4013,11 +4013,11 @@ def init_app(app):
         # 使用get_resource_path确保在打包环境下正确找到文件
         if getattr(sys, 'frozen', False):
             # 打包环境：static在exe所在目录
-            base_dir = os.path.dirname(sys.executable)
+            base_dir = project_base_dir()
             drawio_dir = os.path.join(base_dir, 'static', 'drawio')
         else:
             # 开发环境
-            drawio_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static', 'drawio')
+            drawio_dir = project_path('static', 'drawio')
         
         try:
             return send_from_directory(drawio_dir, filename)
@@ -4052,11 +4052,11 @@ def init_app(app):
         # 使用正确的路径获取方式，支持打包环境
         if getattr(sys, 'frozen', False):
             # 打包环境：static在exe所在目录
-            base_dir = os.path.dirname(sys.executable)
+            base_dir = project_base_dir()
             drawio_dir = os.path.join(base_dir, 'static', 'drawio')
         else:
             # 开发环境
-            drawio_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static', 'drawio')
+            drawio_dir = project_path('static', 'drawio')
         
         try:
             return send_from_directory(drawio_dir, path)
@@ -4073,11 +4073,11 @@ def init_app(app):
             # 使用正确的路径获取方式，支持打包环境
             if getattr(sys, 'frozen', False):
                 # 打包环境：static在exe所在目录
-                base_dir = os.path.dirname(sys.executable)
+                base_dir = project_base_dir()
                 drawio_dir = os.path.join(base_dir, 'static', 'drawio')
             else:
                 # 开发环境
-                drawio_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static', 'drawio')
+                drawio_dir = project_path('static', 'drawio')
             
             response = send_from_directory(drawio_dir, 'service-worker.js')
             response.headers['Content-Type'] = 'application/javascript'

@@ -17,7 +17,7 @@
    - 输入输出全部 JSON schema 化。
 
 2. **业务适配层（Adapter）**
-   - 封装现有模块：`todo_ai_bridge.py`、`todo_manager.py`、`knowledge_store.py`。
+   - 封装现有模块：`yobboy_file_server/todo_ai_bridge.py`、`yobboy_file_server/todo_manager.py`、`yobboy_file_server/knowledge_store.py`。
    - 做名称匹配、参数标准化、错误转换。
 
 3. **安全治理层（Guard）**
@@ -309,13 +309,13 @@
 
 ## 6. 与现有代码映射建议
 
-- `todo_manager.py`：写入与核心 CRUD
-- `todo_ai_bridge.py`：
+- `yobboy_file_server/todo_manager.py`：写入与核心 CRUD
+- `yobboy_file_server/todo_ai_bridge.py`：
   - 日期解析：`parse_natural_due_date_cn`
   - ops 预览校验：`validate_and_describe_ops`
   - 执行：`apply_todo_ops`
   - 分层上下文：`build_adaptive_todo_context_and_meta`
-- `knowledge_store.py`：
+- `yobboy_file_server/knowledge_store.py`：
   - `list_entries/get_meta/set_entry/remove_entry/retrieve_for_query`
 
 建议先做“薄适配”：MCP tools 直接调用这些函数，先跑通，再做重构。
@@ -356,7 +356,7 @@
 
 ## 9. V1 实现约定（已落地）
 
-本仓库已新增 `mcp_server.py`，按“薄适配”实现了本文档 V1 的主干能力：
+本仓库已新增 `mcp_server.py` 兼容入口（真实实现位于 `yobboy_file_server/mcp_server.py`），按“薄适配”实现了本文档 V1 的主干能力：
 
 - 传输：`stdio` + JSON-RPC + MCP `tools/list` / `tools/call`
 - 返回：统一 `{ok,data,error,trace_id}`，并作为 MCP tool result 的 `structuredContent`
@@ -424,7 +424,7 @@ python mcp_server.py --root-dir "你的项目根目录" --todo-storage-path "tod
 
 为满足“网页本地 AI 也走 MCP”的目标，已在服务端加入本地 bridge：
 
-- 新增：`local_mcp_bridge.py`
+- 新增：`yobboy_file_server/local_mcp_bridge.py`
 - 方式：Flask 进程内作为 MCP client，通过 stdio 持久连接 `mcp_server.py`
 - 默认开启：`LOCAL_AI_USE_MCP_BRIDGE=true`（`local_ai_routes.py` 内 setdefault）
 
@@ -456,7 +456,7 @@ python mcp_server.py --root-dir "你的项目根目录" --todo-storage-path "tod
 
 ## 12. Draw.io Phase 1（已落地）
 
-已新增 Draw.io 的 MCP 工具（`mcp_server.py`）：
+已新增 Draw.io 的 MCP 工具（`mcp_server.py` 兼容入口 / `yobboy_file_server/mcp_server.py` 实现）：
 
 - `drawio_validate_xml`
   - 校验 XML 可解析、根节点是否 `mxfile`、重复 `mxCell id`、悬空连线（source/target）

@@ -12,30 +12,14 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
+from .paths import project_base_dir
+
 _product_compare_log = logging.getLogger('yobboy_file_server.product_compare')
 
 
 def _get_base_dir() -> str:
-    """获取程序运行的基础目录（兼容打包与开发模式）"""
-    if getattr(sys, "frozen", False):
-        # 打包环境：exe所在目录
-        exe_dir = os.path.dirname(sys.executable)
-        # 检查exe目录的上级目录是否有data目录（兼容从dist目录运行的情况）
-        parent_dir = os.path.dirname(exe_dir)
-        parent_data_dir = os.path.join(parent_dir, "data", "product_compare")
-        
-        # 如果上级目录有数据目录且包含json文件，优先使用上级目录（项目根目录）
-        if os.path.exists(parent_data_dir):
-            try:
-                json_files = [f for f in os.listdir(parent_data_dir) if f.endswith('.json')]
-                if json_files:
-                    return parent_dir
-            except (OSError, PermissionError):
-                # 如果无法访问上级目录，使用exe目录
-                pass
-        # 否则使用exe所在目录
-        return exe_dir
-    return os.path.dirname(os.path.abspath(__file__))
+    """获取程序运行的基础目录。"""
+    return project_base_dir()
 
 
 def _ensure_data_dir() -> str:

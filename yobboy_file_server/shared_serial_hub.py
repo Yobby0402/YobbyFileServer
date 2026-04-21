@@ -9,6 +9,8 @@ from collections import deque
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Set, Tuple
 
+from .paths import project_base_dir
+
 
 DEFAULT_RECENT_LIMIT = 500
 DEFAULT_HISTORY_PAGE_SIZE = 200
@@ -824,9 +826,7 @@ class SharedSerialHub:
                 self.pending_writes.pop(request_id, None)
 
     def _get_base_dir(self) -> str:
-        if getattr(sys, "frozen", False):
-            return os.path.dirname(sys.executable)
-        return os.path.dirname(os.path.abspath(__file__))
+        return project_base_dir()
 
     @staticmethod
     def _sanitize_component(text: str) -> str:

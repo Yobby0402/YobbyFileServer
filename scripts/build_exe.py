@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 打包脚本 - 将项目打包为单个exe文件
-运行方式: python build_exe.py
+运行方式: python scripts/build_exe.py
 """
 
 import os
@@ -18,6 +18,8 @@ except Exception:
     tqdm = None
 
 T = TypeVar('T')
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+os.chdir(PROJECT_ROOT)
 
 
 def log(message):
@@ -159,10 +161,10 @@ def copy_resources():
         '文件服务器.ico',
         '文件服务器.png',
         'mcp_server.py',
-        'todo_ai_bridge.py',
-        'knowledge_store.py',
-        'local_ai_paths.py',
-        'todo_manager.py',
+        'README.md',
+        'CHANGELOG.md',
+        '快速开始.md',
+        '功能说明.md',
     ]
     for file_name in root_files:
         file_path = Path(file_name)
@@ -205,6 +207,19 @@ def copy_resources():
         log(f'[OK] 已复制文件: {file_path.name}')
         copied_count += 1
 
+    package_src = Path('yobboy_file_server')
+    package_dst = dist_path / 'yobboy_file_server'
+    if package_src.exists():
+        if package_dst.exists():
+            shutil.rmtree(package_dst)
+        shutil.copytree(
+            package_src,
+            package_dst,
+            ignore=shutil.ignore_patterns('__pycache__', '*.pyc', '*.pyo'),
+        )
+        log('[OK] 已复制应用包: yobboy_file_server')
+        copied_count += 1
+
     if copied_count > 0:
         log(f'\n[OK] 资源文件复制完成（共{copied_count}项）')
     else:
@@ -233,10 +248,18 @@ def verify_dist_resources(include_external_mcp_exe=False):
         Path('dist/static/libs/purify/purify.min.js'),
         Path('dist/templates/partials/local_ai_dock.html'),
         Path('dist/mcp_server.py'),
-        Path('dist/todo_ai_bridge.py'),
-        Path('dist/knowledge_store.py'),
-        Path('dist/local_ai_paths.py'),
-        Path('dist/todo_manager.py'),
+        Path('dist/README.md'),
+        Path('dist/CHANGELOG.md'),
+        Path('dist/快速开始.md'),
+        Path('dist/功能说明.md'),
+        Path('dist/yobboy_file_server/main.py'),
+        Path('dist/yobboy_file_server/todo_ai_bridge.py'),
+        Path('dist/yobboy_file_server/embedding_client.py'),
+        Path('dist/yobboy_file_server/knowledge_index_db.py'),
+        Path('dist/yobboy_file_server/knowledge_job_manager.py'),
+        Path('dist/yobboy_file_server/knowledge_store.py'),
+        Path('dist/yobboy_file_server/local_ai_paths.py'),
+        Path('dist/yobboy_file_server/todo_manager.py'),
     ]
     if include_external_mcp_exe:
         required_paths.append(Path('dist/mcp_server.exe'))

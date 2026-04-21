@@ -12,6 +12,8 @@ import time
 import uuid
 from typing import Any, Dict, Optional
 
+from .paths import package_dir, project_base_dir
+
 
 class MCPBridgeError(Exception):
     pass
@@ -97,7 +99,7 @@ class LocalMCPBridge:
         2) 程序目录下的 mcp_server.exe（打包后推荐）
         3) 回退到 `python mcp_server.py`（开发环境）
         """
-        base_dir = os.path.dirname(sys.executable) if getattr(sys, "frozen", False) else os.path.dirname(os.path.abspath(__file__))
+        base_dir = project_base_dir()
 
         env_exe = (os.environ.get("YFS_MCP_SERVER_EXE") or "").strip()
         if env_exe and os.path.isfile(env_exe):
@@ -109,9 +111,8 @@ class LocalMCPBridge:
             exe = os.path.normpath(bundled_exe)
             return [exe], os.path.dirname(exe), f"exe:{exe}"
 
-        script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mcp_server.py")
         py = sys.executable
-        return [py, script], os.path.dirname(script), f"py:{py}|{script}"
+        return [py, "-m", "yobboy_file_server.mcp_server"], project_base_dir(), f"py:{py}|module:yobboy_file_server.mcp_server"
 
     def _use_inproc_server(self) -> bool:
         """
@@ -136,7 +137,7 @@ class LocalMCPBridge:
         self._inited = False
         self._server_cmd_sig = "inproc"
         try:
-            from mcp_server import YFSMCPServer
+            from .mcp_server import YFSMCPServer
         except Exception as e:
             raise MCPBridgeError(f"加载内置 MCP 失败: {e}") from e
         self._server_inproc = YFSMCPServer(todo_storage_path, root_dir)

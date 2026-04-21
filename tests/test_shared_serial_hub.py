@@ -2,7 +2,7 @@ import os
 import tempfile
 import unittest
 
-from shared_serial_hub import (
+from yobboy_file_server.shared_serial_hub import (
     SOURCE_BROWSER_SERIAL,
     SOURCE_SERVER_PYSERIAL,
     SharedSerialHub,

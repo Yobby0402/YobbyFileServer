@@ -10,8 +10,8 @@ import subprocess
 import threading
 from typing import Optional, Dict
 from flask import request, jsonify, current_app, session
-from routes import is_logged_in
-from git_manager import _git_base_cmd
+from .routes import is_logged_in
+from .git_manager import _git_base_cmd
 
 # 全局字典存储克隆进度（线程安全）
 # 使用字典存储进度信息，格式：{progress_id: {'status': ..., 'progress': ..., ...}}
@@ -1216,7 +1216,7 @@ def register_git_routes(app):
                             except Exception:
                                 # GitPython无法打开，可能是不完整的仓库
                                 log_message(f"检测到不完整的Git仓库，尝试清理: {target_path}", 'WARNING')
-                                from git_manager import _force_remove_directory
+                                from .git_manager import _force_remove_directory
                                 if not _force_remove_directory(target_path):
                                     log_message(f"清理目录失败: {target_path}", 'ERROR')
                                     return jsonify({
@@ -1228,7 +1228,7 @@ def register_git_routes(app):
                         else:
                             # 不是Git仓库，但有其他文件，尝试清理（可能是不完整的克隆）
                             log_message(f"检测到非空目录（非Git仓库），尝试清理: {target_path}", 'WARNING')
-                            from git_manager import _force_remove_directory
+                            from .git_manager import _force_remove_directory
                             if not _force_remove_directory(target_path):
                                 log_message(f"清理目录失败: {target_path}", 'ERROR')
                                 return jsonify({
