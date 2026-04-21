@@ -71,6 +71,58 @@ def _normalize_rel_path(path: str) -> str:
     return normalized
 
 
+def _clean_input_path(path: str) -> str:
+    cleaned = str(path or "").strip().replace("\x00", "")
+    if cleaned.lower().startswith("file://"):
+        cleaned = cleaned[7:]
+        cleaned = re.sub(r"^/+(?=[A-Za-z]:[\\/])", "", cleaned)
+    return cleaned
+
+
+def _looks_absolute_path(path: str) -> bool:
+    return bool(
+        os.path.isabs(path)
+        or re.match(r"^[A-Za-z]:[\\/]", path or "")
+        or str(path or "").startswith(("\\\\", "//"))
+    )
+
+
+def _path_key(path: str) -> str:
+    return os.path.normcase(os.path.normpath(os.path.abspath(path)))
+
+
+def _is_under_root_path(root_dir: str, full_path: str) -> bool:
+    try:
+        root_key = _path_key(root_dir)
+        full_key = _path_key(full_path)
+        return os.path.commonpath([root_key, full_key]) == root_key
+    except (OSError, ValueError):
+        return False
+
+
+def _resolve_under_root(root_dir: str, path: str) -> Tuple[Optional[str], str]:
+    root_n = _normalize_root(root_dir)
+    cleaned = _clean_input_path(path)
+    if not cleaned:
+        return None, ""
+
+    candidates: List[str] = []
+    drive_fixed = re.sub(r"^/+(?=[A-Za-z]:[\\/])", "", cleaned)
+    if _looks_absolute_path(cleaned):
+        candidates.append(cleaned)
+    elif drive_fixed != cleaned and _looks_absolute_path(drive_fixed):
+        candidates.append(drive_fixed)
+    else:
+        candidates.append(os.path.join(root_n, _normalize_rel_path(cleaned)))
+
+    for candidate in candidates:
+        full = os.path.normpath(os.path.abspath(candidate))
+        if _is_under_root_path(root_n, full):
+            rel = os.path.relpath(full, root_n).replace("\\", "/")
+            return full, "" if rel == "." else rel
+    return None, _normalize_rel_path(cleaned)
+
+
 def _normalize_rel_dir(path: str) -> str:
     normalized = _normalize_rel_path(path)
     if normalized in ("", "."):
@@ -79,10 +131,7 @@ def _normalize_rel_dir(path: str) -> str:
 
 
 def _under_root(root_dir: str, rel_path: str) -> Optional[str]:
-    root_n = _normalize_root(root_dir)
-    full = os.path.normpath(os.path.join(root_n, rel_path))
-    if not full.startswith(root_n + os.sep) and full != root_n:
-        return None
+    full, _rel = _resolve_under_root(root_dir, rel_path)
     return full
 
 
@@ -661,7 +710,10 @@ def list_entries(root_dir: str) -> List[Dict[str, Any]]:
 
 
 def get_meta(rel_path: str, root_dir: Optional[str] = None) -> Optional[Dict[str, Any]]:
-    rel = _normalize_rel_path(rel_path)
+    if root_dir:
+        _full, rel = _resolve_under_root(root_dir, rel_path)
+    else:
+        rel = _normalize_rel_path(rel_path)
     data = load_store()
     meta = data.get("entries", {}).get(rel)
     if not isinstance(meta, dict):
@@ -694,8 +746,7 @@ def _index_file_source(
     progress_callback: Optional[Any] = None,
 ) -> Dict[str, Any]:
     root_n = _normalize_root(root_dir)
-    rel = _normalize_rel_path(rel_path)
-    full = _under_root(root_n, rel)
+    full, rel = _resolve_under_root(root_n, rel_path)
     if not full or not os.path.isfile(full):
         raise ValueError("路径无效或不是文件")
     ext = os.path.splitext(full)[1].lower()
@@ -765,8 +816,8 @@ def set_entry(
     note: str = "",
     app_config: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    rel = _normalize_rel_path(rel_path)
-    full = _under_root(_normalize_root(root_dir), rel)
+    root_n = _normalize_root(root_dir)
+    full, rel = _resolve_under_root(root_n, rel_path)
     if not full or not os.path.isfile(full):
         raise ValueError("路径无效或不是文件")
     if _is_rel_path_excluded(rel, get_scan_settings().get("scan_excluded_dirs") or []):
@@ -801,9 +852,8 @@ def queue_entry(
     note: str = "",
     app_config: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    rel = _normalize_rel_path(rel_path)
     root_n = _normalize_root(root_dir)
-    full = _under_root(root_n, rel)
+    full, rel = _resolve_under_root(root_n, rel_path)
     if not full or not os.path.isfile(full):
         raise ValueError("路径无效或不是文件")
     if _is_rel_path_excluded(rel, get_scan_settings().get("scan_excluded_dirs") or []):
@@ -893,7 +943,7 @@ def queue_entry(
 
 
 def rebuild_entry(root_dir: str, rel_path: str, app_config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    rel = _normalize_rel_path(rel_path)
+    _full, rel = _resolve_under_root(root_dir, rel_path)
     if _is_rel_path_excluded(rel, get_scan_settings().get("scan_excluded_dirs") or []):
         raise ValueError("该文件位于排除目录中，请先调整扫描设置")
     meta = get_meta(rel, root_dir=root_dir)
@@ -909,7 +959,7 @@ def rebuild_entry(root_dir: str, rel_path: str, app_config: Optional[Dict[str, A
 
 
 def queue_rebuild_entry(root_dir: str, rel_path: str, app_config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    rel = _normalize_rel_path(rel_path)
+    _full, rel = _resolve_under_root(root_dir, rel_path)
     meta = get_meta(rel, root_dir=root_dir)
     if meta is None:
         raise ValueError("该文件未加入知识库")
@@ -923,8 +973,9 @@ def queue_rebuild_entry(root_dir: str, rel_path: str, app_config: Optional[Dict[
 
 
 def remove_entry(root_dir: str, rel_path: str) -> None:
-    rel = _normalize_rel_path(rel_path)
-    active_job = knowledge_index_db.find_active_job(_normalize_root(root_dir), _FILE_SOURCE, rel)
+    root_n = _normalize_root(root_dir)
+    _full, rel = _resolve_under_root(root_n, rel_path)
+    active_job = knowledge_index_db.find_active_job(root_n, _FILE_SOURCE, rel)
     if active_job:
         raise ValueError("该文件仍在后台处理中，请等待完成后再移除")
     data = load_store()
@@ -932,13 +983,13 @@ def remove_entry(root_dir: str, rel_path: str) -> None:
     previous = data["entries"].get(rel)
     if isinstance(previous, dict) and previous.get("auto_discovered"):
         kept = dict(previous)
-        kept["scan_status"] = "discovered" if _file_state(_normalize_root(root_dir), rel).get("exists") else "missing"
+        kept["scan_status"] = "discovered" if _file_state(root_n, rel).get("exists") else "missing"
         kept["updated_at"] = _now_iso()
         data["entries"][rel] = kept
     else:
         data["entries"].pop(rel, None)
     save_store(data)
-    knowledge_index_db.delete_source(_normalize_root(root_dir), _FILE_SOURCE, rel)
+    knowledge_index_db.delete_source(root_n, _FILE_SOURCE, rel)
 
 
 def _scan_file_entries(
@@ -1147,8 +1198,7 @@ def queue_scan_files(root_dir: str) -> Dict[str, Any]:
 
 def preview_entry(root_dir: str, rel_path: str, *, max_chars: int = _DEFAULT_PREVIEW_MAX_CHARS) -> Dict[str, Any]:
     root_n = _normalize_root(root_dir)
-    rel = _normalize_rel_path(rel_path)
-    full = _under_root(root_n, rel)
+    full, rel = _resolve_under_root(root_n, rel_path)
     if not full or not os.path.isfile(full):
         raise ValueError("文件不存在")
     if not _supported_file_ext(full):
