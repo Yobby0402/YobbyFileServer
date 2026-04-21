@@ -21,7 +21,10 @@ except Exception:
 T = TypeVar('T')
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DIST_DIR = Path('dist')
-BUILD_VARIANTS = ('main', 'dev-com', 'dev-erp')
+BUILD_VARIANTS = ('main', 'dev-erp')
+VARIANT_ALIASES = {
+    'dev-com': 'main',
+}
 os.chdir(PROJECT_ROOT)
 
 
@@ -94,7 +97,7 @@ def ensure_clean_worktree():
 
 def ensure_branch_exists(branch_name: str):
     subprocess.run(
-        ['git', 'rev-parse', '--verify', branch_name],
+        ['git', 'rev-parse', '--verify', VARIANT_ALIASES.get(branch_name, branch_name)],
         cwd=PROJECT_ROOT,
         check=True,
         stdout=subprocess.DEVNULL,
@@ -103,6 +106,7 @@ def ensure_branch_exists(branch_name: str):
 
 
 def checkout_branch(branch_name: str):
+    branch_name = VARIANT_ALIASES.get(branch_name, branch_name)
     current = get_current_branch()
     if current == branch_name:
         log(f'[INFO] 当前已在分支: {branch_name}')
@@ -114,7 +118,7 @@ def checkout_branch(branch_name: str):
 def output_dir_for_variant(variant: Optional[str]) -> Path:
     if not variant:
         return DIST_DIR
-    return Path(f'dist-{variant}')
+    return Path(f'dist-{VARIANT_ALIASES.get(variant, variant)}')
 
 
 def clear_dist_folder():
@@ -370,26 +374,31 @@ def archive_dist_for_variant(variant: Optional[str]) -> Path:
 
 
 def parse_args():
+    variant_choices = tuple(BUILD_VARIANTS) + tuple(VARIANT_ALIASES.keys())
     parser = argparse.ArgumentParser(description='Yobboy 文件服务器打包脚本')
     parser.add_argument(
         '--variant',
-        choices=BUILD_VARIANTS,
-        help='切换到指定分支后打包，并输出到 dist-<branch> 目录',
+        choices=variant_choices,
+        help='切换到指定分支后打包，并输出到 dist-<branch> 目录（dev-com 会映射到 main）',
     )
     parser.add_argument(
         '--all-variants',
         action='store_true',
-        help='依次打包 main / dev-com / dev-erp，并分别输出到 dist-main / dist-dev-com / dist-dev-erp',
+        help='依次打包 main / dev-erp，并分别输出到 dist-main / dist-dev-erp',
     )
     return parser.parse_args()
 
 
 def run_build_flow(variant: Optional[str] = None):
     """Run one packaging flow for the current checkout."""
+    display_variant = VARIANT_ALIASES.get(variant, variant) if variant else None
     log('=' * 60)
     log('Yobboy 文件服务器 - 打包脚本')
     if variant:
-        log(f'打包版本: {variant}')
+        if variant in VARIANT_ALIASES:
+            log(f'打包版本: {variant}（已并入 {display_variant}）')
+        else:
+            log(f'打包版本: {display_variant}')
     log('=' * 60)
     
     # 检查主程序文件
@@ -458,7 +467,7 @@ def run_build_flow(variant: Optional[str] = None):
     log('\n' + '=' * 60)
     log('[OK] 打包完成！')
     log('=' * 60)
-    output_dir = archive_dist_for_variant(variant)
+    output_dir = archive_dist_for_variant(display_variant)
     log(f'\n输出目录: {output_dir.absolute()}')
     log(f'exe文件位置: {output_dir}\\YobboyFileServer.exe')
     if build_external_mcp:
