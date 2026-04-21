@@ -9,6 +9,7 @@ import os
 import sys
 import shutil
 import subprocess
+import argparse
 from pathlib import Path
 from typing import Iterable, Iterator, Optional, TypeVar
 
@@ -19,6 +20,8 @@ except Exception:
 
 T = TypeVar('T')
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+DIST_DIR = Path('dist')
+BUILD_VARIANTS = ('main', 'dev-com', 'dev-erp')
 os.chdir(PROJECT_ROOT)
 
 
@@ -52,9 +55,67 @@ def should_build_external_mcp_exe() -> bool:
     raw = (os.environ.get('BUILD_MCP_EXE') or '').strip().lower()
     return raw in ('1', 'true', 'yes', 'on')
 
+
+def run_git(args, *, capture=True, check=True):
+    """Run a git command from project root."""
+    result = subprocess.run(
+        ['git', *args],
+        cwd=PROJECT_ROOT,
+        check=check,
+        capture_output=capture,
+        text=True,
+        encoding='utf-8',
+        errors='ignore',
+    )
+    return result.stdout.strip() if capture else ''
+
+
+def get_current_branch() -> str:
+    branch = run_git(['branch', '--show-current'])
+    return branch or run_git(['rev-parse', '--short', 'HEAD'])
+
+
+def ensure_clean_worktree():
+    status = run_git(['status', '--porcelain'])
+    if status:
+        log('[ERROR] 工作区存在未提交改动，为避免切换分支覆盖文件，已停止。')
+        log('请先提交、暂存或丢弃这些改动后再使用 --variant / --all-variants：')
+        log(status)
+        log('\n可选处理方式：')
+        log('  1) 提交改动：git add -A && git commit -m "chore: save local changes before packaging"')
+        log('  2) 临时保存：git stash push -u -m "before variant packaging"')
+        log('  3) 放弃改动：git restore . && git clean -fd')
+        raise SystemExit(2)
+
+
+def ensure_branch_exists(branch_name: str):
+    subprocess.run(
+        ['git', 'rev-parse', '--verify', branch_name],
+        cwd=PROJECT_ROOT,
+        check=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+
+def checkout_branch(branch_name: str):
+    current = get_current_branch()
+    if current == branch_name:
+        log(f'[INFO] 当前已在分支: {branch_name}')
+        return
+    log(f'\n正在切换分支: {current} -> {branch_name}')
+    run_git(['checkout', branch_name], capture=False)
+
+
+def output_dir_for_variant(variant: Optional[str]) -> Path:
+    if not variant:
+        return DIST_DIR
+    return Path(f'dist-{variant}')
+
+
 def clear_dist_folder():
     """清除dist文件夹内容"""
-    dist_path = Path('dist')
+    dist_path = DIST_DIR
     if dist_path.exists():
         log('正在清除dist文件夹...')
         for item in dist_path.iterdir():
@@ -146,7 +207,7 @@ def copy_resources():
     """复制资源文件到dist文件夹"""
     log('\n正在复制资源文件...')
     
-    dist_path = Path('dist')
+    dist_path = DIST_DIR
     if not dist_path.exists():
         log('[ERROR] dist文件夹不存在')
         return False
@@ -261,6 +322,19 @@ def verify_dist_resources(include_external_mcp_exe=False):
         Path('dist/yobboy_file_server/local_ai_paths.py'),
         Path('dist/yobboy_file_server/todo_manager.py'),
     ]
+    erp_paths = [
+        Path('templates/local_erp.html'),
+        Path('yobboy_file_server/local_erp_manager.py'),
+        Path('yobboy_file_server/local_erp_routes.py'),
+        Path('yobboy_file_server/sql/local_erp_schema.sql'),
+    ]
+    if all(path.exists() for path in erp_paths):
+        required_paths.extend([
+            Path('dist/templates/local_erp.html'),
+            Path('dist/yobboy_file_server/local_erp_manager.py'),
+            Path('dist/yobboy_file_server/local_erp_routes.py'),
+            Path('dist/yobboy_file_server/sql/local_erp_schema.sql'),
+        ])
     if include_external_mcp_exe:
         required_paths.append(Path('dist/mcp_server.exe'))
 
@@ -274,16 +348,50 @@ def verify_dist_resources(include_external_mcp_exe=False):
     log('[OK] 关键打包文件校验通过')
     return True
 
-def main():
-    """主函数"""
+
+def archive_dist_for_variant(variant: Optional[str]) -> Path:
+    """Move dist to a variant-specific output folder when requested."""
+    output_dir = output_dir_for_variant(variant)
+    if output_dir == DIST_DIR:
+        return output_dir
+    if output_dir.exists():
+        log(f'\n正在清除旧版本输出目录: {output_dir}')
+        if output_dir.is_dir():
+            shutil.rmtree(output_dir)
+        else:
+            output_dir.unlink()
+    shutil.move(str(DIST_DIR), str(output_dir))
+    log(f'[OK] 已输出版本目录: {output_dir}')
+    return output_dir
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description='Yobboy 文件服务器打包脚本')
+    parser.add_argument(
+        '--variant',
+        choices=BUILD_VARIANTS,
+        help='切换到指定分支后打包，并输出到 dist-<branch> 目录',
+    )
+    parser.add_argument(
+        '--all-variants',
+        action='store_true',
+        help='依次打包 main / dev-com / dev-erp，并分别输出到 dist-main / dist-dev-com / dist-dev-erp',
+    )
+    return parser.parse_args()
+
+
+def run_build_flow(variant: Optional[str] = None):
+    """Run one packaging flow for the current checkout."""
     log('=' * 60)
     log('Yobboy 文件服务器 - 打包脚本')
+    if variant:
+        log(f'打包版本: {variant}')
     log('=' * 60)
     
     # 检查主程序文件
     if not Path('main.py').exists():
         log('[ERROR] 未找到main.py文件')
-        return
+        raise SystemExit(1)
     
     # 检查图标文件
     if not Path('文件服务器.ico').exists():
@@ -308,7 +416,7 @@ def main():
         if flow_bar is not None:
             flow_bar.close()
         log('\n[ERROR] 打包失败，请检查错误信息')
-        return
+        raise SystemExit(1)
     if flow_bar is not None:
         flow_bar.update(1)
 
@@ -318,7 +426,7 @@ def main():
             if flow_bar is not None:
                 flow_bar.close()
             log('\n[ERROR] mcp_server.exe 打包失败')
-            return
+            raise SystemExit(1)
         if flow_bar is not None:
             flow_bar.update(1)
     else:
@@ -329,7 +437,7 @@ def main():
         if flow_bar is not None:
             flow_bar.close()
         log('\n[ERROR] 资源文件复制失败')
-        return
+        raise SystemExit(1)
     if flow_bar is not None:
         flow_bar.update(1)
 
@@ -338,7 +446,7 @@ def main():
         if flow_bar is not None:
             flow_bar.close()
         log('\n[ERROR] 打包产物校验失败')
-        return
+        raise SystemExit(1)
     if flow_bar is not None:
         flow_bar.update(1)
         flow_bar.close()
@@ -346,13 +454,40 @@ def main():
     log('\n' + '=' * 60)
     log('[OK] 打包完成！')
     log('=' * 60)
-    log(f'\n输出目录: {Path("dist").absolute()}')
-    log('exe文件位置: dist\\YobboyFileServer.exe')
+    output_dir = archive_dist_for_variant(variant)
+    log(f'\n输出目录: {output_dir.absolute()}')
+    log(f'exe文件位置: {output_dir}\\YobboyFileServer.exe')
     if build_external_mcp:
-        log('MCP服务位置: dist\\mcp_server.exe')
+        log(f'MCP服务位置: {output_dir}\\mcp_server.exe')
     else:
         log('MCP服务: 内置到主程序（不需要单独 exe）')
     log('\n注意: exe文件需要与static和templates文件夹在同一目录下运行')
+
+
+def main():
+    """主函数"""
+    args = parse_args()
+    if args.variant and args.all_variants:
+        log('[ERROR] --variant 与 --all-variants 不能同时使用')
+        raise SystemExit(2)
+
+    variants = list(BUILD_VARIANTS) if args.all_variants else ([args.variant] if args.variant else [])
+    if not variants:
+        run_build_flow()
+        return
+
+    ensure_clean_worktree()
+    original_branch = get_current_branch()
+    try:
+        for variant in variants:
+            ensure_branch_exists(variant)
+            checkout_branch(variant)
+            run_build_flow(variant)
+    finally:
+        if get_current_branch() != original_branch:
+            log(f'\n正在恢复原始分支: {original_branch}')
+            run_git(['checkout', original_branch], capture=False)
+
 
 if __name__ == '__main__':
     main()
