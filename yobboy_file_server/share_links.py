@@ -11,16 +11,24 @@ import string
 from datetime import datetime, timedelta
 from typing import Optional, Dict, List
 
+from .paths import project_base_dir
+
+
 class ShareLinkManager:
     """分享链接管理器"""
     
-    def __init__(self, db_path='data/share_links/share_links.db'):
+    def __init__(self, db_path: Optional[str] = None):
         """初始化数据库连接"""
+        if db_path is None:
+            db_path = os.path.join(project_base_dir(), 'data', 'share_links', 'share_links.db')
+        elif not os.path.isabs(db_path):
+            db_path = os.path.join(project_base_dir(), db_path)
         self.db_path = db_path
         self.init_database()
     
     def init_database(self):
         """初始化数据库表"""
+        os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         
