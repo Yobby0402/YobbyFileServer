@@ -82,9 +82,13 @@ def ensure_clean_worktree():
         log('请先提交、暂存或丢弃这些改动后再使用 --variant / --all-variants：')
         log(status)
         log('\n可选处理方式：')
-        log('  1) 提交改动：git add -A && git commit -m "chore: save local changes before packaging"')
+        log('  1) 提交改动：')
+        log('     git add -A')
+        log('     git commit -m "chore: save local changes before packaging"')
         log('  2) 临时保存：git stash push -u -m "before variant packaging"')
-        log('  3) 放弃改动：git restore . && git clean -fd')
+        log('  3) 放弃改动：')
+        log('     git restore .')
+        log('     git clean -fd')
         raise SystemExit(2)
 
 
