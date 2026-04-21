@@ -8,7 +8,7 @@ import os
 import sys
 import platform
 
-from logging_setup import parse_log_level
+from .logging_setup import parse_log_level
 import subprocess
 from typing import Dict, List, Optional, Tuple, Callable
 

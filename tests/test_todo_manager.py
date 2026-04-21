@@ -2,7 +2,7 @@ import os
 import tempfile
 import unittest
 
-from todo_manager import TodoManager
+from yobboy_file_server.todo_manager import TodoManager
 
 
 class TodoManagerTests(unittest.TestCase):

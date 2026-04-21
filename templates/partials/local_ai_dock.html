@@ -14,6 +14,7 @@
     </div>
     <div class="local-ai-status-block">
         <div class="local-ai-status-line" id="localAiStatusLine">状态加载中…</div>
+        <div class="local-ai-status-line" id="localAiRunStatusLine">对话状态：空闲</div>
         <div class="local-ai-status-line" id="localAiKbLine" style="display:none;"></div>
         <div class="local-ai-meter-row" id="localAiRamRow">
             <span class="local-ai-meter-label" id="localAiRamLabel">内存</span>
@@ -32,6 +33,7 @@
     </div>
     <div class="local-ai-controls">
         <span class="small text-muted local-ai-hint-span" title="连接与模型选择在桌面设置的 LM Studio 配置中完成">由桌面设置管理连接</span>
+        <button type="button" class="btn btn-sm btn-outline-primary" id="localAiKbManageBtn" title="管理知识库">知识库管理</button>
         <button type="button" class="btn btn-sm btn-outline-warning" id="localAiPendingPatchBtn" title="有待执行的待办操作">待执行操作</button>
         <button type="button" class="btn btn-sm btn-outline-secondary" id="localAiClearHistBtn" title="清空本机历史">清历史</button>
     </div>
@@ -62,6 +64,7 @@
             <button type="button" class="local-ai-mode-btn active" data-mode="general" title="通用">通用</button>
             <button type="button" class="local-ai-mode-btn" data-mode="knowledge" title="知识库检索">知识库</button>
             <button type="button" class="local-ai-mode-btn" data-mode="todo" title="待办">待办</button>
+            <button type="button" class="local-ai-mode-btn" data-mode="erp" title="ERP">ERP</button>
         </div>
         <label class="mb-0 small ms-1 local-ai-force-wrap" id="localAiForceMutateWrap" style="display:none;"
             title="创建/修改/删除待办时请勾选；若句子里有「哪些、列出、统计」等词，不勾选容易被当成纯查询。">
@@ -111,6 +114,92 @@
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
                 <button type="button" class="btn btn-outline-secondary" id="localAiPatchValidateBtn">校验 JSON</button>
                 <button type="button" class="btn btn-primary" id="localAiPatchApplyBtn">确认应用</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="localAiKbManagerModal" tabindex="-1">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">知识库管理</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="small text-muted mb-2" id="localAiKbManagerSummary">正在加载知识库概况…</div>
+                <div class="local-ai-kb-manager-grid">
+                    <section class="local-ai-kb-panel">
+                        <div class="local-ai-kb-panel-header">
+                            <span>文件知识</span>
+                            <div class="d-flex gap-2 flex-wrap justify-content-end">
+                                <button type="button" class="btn btn-sm btn-outline-secondary" id="localAiKbRefreshBtn">刷新</button>
+                                <button type="button" class="btn btn-sm btn-outline-primary" id="localAiKbScanBtn">重新扫描</button>
+                                <button type="button" class="btn btn-sm btn-primary" id="localAiKbQueueAllBtn">加入未处理</button>
+                            </div>
+                        </div>
+                        <div class="small text-muted mb-2">扫描分享根目录下的 .md / .markdown / .txt 文件，可单个或批量加入知识库。</div>
+                        <div class="local-ai-kb-settings">
+                            <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap">
+                                <div class="small text-muted" id="localAiKbExcludedHint">未设置排除目录。</div>
+                                <button type="button" class="btn btn-sm btn-outline-primary" id="localAiKbOpenFolderSettingsBtn">设置扫描文件夹</button>
+                            </div>
+                        </div>
+                        <div class="local-ai-kb-list" id="localAiKbFileList"></div>
+                    </section>
+                    <section class="local-ai-kb-panel">
+                        <div class="local-ai-kb-panel-header">
+                            <span>文件预览</span>
+                        </div>
+                        <div class="local-ai-kb-preview-empty" id="localAiKbPreviewEmpty">请选择一个 md/txt 文件进行预览</div>
+                        <div class="local-ai-kb-preview-meta small text-muted" id="localAiKbPreviewMeta"></div>
+                        <div class="local-ai-kb-preview-text markdown-body" id="localAiKbPreviewText" hidden></div>
+                    </section>
+                </div>
+                <div class="local-ai-kb-manager-grid mt-3">
+                    <section class="local-ai-kb-panel">
+                        <div class="local-ai-kb-panel-header">
+                            <span>后台任务</span>
+                        </div>
+                        <div class="local-ai-kb-list" id="localAiKbJobList"></div>
+                    </section>
+                    <section class="local-ai-kb-panel">
+                        <div class="local-ai-kb-panel-header">
+                            <span>零散知识</span>
+                        </div>
+                        <div class="local-ai-kb-snippet-form">
+                            <input type="text" class="form-control form-control-sm" id="localAiKbSnippetTitle" placeholder="标题（可选）" />
+                            <textarea class="form-control form-control-sm" id="localAiKbSnippetText" rows="3" placeholder="输入一条短知识，例如：地球是黑色的"></textarea>
+                            <div class="d-flex justify-content-end">
+                                <button type="button" class="btn btn-sm btn-primary" id="localAiKbSnippetAddBtn">添加零散知识</button>
+                            </div>
+                        </div>
+                        <div class="local-ai-kb-list mt-2" id="localAiKbSnippetList"></div>
+                    </section>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="localAiKbFolderSettingsModal" tabindex="-1">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">扫描文件夹设置</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="small text-muted mb-3">
+                    这里只展示分享根目录下的一级文件夹。勾选表示扫描，取消勾选表示排除该文件夹及其所有子目录。
+                </div>
+                <div class="local-ai-kb-folder-list" id="localAiKbFolderList">
+                    <div class="local-ai-kb-empty">正在加载文件夹…</div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-primary" id="localAiKbSaveFolderSettingsBtn">保存并重新扫描</button>
             </div>
         </div>
     </div>

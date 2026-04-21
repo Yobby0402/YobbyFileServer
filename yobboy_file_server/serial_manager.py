@@ -12,6 +12,8 @@ from collections import defaultdict, deque
 from datetime import datetime
 from typing import Callable, Dict, List, Optional
 
+from .paths import project_base_dir
+
 # 导入 pyserial，确保使用正确的包
 # 当 serial 包缺少 __init__.py 或被其它包覆盖时，从平台子模块直接导入 Serial
 def _load_pyserial():
@@ -492,9 +494,7 @@ class SerialPortManager:
         return True
 
     def _get_base_dir(self) -> str:
-        if getattr(sys, "frozen", False):
-            return os.path.dirname(sys.executable)
-        return os.path.dirname(os.path.abspath(__file__))
+        return project_base_dir()
 
     def _ensure_log_dir(self, port_id: str, device: Optional[str] = None) -> str:
         name = port_id
@@ -521,4 +521,3 @@ class SerialPortManager:
 
 # 全局串口管理器实例
 serial_manager = SerialPortManager()
-

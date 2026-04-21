@@ -1,7 +1,7 @@
 import unittest
 import xml.etree.ElementTree as ET
 
-import drawio_text_dsl
+from yobboy_file_server import drawio_text_dsl
 
 
 def _style_map(style_text):

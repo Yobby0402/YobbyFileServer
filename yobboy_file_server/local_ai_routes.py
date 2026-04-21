@@ -14,12 +14,13 @@ from typing import Any, Dict, Generator, List, Optional
 
 from flask import Response, current_app, jsonify, request, session, stream_with_context
 
-import drawio_text_dsl
-import knowledge_store
-import local_ai_engine
-import local_mcp_bridge
-import local_ai_skills
-import todo_ai_bridge
+from . import drawio_text_dsl
+from . import embedding_client
+from . import knowledge_store
+from . import local_ai_engine
+from . import local_mcp_bridge
+from . import local_ai_skills
+from . import todo_ai_bridge
 
 # Draw.io 模式：不拼接通用 Skill；可选 drawio-ai-local.{md,txt}（节选思路参考 next-ai-draw-io，Apache-2.0）。
 DRAWIO_SYSTEM = """你是 draw.io（diagrams.net）图表生成助手。
@@ -212,6 +213,48 @@ def _mcp_call_with_meta(
         meta["elapsed_ms"] = int((time.perf_counter() - started) * 1000)
 
 
+def _extract_page_context(body: Dict[str, Any]) -> Dict[str, Any]:
+    raw = body.get("page_context") or {}
+    if not isinstance(raw, dict):
+        return {}
+    return raw
+
+
+def _message_suggests_erp_context(text: str) -> bool:
+    q = (text or "").strip()
+    if not q:
+        return False
+    keywords = (
+        "erp",
+        "库存",
+        "物料",
+        "仓库",
+        "bom",
+        "配方",
+        "工单",
+        "领料",
+        "退料",
+        "完工",
+        "追踪",
+        "流向",
+        "批次",
+        "单据",
+        "入库",
+        "出库",
+        "安全库存",
+        "预警",
+    )
+    q_lower = q.lower()
+    return any(keyword in q or keyword in q_lower for keyword in keywords)
+
+
+def _safe_int_value(value: Any, default: int = 0) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
 def _refresh_todo_manager_from_disk() -> None:
     """
     MCP 侧写入后，同步刷新当前 Flask 进程里的 TODO_MANAGER 缓存。
@@ -241,7 +284,7 @@ def _persist_local_ai_ini(app) -> None:
         cfg.read(path, encoding="utf-8")
     if not cfg.has_section("local_ai"):
         cfg.add_section("local_ai")
-    from local_ai_paths import project_base_dir
+    from .local_ai_paths import project_base_dir
 
     def _rel_for_ini(abs_path: str) -> str:
         if not abs_path:
@@ -258,6 +301,25 @@ def _persist_local_ai_ini(app) -> None:
     cfg.set("local_ai", "model_dir", _rel_for_ini(str(app.config.get("LOCAL_AI_MODEL_DIR", "") or "")))
     cfg.set("local_ai", "api_base_url", str(app.config.get("LOCAL_AI_API_BASE_URL", "") or ""))
     cfg.set("local_ai", "api_model", str(app.config.get("LOCAL_AI_API_MODEL", "") or ""))
+    cfg.set(
+        "local_ai",
+        "embed_api_base_url",
+        str(app.config.get("LOCAL_AI_EMBED_API_BASE_URL", app.config.get("LOCAL_AI_API_BASE_URL", "")) or ""),
+    )
+    cfg.set("local_ai", "embed_model", str(app.config.get("LOCAL_AI_EMBED_MODEL", "") or ""))
+    cfg.set("local_ai", "embed_api_key", str(app.config.get("LOCAL_AI_EMBED_API_KEY", "lm-studio") or "lm-studio"))
+    cfg.set(
+        "local_ai",
+        "embed_query_instruction",
+        str(
+            app.config.get(
+                "LOCAL_AI_EMBED_QUERY_INSTRUCTION",
+                "Represent this query for retrieving relevant passages from the local knowledge base.",
+            )
+            or ""
+        ),
+    )
+    cfg.set("local_ai", "embed_batch_size", str(int(app.config.get("LOCAL_AI_EMBED_BATCH_SIZE", 16) or 16)))
     cfg.set("local_ai", "gguf_path", str(app.config.get("LOCAL_AI_GGUF_PATH", "") or ""))
     cfg.set("local_ai", "skills_dir", _rel_for_ini(str(app.config.get("LOCAL_AI_SKILLS_DIR", "") or "")))
     cfg.set("local_ai", "models_dir", _rel_for_ini(str(app.config.get("LOCAL_AI_MODELS_DIR", "") or "")))
@@ -287,6 +349,14 @@ def _app_ai_config() -> Dict[str, Any]:
     return {
         "LOCAL_AI_API_BASE_URL": c.get("LOCAL_AI_API_BASE_URL", ""),
         "LOCAL_AI_API_MODEL": c.get("LOCAL_AI_API_MODEL", ""),
+        "LOCAL_AI_EMBED_API_BASE_URL": c.get("LOCAL_AI_EMBED_API_BASE_URL", c.get("LOCAL_AI_API_BASE_URL", "")),
+        "LOCAL_AI_EMBED_MODEL": c.get("LOCAL_AI_EMBED_MODEL", ""),
+        "LOCAL_AI_EMBED_API_KEY": c.get("LOCAL_AI_EMBED_API_KEY", "lm-studio"),
+        "LOCAL_AI_EMBED_QUERY_INSTRUCTION": c.get(
+            "LOCAL_AI_EMBED_QUERY_INSTRUCTION",
+            "Represent this query for retrieving relevant passages from the local knowledge base.",
+        ),
+        "LOCAL_AI_EMBED_BATCH_SIZE": c.get("LOCAL_AI_EMBED_BATCH_SIZE", 16),
         "LOCAL_AI_MODEL_DIR": c.get("LOCAL_AI_MODEL_DIR", ""),
         "LOCAL_AI_GGUF_PATH": c.get("LOCAL_AI_GGUF_PATH", ""),
         "LOCAL_AI_MAX_NEW_TOKENS": c.get("LOCAL_AI_MAX_NEW_TOKENS", 512),
@@ -308,6 +378,14 @@ def _sse(event: str, obj: Any) -> str:
     return f"event: {event}\ndata: {json.dumps(obj, ensure_ascii=False)}\n\n"
 
 
+def _chat_progress_payload(phase: str, message: str, received_chars: int = 0) -> Dict[str, Any]:
+    return {
+        "phase": phase,
+        "message": message,
+        "received_chars": max(0, int(received_chars or 0)),
+    }
+
+
 def register_local_ai_routes(app) -> None:
     # 多模态 JSON（base64 图）体积大，放宽单次请求上限（未配置时）
     app.config.setdefault("MAX_CONTENT_LENGTH", 32 * 1024 * 1024)
@@ -320,6 +398,7 @@ def register_local_ai_routes(app) -> None:
         c = current_app.config
         cfg = _app_ai_config()
         st = local_ai_engine.get_status(cfg)
+        embed_status = embedding_client.probe_connection(cfg, timeout=3.0)
         skills_dir = c.get("LOCAL_AI_SKILLS_DIR", "") or ""
         models_dir = c.get("LOCAL_AI_MODELS_DIR", "") or ""
         _do = str(c.get("LOCAL_AI_DRAWIO_OUTPUT", "text_dsl") or "text_dsl").strip().lower()
@@ -336,6 +415,7 @@ def register_local_ai_routes(app) -> None:
                 "append_skills": bool(c.get("LOCAL_AI_APPEND_SKILLS", True)),
                 "skill_files": local_ai_skills.list_skill_files(skills_dir),
                 "drawio_output": _do,
+                "embedding": embed_status,
             }
         )
 
@@ -358,12 +438,13 @@ def register_local_ai_routes(app) -> None:
             return jsonify({"success": False, "error": "未登录"}), 401
         body = request.get_json(silent=True) or {}
         mode = (body.get("mode") or "general").strip().lower()
-        if mode not in ("general", "knowledge", "todo", "drawio"):
+        if mode not in ("general", "knowledge", "todo", "erp", "drawio"):
             mode = "general"
         messages: List[Dict[str, Any]] = body.get("messages") or []
         if not messages:
             return jsonify({"success": False, "error": "messages 不能为空"}), 400
         last_user = _last_user_plain_text(messages)
+        page_context = _extract_page_context(body)
 
         cfg = _app_ai_config()
         tm = current_app.config.get("TODO_MANAGER")
@@ -388,6 +469,7 @@ def register_local_ai_routes(app) -> None:
                 yield _sse("meta", {"mode": mode, "drawio_output": drawio_out_meta})
             else:
                 yield _sse("meta", {"mode": mode})
+                yield _sse("chat_progress", _chat_progress_payload("preparing", "请求成功，正在准备上下文"))
 
             if mode == "drawio":
                 if not local_ai_engine.get_status(cfg)["loaded"]:
@@ -778,6 +860,38 @@ def register_local_ai_routes(app) -> None:
                 yield _sse("done", {})
                 return
 
+            erp_attach = ""
+            if mode in ("general", "knowledge", "erp") and (
+                mode == "erp"
+                or page_context.get("source") == "erp"
+                or _message_suggests_erp_context(last_user)
+            ):
+                yield _sse("chat_progress", _chat_progress_payload("mcp", "正在读取 ERP 本地数据"))
+                mcp_erp, mcp_meta = _mcp_call_with_meta(
+                    "erp_get_context",
+                    {
+                        "query": last_user,
+                        "active_page": page_context.get("active_page") or "",
+                        "focused_item_id": _safe_int_value(page_context.get("focused_item_id")),
+                        "focused_bom_id": _safe_int_value(page_context.get("focused_bom_id")),
+                        "focused_work_order_id": _safe_int_value(page_context.get("focused_work_order_id")),
+                        "trace_keyword": page_context.get("trace_keyword") or "",
+                        "trace_batch_no": page_context.get("trace_batch_no") or "",
+                    },
+                    timeout_sec=10.0,
+                )
+                yield _sse("mcp_call", mcp_meta)
+                if mcp_erp and mcp_erp.get("ok"):
+                    erp_data = mcp_erp.get("data") or {}
+                    erp_text = str(erp_data.get("text") or "").strip()
+                    if erp_text:
+                        erp_attach = (
+                            "\n\n--- ERP 本地数据快照（通过 MCP 获取）---\n\n"
+                            + erp_text
+                            + "\n\n回答要求：围绕库存、BOM、工单、追踪和单据解释；不要编造未出现在快照中的数值。"
+                        )
+                        yield _sse("chat_progress", _chat_progress_payload("processing", "ERP 数据上下文已就绪"))
+
             # 用户在 UI 中常停留在「通用 / 知识库」却询问项目与任务；仅 mode=todo 时注入会导致模型看不到数据。
             todo_attach = ""
             if (
@@ -785,6 +899,7 @@ def register_local_ai_routes(app) -> None:
                 and mode in ("general", "knowledge")
                 and todo_ai_bridge.message_suggests_todo_context(last_user)
             ):
+                yield _sse("chat_progress", _chat_progress_payload("mcp", "正在读取待办上下文"))
                 todo_text = ""
                 mcp_ctx, mcp_meta = _mcp_call_with_meta(
                     "todo_get_context_preview",
@@ -801,6 +916,7 @@ def register_local_ai_routes(app) -> None:
                     + "\n\n[当前待办快照 — 按问题选层级；仅用于待办相关回答，勿编造]\n"
                     + todo_text
                 )
+                yield _sse("chat_progress", _chat_progress_payload("processing", "待办上下文已就绪"))
 
             # 通用模式下若明显在问「知识库/文档」，也自动挂知识库摘录，避免用户忘记切到知识库模式。
             knowledge_attach = ""
@@ -811,6 +927,7 @@ def register_local_ai_routes(app) -> None:
                     for k in ("知识库", "文档", "根据文档", "根据知识库", "资料里", "README", ".md")
                 )
                 if ask_kb:
+                    yield _sse("chat_progress", _chat_progress_payload("mcp", "正在检索知识库"))
                     ctx = ""
                     hits: List[Dict[str, Any]] = []
                     names: List[str] = []
@@ -826,7 +943,11 @@ def register_local_ai_routes(app) -> None:
                         hits = list(kb_data.get("hits") or [])
                         names = list(kb_data.get("name_suggestions") or [])
                     if not ctx and not hits and not names:
-                        ctx, hits, names = knowledge_store.retrieve_for_query(root_dir, last_user)
+                        ctx, hits, names = knowledge_store.retrieve_for_query(
+                            root_dir,
+                            last_user,
+                            app_config=_app_ai_config(),
+                        )
                     if ctx.strip():
                         knowledge_attach = "\n\n--- 知识库摘录 ---\n\n" + ctx.strip()
                     else:
@@ -835,12 +956,14 @@ def register_local_ai_routes(app) -> None:
                             "(未命中正文；请确认已把目标 .md/.txt 加入知识库，或换更精确关键词。)"
                         )
                     knowledge_meta = {"hits": hits, "name_suggestions": names}
+                    yield _sse("chat_progress", _chat_progress_payload("processing", "知识库上下文已就绪"))
 
             if mode == "todo":
                 intent = todo_ai_bridge._heuristic_intent(last_user)
                 force_mutate = bool(body.get("force_todo_mutate"))
                 if force_mutate or intent == "mutate":
                     if local_ai_engine.get_status(cfg)["loaded"]:
+                        yield _sse("chat_progress", _chat_progress_payload("planning", "正在分析待办变更意图"))
 
                         def gen_fn(msgs, system=None, max_new_tokens=1024):
                             return local_ai_engine.generate_once(
@@ -852,6 +975,7 @@ def register_local_ai_routes(app) -> None:
 
                         pr = todo_ai_bridge.propose_todo_ops_json(tm, last_user, gen_fn)
                         if pr.get("ok") and isinstance(pr.get("ops"), list) and pr.get("ops"):
+                            yield _sse("chat_progress", _chat_progress_payload("mcp", "正在规划待办变更"))
                             mcp_plan, mcp_meta = _mcp_call_with_meta(
                                 "todo_plan_ops",
                                 {
@@ -870,6 +994,7 @@ def register_local_ai_routes(app) -> None:
                             elif mcp_plan and not mcp_plan.get("ok"):
                                 pr.setdefault("warnings", [])
                                 pr["warnings"].append(f"MCP 预览失败，已回退本地预览: {((mcp_plan.get('error') or {}).get('message') or '')}")
+                        yield _sse("chat_progress", _chat_progress_payload("completed", "待确认变更已生成"))
                         yield _sse("todo_patch", pr)
                         yield _sse("done", {})
                         return
@@ -935,6 +1060,7 @@ def register_local_ai_routes(app) -> None:
                     + overview_extra,
                     skills_block,
                 )
+                yield _sse("chat_progress", _chat_progress_payload("generating", "上下文已准备完成，正在生成回答"))
                 for piece in local_ai_engine.stream_generate(cfg, messages, system=system):
                     yield _sse("token", {"t": piece})
                 yield _sse("done", {})
@@ -952,8 +1078,18 @@ def register_local_ai_routes(app) -> None:
                     )
                 else:
                     kb_intro = "你是知识库助手。请仅根据以下摘录回答；若不足以回答，说明缺口并可参考文件名建议。\n\n"
+                if erp_attach:
+                    kb_intro = kb_intro + erp_attach + "\n\n"
                 system = local_ai_skills.merge_primary_then_skills(kb_intro + kb_body, skills_block)
                 yield _sse("knowledge_meta", knowledge_meta or {"hits": [], "name_suggestions": []})
+            elif mode == "erp":
+                erp_base = (
+                    "你是 Yobboy Tiny ERP 系统的本地离线 AI 助手。\n"
+                    "请优先回答库存、BOM、工单、批次追踪、库存单据、预警与业务解释问题。\n"
+                    "必须严格依据后面的 ERP 本地数据快照回答；若快照不足以支持结论，要明确说明。\n"
+                    "输出风格：先给结论，再给原因，再给建议动作；避免编造不存在的单据、工单、数量或批次。"
+                )
+                system = local_ai_skills.merge_primary_then_skills(erp_base + (erp_attach or ""), skills_block)
             elif skills_block:
                 gen_base: Optional[str] = None
                 if todo_attach:
@@ -961,6 +1097,8 @@ def register_local_ai_routes(app) -> None:
                         "你是本服务器助手。待办说明见前文；若用户要**写入**待办，提示其切换到待办模式并勾选「强制解析为变更」。\n\n"
                         + todo_attach
                     )
+                if erp_attach:
+                    gen_base = (gen_base or "你是 Yobboy 本地服务器助手。") + erp_attach
                 if knowledge_attach:
                     gen_base = (gen_base or "你是本服务器助手。") + knowledge_attach
                 system = local_ai_skills.merge_primary_then_skills(gen_base, skills_block)
@@ -969,13 +1107,20 @@ def register_local_ai_routes(app) -> None:
                     "你是本服务器助手。待办字段与查询方式见下文；写入类需求请提示用户：待办模式 + 「强制解析为变更」。\n\n"
                     + todo_attach
                 )
+                if erp_attach:
+                    system = system + erp_attach
                 if knowledge_attach:
                     system = system + knowledge_attach
             elif knowledge_attach:
                 system = "你是本服务器助手。请仅根据以下知识库摘录回答，不要编造。\n" + knowledge_attach
+                if erp_attach:
+                    system = system + erp_attach
                 if knowledge_meta is not None:
                     yield _sse("knowledge_meta", knowledge_meta)
+            elif erp_attach:
+                system = "你是 Yobboy Tiny ERP 系统的本地离线 AI 助手，请根据 MCP 提供的 ERP 快照回答。\n" + erp_attach
 
+            yield _sse("chat_progress", _chat_progress_payload("generating", "上下文已准备完成，正在生成回答"))
             for piece in local_ai_engine.stream_generate(cfg, messages, system=system):
                 yield _sse("token", {"t": piece})
             yield _sse("done", {})
@@ -1300,8 +1445,9 @@ def register_local_ai_routes(app) -> None:
     def knowledge_get():
         if not _auth_ok():
             return jsonify({"success": False, "error": "未登录"}), 401
+        root = current_app.config.get("ROOT_DIR")
         path = request.args.get("path", "")
-        meta = knowledge_store.get_meta(path)
+        meta = knowledge_store.get_meta(path, root_dir=root)
         return jsonify({"success": True, "in_knowledge": meta is not None, "meta": meta})
 
     @app.route("/api/knowledge/list", methods=["GET"])
@@ -1314,6 +1460,100 @@ def register_local_ai_routes(app) -> None:
         items = knowledge_store.list_entries(root)
         return jsonify({"success": True, "items": items})
 
+    @app.route("/api/knowledge/scan", methods=["POST"])
+    def knowledge_scan():
+        if not _auth_ok():
+            return jsonify({"success": False, "error": "未登录"}), 401
+        root = current_app.config.get("ROOT_DIR")
+        if not root:
+            return jsonify({"success": False, "error": "未设置根目录"}), 400
+        body = request.get_json(silent=True) or {}
+        run_async = bool(body.get("async", True))
+        try:
+            if run_async:
+                job = knowledge_store.queue_scan_files(root)
+                return jsonify({"success": True, "queued": True, "job": job})
+            result = knowledge_store.scan_files(root)
+            return jsonify({"success": True, "result": result})
+        except ValueError as e:
+            return jsonify({"success": False, "error": str(e)}), 400
+
+    @app.route("/api/knowledge/settings", methods=["GET"])
+    def knowledge_settings_get():
+        if not _auth_ok():
+            return jsonify({"success": False, "error": "未登录"}), 401
+        return jsonify({"success": True, "settings": knowledge_store.get_scan_settings()})
+
+    @app.route("/api/knowledge/root-folders", methods=["GET"])
+    def knowledge_root_folders():
+        if not _auth_ok():
+            return jsonify({"success": False, "error": "未登录"}), 401
+        root = current_app.config.get("ROOT_DIR")
+        if not root:
+            return jsonify({"success": False, "error": "未设置根目录"}), 400
+        return jsonify({"success": True, "items": knowledge_store.list_scan_root_dirs(root)})
+
+    @app.route("/api/knowledge/settings", methods=["PUT"])
+    def knowledge_settings_put():
+        if not _auth_ok():
+            return jsonify({"success": False, "error": "未登录"}), 401
+        body = request.get_json(silent=True) or {}
+        raw_dirs = body.get("scan_excluded_dirs")
+        if raw_dirs is None:
+            excluded_dirs = []
+        elif isinstance(raw_dirs, list):
+            excluded_dirs = [str(item or "") for item in raw_dirs]
+        elif isinstance(raw_dirs, str):
+            excluded_dirs = raw_dirs.splitlines()
+        else:
+            return jsonify({"success": False, "error": "scan_excluded_dirs 必须为数组或文本"}), 400
+        excluded_dirs = [str(item or "").replace("\\", "/").strip("/").split("/", 1)[0] for item in excluded_dirs]
+        settings = knowledge_store.update_scan_settings(excluded_dirs=excluded_dirs)
+        return jsonify({"success": True, "settings": settings})
+
+    @app.route("/api/knowledge/preview", methods=["GET"])
+    def knowledge_preview():
+        if not _auth_ok():
+            return jsonify({"success": False, "error": "未登录"}), 401
+        root = current_app.config.get("ROOT_DIR")
+        path = str(request.args.get("path") or "").strip()
+        if not root or not path:
+            return jsonify({"success": False, "error": "参数无效"}), 400
+        try:
+            item = knowledge_store.preview_entry(root, path)
+            return jsonify({"success": True, "item": item})
+        except ValueError as e:
+            return jsonify({"success": False, "error": str(e)}), 400
+
+    @app.route("/api/knowledge/bulk-index", methods=["POST"])
+    def knowledge_bulk_index():
+        if not _auth_ok():
+            return jsonify({"success": False, "error": "未登录"}), 401
+        root = current_app.config.get("ROOT_DIR")
+        if not root:
+            return jsonify({"success": False, "error": "未设置根目录"}), 400
+        body = request.get_json(silent=True) or {}
+        paths = body.get("paths") or []
+        if not isinstance(paths, list):
+            return jsonify({"success": False, "error": "paths 必须为数组"}), 400
+        queued = []
+        errors = []
+        for raw_path in paths:
+            path = str(raw_path or "").strip()
+            if not path:
+                continue
+            try:
+                queued.append(knowledge_store.queue_entry(root, path, app_config=_app_ai_config()))
+            except ValueError as e:
+                errors.append({"path": path, "error": str(e)})
+        return jsonify({
+            "success": True,
+            "queued_count": len(queued),
+            "error_count": len(errors),
+            "items": queued,
+            "errors": errors,
+        })
+
     @app.route("/api/knowledge/entry", methods=["POST"])
     def knowledge_set():
         if not _auth_ok():
@@ -1325,8 +1565,12 @@ def register_local_ai_routes(app) -> None:
         path = body.get("path", "")
         tags = body.get("tags")
         note = body.get("note", "")
+        run_async = bool(body.get("async", True))
         try:
-            ent = knowledge_store.set_entry(root, path, tags=tags, note=note or "")
+            if run_async:
+                ent = knowledge_store.queue_entry(root, path, tags=tags, note=note or "", app_config=_app_ai_config())
+                return jsonify({"success": True, "queued": True, "entry": ent, "job": ent.get("latest_job")})
+            ent = knowledge_store.set_entry(root, path, tags=tags, note=note or "", app_config=_app_ai_config())
             return jsonify({"success": True, "entry": ent})
         except ValueError as e:
             return jsonify({"success": False, "error": str(e)}), 400
@@ -1339,5 +1583,126 @@ def register_local_ai_routes(app) -> None:
         path = request.args.get("path", "")
         if not root or not path:
             return jsonify({"success": False, "error": "参数无效"}), 400
-        knowledge_store.remove_entry(root, path)
+        try:
+            knowledge_store.remove_entry(root, path)
+            return jsonify({"success": True})
+        except ValueError as e:
+            return jsonify({"success": False, "error": str(e)}), 400
+
+    @app.route("/api/knowledge/rebuild", methods=["POST"])
+    def knowledge_rebuild():
+        if not _auth_ok():
+            return jsonify({"success": False, "error": "未登录"}), 401
+        root = current_app.config.get("ROOT_DIR")
+        body = request.get_json(silent=True) or {}
+        path = str(body.get("path") or "").strip()
+        run_async = bool(body.get("async", True))
+        if not root or not path:
+            return jsonify({"success": False, "error": "参数无效"}), 400
+        try:
+            if run_async:
+                entry = knowledge_store.queue_rebuild_entry(root, path, app_config=_app_ai_config())
+                return jsonify({"success": True, "queued": True, "entry": entry, "job": entry.get("latest_job")})
+            entry = knowledge_store.rebuild_entry(root, path, app_config=_app_ai_config())
+            return jsonify({"success": True, "entry": entry})
+        except ValueError as e:
+            return jsonify({"success": False, "error": str(e)}), 400
+
+    @app.route("/api/knowledge/jobs", methods=["GET"])
+    def knowledge_jobs():
+        if not _auth_ok():
+            return jsonify({"success": False, "error": "未登录"}), 401
+        root = current_app.config.get("ROOT_DIR")
+        if not root:
+            return jsonify({"success": False, "error": "未设置根目录"}), 400
+        limit = request.args.get("limit", "50")
+        try:
+            limit_value = int(limit)
+        except ValueError:
+            limit_value = 50
+        source_type = (request.args.get("source_type") or "").strip() or None
+        source_key = (request.args.get("source_key") or "").strip() or None
+        items = knowledge_store.list_jobs(root, limit=limit_value, source_type=source_type, source_key=source_key)
+        return jsonify({"success": True, "items": items})
+
+    @app.route("/api/knowledge/job/<job_id>", methods=["GET"])
+    def knowledge_job_detail(job_id: str):
+        if not _auth_ok():
+            return jsonify({"success": False, "error": "未登录"}), 401
+        item = knowledge_store.get_job(job_id)
+        if not item:
+            return jsonify({"success": False, "error": "job 不存在"}), 404
+        return jsonify({"success": True, "item": item})
+
+    @app.route("/api/knowledge/status", methods=["GET"])
+    def knowledge_status():
+        if not _auth_ok():
+            return jsonify({"success": False, "error": "未登录"}), 401
+        root = current_app.config.get("ROOT_DIR")
+        if not root:
+            return jsonify({"success": False, "error": "未设置根目录"}), 400
+        return jsonify({"success": True, "status": knowledge_store.get_index_status(root)})
+
+    @app.route("/api/knowledge/snippets", methods=["GET"])
+    def knowledge_snippet_list():
+        if not _auth_ok():
+            return jsonify({"success": False, "error": "未登录"}), 401
+        root = current_app.config.get("ROOT_DIR")
+        if not root:
+            return jsonify({"success": False, "error": "未设置根目录"}), 400
+        return jsonify({"success": True, "items": knowledge_store.list_snippets(root)})
+
+    @app.route("/api/knowledge/snippet", methods=["POST"])
+    def knowledge_snippet_add():
+        if not _auth_ok():
+            return jsonify({"success": False, "error": "未登录"}), 401
+        root = current_app.config.get("ROOT_DIR")
+        body = request.get_json(silent=True) or {}
+        if not root:
+            return jsonify({"success": False, "error": "未设置根目录"}), 400
+        try:
+            item = knowledge_store.add_snippet(
+                root,
+                str(body.get("text") or ""),
+                title=str(body.get("title") or ""),
+                tags=body.get("tags"),
+                note=str(body.get("note") or ""),
+                app_config=_app_ai_config(),
+            )
+            return jsonify({"success": True, "item": item})
+        except ValueError as e:
+            return jsonify({"success": False, "error": str(e)}), 400
+
+    @app.route("/api/knowledge/snippet", methods=["PUT"])
+    def knowledge_snippet_update():
+        if not _auth_ok():
+            return jsonify({"success": False, "error": "未登录"}), 401
+        root = current_app.config.get("ROOT_DIR")
+        body = request.get_json(silent=True) or {}
+        snippet_id = str(body.get("id") or "").strip()
+        if not root or not snippet_id:
+            return jsonify({"success": False, "error": "参数无效"}), 400
+        try:
+            item = knowledge_store.update_snippet(
+                root,
+                snippet_id,
+                text=str(body.get("text") or ""),
+                title=str(body.get("title") or ""),
+                tags=body.get("tags"),
+                note=str(body.get("note") or ""),
+                app_config=_app_ai_config(),
+            )
+            return jsonify({"success": True, "item": item})
+        except ValueError as e:
+            return jsonify({"success": False, "error": str(e)}), 400
+
+    @app.route("/api/knowledge/snippet", methods=["DELETE"])
+    def knowledge_snippet_delete():
+        if not _auth_ok():
+            return jsonify({"success": False, "error": "未登录"}), 401
+        root = current_app.config.get("ROOT_DIR")
+        snippet_id = str(request.args.get("id") or "").strip()
+        if not root or not snippet_id:
+            return jsonify({"success": False, "error": "参数无效"}), 400
+        knowledge_store.remove_snippet(root, snippet_id)
         return jsonify({"success": True})

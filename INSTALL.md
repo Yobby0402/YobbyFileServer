@@ -40,6 +40,17 @@
 
 ---
 
+
+### 项目结构说明
+
+后端业务代码位于 `yobboy_file_server/`，维护脚本位于 `scripts/`。打包请使用：
+
+```bash
+python scripts/build_exe.py
+```
+
+更多说明见 `docs/PROJECT_STRUCTURE.md`。
+
 ### 🔧 方式二：从源码运行（推荐开发者）
 
 适合需要修改代码或进行二次开发的用户。
@@ -122,14 +133,7 @@
 
 3. **运行打包命令**
    ```bash
-   python -m PyInstaller --onefile --windowed \
-     --add-data "templates;templates" \
-     --add-data "static;static" \
-     --hidden-import=routes \
-     --hidden-import=markdown_it \
-     --hidden-import=mdit_py_plugins \
-     --name="YobboyFileServer" \
-     main.py
+   python scripts/build_exe.py
    ```
 
 4. **查找生成的 exe**
@@ -297,14 +301,7 @@ If you've modified the source code and want to package it as an exe.
 
 3. **Run the Build Command**
    ```bash
-   python -m PyInstaller --onefile --windowed \
-     --add-data "templates;templates" \
-     --add-data "static;static" \
-     --hidden-import=routes \
-     --hidden-import=markdown_it \
-     --hidden-import=mdit_py_plugins \
-     --name="YobboyFileServer" \
-     main.py
+   python scripts/build_exe.py
    ```
 
 4. **Locate the Generated exe**

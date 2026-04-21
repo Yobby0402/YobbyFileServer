@@ -4,7 +4,7 @@
 
 ![Yobboy File Server](文件服务器.png)
 
-**一个功能强大的本地文件浏览和编辑服务器**  
+**一个功能强大的本地文件浏览和编辑服务器**
 **A Powerful Local File Browser and Editor Server**
 
 [![Python](https://img.shields.io/badge/Python-3.13+-blue.svg)](https://www.python.org/)
@@ -16,9 +16,9 @@
 
 </div>
 
-> **🚀 新手？** 查看 [快速开始指南](快速开始.md) 3分钟快速上手！  
-> **当前版本：dev-com · 更新日期 2026-04-08**  
-> **稳定版本：mian · 发布日期 2026-04-02**  
+> **🚀 新手？** 查看 [快速开始指南](快速开始.md) 3分钟快速上手！
+> **当前版本：R1.5 · 更新日期 2026-04-21**
+> **稳定版本：R1.5 · 发布日期 2026-04-21**
 
 ---
 
@@ -50,11 +50,25 @@ Yobboy 文件服务器是一个集成了文件浏览、Markdown 预览、Draw.io
 不需要复杂配置，不需要记住奇怪的命令，双击 exe，点击启动，扫码/输网址，搞定！
 妈妈再也不用担心我不会搭建服务器了 😎
 
+### 🌟 R1.5 版本功能更新 (2026-04-21)
+
+**🏭 本地离线 ERP**
+- **ERP 工作台**：新增本地 Tiny ERP 页面，覆盖物料、BOM、库存、单据、工单、批次追踪与预警等核心流程
+- **BOM 与版本管理**：支持 BOM 创建、复制新版本、默认版本、版本时间线与版本差异对比
+- **库存与批次追踪**：支持入库、出库、调拨、调整等库存单据，按批次追踪来源、去向与库存变化
+- **ERP + AI 辅助**：本地 AI 可通过 MCP 读取 ERP 数据快照，回答库存、BOM、工单、预警与业务解释问题
+
+**🧠 知识库完善**
+- **RAG 知识库落地**：支持 `.md` / `.markdown` / `.txt` 文件预处理、切片、Embedding 入库与基于来源的问答
+- **知识库管理面板**：新增候选文件扫描、文件预览、批量加入、后台任务进度与零散知识录入
+- **扫描文件夹设置**：按分享根目录一级文件夹勾选扫描范围，取消勾选即可排除整个目录树
+- **性能与体验优化**：扫描改为单次遍历、后台进度节流、Markdown 格式预览、空闲时停止知识库 API 轮询
+
 ### 🌟 R1.4-dev 版本功能更新 (2026-04-08)
 
 **🤖 本地 AI + MCP 工具调用**
 - **本地 AI 面板**：新增本地 AI 对话面板，支持通用/知识库/代办三种模式，支持流式输出与手动停止生成
-- **MCP 桥接接入**：后端通过 `local_mcp_bridge.py` 调用 `mcp_server.py`（JSON-RPC over stdio），本地 AI 优先使用 MCP 工具完成待办与知识库操作
+- **MCP 桥接接入**：后端通过 `yobboy_file_server/local_mcp_bridge.py` 调用 `mcp_server.py`（兼容入口，真实实现位于 `yobboy_file_server/mcp_server.py`）（JSON-RPC over stdio），本地 AI 优先使用 MCP 工具完成待办与知识库操作
 - **MCP 调用记录面板**：在 AI 界面和 Draw.io AI 界面中展示每次工具调用结果，便于排查与审计
 
 **📋 ToDo AI 安全执行链路**
@@ -507,17 +521,23 @@ python main.py
 
 #### 打包为 exe
 ```bash
-python -m PyInstaller --onefile --windowed \
-  --add-data "templates;templates" \
-  --add-data "static;static" \
-  --hidden-import=routes \
-  --hidden-import=markdown_it \
-  --hidden-import=mdit_py_plugins \
-  --name="YobboyFileServer" \
-  main.py
+python scripts/build_exe.py
 ```
 
 生成的 exe 文件位于 `dist/YobboyFileServer.exe`
+
+
+### 项目结构
+
+后端业务代码已经收敛到 `yobboy_file_server/` 包内，根目录只保留兼容入口、配置、资源和构建文件。详见 [项目结构说明](docs/PROJECT_STRUCTURE.md)。
+
+常用入口：
+
+```bash
+python main.py
+python scripts/build_exe.py
+python mcp_server.py
+```
 
 ### 📸 截图
 
@@ -568,6 +588,13 @@ This project was born to save your back and your dignity!
 
 No complex configuration needed, no weird commands to memorize. Double-click exe, hit start, scan/type URL, done!
 Mom will never worry about me not knowing how to set up a server again 😎
+
+### 🌟 R1.5 Latest Features (2026-04-21)
+
+- 🏭 **Local Offline ERP**: Adds a local Tiny ERP workspace for items, BOMs, inventory documents, work orders, batch tracing, alerts, and AI-assisted ERP Q&A.
+- 🧠 **Knowledge Base Upgrade**: Adds practical Markdown/TXT RAG indexing, embedding storage, background progress, source-aware answers, loose knowledge snippets, and first-level folder scan filtering.
+- 🤖 **Local AI Improvements**: Improves LM Studio/OpenAI-compatible embedding integration, separates chat and embedding tests, keeps responses streaming, and reduces idle knowledge API polling.
+- 📦 **Packaging Update**: Includes ERP templates, ERP schema files, knowledge-base runtime modules, and user-facing release documents in packaged builds.
 
 ### 🌟 v4.0 Latest Features
 
@@ -812,14 +839,7 @@ python main.py
 
 #### Package as exe
 ```bash
-python -m PyInstaller --onefile --windowed \
-  --add-data "templates;templates" \
-  --add-data "static;static" \
-  --hidden-import=routes \
-  --hidden-import=markdown_it \
-  --hidden-import=mdit_py_plugins \
-  --name="YobboyFileServer" \
-  main.py
+python scripts/build_exe.py
 ```
 
 The generated exe file is located at `dist/YobboyFileServer.exe`

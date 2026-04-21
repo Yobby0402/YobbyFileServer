@@ -95,6 +95,474 @@
 
     var currentStreamAbort = null;
     var isGenerating = false;
+    var sendHandler = null;
+    var currentKbPreviewPath = '';
+    var kbPreviewPollTimer = null;
+    var kbManagerPollTimer = null;
+    var kbLinePollTimer = null;
+    var kbLastFiles = [];
+    var kbRootFolders = [];
+
+    function kbFetchJson(url, options) {
+        return fetch(url, options || {}).then(function (r) {
+            return r.json();
+        });
+    }
+
+    function kbJobRunning(job) {
+        return !!job && ['queued', 'running'].indexOf(job.status) >= 0;
+    }
+    function kbEscapeHtml(value) {
+        return String(value == null ? '' : value)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    function kbFormatSize(bytes) {
+        var n = Number(bytes || 0);
+        if (n >= 1024 * 1024) return (n / 1024 / 1024).toFixed(1) + ' MB';
+        if (n >= 1024) return (n / 1024).toFixed(1) + ' KB';
+        return n + ' B';
+    }
+
+    function renderKbScanSettings(settings) {
+        var dirs = settings && Array.isArray(settings.scan_excluded_dirs) ? settings.scan_excluded_dirs : [];
+        var hint = $('localAiKbExcludedHint');
+        if (hint) {
+            hint.textContent = dirs.length
+                ? '当前已排除一级文件夹 ' + dirs.length + ' 个'
+                : '当前扫描分享根目录下所有一级文件夹。';
+        }
+    }
+
+    function kbHasActiveJobs(status) {
+        var counts = status && status.job_counts ? status.job_counts : {};
+        return Number(counts.running || 0) > 0 || Number(counts.queued || 0) > 0;
+    }
+
+    function kbCountText(item) {
+        var current = Number(item && item.current_count || 0);
+        var total = Number(item && item.total_count || 0);
+        var jobType = String((item && item.job_type) || '');
+        var unit = jobType === 'file_scan' ? '目录' : '项';
+        if (total > 0) return '已处理 ' + current + ' / 共 ' + total + ' ' + unit;
+        if (current > 0) return '已处理 ' + current + ' ' + unit;
+        return '';
+    }
+
+    function renderKbRootFolders(items) {
+        var wrap = $('localAiKbFolderList');
+        if (!wrap) return;
+        kbRootFolders = Array.isArray(items) ? items : [];
+        if (!kbRootFolders.length) {
+            wrap.innerHTML = '<div class="local-ai-kb-empty">分享根目录下没有可设置的一级文件夹。</div>';
+            return;
+        }
+        wrap.innerHTML = kbRootFolders
+            .map(function (item, idx) {
+                var path = String(item.path || item.name || '');
+                var checked = item.excluded ? '' : ' checked';
+                var skipped = item.skipped_by_default ? '<span class="badge bg-secondary">默认跳过</span>' : '';
+                return (
+                    '<label class="local-ai-kb-folder-item">' +
+                    '<span class="local-ai-kb-folder-name">' +
+                    '<input class="form-check-input me-2" type="checkbox" data-kb-folder-idx="' +
+                    idx +
+                    '"' +
+                    checked +
+                    '> ' +
+                    kbEscapeHtml(path) +
+                    '</span>' +
+                    '<span class="local-ai-kb-folder-meta">' +
+                    (item.excluded ? '已排除' : '会扫描') +
+                    skipped +
+                    '</span>' +
+                    '</label>'
+                );
+            })
+            .join('');
+    }
+
+    function loadKbRootFolders() {
+        var wrap = $('localAiKbFolderList');
+        if (wrap) wrap.innerHTML = '<div class="local-ai-kb-empty">正在加载文件夹…</div>';
+        return kbFetchJson('/api/knowledge/root-folders')
+            .then(function (j) {
+                if (!j.success) {
+                    if (wrap) wrap.innerHTML = '<div class="local-ai-kb-empty">' + kbEscapeHtml(j.error || '加载文件夹失败') + '</div>';
+                    return;
+                }
+                renderKbRootFolders(j.items || []);
+            })
+            .catch(function () {
+                if (wrap) wrap.innerHTML = '<div class="local-ai-kb-empty">加载文件夹失败</div>';
+            });
+    }
+
+    function collectExcludedRootFolders() {
+        var wrap = $('localAiKbFolderList');
+        if (!wrap) return [];
+        return Array.prototype.slice.call(wrap.querySelectorAll('input[data-kb-folder-idx]'))
+            .filter(function (input) {
+                return !input.checked;
+            })
+            .map(function (input) {
+                var idx = Number(input.getAttribute('data-kb-folder-idx'));
+                var item = kbRootFolders[idx] || {};
+                return String(item.path || '').trim();
+            })
+            .filter(Boolean);
+    }
+
+    function kbStatusLabel(item) {
+        var job = item && item.latest_job;
+        if (kbJobRunning(job)) return '处理中 ' + Math.round(Number(job.progress || 0) * 100) + '%';
+        if (item && item.excluded) return '已排除';
+        if (item && !item.exists) return '源文件缺失';
+        if (item && item.stale) return '已变更';
+        var status = String((item && item.index_status) || (item && item.scan_status) || 'discovered');
+        if (status.indexOf('indexed') === 0) return '已入库';
+        if (status === 'excluded') return '已排除';
+        if (status === 'missing') return '源文件缺失';
+        if (status === 'failed') return '失败';
+        return '未处理';
+    }
+
+    function kbStatusClass(item) {
+        var job = item && item.latest_job;
+        if (kbJobRunning(job)) return 'bg-primary';
+        if (item && item.excluded) return 'bg-dark';
+        if (item && !item.exists) return 'bg-danger';
+        if (item && item.stale) return 'bg-warning text-dark';
+        var status = String((item && item.index_status) || '');
+        if (status.indexOf('indexed') === 0) return 'bg-success';
+        if (status === 'failed') return 'bg-danger';
+        return 'bg-secondary';
+    }
+
+    function kbNeedsIndex(item) {
+        if (!item || !item.exists || !item.supported || item.excluded) return false;
+        if (kbJobRunning(item.latest_job)) return false;
+        return !item.indexed || !!item.stale;
+    }
+
+
+    function renderKbLineFromStatus(status) {
+        var line = $('localAiKbLine');
+        if (!line) return;
+        if (!status) {
+            line.style.display = 'none';
+            line.textContent = '';
+            return;
+        }
+        var jobCounts = status.job_counts || {};
+        var running = Number(jobCounts.running || 0);
+        var queued = Number(jobCounts.queued || 0);
+        line.style.display = '';
+        line.textContent =
+            '知识库：' +
+            (Number(status.registered_files || 0) || 0) +
+            ' 文件 / ' +
+            (Number(status.snippet_count || 0) || 0) +
+            ' 条零散知识 / 运行中 ' +
+            running +
+            ' / 排队 ' +
+            queued;
+    }
+
+    function refreshKbLine() {
+        return kbFetchJson('/api/knowledge/status')
+            .then(function (j) {
+                if (j && j.success) {
+                    renderKbLineFromStatus(j.status);
+                    scheduleKbLinePoll(j.status);
+                }
+            })
+            .catch(function () {});
+    }
+
+    function scheduleKbLinePoll(status) {
+        if (kbLinePollTimer) {
+            clearTimeout(kbLinePollTimer);
+            kbLinePollTimer = null;
+        }
+        if (!kbHasActiveJobs(status)) return;
+        kbLinePollTimer = setTimeout(refreshKbLine, 2500);
+    }
+
+    function ensureKbPreviewPoll() {
+        if (kbPreviewPollTimer) clearTimeout(kbPreviewPollTimer);
+        if (!currentKbPreviewPath) return;
+        kbPreviewPollTimer = setTimeout(function () {
+            if (!currentKbPreviewPath) return;
+            kbFetchJson('/api/knowledge/entry?path=' + encodeURIComponent(currentKbPreviewPath))
+                .then(function (j) {
+                    if (window.YobboyLocalAI && typeof window.YobboyLocalAI._renderPreviewMeta === 'function') {
+                        window.YobboyLocalAI._renderPreviewMeta(j);
+                    }
+                    var meta = j && j.meta ? j.meta : null;
+                    var job = meta && meta.latest_job ? meta.latest_job : null;
+                    if (kbJobRunning(job)) ensureKbPreviewPoll();
+                })
+                .catch(function () {
+                    ensureKbPreviewPoll();
+                });
+        }, 1800);
+    }
+
+    function renderKbProgress(container, job, fallbackStatus) {
+        if (!container) return;
+        var fill = container.querySelector('.knowledge-preview-progress-fill');
+        var text = container.querySelector('.knowledge-preview-progress-text');
+        if (!fill || !text) return;
+        if (job && kbJobRunning(job)) {
+            var pct = Math.max(0, Math.min(100, Math.round(Number(job.progress || 0) * 100)));
+            var countText = kbCountText(job);
+            fill.style.width = pct + '%';
+            text.textContent = (job.message || job.stage || '处理中') + (countText ? ' · ' + countText : '') + ' · ' + pct + '%';
+            container.style.display = '';
+            return;
+        }
+        if (fallbackStatus && String(fallbackStatus).indexOf('indexed') === 0) {
+            fill.style.width = '100%';
+            text.textContent = '索引已完成';
+            container.style.display = '';
+            return;
+        }
+        fill.style.width = '0%';
+        text.textContent = '';
+        container.style.display = 'none';
+    }
+
+    function renderKbManagerFiles(items) {
+        var wrap = $('localAiKbFileList');
+        if (!wrap) return;
+        kbLastFiles = Array.isArray(items) ? items : [];
+        if (!kbLastFiles.length) {
+            wrap.innerHTML = '<div class="local-ai-kb-empty">暂无候选文件。点击“重新扫描”查找 md/txt 文件。</div>';
+            return;
+        }
+        wrap.innerHTML = kbLastFiles
+            .map(function (item) {
+                var path = String(item.path || '');
+                var encodedPath = encodeURIComponent(path);
+                var actionBtn = '';
+                if (kbNeedsIndex(item)) {
+                    actionBtn =
+                        '<button type="button" class="btn btn-sm btn-primary" data-kb-action="queue">' +
+                        (item.stale ? '重建' : '加入') +
+                        '</button>';
+                }
+                var removeBtn = item.indexed
+                    ? '<button type="button" class="btn btn-sm btn-outline-danger" data-kb-action="remove">移除</button>'
+                    : '';
+                var metaBits = [
+                    kbEscapeHtml((item.ext || '').replace('.', '').toUpperCase() || 'TEXT'),
+                    kbFormatSize(item.size || 0),
+                    '片段 ' + Number(item.chunk_count || 0),
+                ];
+                if (item.excluded) metaBits.push('排除目录');
+                if (item.stale) metaBits.push('需要重建');
+                if (item.latest_job && item.latest_job.message) metaBits.push(kbEscapeHtml(item.latest_job.message));
+                if (item.last_error) metaBits.push(kbEscapeHtml(item.last_error));
+                return (
+                    '<div class="local-ai-kb-item' + (item.excluded ? ' is-excluded' : '') + '" data-path="' + encodedPath + '">' +
+                    '<div class="local-ai-kb-item-head">' +
+                    '<span class="local-ai-kb-item-title">' + kbEscapeHtml(path) + '</span>' +
+                    '<span class="badge ' + kbStatusClass(item) + '">' + kbEscapeHtml(kbStatusLabel(item)) + '</span>' +
+                    '</div>' +
+                    '<div class="local-ai-kb-item-meta"><span>' + metaBits.join('</span><span>') + '</span></div>' +
+                    '<div class="local-ai-kb-item-actions">' +
+                    '<button type="button" class="btn btn-sm btn-outline-secondary" data-kb-action="preview">预览</button>' +
+                    actionBtn +
+                    removeBtn +
+                    '</div>' +
+                    '</div>'
+                );
+            })
+            .join('');
+    }
+
+    function renderKbManagerJobs(items) {
+        var wrap = $('localAiKbJobList');
+        if (!wrap) return;
+        if (!items || !items.length) {
+            wrap.innerHTML = '<div class="local-ai-kb-empty">暂无后台任务</div>';
+            return;
+        }
+        wrap.innerHTML = items
+            .map(function (item) {
+                var pct = Math.max(0, Math.min(100, Math.round(Number(item.progress || 0) * 100)));
+                var countText = kbCountText(item);
+                return (
+                    '<div class="local-ai-kb-item">' +
+                    '<div class="local-ai-kb-item-head">' +
+                    '<span class="local-ai-kb-item-title">' +
+                    (item.source_key || item.job_id || '') +
+                    '</span>' +
+                    '<span class="badge ' +
+                    (kbJobRunning(item) ? 'bg-primary' : item.status === 'completed' ? 'bg-success' : item.status === 'failed' ? 'bg-danger' : 'bg-secondary') +
+                    '">' +
+                    (item.status || 'unknown') +
+                    '</span>' +
+                    '</div>' +
+                    '<div class="local-ai-kb-item-meta">' +
+                    '<span>' +
+                    (item.message || item.stage || '') +
+                    '</span>' +
+                    (countText ? '<span>' + kbEscapeHtml(countText) + '</span>' : '') +
+                    '<span>' +
+                    pct +
+                    '%</span>' +
+                    (item.error_text ? '<span>' + item.error_text + '</span>' : '') +
+                    '</div>' +
+                    '</div>'
+                );
+            })
+            .join('');
+    }
+
+    function renderKbManagerSnippets(items) {
+        var wrap = $('localAiKbSnippetList');
+        if (!wrap) return;
+        if (!items || !items.length) {
+            wrap.innerHTML = '<div class="local-ai-kb-empty">暂无零散知识</div>';
+            return;
+        }
+        wrap.innerHTML = items
+            .map(function (item) {
+                return (
+                    '<div class="local-ai-kb-item" data-snippet-id="' +
+                    encodeURIComponent(item.id || '') +
+                    '">' +
+                    '<div class="local-ai-kb-item-head">' +
+                    '<span class="local-ai-kb-item-title">' +
+                    (item.title || item.id || '') +
+                    '</span>' +
+                    '<span class="badge ' +
+                    (String(item.index_status || '').indexOf('indexed') === 0 ? 'bg-success' : 'bg-secondary') +
+                    '">' +
+                    (item.index_status || 'unknown') +
+                    '</span>' +
+                    '</div>' +
+                    '<div class="local-ai-kb-item-meta"><span>' +
+                    (item.text || '') +
+                    '</span></div>' +
+                    '<div class="local-ai-kb-item-actions">' +
+                    '<button type="button" class="btn btn-sm btn-outline-danger" data-kb-action="remove-snippet">删除</button>' +
+                    '</div>' +
+                    '</div>'
+                );
+            })
+            .join('');
+    }
+
+    function renderKbPreview(path) {
+        var empty = $('localAiKbPreviewEmpty');
+        var meta = $('localAiKbPreviewMeta');
+        var textEl = $('localAiKbPreviewText');
+        if (empty) empty.textContent = '正在加载预览…';
+        if (meta) meta.textContent = '';
+        if (textEl) {
+            textEl.hidden = true;
+            textEl.textContent = '';
+        }
+        return kbFetchJson('/api/knowledge/preview?path=' + encodeURIComponent(path)).then(function (j) {
+            if (!j.success) {
+                if (empty) empty.textContent = j.error || '无法加载预览';
+                return;
+            }
+            var item = j.item || {};
+            if (empty) empty.textContent = '';
+            if (meta) {
+                meta.textContent = (item.path || path) + ' · ' + kbFormatSize(item.size || 0) + (item.truncated ? ' · 已截断预览' : '');
+            }
+            if (textEl) {
+                textEl.hidden = false;
+                renderAssistantMarkdown(textEl, item.text || '');
+            }
+        }).catch(function () {
+            if (empty) empty.textContent = '预览请求失败';
+        });
+    }
+
+    function queueKbFiles(paths) {
+        if (!paths || !paths.length) {
+            alert('没有需要加入或重建的文件');
+            return Promise.resolve();
+        }
+        return kbFetchJson('/api/knowledge/bulk-index', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ paths: paths }),
+        }).then(function (j) {
+            if (!j.success) {
+                alert(j.error || '加入知识库失败');
+                return;
+            }
+            if (j.error_count) {
+                alert('已提交 ' + j.queued_count + ' 个任务，失败 ' + j.error_count + ' 个');
+            }
+            refreshKbManager();
+        });
+    }
+
+    function refreshKbManager() {
+        return Promise.all([
+            kbFetchJson('/api/knowledge/status'),
+            kbFetchJson('/api/knowledge/list'),
+            kbFetchJson('/api/knowledge/jobs?limit=30'),
+            kbFetchJson('/api/knowledge/snippets'),
+        ])
+            .then(function (all) {
+                var status = all[0] && all[0].success ? all[0].status : null;
+                var files = all[1] && all[1].success ? all[1].items || [] : [];
+                var jobs = all[2] && all[2].success ? all[2].items || [] : [];
+                var snippets = all[3] && all[3].success ? all[3].items || [] : [];
+                var summary = $('localAiKbManagerSummary');
+                if (summary) {
+                    var indexedCount = files.filter(function (item) { return !!item.indexed; }).length;
+                    var pendingCount = files.filter(kbNeedsIndex).length;
+                    var excludedCount = status
+                        ? Number(status.excluded_files || 0)
+                        : files.filter(function (item) { return !!item.excluded; }).length;
+                    summary.textContent = status
+                        ? '候选文件 ' +
+                          files.length +
+                          ' / 已入库 ' +
+                          indexedCount +
+                          ' / 待处理 ' +
+                          pendingCount +
+                          ' / 已排除 ' +
+                          excludedCount +
+                          ' / 片段 ' +
+                          Number(status.total_chunks || 0) +
+                          ' / 零散知识 ' +
+                          Number(status.snippet_count || 0)
+                        : '知识库概况加载失败';
+                }
+                renderKbScanSettings(status && status.scan_settings ? status.scan_settings : null);
+                renderKbManagerFiles(files);
+                renderKbManagerJobs(jobs);
+                renderKbManagerSnippets(snippets);
+                renderKbLineFromStatus(status);
+                scheduleKbManagerPoll(status);
+            })
+            .catch(function () {});
+    }
+
+    function scheduleKbManagerPoll(status) {
+        if (kbManagerPollTimer) {
+            clearTimeout(kbManagerPollTimer);
+            kbManagerPollTimer = null;
+        }
+        var modal = $('localAiKbManagerModal');
+        if (!modal || !modal.classList.contains('show') || !kbHasActiveJobs(status)) return;
+        kbManagerPollTimer = setTimeout(refreshKbManager, 2500);
+    }
 
     function setGeneratingState(on) {
         isGenerating = !!on;
@@ -176,7 +644,7 @@
     }
 
     function setLocalAiMode(mode) {
-        if (['general', 'knowledge', 'todo'].indexOf(mode) < 0) mode = 'general';
+        if (['general', 'knowledge', 'todo', 'erp'].indexOf(mode) < 0) mode = 'general';
         var seg = $('localAiModeSeg');
         if (!seg) return;
         var btns = seg.querySelectorAll('.local-ai-mode-btn');
@@ -293,6 +761,71 @@
         return d;
     }
 
+    function localAiPhaseLabel(phase) {
+        var map = {
+            idle: '空闲',
+            requesting: '请求中',
+            request_ok: '请求成功',
+            preparing: '处理中',
+            processing: '处理中',
+            mcp: '工具处理中',
+            generating: '生成回答中',
+            planning: '规划处理中',
+            completed: '处理完成',
+            error: '请求失败',
+            stopped: '已停止',
+        };
+        return map[String(phase || '')] || String(phase || '') || '处理中';
+    }
+
+    function setRunStatus(text) {
+        var el = $('localAiRunStatusLine');
+        if (el) el.textContent = text || '对话状态：空闲';
+    }
+
+    function appendAssistantLoadingBubble() {
+        var box = $('localAiMessages');
+        if (!box) return null;
+        var wrap = document.createElement('div');
+        wrap.className = 'local-ai-msg assistant';
+        var loadingBox = document.createElement('div');
+        loadingBox.className = 'local-ai-loading';
+        loadingBox.innerHTML =
+            '<div class="local-ai-loading-spinner" role="status" aria-label="加载中"></div>' +
+            '<div class="local-ai-loading-title">正在发起请求…</div>' +
+            '<div class="drawio-ai-progress-track" aria-hidden="true"><div class="drawio-ai-progress-ind"></div></div>' +
+            '<div class="local-ai-loading-meta">已用 0.0 秒 · 已接收 0 字符 · 阶段: 请求中</div>';
+        wrap.appendChild(loadingBox);
+        box.appendChild(wrap);
+        box.scrollTop = box.scrollHeight;
+        return {
+            wrap: wrap,
+            titleEl: loadingBox.querySelector('.local-ai-loading-title'),
+            metaEl: loadingBox.querySelector('.local-ai-loading-meta'),
+        };
+    }
+
+    function replaceLoadingBubbleWithMarkdown(wrap, rawText) {
+        if (!wrap) return null;
+        wrap.innerHTML = '';
+        var inner = document.createElement('div');
+        inner.className = 'local-ai-md markdown-body';
+        wrap.appendChild(inner);
+        renderAssistantMarkdown(inner, rawText);
+        return inner;
+    }
+
+    function replaceLoadingBubbleWithPlainText(wrap, rawText) {
+        if (!wrap) return null;
+        wrap.innerHTML = '';
+        var inner = document.createElement('div');
+        inner.className = 'local-ai-md markdown-body';
+        inner.style.whiteSpace = 'pre-wrap';
+        wrap.appendChild(inner);
+        setAssistantPlain(inner, rawText);
+        return inner;
+    }
+
     function renderHistory(messages) {
         var box = $('localAiMessages');
         if (!box) return;
@@ -325,28 +858,119 @@
         }
     }
 
+    function resolvePageContext() {
+        try {
+            if (typeof window.YobboyLocalAIContextProvider === 'function') {
+                var ctx = window.YobboyLocalAIContextProvider();
+                if (ctx && typeof ctx === 'object') return ctx;
+            }
+        } catch (e) {}
+        return null;
+    }
+
+    function openPanelWithOptions(options) {
+        options = options || {};
+        if (options.mode) setLocalAiMode(options.mode);
+        togglePanel(true);
+        var input = $('localAiInput');
+        if (input && typeof options.message === 'string') {
+            input.value = options.message;
+        }
+        if (input && options.focus !== false) {
+            setTimeout(function () {
+                input.focus();
+            }, 0);
+        }
+        if (options.send && sendHandler) {
+            setTimeout(function () {
+                sendHandler();
+            }, 0);
+        }
+    }
+
     async function sendStream(messages, mode, forceMutate) {
-        var assistantEl = appendMsg('assistant', '');
+        var loadingRefs = appendAssistantLoadingBubble();
+        var assistantEl = loadingRefs ? loadingRefs.wrap : appendMsg('assistant', '');
         var inner = assistantMarkdownRoot(assistantEl);
         var full = '';
+        var progressChars = 0;
+        var progressPhase = 'requesting';
+        var progressMessage = '正在发起请求…';
+        var requestStart = performance.now();
+        var loadingRemoved = false;
         var ctl = new AbortController();
         currentStreamAbort = ctl;
         setGeneratingState(true);
+        setRunStatus('对话状态：请求中');
+
+        var tick = window.setInterval(function () {
+            if (!loadingRefs || loadingRemoved || !loadingRefs.metaEl) return;
+            var sec = ((performance.now() - requestStart) / 1000).toFixed(1);
+            if (loadingRefs.titleEl) {
+                loadingRefs.titleEl.textContent = progressMessage || '正在' + localAiPhaseLabel(progressPhase) + '…';
+            }
+            loadingRefs.metaEl.textContent =
+                '已用 ' +
+                sec +
+                ' 秒 · 已接收 ' +
+                Math.max(progressChars, full.length) +
+                ' 字符 · 阶段: ' +
+                localAiPhaseLabel(progressPhase);
+        }, 200);
+
+        function setPhase(phase, message) {
+            progressPhase = String(phase || progressPhase || 'processing');
+            progressMessage = String(message || progressMessage || '');
+            setRunStatus('对话状态：' + localAiPhaseLabel(progressPhase) + (progressMessage ? ' · ' + progressMessage : ''));
+        }
+
+        function removeLoadingBubble() {
+            if (loadingRemoved) return;
+            loadingRemoved = true;
+            window.clearInterval(tick);
+            if (assistantEl && assistantEl.parentNode) assistantEl.parentNode.removeChild(assistantEl);
+        }
+
+        function renderStreamingAssistantBubble(rawText) {
+            if (!assistantEl || !assistantEl.parentNode) return;
+            if (!loadingRemoved) {
+                loadingRemoved = true;
+                window.clearInterval(tick);
+                inner = replaceLoadingBubbleWithPlainText(assistantEl, rawText || '');
+            } else if (inner) {
+                setAssistantPlain(inner, rawText || '');
+            }
+            var box = $('localAiMessages');
+            if (box) box.scrollTop = box.scrollHeight;
+        }
+
+        function finalizeAssistantBubble(rawText) {
+            if (!assistantEl || !assistantEl.parentNode) return;
+            window.clearInterval(tick);
+            inner = replaceLoadingBubbleWithMarkdown(assistantEl, rawText || '');
+            loadingRemoved = true;
+        }
+
         try {
+            var payload = {
+                messages: messages,
+                mode: mode,
+                force_todo_mutate: !!forceMutate,
+            };
+            var pageContext = resolvePageContext();
+            if (pageContext) payload.page_context = pageContext;
             var res = await fetch('/api/local-ai/chat/stream', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 signal: ctl.signal,
-                body: JSON.stringify({
-                    messages: messages,
-                    mode: mode,
-                    force_todo_mutate: !!forceMutate,
-                }),
+                body: JSON.stringify(payload),
             });
             if (!res.ok) {
-                setAssistantPlain(inner, '请求失败: HTTP ' + res.status);
+                setPhase('error', '请求失败 HTTP ' + res.status);
+                finalizeAssistantBubble('请求失败: HTTP ' + res.status);
                 return full;
             }
+            setPhase('request_ok', '请求成功，等待服务端处理');
             var reader = res.body.getReader();
             var dec = new TextDecoder();
             var carry = '';
@@ -360,17 +984,29 @@
                     var e = parsed.events[i];
                     if (e.event === 'token' && e.data && e.data.t) {
                         full += e.data.t;
-                        setAssistantPlain(inner, full);
+                        progressChars = Math.max(progressChars, full.length);
+                        renderStreamingAssistantBubble(full);
+                        setPhase('generating', '正在生成回答…');
+                    } else if (e.event === 'meta' && e.data) {
+                        setPhase('preparing', '请求成功，正在准备上下文');
+                    } else if (e.event === 'chat_progress' && e.data) {
+                        progressChars = Math.max(progressChars, Number(e.data.received_chars || 0), full.length);
+                        setPhase(e.data.phase || 'processing', e.data.message || '');
                     } else if (e.event === 'todo_patch') {
                         if (!full.trim() && assistantEl && assistantEl.parentNode) {
-                            assistantEl.parentNode.removeChild(assistantEl);
+                            removeLoadingBubble();
                         }
+                        setPhase('planning', '已生成待确认变更');
                         handleTodoPatch(e.data);
                     } else if (e.event === 'mcp_call' && e.data) {
+                        setPhase('mcp', '正在调用工具：' + String(e.data.tool || 'MCP'));
                         addMcpLog(e.data);
+                    } else if (e.event === 'done') {
+                        setPhase('completed', '回答生成完成');
                     } else if (e.event === 'error' && e.data) {
                         full += '\n[错误] ' + (e.data.message || JSON.stringify(e.data));
-                        setAssistantPlain(inner, full);
+                        progressChars = Math.max(progressChars, full.length);
+                        setPhase('error', e.data.message || '处理失败');
                     }
                 }
                 var box = $('localAiMessages');
@@ -379,16 +1015,23 @@
         } catch (err) {
             if (!(err && err.name === 'AbortError')) {
                 full += '\n[错误] ' + ((err && err.message) || String(err));
-                setAssistantPlain(inner, full);
+                progressChars = Math.max(progressChars, full.length);
+                setPhase('error', (err && err.message) || String(err));
             } else if (!full.trim()) {
                 full = '已停止生成。';
-                setAssistantPlain(inner, full);
+                setPhase('stopped', '已停止生成');
             }
         } finally {
             currentStreamAbort = null;
             setGeneratingState(false);
+            window.clearInterval(tick);
         }
-        renderAssistantMarkdown(inner, full);
+        if (!loadingRemoved && !String(full || '').trim()) {
+            full = '（本次请求未返回可展示文本）';
+        }
+        if (assistantEl && assistantEl.parentNode) {
+            finalizeAssistantBubble(full);
+        }
         return full;
     }
 
@@ -1058,6 +1701,7 @@
     }
 
     document.addEventListener('DOMContentLoaded', function () {
+        setRunStatus('对话状态：空闲');
         if (typeof marked !== 'undefined' && marked.setOptions) {
             marked.setOptions({ gfm: true, breaks: true });
         }
@@ -1112,7 +1756,7 @@
         }
         try {
             var sm = localStorage.getItem(MODE_KEY);
-            if (sm && ['general', 'knowledge', 'todo'].indexOf(sm) >= 0) setLocalAiMode(sm);
+            if (sm && ['general', 'knowledge', 'todo', 'erp'].indexOf(sm) >= 0) setLocalAiMode(sm);
             else onModeChange();
         } catch (e) {
             onModeChange();
@@ -1122,6 +1766,181 @@
             localStorage.removeItem(STORAGE_KEY);
             $('localAiMessages').innerHTML = '';
         });
+        var kbManageBtn = $('localAiKbManageBtn');
+        var kbModalEl = $('localAiKbManagerModal');
+        var kbModal = kbModalEl && typeof bootstrap !== 'undefined' ? new bootstrap.Modal(kbModalEl) : null;
+        if (kbManageBtn && kbModal) {
+            kbManageBtn.addEventListener('click', function () {
+                kbModal.show();
+                refreshKbManager();
+            });
+        }
+        if (kbModalEl) {
+            kbModalEl.addEventListener('hidden.bs.modal', function () {
+                if (kbManagerPollTimer) {
+                    clearTimeout(kbManagerPollTimer);
+                    kbManagerPollTimer = null;
+                }
+            });
+        }
+        var kbRefreshBtn = $('localAiKbRefreshBtn');
+        if (kbRefreshBtn) {
+            kbRefreshBtn.addEventListener('click', refreshKbManager);
+        }
+        var kbFolderSettingsModalEl = $('localAiKbFolderSettingsModal');
+        var kbFolderSettingsModal =
+            kbFolderSettingsModalEl && typeof bootstrap !== 'undefined' ? new bootstrap.Modal(kbFolderSettingsModalEl) : null;
+        var kbOpenFolderSettingsBtn = $('localAiKbOpenFolderSettingsBtn');
+        if (kbOpenFolderSettingsBtn && kbFolderSettingsModal) {
+            kbOpenFolderSettingsBtn.addEventListener('click', function () {
+                kbFolderSettingsModal.show();
+                loadKbRootFolders();
+            });
+        }
+        var kbSaveFolderSettingsBtn = $('localAiKbSaveFolderSettingsBtn');
+        if (kbSaveFolderSettingsBtn) {
+            kbSaveFolderSettingsBtn.addEventListener('click', function () {
+                var dirs = collectExcludedRootFolders();
+                kbSaveFolderSettingsBtn.disabled = true;
+                kbFetchJson('/api/knowledge/settings', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ scan_excluded_dirs: dirs }),
+                })
+                    .then(function (j) {
+                        if (!j.success) {
+                            alert(j.error || '保存扫描设置失败');
+                            return null;
+                        }
+                        renderKbScanSettings(j.settings || {});
+                        if (kbFolderSettingsModal) kbFolderSettingsModal.hide();
+                        return kbFetchJson('/api/knowledge/scan', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ async: true }),
+                        });
+                    })
+                    .then(function (scanResult) {
+                        if (scanResult && !scanResult.success) {
+                            alert(scanResult.error || '重新扫描启动失败');
+                        }
+                        refreshKbManager();
+                    })
+                    .finally(function () {
+                        kbSaveFolderSettingsBtn.disabled = false;
+                    });
+            });
+        }
+        var kbFolderList = $('localAiKbFolderList');
+        if (kbFolderList) {
+            kbFolderList.addEventListener('change', function (ev) {
+                var input = ev.target.closest('input[data-kb-folder-idx]');
+                if (!input) return;
+                var item = kbRootFolders[Number(input.getAttribute('data-kb-folder-idx'))] || {};
+                item.excluded = !input.checked;
+                item.included = !!input.checked;
+                renderKbRootFolders(kbRootFolders);
+            });
+        }
+        var kbScanBtn = $('localAiKbScanBtn');
+        if (kbScanBtn) {
+            kbScanBtn.addEventListener('click', function () {
+                kbScanBtn.disabled = true;
+                kbFetchJson('/api/knowledge/scan', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ async: true }),
+                })
+                    .then(function (j) {
+                        if (!j.success) alert(j.error || '扫描启动失败');
+                        refreshKbManager();
+                    })
+                    .finally(function () {
+                        setTimeout(function () {
+                            kbScanBtn.disabled = false;
+                        }, 800);
+                    });
+            });
+        }
+        var kbQueueAllBtn = $('localAiKbQueueAllBtn');
+        if (kbQueueAllBtn) {
+            kbQueueAllBtn.addEventListener('click', function () {
+                var paths = (kbLastFiles || []).filter(kbNeedsIndex).map(function (item) { return item.path; });
+                queueKbFiles(paths);
+            });
+        }
+        var kbSnippetAddBtn = $('localAiKbSnippetAddBtn');
+        if (kbSnippetAddBtn) {
+            kbSnippetAddBtn.addEventListener('click', function () {
+                var title = $('localAiKbSnippetTitle');
+                var text = $('localAiKbSnippetText');
+                var payload = {
+                    title: title ? title.value.trim() : '',
+                    text: text ? text.value.trim() : '',
+                };
+                if (!payload.text) {
+                    alert('请输入零散知识内容');
+                    return;
+                }
+                kbFetchJson('/api/knowledge/snippet', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                }).then(function (j) {
+                    if (!j.success) {
+                        alert(j.error || '添加失败');
+                        return;
+                    }
+                    if (title) title.value = '';
+                    if (text) text.value = '';
+                    refreshKbManager();
+                });
+            });
+        }
+        var kbFileList = $('localAiKbFileList');
+        if (kbFileList) {
+            kbFileList.addEventListener('click', function (ev) {
+                var btn = ev.target.closest('[data-kb-action]');
+                var item = ev.target.closest('[data-path]');
+                if (!btn || !item) return;
+                var path = decodeURIComponent(item.getAttribute('data-path') || '');
+                if (!path) return;
+                var action = btn.getAttribute('data-kb-action');
+                if (action === 'preview') {
+                    currentKbPreviewPath = path;
+                    renderKbPreview(path);
+                    return;
+                }
+                if (action === 'queue') {
+                    queueKbFiles([path]).then(function () {
+                        if (path === currentKbPreviewPath) renderKbPreview(path);
+                    });
+                    return;
+                }
+                if (action === 'remove') {
+                    if (!confirm('确定移除该知识库文件吗？')) return;
+                    kbFetchJson('/api/knowledge/entry?path=' + encodeURIComponent(path), { method: 'DELETE' }).then(function () {
+                        refreshKbManager();
+                        if (path === currentKbPreviewPath) renderKbPreview(path);
+                    });
+                }
+            });
+        }
+        var kbSnippetList = $('localAiKbSnippetList');
+        if (kbSnippetList) {
+            kbSnippetList.addEventListener('click', function (ev) {
+                var btn = ev.target.closest('[data-kb-action]');
+                var item = ev.target.closest('[data-snippet-id]');
+                if (!btn || !item) return;
+                if (btn.getAttribute('data-kb-action') !== 'remove-snippet') return;
+                var snippetId = decodeURIComponent(item.getAttribute('data-snippet-id') || '');
+                if (!snippetId) return;
+                if (!confirm('确定删除这条零散知识吗？')) return;
+                kbFetchJson('/api/knowledge/snippet?id=' + encodeURIComponent(snippetId), { method: 'DELETE' }).then(function () {
+                    refreshKbManager();
+                });
+            });
+        }
         $('localAiPendingPatchBtn').addEventListener('click', openPendingPatchModal);
         $('localAiPatchAddOpBtn').addEventListener('click', function () {
             if (!Array.isArray(pendingPatchOps)) pendingPatchOps = [];
@@ -1175,6 +1994,7 @@
             }
             refreshStatus();
         }
+        sendHandler = doSend;
 
         $('localAiSendBtn').addEventListener('click', doSend);
         $('localAiInput').addEventListener('keydown', function (e) {
@@ -1189,12 +2009,71 @@
                 refreshStatus();
             }
         }, 4000);
+        refreshKbLine();
     });
 
     window.YobboyLocalAI = {
+        open: openPanelWithOptions,
+        close: function () {
+            togglePanel(false);
+        },
+        setMode: setLocalAiMode,
+        setInput: function (text) {
+            var input = $('localAiInput');
+            if (input) input.value = text == null ? '' : String(text);
+        },
+        send: function () {
+            if (sendHandler) return sendHandler();
+        },
+        _renderPreviewMeta: function (j) {
+            var st = $('kbStatus');
+            var addBtn = $('kbAddBtn');
+            var rebuildBtn = $('kbRebuildBtn');
+            var removeBtn = $('kbRemoveBtn');
+            var progress = $('kbProgress');
+            var meta = j && j.meta ? j.meta : null;
+            var job = meta && meta.latest_job ? meta.latest_job : null;
+            var indexed = !!(j && j.in_knowledge);
+            if (st) {
+                if (indexed) {
+                    if (kbJobRunning(job)) {
+                        st.textContent = '处理中';
+                        st.className = 'badge bg-primary badge-kb';
+                    } else if (meta && String(meta.index_status || '').indexOf('indexed') === 0) {
+                        st.textContent = '已纳入';
+                        st.className = 'badge bg-success badge-kb';
+                    } else {
+                        st.textContent = '已登记';
+                        st.className = 'badge bg-secondary badge-kb';
+                    }
+                } else {
+                    st.textContent = '未纳入';
+                    st.className = 'badge bg-secondary badge-kb';
+                }
+            }
+            if (addBtn) addBtn.style.display = indexed ? 'none' : '';
+            if (rebuildBtn) rebuildBtn.style.display = indexed ? '' : 'none';
+            if (removeBtn) removeBtn.disabled = kbJobRunning(job);
+            if (rebuildBtn) rebuildBtn.disabled = kbJobRunning(job);
+            renderKbProgress(progress, job, meta && meta.index_status);
+        },
+        _syncPreviewKb: function () {
+            if (!currentKbPreviewPath) return;
+            kbFetchJson('/api/knowledge/entry?path=' + encodeURIComponent(currentKbPreviewPath))
+                .then(function (j) {
+                    if (window.YobboyLocalAI && window.YobboyLocalAI._renderPreviewMeta) {
+                        window.YobboyLocalAI._renderPreviewMeta(j);
+                    }
+                    var meta = j && j.meta ? j.meta : null;
+                    var job = meta && meta.latest_job ? meta.latest_job : null;
+                    if (kbJobRunning(job)) ensureKbPreviewPoll();
+                })
+                .catch(function () {});
+        },
         onPreviewMdTxt: function (filepath, filename) {
             var ext = (filename.split('.').pop() || '').toLowerCase();
             if (!['md', 'markdown', 'txt'].includes(ext)) return;
+            currentKbPreviewPath = filepath;
 
             var titleRow = document.getElementById('previewTitle');
             if (!titleRow) return;
@@ -1207,50 +2086,58 @@
             wrap.style.display = 'block';
             wrap.innerHTML =
                 '<div class="knowledge-preview-bar" id="knowledgePreviewBarInner">' +
-                '<span>知识库</span><span id="kbStatus" class="badge bg-secondary knowledge-preview-bar">…</span>' +
+                '<span>知识库</span><span id="kbStatus" class="badge bg-secondary badge-kb">…</span>' +
+                '<div class="knowledge-preview-progress" id="kbProgress" style="display:none;">' +
+                '<div class="knowledge-preview-progress-track"><div class="knowledge-preview-progress-fill"></div></div>' +
+                '<span class="knowledge-preview-progress-text"></span>' +
+                '</div>' +
                 '<button type="button" class="btn btn-sm btn-primary" id="kbAddBtn">加入知识库</button>' +
+                '<button type="button" class="btn btn-sm btn-outline-primary" id="kbRebuildBtn" style="display:none;">重建索引</button>' +
+                '<button type="button" class="btn btn-sm btn-outline-secondary" id="kbManageBtn">管理</button>' +
                 '<button type="button" class="btn btn-sm btn-outline-danger" id="kbRemoveBtn">移除</button>' +
                 '</div>';
 
             function syncKb() {
-                fetch('/api/knowledge/entry?path=' + encodeURIComponent(filepath))
-                    .then(function (r) {
-                        return r.json();
-                    })
+                kbFetchJson('/api/knowledge/entry?path=' + encodeURIComponent(filepath))
                     .then(function (j) {
-                        var st = $('kbStatus');
-                        if (!st) return;
-                        if (j.in_knowledge) {
-                            st.textContent = '已纳入';
-                            st.className = 'badge bg-success badge-kb';
-                        } else {
-                            st.textContent = '未纳入';
-                            st.className = 'badge bg-secondary badge-kb';
+                        if (window.YobboyLocalAI && window.YobboyLocalAI._renderPreviewMeta) {
+                            window.YobboyLocalAI._renderPreviewMeta(j);
                         }
+                        var meta = j && j.meta ? j.meta : null;
+                        var job = meta && meta.latest_job ? meta.latest_job : null;
+                        if (kbJobRunning(job)) ensureKbPreviewPoll();
                     });
             }
 
             syncKb();
 
             $('kbAddBtn').onclick = function () {
-                fetch('/api/knowledge/entry', {
+                kbFetchJson('/api/knowledge/entry', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ path: filepath, tags: ['default'], note: '' }),
+                    body: JSON.stringify({ path: filepath, tags: ['default'], note: '', async: true }),
                 })
-                    .then(function (r) {
-                        return r.json();
-                    })
                     .then(function (j) {
-                        alert(j.success ? '已加入知识库' : j.error || '失败');
+                        alert(j.success ? '已加入后台队列，可随时查看进度' : j.error || '失败');
                         syncKb();
                     });
             };
+            $('kbRebuildBtn').onclick = function () {
+                kbFetchJson('/api/knowledge/rebuild', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ path: filepath, async: true }),
+                }).then(function (j) {
+                    alert(j.success ? '已加入后台重建队列' : j.error || '失败');
+                    syncKb();
+                });
+            };
+            $('kbManageBtn').onclick = function () {
+                var btn = $('localAiKbManageBtn');
+                if (btn) btn.click();
+            };
             $('kbRemoveBtn').onclick = function () {
-                fetch('/api/knowledge/entry?path=' + encodeURIComponent(filepath), { method: 'DELETE' })
-                    .then(function (r) {
-                        return r.json();
-                    })
+                kbFetchJson('/api/knowledge/entry?path=' + encodeURIComponent(filepath), { method: 'DELETE' })
                     .then(function (j) {
                         alert(j.success ? '已移除' : j.error || '失败');
                         syncKb();
@@ -1260,6 +2147,15 @@
         hideKnowledgeBar: function () {
             var w = document.getElementById('knowledgePreviewBarWrap');
             if (w) w.style.display = 'none';
+            currentKbPreviewPath = '';
+            if (kbPreviewPollTimer) {
+                clearTimeout(kbPreviewPollTimer);
+                kbPreviewPollTimer = null;
+            }
         },
     };
+
+    window.addEventListener('yobboy:local-ai-open', function (event) {
+        openPanelWithOptions((event && event.detail) || {});
+    });
 })();
