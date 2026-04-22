@@ -6,15 +6,13 @@ import sqlite3
 import threading
 from typing import Any, Dict, Iterable, List, Optional
 
-from .paths import project_base_dir
+from .local_ai_paths import knowledge_storage_path
 
 _db_lock = threading.RLock()
 
 
 def db_path() -> str:
-    data_dir = os.path.join(project_base_dir(), "data", "local_ai")
-    os.makedirs(data_dir, exist_ok=True)
-    return os.path.join(data_dir, "knowledge_index.sqlite3")
+    return knowledge_storage_path("knowledge_index.sqlite3")
 
 
 def _connect() -> sqlite3.Connection:
@@ -525,6 +523,41 @@ def latest_job_for_source(root_dir: str, source_type: str, source_key: str) -> O
                 (root_dir, source_type, source_key),
             ).fetchone()
             return _row_to_dict(row)
+        finally:
+            conn.close()
+
+
+def latest_jobs_for_sources(root_dir: str, source_type: str, source_keys: List[str]) -> Dict[str, Dict[str, Any]]:
+    ensure_schema()
+    keys = [str(item or "").strip() for item in source_keys if str(item or "").strip()]
+    if not keys:
+        return {}
+    placeholders = ",".join("?" for _ in keys)
+    query = f"""
+        SELECT j.*
+        FROM kb_jobs j
+        JOIN (
+            SELECT source_key, MAX(id) AS max_id
+            FROM kb_jobs
+            WHERE root_dir = ? AND source_type = ? AND source_key IN ({placeholders})
+            GROUP BY source_key
+        ) latest
+            ON latest.source_key = j.source_key
+           AND latest.max_id = j.id
+        WHERE j.root_dir = ? AND j.source_type = ?
+    """
+    params: List[Any] = [root_dir, source_type, *keys, root_dir, source_type]
+    with _db_lock:
+        conn = _connect()
+        try:
+            rows = conn.execute(query, params).fetchall()
+            out: Dict[str, Dict[str, Any]] = {}
+            for row in rows:
+                item = _row_to_dict(row) or {}
+                source_key = str(item.get("source_key") or "").strip()
+                if source_key:
+                    out[source_key] = item
+            return out
         finally:
             conn.close()
 

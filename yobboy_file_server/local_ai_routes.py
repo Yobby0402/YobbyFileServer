@@ -23,6 +23,7 @@ from . import local_ai_skills
 from . import todo_kb_store
 from . import product_compare_kb_store
 from . import todo_ai_bridge
+from .local_ai_paths import default_knowledge_storage_dir
 
 # Draw.io 模式：不拼接通用 Skill；可选 drawio-ai-local.{md,txt}（节选思路参考 next-ai-draw-io，Apache-2.0）。
 DRAWIO_SYSTEM = """你是 draw.io（diagrams.net）图表生成助手。
@@ -289,6 +290,11 @@ def _persist_local_ai_ini(app) -> None:
     cfg.set("local_ai", "embed_batch_size", str(int(app.config.get("LOCAL_AI_EMBED_BATCH_SIZE", 16) or 16)))
     cfg.set("local_ai", "gguf_path", str(app.config.get("LOCAL_AI_GGUF_PATH", "") or ""))
     cfg.set("local_ai", "skills_dir", _rel_for_ini(str(app.config.get("LOCAL_AI_SKILLS_DIR", "") or "")))
+    cfg.set(
+        "local_ai",
+        "knowledge_storage_dir",
+        _rel_for_ini(str(app.config.get("LOCAL_AI_KB_STORAGE_DIR", "") or "")),
+    )
     cfg.set("local_ai", "models_dir", _rel_for_ini(str(app.config.get("LOCAL_AI_MODELS_DIR", "") or "")))
     cfg.set("local_ai", "hf_home", _rel_for_ini(str(app.config.get("LOCAL_AI_HF_HOME", "") or "")))
     cfg.set("local_ai", "append_skills", str(bool(app.config.get("LOCAL_AI_APPEND_SKILLS", True))).lower())
@@ -333,6 +339,7 @@ def _app_ai_config() -> Dict[str, Any]:
         "LOCAL_AI_PROMPT_CONTEXT_CAP": c.get("LOCAL_AI_PROMPT_CONTEXT_CAP", 4096),
         "LOCAL_AI_LLAMA_GPU_LAYERS": c.get("LOCAL_AI_LLAMA_GPU_LAYERS", -1),
         "LOCAL_AI_SKILLS_DIR": c.get("LOCAL_AI_SKILLS_DIR", ""),
+        "LOCAL_AI_KB_STORAGE_DIR": c.get("LOCAL_AI_KB_STORAGE_DIR", ""),
         "LOCAL_AI_APPEND_SKILLS": c.get("LOCAL_AI_APPEND_SKILLS", True),
         "LOCAL_AI_MODELS_DIR": c.get("LOCAL_AI_MODELS_DIR", ""),
         "LOCAL_AI_HF_HOME": c.get("LOCAL_AI_HF_HOME", ""),
@@ -457,6 +464,7 @@ def register_local_ai_routes(app) -> None:
     # 多模态 JSON（base64 图）体积大，放宽单次请求上限（未配置时）
     app.config.setdefault("MAX_CONTENT_LENGTH", 32 * 1024 * 1024)
     app.config.setdefault("LOCAL_AI_USE_MCP_BRIDGE", True)
+    app.config.setdefault("LOCAL_AI_KB_STORAGE_DIR", default_knowledge_storage_dir())
 
     @app.route("/api/local-ai/status", methods=["GET"])
     def local_ai_status():
@@ -477,6 +485,7 @@ def register_local_ai_routes(app) -> None:
                 **st,
                 "use_mcp_bridge": bool(c.get("LOCAL_AI_USE_MCP_BRIDGE", True)),
                 "skills_dir": skills_dir,
+                "knowledge_storage_dir": c.get("LOCAL_AI_KB_STORAGE_DIR", "") or "",
                 "models_dir": models_dir,
                 "hf_home": c.get("LOCAL_AI_HF_HOME", "") or "",
                 "append_skills": bool(c.get("LOCAL_AI_APPEND_SKILLS", True)),
@@ -1624,8 +1633,24 @@ def register_local_ai_routes(app) -> None:
         root = current_app.config.get("ROOT_DIR")
         if not root:
             return jsonify({"success": False, "error": "未设置根目录"}), 400
-        items = knowledge_store.list_entries(root)
-        return jsonify({"success": True, "items": items})
+        try:
+            limit = request.args.get("limit", type=int)
+        except Exception:
+            limit = None
+        try:
+            offset = int(request.args.get("offset", "0") or 0)
+        except Exception:
+            offset = 0
+        query = str(request.args.get("q") or "").strip()
+        problem_first = str(request.args.get("problem_first", "0")).strip().lower() in ("1", "true", "yes", "on")
+        page = knowledge_store.list_entries_page(
+            root,
+            limit=limit,
+            offset=offset,
+            problem_first=problem_first,
+            query=query,
+        )
+        return jsonify({"success": True, **page})
 
     @app.route("/api/knowledge/scan", methods=["POST"])
     def knowledge_scan():
@@ -1700,6 +1725,18 @@ def register_local_ai_routes(app) -> None:
         if not root:
             return jsonify({"success": False, "error": "未设置根目录"}), 400
         body = request.get_json(silent=True) or {}
+        folder_path = str(body.get("folder_path") or "").strip()
+        if folder_path:
+            try:
+                result = knowledge_store.queue_folder_entries(
+                    root,
+                    folder_path,
+                    app_config=_app_ai_config(),
+                )
+                return jsonify({"success": True, **result})
+            except ValueError as e:
+                return jsonify({"success": False, "error": str(e)}), 400
+
         paths = body.get("paths") or []
         if not isinstance(paths, list):
             return jsonify({"success": False, "error": "paths 必须为数组"}), 400

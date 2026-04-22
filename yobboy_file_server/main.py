@@ -1067,6 +1067,7 @@ LOCAL_AI_CONFIG_KEYS = (
     'LOCAL_AI_EMBED_QUERY_INSTRUCTION',
     'LOCAL_AI_EMBED_BATCH_SIZE',
     'LOCAL_AI_SKILLS_DIR',
+    'LOCAL_AI_KB_STORAGE_DIR',
     'LOCAL_AI_MODELS_DIR',
     'LOCAL_AI_HF_HOME',
     'LOCAL_AI_APPEND_SKILLS',
@@ -1086,6 +1087,7 @@ LOCAL_AI_CONFIG_KEYS = (
 def local_ai_settings_dict_from_ini(ini_config=None):
     """解析 [local_ai] 为字典（GUI / read_runtime_settings 与 Flask 共用逻辑）。"""
     from .local_ai_paths import (
+        default_knowledge_storage_dir,
         default_hf_home,
         default_models_dir,
         default_skills_dir,
@@ -1105,6 +1107,7 @@ def local_ai_settings_dict_from_ini(ini_config=None):
         ),
         'LOCAL_AI_EMBED_BATCH_SIZE': 16,
         'LOCAL_AI_SKILLS_DIR': default_skills_dir(),
+        'LOCAL_AI_KB_STORAGE_DIR': default_knowledge_storage_dir(),
         'LOCAL_AI_MODELS_DIR': default_models_dir(),
         'LOCAL_AI_HF_HOME': default_hf_home(),
         'LOCAL_AI_APPEND_SKILLS': True,
@@ -1144,6 +1147,8 @@ def local_ai_settings_dict_from_ini(ini_config=None):
             pass
         if (la.get('skills_dir') or '').strip():
             d['LOCAL_AI_SKILLS_DIR'] = resolve_project_path(la.get('skills_dir'), base)
+        if (la.get('knowledge_storage_dir') or '').strip():
+            d['LOCAL_AI_KB_STORAGE_DIR'] = resolve_project_path(la.get('knowledge_storage_dir'), base)
         if (la.get('models_dir') or '').strip():
             d['LOCAL_AI_MODELS_DIR'] = resolve_project_path(la.get('models_dir'), base)
         if (la.get('hf_home') or '').strip():
@@ -1245,6 +1250,7 @@ def _write_local_ai_section_to_config(config, settings_data):
     )
     la['embed_batch_size'] = str(int(settings_data.get('LOCAL_AI_EMBED_BATCH_SIZE', 16) or 16))
     la['skills_dir'] = _rel(settings_data.get('LOCAL_AI_SKILLS_DIR', '') or '')
+    la['knowledge_storage_dir'] = _rel(settings_data.get('LOCAL_AI_KB_STORAGE_DIR', '') or '')
     la['models_dir'] = _rel(settings_data.get('LOCAL_AI_MODELS_DIR', '') or '')
     la['hf_home'] = _rel(settings_data.get('LOCAL_AI_HF_HOME', '') or '')
     la['append_skills'] = str(bool(settings_data.get('LOCAL_AI_APPEND_SKILLS', True))).lower()
@@ -3382,6 +3388,18 @@ class SettingsDialog(QDialog):
         skills_h.addWidget(skills_btn)
         ai_form_layout.addRow(QLabel("Skill 目录："), skills_row)
 
+        kb_storage_row = QWidget()
+        kb_storage_h = QHBoxLayout(kb_storage_row)
+        kb_storage_h.setContentsMargins(0, 0, 0, 0)
+        self.local_ai_kb_storage_edit = QLineEdit(str(lai.get('LOCAL_AI_KB_STORAGE_DIR', '') or ''))
+        self.local_ai_kb_storage_edit.setPlaceholderText("默认 data/local_ai")
+        kb_storage_h.addWidget(self.local_ai_kb_storage_edit, 1)
+        kb_storage_btn = QPushButton("📁")
+        kb_storage_btn.setObjectName("browseButton")
+        kb_storage_btn.clicked.connect(self.browse_local_ai_kb_storage_dir)
+        kb_storage_h.addWidget(kb_storage_btn)
+        ai_form_layout.addRow(QLabel("知识库存储："), kb_storage_row)
+
         self.local_ai_append_skills_cb = QCheckBox("在系统提示前附加 Skill 文档")
         self.local_ai_append_skills_cb.setChecked(bool(lai.get('LOCAL_AI_APPEND_SKILLS', True)))
         self.local_ai_append_skills_cb.setStyleSheet("QCheckBox { font-size: 10pt; font-weight: normal; }")
@@ -3628,12 +3646,23 @@ class SettingsDialog(QDialog):
 
     def browse_local_ai_skills_dir(self):
         from .local_ai_paths import default_skills_dir
+
         start = self.local_ai_skills_edit.text().strip() or default_skills_dir()
         directory = QFileDialog.getExistingDirectory(
             self, "选择 Skill 目录", start, QFileDialog.ShowDirsOnly | QFileDialog.DontResolveSymlinks
         )
         if directory:
             self.local_ai_skills_edit.setText(directory)
+
+    def browse_local_ai_kb_storage_dir(self):
+        from .local_ai_paths import default_knowledge_storage_dir
+
+        start = self.local_ai_kb_storage_edit.text().strip() or default_knowledge_storage_dir()
+        directory = QFileDialog.getExistingDirectory(
+            self, "选择知识库存储目录", start, QFileDialog.ShowDirsOnly | QFileDialog.DontResolveSymlinks
+        )
+        if directory:
+            self.local_ai_kb_storage_edit.setText(directory)
 
     def accept(self):
         """确认保存"""
@@ -3789,6 +3818,8 @@ class SettingsDialog(QDialog):
             'LOCAL_AI_GGUF_PATH': '',
             'LOCAL_AI_SKILLS_DIR': self.local_ai_skills_edit.text().strip()
             or la_defaults['LOCAL_AI_SKILLS_DIR'],
+            'LOCAL_AI_KB_STORAGE_DIR': self.local_ai_kb_storage_edit.text().strip()
+            or la_defaults['LOCAL_AI_KB_STORAGE_DIR'],
             'LOCAL_AI_MODELS_DIR': prev.get('LOCAL_AI_MODELS_DIR') or la_defaults['LOCAL_AI_MODELS_DIR'],
             'LOCAL_AI_HF_HOME': prev.get('LOCAL_AI_HF_HOME') or la_defaults['LOCAL_AI_HF_HOME'],
             'LOCAL_AI_APPEND_SKILLS': self.local_ai_append_skills_cb.isChecked(),
@@ -4797,6 +4828,7 @@ class MainWindow(QMainWindow):
                     f"{'Git工作目录: ' + git_workdir_text if new_git_enabled else ''}\n"
                     f"LM Studio API: {new_local_ai.get('LOCAL_AI_API_BASE_URL', '')}\n"
                     f"LM Studio 模型: {new_local_ai.get('LOCAL_AI_API_MODEL', '') or '（自动取当前已加载模型）'}\n"
+                    f"知识库存储: {new_local_ai.get('LOCAL_AI_KB_STORAGE_DIR', '')}\n"
                     f"MCP 工具调用: {mcp_enabled_text}\n"
                     f"（[local_ai] 已写入配置文件，网页面板将直接复用 LM Studio 连接）\n\n"
                     f"您可以重新启动服务器使用新配置。"

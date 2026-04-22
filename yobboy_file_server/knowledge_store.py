@@ -17,6 +17,7 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 from . import embedding_client
 from . import knowledge_job_manager
 from . import knowledge_index_db
+from .local_ai_paths import knowledge_storage_path
 from .paths import project_base_dir
 
 _lock = threading.RLock()
@@ -52,9 +53,7 @@ def _base_dir() -> str:
 
 
 def _store_path() -> str:
-    data_dir = os.path.join(_base_dir(), "data", "local_ai")
-    os.makedirs(data_dir, exist_ok=True)
-    return os.path.join(data_dir, "knowledge_files.json")
+    return knowledge_storage_path("knowledge_files.json")
 
 
 def _now_iso() -> str:
@@ -678,7 +677,75 @@ def _registry_entry(
     return entry
 
 
-def list_entries(root_dir: str) -> List[Dict[str, Any]]:
+def _stored_source_stale(source: Optional[Dict[str, Any]], meta: Dict[str, Any]) -> bool:
+    if not source:
+        return False
+    if str(source.get("status") or "") not in _INDEXED_STATUSES:
+        return True
+    try:
+        return abs(float(source.get("mtime") or 0.0) - float(meta.get("mtime") or 0.0)) > 1e-6
+    except (TypeError, ValueError):
+        return True
+
+
+def _entry_from_store(
+    rel_path: str,
+    meta: Dict[str, Any],
+    *,
+    indexed_meta: Optional[Dict[str, Any]] = None,
+    latest_job: Optional[Dict[str, Any]] = None,
+    excluded_dirs: Optional[Iterable[str]] = None,
+) -> Dict[str, Any]:
+    entry = _registry_entry(rel_path, meta, indexed_meta, latest_job)
+    scan_status = str(meta.get("scan_status") or "")
+    entry["exists"] = scan_status != "missing"
+    entry["size"] = int(meta.get("size") or entry.get("size") or 0)
+    entry["mtime"] = float(meta.get("mtime") or entry.get("mtime") or 0.0)
+    entry["ext"] = str(meta.get("ext") or entry.get("ext") or os.path.splitext(rel_path)[1].lower())
+    entry["supported"] = _supported_file_ext(rel_path)
+    entry["indexed"] = bool(indexed_meta and str(indexed_meta.get("status") or "") in _INDEXED_STATUSES)
+    entry["stale"] = _stored_source_stale(indexed_meta, meta)
+    entry["excluded"] = _is_rel_path_excluded(rel_path, excluded_dirs or [])
+    return entry
+
+
+def _entry_matches_query(
+    rel_path: str,
+    meta: Dict[str, Any],
+    source: Optional[Dict[str, Any]],
+    query: str,
+) -> bool:
+    q = str(query or "").strip().lower()
+    if not q:
+        return True
+    tags = meta.get("tags") or []
+    if not isinstance(tags, list):
+        tags = []
+    parts = [
+        rel_path,
+        os.path.basename(rel_path),
+        str(meta.get("note") or ""),
+        str(meta.get("scan_status") or ""),
+        str(meta.get("last_error") or ""),
+        str(meta.get("ext") or ""),
+    ]
+    if source:
+        parts.extend(
+            [
+                str(source.get("display_name") or ""),
+                str(source.get("title") or ""),
+                str(source.get("note") or ""),
+                str(source.get("status") or ""),
+                str(source.get("last_error") or ""),
+                str(source.get("tags_json") or ""),
+            ]
+        )
+    parts.extend(str(item or "") for item in tags)
+    haystack = "\n".join(parts).lower()
+    return q in haystack
+
+
+def get_registry_overview(root_dir: str) -> Dict[str, int]:
     root_n = _normalize_root(root_dir)
     scan_settings = get_scan_settings()
     excluded_dirs = scan_settings.get("scan_excluded_dirs") or []
@@ -687,26 +754,239 @@ def list_entries(root_dir: str) -> List[Dict[str, Any]]:
         str(source.get("source_key") or ""): source
         for source in knowledge_index_db.list_sources(root_n, _FILE_SOURCE)
     }
-    out: List[Dict[str, Any]] = []
+    registered_files = 0
+    indexed_files = 0
+    stale_files = 0
+    excluded_files = 0
+    missing_files = 0
+    pending_files = 0
     for rel_path, meta in data.get("entries", {}).items():
-        rel = _normalize_rel_path(rel_path)
-        full = _under_root(root_n, rel)
-        if not full:
+        if not isinstance(meta, dict):
             continue
+        rel = _normalize_rel_path(rel_path)
+        if not rel:
+            continue
+        registered_files += 1
         indexed = source_map.get(rel)
-        latest_job = knowledge_index_db.latest_job_for_source(root_n, _FILE_SOURCE, rel)
-        entry = _registry_entry(rel, dict(meta) if isinstance(meta, dict) else {}, indexed, latest_job)
-        state = _file_state(root_n, rel)
-        entry["exists"] = bool(state.get("exists"))
-        entry["size"] = int(state.get("size") or entry.get("size") or 0)
-        entry["mtime"] = float(state.get("mtime") or entry.get("mtime") or 0.0)
-        entry["ext"] = str(state.get("ext") or entry.get("ext") or os.path.splitext(rel)[1].lower())
-        entry["supported"] = _supported_file_ext(rel)
-        entry["indexed"] = bool(indexed and str(indexed.get("status") or "") in _INDEXED_STATUSES)
-        entry["stale"] = bool(indexed and _is_source_stale(root_n, indexed, rel))
-        entry["excluded"] = _is_rel_path_excluded(rel, excluded_dirs)
-        out.append(entry)
-    return sorted(out, key=lambda item: item.get("path", ""))
+        excluded = _is_rel_path_excluded(rel, excluded_dirs)
+        scan_status = str(meta.get("scan_status") or "")
+        is_indexed = bool(indexed and str(indexed.get("status") or "") in _INDEXED_STATUSES)
+        is_stale = _stored_source_stale(indexed, meta)
+        if excluded:
+            excluded_files += 1
+        if scan_status == "missing":
+            missing_files += 1
+        if is_indexed:
+            indexed_files += 1
+        if is_stale:
+            stale_files += 1
+        if not excluded and (not is_indexed or is_stale):
+            pending_files += 1
+    return {
+        "registered_files": registered_files,
+        "indexed_files": indexed_files,
+        "stale_files": stale_files,
+        "excluded_files": excluded_files,
+        "missing_files": missing_files,
+        "pending_files": pending_files,
+    }
+
+
+def list_entries_page(
+    root_dir: str,
+    *,
+    limit: Optional[int] = None,
+    offset: int = 0,
+    problem_first: bool = False,
+    query: str = "",
+) -> Dict[str, Any]:
+    root_n = _normalize_root(root_dir)
+    scan_settings = get_scan_settings()
+    excluded_dirs = scan_settings.get("scan_excluded_dirs") or []
+    data = load_store()
+    raw_entries = data.get("entries", {})
+    if not isinstance(raw_entries, dict):
+        raw_entries = {}
+    source_map = {
+        str(source.get("source_key") or ""): source
+        for source in knowledge_index_db.list_sources(root_n, _FILE_SOURCE)
+    }
+    normalized: List[Tuple[str, Dict[str, Any], Optional[Dict[str, Any]], Tuple[int, str]]] = []
+    for rel_path, meta in raw_entries.items():
+        if not isinstance(meta, dict):
+            continue
+        rel = _normalize_rel_path(rel_path)
+        if not rel:
+            continue
+        source = source_map.get(rel)
+        if not _entry_matches_query(rel, meta, source, query):
+            continue
+        excluded = _is_rel_path_excluded(rel, excluded_dirs)
+        indexed = bool(source and str(source.get("status") or "") in _INDEXED_STATUSES)
+        stale = _stored_source_stale(source, meta)
+        scan_status = str(meta.get("scan_status") or "")
+        last_error = str((source or {}).get("last_error") or meta.get("last_error") or "").strip()
+        if problem_first:
+            if last_error:
+                rank = 0
+            elif not excluded and stale:
+                rank = 1
+            elif not excluded and not indexed:
+                rank = 2
+            elif scan_status == "missing":
+                rank = 3
+            elif excluded:
+                rank = 5
+            else:
+                rank = 4
+        else:
+            rank = 0
+        normalized.append((rel, meta, source, (rank, rel)))
+
+    normalized.sort(key=lambda item: item[3])
+    folder_map: Dict[str, Dict[str, Any]] = {}
+    root_files = {
+        "file_count": 0,
+        "indexed_count": 0,
+        "pending_count": 0,
+        "issue_count": 0,
+    }
+    for rel, meta, source, _sort_key in normalized:
+        excluded = _is_rel_path_excluded(rel, excluded_dirs)
+        indexed = bool(source and str(source.get("status") or "") in _INDEXED_STATUSES)
+        stale = _stored_source_stale(source, meta)
+        last_error = str((source or {}).get("last_error") or meta.get("last_error") or "").strip()
+        bucket: Dict[str, Any]
+        top_name = rel.split("/", 1)[0] if "/" in rel else ""
+        if top_name:
+            bucket = folder_map.setdefault(
+                top_name,
+                {
+                    "name": top_name,
+                    "path": top_name,
+                    "file_count": 0,
+                    "indexed_count": 0,
+                    "pending_count": 0,
+                    "issue_count": 0,
+                },
+            )
+        else:
+            bucket = root_files
+        bucket["file_count"] += 1
+        if indexed:
+            bucket["indexed_count"] += 1
+        if last_error:
+            bucket["issue_count"] += 1
+        if not excluded and (not indexed or stale):
+            bucket["pending_count"] += 1
+
+    top_folders = sorted(folder_map.values(), key=lambda item: str(item.get("path") or "").lower())
+    total = len(normalized)
+    safe_offset = max(0, int(offset or 0))
+    if limit is None:
+        slice_items = normalized[safe_offset:]
+        safe_limit = total
+    else:
+        safe_limit = max(1, min(int(limit or 1), 500))
+        slice_items = normalized[safe_offset : safe_offset + safe_limit]
+
+    page_keys = [item[0] for item in slice_items]
+    latest_job_map = knowledge_index_db.latest_jobs_for_sources(root_n, _FILE_SOURCE, page_keys)
+    items = [
+        _entry_from_store(
+            rel,
+            meta,
+            indexed_meta=source,
+            latest_job=latest_job_map.get(rel),
+            excluded_dirs=excluded_dirs,
+        )
+        for rel, meta, source, _sort_key in slice_items
+    ]
+    return {
+        "items": items,
+        "top_folders": top_folders,
+        "root_files": root_files,
+        "total": total,
+        "offset": safe_offset,
+        "limit": safe_limit,
+        "has_more": safe_offset + len(items) < total,
+        "query": str(query or "").strip(),
+    }
+
+
+def list_entries(root_dir: str) -> List[Dict[str, Any]]:
+    return list_entries_page(root_dir).get("items") or []
+
+
+def queue_folder_entries(
+    root_dir: str,
+    folder_path: str,
+    *,
+    app_config: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    root_n = _normalize_root(root_dir)
+    prefix = _normalize_rel_dir(folder_path)
+    data = load_store()
+    raw_entries = data.get("entries", {})
+    if not isinstance(raw_entries, dict):
+        raw_entries = {}
+
+    excluded_dirs = get_scan_settings().get("scan_excluded_dirs") or []
+    source_map = {
+        str(source.get("source_key") or ""): source
+        for source in knowledge_index_db.list_sources(root_n, _FILE_SOURCE)
+    }
+    candidate_paths: List[str] = []
+    skipped: List[Dict[str, str]] = []
+
+    for raw_rel, meta in sorted(raw_entries.items(), key=lambda item: str(item[0]).lower()):
+        if not isinstance(meta, dict):
+            continue
+        rel = _normalize_rel_path(raw_rel)
+        if not rel:
+            continue
+        if prefix:
+            if not rel.startswith(prefix + "/"):
+                continue
+        elif "/" in rel:
+            continue
+
+        if _is_rel_path_excluded(rel, excluded_dirs):
+            skipped.append({"path": rel, "reason": "excluded"})
+            continue
+        if not _supported_file_ext(rel):
+            skipped.append({"path": rel, "reason": "unsupported"})
+            continue
+        if str(meta.get("scan_status") or "") == "missing":
+            skipped.append({"path": rel, "reason": "missing"})
+            continue
+
+        source = source_map.get(rel)
+        indexed = bool(source and str(source.get("status") or "") in _INDEXED_STATUSES)
+        stale = _stored_source_stale(source, meta)
+        if indexed and not stale:
+            skipped.append({"path": rel, "reason": "indexed"})
+            continue
+        candidate_paths.append(rel)
+
+    queued = []
+    errors = []
+    for rel in candidate_paths:
+        try:
+            queued.append(queue_entry(root_n, rel, app_config=app_config))
+        except ValueError as exc:
+            errors.append({"path": rel, "error": str(exc)})
+
+    return {
+        "folder_path": prefix,
+        "candidate_count": len(candidate_paths),
+        "queued_count": len(queued),
+        "skipped_count": len(skipped),
+        "error_count": len(errors),
+        "items": queued,
+        "skipped": skipped[:200],
+        "errors": errors,
+    }
 
 
 def get_meta(rel_path: str, root_dir: Optional[str] = None) -> Optional[Dict[str, Any]]:
@@ -1427,7 +1707,7 @@ def get_job(job_id: str) -> Optional[Dict[str, Any]]:
 def get_index_status(root_dir: str) -> Dict[str, Any]:
     root_n = _normalize_root(root_dir)
     summary = knowledge_index_db.get_summary(root_n)
-    entries = list_entries(root_n)
+    overview = get_registry_overview(root_n)
     jobs = list_jobs(root_n, limit=100)
     scan_settings = get_scan_settings()
     job_counts: Dict[str, int] = {}
@@ -1436,9 +1716,7 @@ def get_index_status(root_dir: str) -> Dict[str, Any]:
         job_counts[status] = job_counts.get(status, 0) + 1
     return {
         **summary,
-        "registered_files": len(entries),
-        "stale_files": sum(1 for item in entries if item.get("stale")),
-        "excluded_files": sum(1 for item in entries if item.get("excluded")),
+        **overview,
         "snippet_count": len(list_snippets(root_n)),
         "job_counts": job_counts,
         "scan_settings": scan_settings,

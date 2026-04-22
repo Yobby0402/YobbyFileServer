@@ -3,9 +3,10 @@
 """
 from __future__ import annotations
 
+import configparser
 import os
 import sys
-from typing import Optional, Tuple
+from typing import Any, Mapping, Optional, Tuple
 
 from .paths import project_base_dir
 
@@ -26,6 +27,10 @@ def default_hf_home() -> str:
     return os.path.join(default_models_dir(), "huggingface")
 
 
+def default_knowledge_storage_dir() -> str:
+    return os.path.join(project_base_dir(), "data", "local_ai")
+
+
 def ensure_ai_layout() -> None:
     os.makedirs(default_skills_dir(), exist_ok=True)
     os.makedirs(default_models_dir(), exist_ok=True)
@@ -40,6 +45,64 @@ def resolve_project_path(path: str, base: Optional[str] = None) -> str:
     if os.path.isabs(path):
         return os.path.normpath(path)
     return os.path.normpath(os.path.join(root, path.replace("/", os.sep)))
+
+
+def resolve_knowledge_storage_dir(path: str, base: Optional[str] = None) -> str:
+    if (path or "").strip():
+        return resolve_project_path(path, base)
+    return os.path.normpath(default_knowledge_storage_dir())
+
+
+def _current_flask_local_ai_config() -> Tuple[Optional[Mapping[str, Any]], str]:
+    try:
+        from flask import current_app, has_app_context
+    except Exception:
+        return None, ""
+    if not has_app_context():
+        return None, ""
+    return current_app.config, str(current_app.config.get("CONFIG_FILE") or "")
+
+
+def knowledge_storage_dir(
+    app_config: Optional[Mapping[str, Any]] = None,
+    *,
+    config_file: Optional[str] = None,
+) -> str:
+    cfg = app_config
+    if cfg is None:
+        cfg, current_config_file = _current_flask_local_ai_config()
+        if not config_file:
+            config_file = current_config_file
+
+    raw_path = ""
+    if cfg is not None:
+        raw_path = str(cfg.get("LOCAL_AI_KB_STORAGE_DIR") or "").strip()
+
+    if not raw_path:
+        ini_path = config_file or os.path.join(project_base_dir(), "config.ini")
+        parser = configparser.ConfigParser()
+        if os.path.exists(ini_path):
+            try:
+                parser.read(ini_path, encoding="utf-8")
+            except Exception:
+                parser.read(ini_path)
+        if parser.has_section("local_ai"):
+            raw_path = str(parser["local_ai"].get("knowledge_storage_dir") or "").strip()
+
+    resolved = resolve_knowledge_storage_dir(raw_path)
+    os.makedirs(resolved, exist_ok=True)
+    return resolved
+
+
+def knowledge_storage_path(
+    *parts: str,
+    app_config: Optional[Mapping[str, Any]] = None,
+    config_file: Optional[str] = None,
+) -> str:
+    base = knowledge_storage_dir(app_config=app_config, config_file=config_file)
+    if not parts:
+        return base
+    return os.path.join(base, *parts)
 
 
 def resolve_model_from_user_dir(home: str) -> Tuple[str, str]:

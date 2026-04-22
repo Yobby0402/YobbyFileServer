@@ -128,7 +128,7 @@
             <div class="modal-body">
                 <div class="small text-muted mb-2" id="localAiKbManagerSummary">正在加载知识库概况…</div>
                 <div class="local-ai-kb-manager-grid">
-                    <section class="local-ai-kb-panel">
+                    <section class="local-ai-kb-panel local-ai-kb-panel-full">
                         <div class="local-ai-kb-panel-header">
                             <span>文件知识</span>
                             <div class="d-flex gap-2 flex-wrap justify-content-end">
@@ -143,26 +143,17 @@
                                 <div class="small text-muted" id="localAiKbExcludedHint">未设置排除目录。</div>
                                 <button type="button" class="btn btn-sm btn-outline-primary" id="localAiKbOpenFolderSettingsBtn">设置扫描文件夹</button>
                             </div>
+                            <div class="input-group input-group-sm mt-2">
+                                <input type="search" class="form-control" id="localAiKbFileSearchInput" placeholder="搜索知识库文件路径、备注、标签或状态" />
+                                <button type="button" class="btn btn-outline-secondary" id="localAiKbFileSearchBtn">搜索</button>
+                                <button type="button" class="btn btn-outline-secondary" id="localAiKbFileSearchClearBtn">清空</button>
+                            </div>
                         </div>
                         <div class="local-ai-kb-list" id="localAiKbFileList"></div>
                     </section>
-                    <section class="local-ai-kb-panel">
-                        <div class="local-ai-kb-panel-header">
-                            <span>文件预览</span>
-                        </div>
-                        <div class="local-ai-kb-preview-empty" id="localAiKbPreviewEmpty">请选择一个 md/txt 文件进行预览</div>
-                        <div class="local-ai-kb-preview-meta small text-muted" id="localAiKbPreviewMeta"></div>
-                        <div class="local-ai-kb-preview-text markdown-body" id="localAiKbPreviewText" hidden></div>
-                    </section>
                 </div>
                 <div class="local-ai-kb-manager-grid mt-3">
-                    <section class="local-ai-kb-panel">
-                        <div class="local-ai-kb-panel-header">
-                            <span>后台任务</span>
-                        </div>
-                        <div class="local-ai-kb-list" id="localAiKbJobList"></div>
-                    </section>
-                    <section class="local-ai-kb-panel">
+                    <section class="local-ai-kb-panel local-ai-kb-panel-full">
                         <div class="local-ai-kb-panel-header">
                             <span>零散知识</span>
                         </div>
@@ -198,6 +189,14 @@
                         </div>
                         <div class="small text-muted mb-2" id="localAiProductKbManagerSummary">正在加载产品对比知识库概况…</div>
                         <div class="local-ai-kb-list" id="localAiProductKbEntryList"></div>
+                    </section>
+                </div>
+                <div class="local-ai-kb-manager-grid mt-3">
+                    <section class="local-ai-kb-panel local-ai-kb-panel-full">
+                        <div class="local-ai-kb-panel-header">
+                            <span>后台任务</span>
+                        </div>
+                        <div class="local-ai-kb-list" id="localAiKbJobList"></div>
                     </section>
                 </div>
             </div>

@@ -101,6 +101,7 @@
     var kbManagerPollTimer = null;
     var kbLinePollTimer = null;
     var kbLastFiles = [];
+    var kbLastFileListMeta = {};
     var kbRootFolders = [];
     var kbManagerCache = {};
 
@@ -157,6 +158,25 @@
 
     function kbJobRunning(job) {
         return !!job && ['queued', 'running'].indexOf(job.status) >= 0;
+    }
+
+    function kbManagerFailureLabel(key) {
+        var labels = {
+            knowledgeStatus: '知识库概况',
+            knowledgeList: '候选文件列表',
+            knowledgeJobs: '后台任务列表',
+            knowledgeSnippets: '零散知识列表',
+            todoStatus: '待办知识库概况',
+            todoEntries: '待办知识库条目',
+            productStatus: '产品对比知识库概况',
+            productEntries: '产品对比知识库条目',
+        };
+        return labels[key] || key || '未知接口';
+    }
+
+    function kbFileSearchQuery() {
+        var input = $('localAiKbFileSearchInput');
+        return input ? String(input.value || '').trim() : '';
     }
     function kbEscapeHtml(value) {
         return String(value == null ? '' : value)
@@ -450,53 +470,335 @@
         container.style.display = 'none';
     }
 
-    function renderKbManagerFiles(items) {
+    function kbPathParts(path) {
+        return String(path || '')
+            .split('/')
+            .filter(function (part) {
+                return !!part;
+            });
+    }
+
+    function kbPathBaseName(path) {
+        var parts = kbPathParts(path);
+        return parts.length ? parts[parts.length - 1] : String(path || '');
+    }
+
+    function kbPathDirName(path) {
+        var parts = kbPathParts(path);
+        if (parts.length <= 1) return '';
+        return parts.slice(0, -1).join('/');
+    }
+
+    function kbFileMetaBits(item, dirPath) {
+        var metaBits = [];
+        if (dirPath) metaBits.push('目录 ' + dirPath);
+        metaBits.push((item.ext || '').replace('.', '').toUpperCase() || 'TEXT');
+        metaBits.push(kbFormatSize(item.size || 0));
+        metaBits.push('片段 ' + Number(item.chunk_count || 0));
+        if (item.excluded) metaBits.push('排除目录');
+        if (item.stale) metaBits.push('需要重建');
+        if (item.latest_job && item.latest_job.message) metaBits.push(String(item.latest_job.message));
+        if (item.last_error) metaBits.push(String(item.last_error));
+        return metaBits.map(function (part) {
+            return kbEscapeHtml(String(part || ''));
+        });
+    }
+
+    function kbRenderFileItem(item, options) {
+        var path = String(item.path || '');
+        var encodedPath = encodeURIComponent(path);
+        var title = String((options && options.title) || kbPathBaseName(path) || path || '未命名文件');
+        var dirPath = String((options && options.dirPath) || kbPathDirName(path));
+        var actionBtn = '';
+        if (kbNeedsIndex(item)) {
+            actionBtn =
+                '<button type="button" class="btn btn-sm btn-primary" data-kb-action="queue">' +
+                (item.stale ? '重建' : '加入') +
+                '</button>';
+        }
+        var removeBtn = item.indexed
+            ? '<button type="button" class="btn btn-sm btn-outline-danger" data-kb-action="remove">移除</button>'
+            : '';
+        var metaBits = kbFileMetaBits(item, dirPath);
+        return (
+            '<div class="local-ai-kb-item' +
+            (item.excluded ? ' is-excluded' : '') +
+            (path === currentKbPreviewPath ? ' is-active' : '') +
+            '" data-path="' +
+            encodedPath +
+            '">' +
+            '<div class="local-ai-kb-item-head">' +
+            '<span class="local-ai-kb-item-title" title="' +
+            kbEscapeHtml(path) +
+            '">' +
+            kbEscapeHtml(title) +
+            '</span>' +
+            '<span class="badge ' +
+            kbStatusClass(item) +
+            '">' +
+            kbEscapeHtml(kbStatusLabel(item)) +
+            '</span>' +
+            '</div>' +
+            '<div class="local-ai-kb-item-meta"><span>' +
+            metaBits.join('</span><span>') +
+            '</span></div>' +
+            '<div class="local-ai-kb-item-actions">' +
+            actionBtn +
+            removeBtn +
+            '</div>' +
+            '</div>'
+        );
+    }
+
+    function kbBuildFileTree(items, meta) {
+        var root = {
+            name: '',
+            path: '',
+            folders: Object.create(null),
+            folderOrder: [],
+            files: [],
+            fileCount: 0,
+            loadedFileCount: 0,
+            indexedCount: 0,
+            pendingCount: 0,
+            issueCount: 0,
+            rootFilesSummary: null,
+        };
+        (Array.isArray(items) ? items : []).forEach(function (item) {
+            var path = String(item.path || '');
+            var parts = kbPathParts(path);
+            var pending = kbNeedsIndex(item) ? 1 : 0;
+            var issue = item.last_error ? 1 : 0;
+            var indexed = item.indexed ? 1 : 0;
+            var fileName = parts.length ? parts[parts.length - 1] : path || '未命名文件';
+            var folders = parts.slice(0, -1);
+            var node = root;
+            node.fileCount += 1;
+            node.loadedFileCount += 1;
+            node.indexedCount += indexed;
+            node.pendingCount += pending;
+            node.issueCount += issue;
+            folders.forEach(function (folderName) {
+                var child = node.folders[folderName];
+                if (!child) {
+                    child = {
+                        name: folderName,
+                        path: node.path ? node.path + '/' + folderName : folderName,
+                        folders: Object.create(null),
+                        folderOrder: [],
+                        files: [],
+                        fileCount: 0,
+                        loadedFileCount: 0,
+                        indexedCount: 0,
+                        pendingCount: 0,
+                        issueCount: 0,
+                    };
+                    node.folders[folderName] = child;
+                    node.folderOrder.push(folderName);
+                }
+                node = child;
+                node.fileCount += 1;
+                node.loadedFileCount += 1;
+                node.indexedCount += indexed;
+                node.pendingCount += pending;
+                node.issueCount += issue;
+            });
+            node.files.push({
+                item: item,
+                title: fileName,
+            });
+        });
+        var topFolders = (meta && Array.isArray(meta.top_folders)) ? meta.top_folders : [];
+        topFolders.forEach(function (folder) {
+            var name = String(folder && (folder.path || folder.name) || '').trim();
+            if (!name) return;
+            var child = root.folders[name];
+            if (!child) {
+                child = {
+                    name: name,
+                    path: name,
+                    folders: Object.create(null),
+                    folderOrder: [],
+                    files: [],
+                    fileCount: 0,
+                    loadedFileCount: 0,
+                    indexedCount: 0,
+                    pendingCount: 0,
+                    issueCount: 0,
+                };
+                root.folders[name] = child;
+                root.folderOrder.push(name);
+            }
+            child.fileCount = Number(folder.file_count || 0);
+            child.indexedCount = Number(folder.indexed_count || 0);
+            child.pendingCount = Number(folder.pending_count || 0);
+            child.issueCount = Number(folder.issue_count || 0);
+        });
+        if (meta && meta.root_files) {
+            root.rootFilesSummary = {
+                fileCount: Number(meta.root_files.file_count || 0),
+                indexedCount: Number(meta.root_files.indexed_count || 0),
+                pendingCount: Number(meta.root_files.pending_count || 0),
+                issueCount: Number(meta.root_files.issue_count || 0),
+            };
+        }
+        root.folderOrder.sort(function (a, b) {
+            return String(a || '').localeCompare(String(b || ''), 'zh-Hans-CN');
+        });
+        return root;
+    }
+
+    function kbRenderTreeHint(text) {
+        return '<div class="local-ai-kb-empty local-ai-kb-tree-hint">' + kbEscapeHtml(String(text || '')) + '</div>';
+    }
+
+    function kbRenderTreeNode(node, depth, meta) {
+        var html = [];
+        (node.folderOrder || []).forEach(function (name) {
+            var child = node.folders && node.folders[name];
+            if (!child) return;
+            var metaBits = [child.fileCount + ' 个文件'];
+            if (child.indexedCount) metaBits.push('已入库 ' + child.indexedCount);
+            if (child.pendingCount) metaBits.push('待处理 ' + child.pendingCount);
+            if (child.issueCount) metaBits.push('异常 ' + child.issueCount);
+            var folderActions = '';
+            if (depth === 0) {
+                folderActions =
+                    '<button type="button" class="btn btn-sm btn-outline-primary local-ai-kb-tree-action" ' +
+                    'data-kb-folder-action="queue" data-folder-path="' +
+                    encodeURIComponent(child.path || child.name) +
+                    '">处理此目录</button>';
+            }
+            html.push(
+                '<details class="local-ai-kb-tree-folder">' +
+                    '<summary class="local-ai-kb-tree-summary">' +
+                    '<span class="local-ai-kb-tree-folder-name" title="' +
+                    kbEscapeHtml(child.path || child.name) +
+                    '">📁 ' +
+                    kbEscapeHtml(child.name) +
+                    '</span>' +
+                    '<span class="local-ai-kb-tree-summary-right">' +
+                    '<span class="local-ai-kb-tree-folder-meta">' +
+                    kbEscapeHtml(metaBits.join(' · ')) +
+                    '</span>' +
+                    folderActions +
+                    '</span>' +
+                    '</summary>' +
+                    '<div class="local-ai-kb-tree-children">' +
+                    kbRenderTreeNode(child, depth + 1, meta) +
+                    ((depth === 0 && Number(child.loadedFileCount || 0) < Number(child.fileCount || 0))
+                        ? kbRenderTreeHint(
+                            '当前仅加载 ' +
+                            Number(child.loadedFileCount || 0) +
+                            ' / ' +
+                            Number(child.fileCount || 0) +
+                            ' 个文件，一级目录已完整显示。'
+                        )
+                        : '') +
+                    '</div>' +
+                    '</details>'
+            );
+        });
+        var rootSummary = node.rootFilesSummary;
+        var hasRootFiles = depth === 0 && (
+            (rootSummary && Number(rootSummary.fileCount || 0) > 0) ||
+            (node.files || []).length
+        );
+        if (hasRootFiles) {
+            var rootFilePendingCount = (node.files || []).filter(function (entry) {
+                return kbNeedsIndex(entry.item);
+            }).length;
+            var totalRootFiles = Number((rootSummary && rootSummary.fileCount) || (node.files || []).length || 0);
+            var summaryRootPending = Number((rootSummary && rootSummary.pendingCount) || rootFilePendingCount || 0);
+            var rootFileMetaBits = [totalRootFiles + ' 个文件'];
+            if (summaryRootPending) rootFileMetaBits.push('待处理 ' + summaryRootPending);
+            html.push(
+                '<details class="local-ai-kb-tree-folder">' +
+                    '<summary class="local-ai-kb-tree-summary">' +
+                    '<span class="local-ai-kb-tree-folder-name">📄 根目录文件</span>' +
+                    '<span class="local-ai-kb-tree-summary-right">' +
+                    '<span class="local-ai-kb-tree-folder-meta">' +
+                    kbEscapeHtml(rootFileMetaBits.join(' · ')) +
+                    '</span>' +
+                    '<button type="button" class="btn btn-sm btn-outline-primary local-ai-kb-tree-action" ' +
+                    'data-kb-root-files-action="queue">处理根目录文件</button>' +
+                    '</span>' +
+                    '</summary>' +
+                    '<div class="local-ai-kb-tree-children">' +
+                    node.files.map(function (entry) {
+                        return kbRenderFileItem(entry.item, {
+                            title: entry.title,
+                            dirPath: kbPathDirName(String((entry.item || {}).path || '')),
+                        });
+                    }).join('') +
+                    (((node.files || []).length < totalRootFiles)
+                        ? kbRenderTreeHint(
+                            '当前仅加载 ' +
+                            Number((node.files || []).length) +
+                            ' / ' +
+                            totalRootFiles +
+                            ' 个根目录文件，一级目录已完整显示。'
+                        )
+                        : '') +
+                    '</div>' +
+                    '</details>'
+            );
+        } else {
+            (node.files || []).forEach(function (entry) {
+                html.push(
+                    kbRenderFileItem(entry.item, {
+                        title: entry.title,
+                        dirPath: kbPathDirName(String((entry.item || {}).path || '')),
+                    })
+                );
+            });
+        }
+        return html.join('');
+    }
+
+    function renderKbManagerFiles(items, meta) {
         var wrap = $('localAiKbFileList');
         if (!wrap) return;
         kbLastFiles = Array.isArray(items) ? items : [];
+        kbLastFileListMeta = meta || {};
         if (!kbLastFiles.length) {
+            if (kbLastFileListMeta.query) {
+                wrap.innerHTML =
+                    '<div class="local-ai-kb-empty">没有匹配“' +
+                    kbEscapeHtml(kbLastFileListMeta.query) +
+                    '”的知识库文件。</div>';
+                return;
+            }
+            if (Number(kbLastFileListMeta.total || 0) > 0) {
+                wrap.innerHTML = '<div class="local-ai-kb-empty">候选文件较多，当前页没有数据，请刷新重试。</div>';
+                return;
+            }
             wrap.innerHTML = '<div class="local-ai-kb-empty">暂无候选文件。点击“重新扫描”查找 md/txt 文件。</div>';
             return;
         }
-        wrap.innerHTML = kbLastFiles
-            .map(function (item) {
-                var path = String(item.path || '');
-                var encodedPath = encodeURIComponent(path);
-                var actionBtn = '';
-                if (kbNeedsIndex(item)) {
-                    actionBtn =
-                        '<button type="button" class="btn btn-sm btn-primary" data-kb-action="queue">' +
-                        (item.stale ? '重建' : '加入') +
-                        '</button>';
-                }
-                var removeBtn = item.indexed
-                    ? '<button type="button" class="btn btn-sm btn-outline-danger" data-kb-action="remove">移除</button>'
-                    : '';
-                var metaBits = [
-                    kbEscapeHtml((item.ext || '').replace('.', '').toUpperCase() || 'TEXT'),
-                    kbFormatSize(item.size || 0),
-                    '片段 ' + Number(item.chunk_count || 0),
-                ];
-                if (item.excluded) metaBits.push('排除目录');
-                if (item.stale) metaBits.push('需要重建');
-                if (item.latest_job && item.latest_job.message) metaBits.push(kbEscapeHtml(item.latest_job.message));
-                if (item.last_error) metaBits.push(kbEscapeHtml(item.last_error));
-                return (
-                    '<div class="local-ai-kb-item' + (item.excluded ? ' is-excluded' : '') + '" data-path="' + encodedPath + '">' +
-                    '<div class="local-ai-kb-item-head">' +
-                    '<span class="local-ai-kb-item-title">' + kbEscapeHtml(path) + '</span>' +
-                    '<span class="badge ' + kbStatusClass(item) + '">' + kbEscapeHtml(kbStatusLabel(item)) + '</span>' +
-                    '</div>' +
-                    '<div class="local-ai-kb-item-meta"><span>' + metaBits.join('</span><span>') + '</span></div>' +
-                    '<div class="local-ai-kb-item-actions">' +
-                    '<button type="button" class="btn btn-sm btn-outline-secondary" data-kb-action="preview">预览</button>' +
-                    actionBtn +
-                    removeBtn +
-                    '</div>' +
-                    '</div>'
-                );
-            })
-            .join('');
+        var hintHtml = '';
+        if (kbLastFileListMeta.query) {
+            hintHtml =
+                '<div class="local-ai-kb-empty">搜索“' +
+                kbEscapeHtml(kbLastFileListMeta.query) +
+                '”，显示 ' +
+                kbLastFiles.length +
+                ' / 共 ' +
+                Number(kbLastFileListMeta.total || kbLastFiles.length) +
+                ' 项匹配结果。</div>';
+        } else if (Number(kbLastFileListMeta.total || 0) > kbLastFiles.length || kbLastFileListMeta.has_more) {
+            hintHtml =
+                '<div class="local-ai-kb-empty">候选文件较多，当前仅显示前 ' +
+                kbLastFiles.length +
+                ' / 共 ' +
+                Number(kbLastFileListMeta.total || kbLastFiles.length) +
+                ' 项，已优先展示待处理和异常文件。</div>';
+        }
+        wrap.innerHTML =
+            hintHtml +
+            '<div class="local-ai-kb-tree">' +
+            kbRenderTreeNode(kbBuildFileTree(kbLastFiles, kbLastFileListMeta), 0, kbLastFileListMeta) +
+            '</div>';
     }
 
     function renderKbManagerJobs(items) {
@@ -683,35 +985,6 @@
             });
     }
 
-    function renderKbPreview(path) {
-        var empty = $('localAiKbPreviewEmpty');
-        var meta = $('localAiKbPreviewMeta');
-        var textEl = $('localAiKbPreviewText');
-        if (empty) empty.textContent = '正在加载预览…';
-        if (meta) meta.textContent = '';
-        if (textEl) {
-            textEl.hidden = true;
-            textEl.textContent = '';
-        }
-        return kbFetchJson('/api/knowledge/preview?path=' + encodeURIComponent(path)).then(function (j) {
-            if (!j.success) {
-                if (empty) empty.textContent = j.error || '无法加载预览';
-                return;
-            }
-            var item = j.item || {};
-            if (empty) empty.textContent = '';
-            if (meta) {
-                meta.textContent = (item.path || path) + ' · ' + kbFormatSize(item.size || 0) + (item.truncated ? ' · 已截断预览' : '');
-            }
-            if (textEl) {
-                textEl.hidden = false;
-                renderAssistantMarkdown(textEl, item.text || '');
-            }
-        }).catch(function () {
-            if (empty) empty.textContent = '预览请求失败';
-        });
-    }
-
     function queueKbFiles(paths) {
         if (!paths || !paths.length) {
             alert('没有需要加入或重建的文件');
@@ -728,6 +1001,32 @@
             }
             if (j.error_count) {
                 alert('已提交 ' + j.queued_count + ' 个任务，失败 ' + j.error_count + ' 个');
+            }
+            refreshKbManager();
+        });
+    }
+
+    function queueKbFolder(folderPath) {
+        var cleanPath = String(folderPath || '').trim();
+        if (!cleanPath) {
+            alert('目录参数无效');
+            return Promise.resolve();
+        }
+        return kbFetchJson('/api/knowledge/bulk-index', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ folder_path: cleanPath }),
+        }).then(function (j) {
+            if (!j.success) {
+                alert(j.error || '目录批量处理失败');
+                return;
+            }
+            if (!j.queued_count) {
+                alert('该目录下没有需要加入或重建的文件');
+            } else if (j.error_count) {
+                alert('目录已提交 ' + j.queued_count + ' 个任务，失败 ' + j.error_count + ' 个');
+            } else {
+                alert('目录已提交 ' + j.queued_count + ' 个任务');
             }
             refreshKbManager();
         });
@@ -777,14 +1076,21 @@
                 var productEntries = data.productEntries && data.productEntries.success ? data.productEntries.items || [] : [];
                 var summary = $('localAiKbManagerSummary');
                 if (summary) {
-                    var indexedCount = files.filter(function (item) { return !!item.indexed; }).length;
-                    var pendingCount = files.filter(kbNeedsIndex).length;
+                    var registeredCount = status
+                        ? Number(status.registered_files != null ? status.registered_files : (fileListMeta.total || files.length))
+                        : files.length;
+                    var indexedCount = status && status.indexed_files != null
+                        ? Number(status.indexed_files || 0)
+                        : files.filter(function (item) { return !!item.indexed; }).length;
+                    var pendingCount = status && status.pending_files != null
+                        ? Number(status.pending_files || 0)
+                        : files.filter(kbNeedsIndex).length;
                     var excludedCount = status
                         ? Number(status.excluded_files || 0)
                         : files.filter(function (item) { return !!item.excluded; }).length;
                     summary.textContent = status
                         ? '候选文件 ' +
-                          files.length +
+                          registeredCount +
                           ' / 已入库 ' +
                           indexedCount +
                           ' / 待处理 ' +
@@ -797,11 +1103,11 @@
                           Number(status.snippet_count || 0)
                         : '知识库概况加载失败';
                     if (failed.length) {
-                        summary.textContent += ' / 部分接口失败 ' + failed.length;
+                        summary.textContent += ' / 接口失败：' + failed.map(kbManagerFailureLabel).join('、');
                     }
                 }
                 renderKbScanSettings(status && status.scan_settings ? status.scan_settings : null);
-                renderKbManagerFiles(files);
+                renderKbManagerFiles(files, fileListMeta);
                 renderKbManagerJobs(jobs);
                 renderKbManagerSnippets(snippets);
                 renderEntityKbPanel(
@@ -948,6 +1254,7 @@
                 ? options
                 : {};
         var lightweight = !!opts.lightweight && !opts.forceFull;
+        var fileSearchQuery = kbFileSearchQuery();
         var requests = {
             knowledgeStatus: '/api/knowledge/status',
             knowledgeJobs: '/api/knowledge/jobs?limit=30',
@@ -955,7 +1262,9 @@
             productStatus: '/api/local-ai/product-compare-kb/status',
         };
         if (!lightweight) {
-            requests.knowledgeList = '/api/knowledge/list';
+            requests.knowledgeList =
+                '/api/knowledge/list?limit=200&offset=0&problem_first=1' +
+                (fileSearchQuery ? '&q=' + encodeURIComponent(fileSearchQuery) : '');
             requests.knowledgeSnippets = '/api/knowledge/snippets';
             requests.todoEntries = '/api/local-ai/todo-kb/entries';
             requests.productEntries = '/api/local-ai/product-compare-kb/entries';
@@ -986,6 +1295,7 @@
                 });
                 var status = data.knowledgeStatus && data.knowledgeStatus.success ? data.knowledgeStatus.status : null;
                 var files = data.knowledgeList && data.knowledgeList.success ? data.knowledgeList.items || [] : [];
+                var fileListMeta = data.knowledgeList && data.knowledgeList.success ? data.knowledgeList : {};
                 var jobs = data.knowledgeJobs && data.knowledgeJobs.success ? data.knowledgeJobs.items || [] : [];
                 var snippets = data.knowledgeSnippets && data.knowledgeSnippets.success ? data.knowledgeSnippets.items || [] : [];
                 var todoStatus = data.todoStatus && data.todoStatus.success ? data.todoStatus.status : null;
@@ -994,14 +1304,21 @@
                 var productEntries = data.productEntries && data.productEntries.success ? data.productEntries.items || [] : [];
                 var summary = $('localAiKbManagerSummary');
                 if (summary) {
-                    var indexedCount = files.filter(function (item) { return !!item.indexed; }).length;
-                    var pendingCount = files.filter(kbNeedsIndex).length;
+                    var registeredCount = status
+                        ? Number(status.registered_files != null ? status.registered_files : (fileListMeta.total || files.length))
+                        : files.length;
+                    var indexedCount = status && status.indexed_files != null
+                        ? Number(status.indexed_files || 0)
+                        : files.filter(function (item) { return !!item.indexed; }).length;
+                    var pendingCount = status && status.pending_files != null
+                        ? Number(status.pending_files || 0)
+                        : files.filter(kbNeedsIndex).length;
                     var excludedCount = status
                         ? Number(status.excluded_files || 0)
                         : files.filter(function (item) { return !!item.excluded; }).length;
                     summary.textContent = status
                         ? '候选文件 ' +
-                          files.length +
+                          registeredCount +
                           ' / 已入库 ' +
                           indexedCount +
                           ' / 待处理 ' +
@@ -1014,11 +1331,11 @@
                           Number(status.snippet_count || 0)
                         : '知识库概况加载失败';
                     if (failed.length) {
-                        summary.textContent += ' / 部分接口失败 ' + failed.length;
+                        summary.textContent += ' / 接口失败：' + failed.map(kbManagerFailureLabel).join('、');
                     }
                 }
                 renderKbScanSettings(status && status.scan_settings ? status.scan_settings : null);
-                renderKbManagerFiles(files);
+                renderKbManagerFiles(files, fileListMeta);
                 renderKbManagerJobs(jobs);
                 renderKbManagerSnippets(snippets);
                 renderEntityKbPanel(
@@ -2407,6 +2724,27 @@
         if (kbRefreshBtn) {
             kbRefreshBtn.addEventListener('click', refreshKbManager);
         }
+        var kbFileSearchInput = $('localAiKbFileSearchInput');
+        var kbFileSearchBtn = $('localAiKbFileSearchBtn');
+        var kbFileSearchClearBtn = $('localAiKbFileSearchClearBtn');
+        if (kbFileSearchBtn) {
+            kbFileSearchBtn.addEventListener('click', function () {
+                refreshKbManager({ forceFull: true });
+            });
+        }
+        if (kbFileSearchInput) {
+            kbFileSearchInput.addEventListener('keydown', function (ev) {
+                if (ev.key !== 'Enter') return;
+                ev.preventDefault();
+                refreshKbManager({ forceFull: true });
+            });
+        }
+        if (kbFileSearchClearBtn) {
+            kbFileSearchClearBtn.addEventListener('click', function () {
+                if (kbFileSearchInput) kbFileSearchInput.value = '';
+                refreshKbManager({ forceFull: true });
+            });
+        }
         var kbFolderSettingsModalEl = $('localAiKbFolderSettingsModal');
         var kbFolderSettingsModal =
             kbFolderSettingsModalEl && typeof bootstrap !== 'undefined' ? new bootstrap.Modal(kbFolderSettingsModalEl) : null;
@@ -2520,20 +2858,41 @@
         var kbFileList = $('localAiKbFileList');
         if (kbFileList) {
             kbFileList.addEventListener('click', function (ev) {
+                var folderBtn = ev.target.closest('[data-kb-folder-action]');
+                if (folderBtn) {
+                    ev.preventDefault();
+                    ev.stopPropagation();
+                    var folderPath = decodeURIComponent(folderBtn.getAttribute('data-folder-path') || '');
+                    if (folderBtn.getAttribute('data-kb-folder-action') === 'queue') {
+                        queueKbFolder(folderPath);
+                    }
+                    return;
+                }
+                var rootFilesBtn = ev.target.closest('[data-kb-root-files-action]');
+                if (rootFilesBtn) {
+                    ev.preventDefault();
+                    ev.stopPropagation();
+                    var rootPaths = (kbLastFiles || [])
+                        .filter(function (item) {
+                            return String(item.path || '').indexOf('/') < 0 && kbNeedsIndex(item);
+                        })
+                        .map(function (item) {
+                            return item.path;
+                        });
+                    queueKbFiles(rootPaths);
+                    return;
+                }
                 var btn = ev.target.closest('[data-kb-action]');
                 var item = ev.target.closest('[data-path]');
                 if (!btn || !item) return;
                 var path = decodeURIComponent(item.getAttribute('data-path') || '');
                 if (!path) return;
                 var action = btn.getAttribute('data-kb-action');
-                if (action === 'preview') {
-                    currentKbPreviewPath = path;
-                    renderKbPreview(path);
-                    return;
-                }
                 if (action === 'queue') {
                     queueKbFiles([path]).then(function () {
-                        if (path === currentKbPreviewPath) renderKbPreview(path);
+                        if (path === currentKbPreviewPath && window.YobboyLocalAI && window.YobboyLocalAI._syncPreviewKb) {
+                            window.YobboyLocalAI._syncPreviewKb();
+                        }
                     });
                     return;
                 }
@@ -2541,7 +2900,9 @@
                     if (!confirm('确定移除该知识库文件吗？')) return;
                     kbFetchJson('/api/knowledge/entry?path=' + encodeURIComponent(path), { method: 'DELETE' }).then(function () {
                         refreshKbManager();
-                        if (path === currentKbPreviewPath) renderKbPreview(path);
+                        if (path === currentKbPreviewPath && window.YobboyLocalAI && window.YobboyLocalAI._syncPreviewKb) {
+                            window.YobboyLocalAI._syncPreviewKb();
+                        }
                     });
                 }
             });
