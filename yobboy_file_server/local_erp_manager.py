@@ -56,8 +56,19 @@ class LocalERPManager:
         os.makedirs(data_dir, exist_ok=True)
         self.db_path = db_path or os.path.join(data_dir, "erp.sqlite3")
         self._lock = threading.RLock()
-        self._schema_path = os.path.join(package_dir(), "sql", "local_erp_schema.sql")
+        self._schema_path = self._resolve_schema_path()
         self.ensure_initialized()
+
+    def _resolve_schema_path(self) -> str:
+        candidates = [
+            os.path.join(package_dir(), "sql", "local_erp_schema.sql"),
+            os.path.join(project_base_dir(), "yobboy_file_server", "sql", "local_erp_schema.sql"),
+            os.path.join(project_base_dir(), "sql", "local_erp_schema.sql"),
+        ]
+        for candidate in candidates:
+            if os.path.isfile(candidate):
+                return candidate
+        return candidates[0]
 
     def ensure_initialized(self) -> None:
         with self._lock:

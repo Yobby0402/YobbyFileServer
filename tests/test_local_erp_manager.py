@@ -1,6 +1,7 @@
 import os
 import tempfile
 import unittest
+from unittest import mock
 
 from yobboy_file_server.local_erp_manager import LocalERPManager
 
@@ -417,6 +418,59 @@ class LocalERPManagerTests(unittest.TestCase):
         self.assertEqual(rolled_back_work_order["status"], "released")
         self.assertEqual(rolled_back_work_order["materials"][0]["issued_qty"], 0.0)
         self.assertEqual(rolled_back_work_order["materials"][0]["consumed_qty"], 0.0)
+
+    def test_schema_path_falls_back_to_exe_side_package_copy(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            package_dir_path = os.path.join(temp_dir, "_MEI_missing")
+            project_dir_path = os.path.join(temp_dir, "dist")
+            schema_dir = os.path.join(project_dir_path, "yobboy_file_server", "sql")
+            os.makedirs(schema_dir, exist_ok=True)
+            schema_path = os.path.join(schema_dir, "local_erp_schema.sql")
+            with open(schema_path, "w", encoding="utf-8") as handle:
+                handle.write(
+                    """
+                    CREATE TABLE IF NOT EXISTS units (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        unit_code TEXT UNIQUE,
+                        unit_name TEXT,
+                        precision_digits INTEGER DEFAULT 2,
+                        remark TEXT DEFAULT ''
+                    );
+                    CREATE TABLE IF NOT EXISTS item_categories (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        category_code TEXT UNIQUE,
+                        category_name TEXT,
+                        sort_order INTEGER DEFAULT 0,
+                        is_enabled INTEGER DEFAULT 1,
+                        remark TEXT DEFAULT ''
+                    );
+                    CREATE TABLE IF NOT EXISTS warehouses (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        warehouse_code TEXT UNIQUE,
+                        warehouse_name TEXT,
+                        warehouse_type TEXT DEFAULT 'normal',
+                        is_enabled INTEGER DEFAULT 1,
+                        remark TEXT DEFAULT '',
+                        created_at TEXT DEFAULT '',
+                        updated_at TEXT DEFAULT ''
+                    );
+                    CREATE TABLE IF NOT EXISTS settings (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        setting_key TEXT UNIQUE,
+                        setting_value TEXT DEFAULT '',
+                        updated_at TEXT DEFAULT ''
+                    );
+                    """
+                )
+
+            db_path = os.path.join(temp_dir, "erp.sqlite3")
+            with mock.patch("yobboy_file_server.local_erp_manager.package_dir", return_value=package_dir_path), mock.patch(
+                "yobboy_file_server.local_erp_manager.project_base_dir", return_value=project_dir_path
+            ):
+                manager = LocalERPManager(db_path=db_path)
+
+            self.assertEqual(os.path.normpath(manager._schema_path), os.path.normpath(schema_path))
+            self.assertTrue(os.path.exists(db_path))
 
 
 if __name__ == "__main__":
