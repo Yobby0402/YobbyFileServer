@@ -102,10 +102,56 @@
     var kbLinePollTimer = null;
     var kbLastFiles = [];
     var kbRootFolders = [];
+    var kbManagerCache = {};
 
     function kbFetchJson(url, options) {
         return fetch(url, options || {}).then(function (r) {
             return r.json();
+        });
+    }
+
+    function kbFetchJsonSafe(url, options) {
+        var fetchOptions = Object.assign({}, options || {});
+        var timeoutMs = Number(fetchOptions.timeout_ms || 10000);
+        if (!isFinite(timeoutMs) || timeoutMs <= 0) timeoutMs = 10000;
+        delete fetchOptions.timeout_ms;
+        var controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+        var timer = null;
+        if (controller) {
+            fetchOptions.signal = controller.signal;
+            timer = setTimeout(function () {
+                controller.abort();
+            }, timeoutMs);
+        }
+        function clearTimer() {
+            if (timer) {
+                clearTimeout(timer);
+                timer = null;
+            }
+        }
+        return fetch(url, fetchOptions).then(function (r) {
+            clearTimer();
+            return r
+                .text()
+                .then(function (text) {
+                    try {
+                        return { ok: true, payload: JSON.parse(text) };
+                    } catch (e) {
+                        return {
+                            ok: false,
+                            error: 'JSON 解析失败',
+                            status: r.status,
+                            raw: String(text || '').slice(0, 400),
+                        };
+                    }
+                })
+                .catch(function (e) {
+                    return { ok: false, error: (e && e.message) || String(e), status: r.status };
+                });
+        }).catch(function (e) {
+            clearTimer();
+            var timedOut = !!(controller && controller.signal && controller.signal.aborted);
+            return { ok: false, error: timedOut ? '请求超时' : ((e && e.message) || String(e)), status: 0 };
         });
     }
 
@@ -290,7 +336,74 @@
             kbLinePollTimer = null;
         }
         if (!kbHasActiveJobs(status)) return;
-        kbLinePollTimer = setTimeout(refreshKbLine, 2500);
+        kbLinePollTimer = setTimeout(refreshKbLine, 4000);
+    }
+
+    function todoKbHasActiveJob(status) {
+        var jobs = (status && Array.isArray(status.latest_jobs)) ? status.latest_jobs : [];
+        return jobs.some(kbJobRunning);
+    }
+
+    function entityKbJobs(status) {
+        return (status && Array.isArray(status.latest_jobs)) ? status.latest_jobs : [];
+    }
+
+    function entityKbFindRunningJob(status) {
+        var jobs = entityKbJobs(status);
+        for (var i = 0; i < jobs.length; i += 1) {
+            if (kbJobRunning(jobs[i])) return jobs[i];
+        }
+        return null;
+    }
+
+    function entityKbPanelState(status, loadFailed) {
+        if (loadFailed) return 'load_failed';
+        if (!status) return 'load_failed';
+        if (todoKbHasActiveJob(status)) return 'building';
+        if (Number(status.total_sources || 0) > 0 || Number(status.total_chunks || 0) > 0) return 'ready';
+        var jobs = entityKbJobs(status);
+        if (jobs.some(function (item) { return String((item && item.status) || '') === 'completed'; })) return 'ready';
+        if (jobs.some(function (item) { return String((item && item.status) || '') === 'failed'; })) return 'build_failed';
+        return 'unbuilt';
+    }
+
+    function renderEntityKbDefaultPlaceholder(summaryId, listId, titlePrefix) {
+        var summary = $(summaryId);
+        var wrap = $(listId);
+        if (summary) {
+            summary.textContent = titlePrefix + '未建立，点击“重建”开始建立知识库';
+        }
+        if (wrap) {
+            wrap.innerHTML = '<div class="local-ai-kb-empty">知识库尚未建立。点击“重建”后会开始 embedding。</div>';
+        }
+    }
+
+    function rebuildTodoKb() {
+        var btn = $('localAiTodoKbManagerRebuildBtn');
+        if (btn) {
+            btn.disabled = true;
+            btn.textContent = '已提交…';
+        }
+        return kbFetchJson('/api/local-ai/todo-kb/rebuild', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ async: true }),
+        })
+            .then(function (j) {
+                if (!j || !j.success) {
+                    alert((j && j.error) || 'Todo 知识库重建失败');
+                }
+            })
+            .catch(function () {
+                alert('Todo 知识库重建请求失败');
+            })
+            .finally(function () {
+                if (btn) {
+                    btn.disabled = false;
+                    btn.textContent = '重建';
+                }
+                refreshKbManager({ forceFull: true });
+            });
     }
 
     function ensureKbPreviewPoll() {
@@ -460,6 +573,116 @@
             .join('');
     }
 
+    function entityKbItemStatusClass(item) {
+        var job = item && item.latest_job;
+        if (kbJobRunning(job)) return 'bg-primary';
+        var status = String((item && item.index_status) || '');
+        if (status.indexOf('indexed') === 0) return 'bg-success';
+        if (status === 'failed') return 'bg-danger';
+        return 'bg-secondary';
+    }
+
+    function entityKbItemStatusLabel(item) {
+        var job = item && item.latest_job;
+        if (kbJobRunning(job)) return '处理中 ' + Math.round(Number(job.progress || 0) * 100) + '%';
+        var status = String((item && item.index_status) || 'unknown');
+        if (status.indexOf('indexed') === 0) return '已入库';
+        if (status === 'failed') return '失败';
+        return status || 'unknown';
+    }
+
+    function renderEntityKbPanel(listId, summaryId, titlePrefix, status, items, loadFailed) {
+        var wrap = $(listId);
+        var summary = $(summaryId);
+        var jobs = (status && Array.isArray(status.latest_jobs)) ? status.latest_jobs : [];
+        var running = jobs.filter(kbJobRunning).length;
+        var total = Number((status && status.total_sources) || 0);
+        var chunks = Number((status && status.total_chunks) || 0);
+        if (summary) {
+            summary.textContent = loadFailed
+                ? titlePrefix + '加载失败，请重试'
+                : status
+                ? titlePrefix + '条目 ' + total + ' / 片段 ' + chunks + ' / 运行中 ' + running + ' / 最近任务 ' + jobs.length
+                : '知识库概况加载失败';
+        }
+        if (!wrap) return;
+        if (loadFailed) {
+            wrap.innerHTML = '<div class="local-ai-kb-empty">加载失败，请点击刷新重试</div>';
+            return;
+        }
+        if ((!items || !items.length) && !jobs.length) {
+            wrap.innerHTML = '<div class="local-ai-kb-empty">暂无已索引条目</div>';
+            return;
+        }
+        var jobHtml = jobs.slice(0, 6).map(function (item) {
+            var pct = Math.max(0, Math.min(100, Math.round(Number(item.progress || 0) * 100)));
+            var countText = kbCountText(item);
+            return (
+                '<div class="local-ai-kb-item">' +
+                '<div class="local-ai-kb-item-head">' +
+                '<span class="local-ai-kb-item-title">任务 / ' + kbEscapeHtml(item.source_key || item.job_id || '') + '</span>' +
+                '<span class="badge ' +
+                (kbJobRunning(item) ? 'bg-primary' : item.status === 'completed' ? 'bg-success' : item.status === 'failed' ? 'bg-danger' : 'bg-secondary') +
+                '">' +
+                kbEscapeHtml(item.status || 'unknown') +
+                '</span>' +
+                '</div>' +
+                '<div class="local-ai-kb-item-meta"><span>' +
+                kbEscapeHtml(item.message || item.stage || '') +
+                '</span>' +
+                (countText ? '<span>' + kbEscapeHtml(countText) + '</span>' : '') +
+                '<span>' + pct + '%</span>' +
+                (item.error_text ? '<span>' + kbEscapeHtml(item.error_text) + '</span>' : '') +
+                '</div>' +
+                '</div>'
+            );
+        });
+        var entryHtml = (items || []).slice(0, 120).map(function (item) {
+            var metaBits = [
+                kbEscapeHtml(item.entity_type || 'item'),
+                '片段 ' + Number(item.chunk_count || 0),
+            ];
+            if (item.latest_job && item.latest_job.message) metaBits.push(kbEscapeHtml(item.latest_job.message));
+            if (item.last_error) metaBits.push(kbEscapeHtml(item.last_error));
+            return (
+                '<div class="local-ai-kb-item">' +
+                '<div class="local-ai-kb-item-head">' +
+                '<span class="local-ai-kb-item-title">' + kbEscapeHtml(item.display_name || item.title || item.source_key || '') + '</span>' +
+                '<span class="badge ' + entityKbItemStatusClass(item) + '">' + kbEscapeHtml(entityKbItemStatusLabel(item)) + '</span>' +
+                '</div>' +
+                '<div class="local-ai-kb-item-meta"><span>' + metaBits.join('</span><span>') + '</span></div>' +
+                '</div>'
+            );
+        });
+        wrap.innerHTML = jobHtml.concat(entryHtml).join('');
+    }
+
+    function rebuildProductCompareKb() {
+        var btn = $('localAiProductKbManagerRebuildBtn');
+        if (btn) {
+            btn.disabled = true;
+            btn.textContent = '已提交…';
+        }
+        return kbFetchJson('/api/local-ai/product-compare-kb/rebuild', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ async: true }),
+        })
+            .then(function (j) {
+                if (!j || !j.success) alert((j && j.error) || '产品对比知识库重建失败');
+            })
+            .catch(function () {
+                alert('产品对比知识库重建请求失败');
+            })
+            .finally(function () {
+                if (btn) {
+                    btn.disabled = false;
+                    btn.textContent = '重建';
+                }
+                refreshKbManager({ forceFull: true });
+            });
+    }
+
     function renderKbPreview(path) {
         var empty = $('localAiKbPreviewEmpty');
         var meta = $('localAiKbPreviewMeta');
@@ -511,17 +734,47 @@
     }
 
     function refreshKbManager() {
-        return Promise.all([
-            kbFetchJson('/api/knowledge/status'),
-            kbFetchJson('/api/knowledge/list'),
-            kbFetchJson('/api/knowledge/jobs?limit=30'),
-            kbFetchJson('/api/knowledge/snippets'),
-        ])
+        var requests = {
+            knowledgeStatus: '/api/knowledge/status',
+            knowledgeList: '/api/knowledge/list',
+            knowledgeJobs: '/api/knowledge/jobs?limit=30',
+            knowledgeSnippets: '/api/knowledge/snippets',
+            todoStatus: '/api/local-ai/todo-kb/status',
+            todoEntries: '/api/local-ai/todo-kb/entries',
+            productStatus: '/api/local-ai/product-compare-kb/status',
+            productEntries: '/api/local-ai/product-compare-kb/entries',
+        };
+        var pairs = Object.keys(requests).map(function (key) {
+            return kbFetchJsonSafe(requests[key]).then(function (result) {
+                return { key: key, result: result };
+            });
+        });
+        return Promise.all(pairs)
             .then(function (all) {
-                var status = all[0] && all[0].success ? all[0].status : null;
-                var files = all[1] && all[1].success ? all[1].items || [] : [];
-                var jobs = all[2] && all[2].success ? all[2].items || [] : [];
-                var snippets = all[3] && all[3].success ? all[3].items || [] : [];
+                var data = {};
+                var failed = [];
+                all.forEach(function (item) {
+                    var result = item.result || {};
+                    if (!result.ok) {
+                        failed.push(item.key);
+                        console.warn('[local-ai] kb manager request failed:', item.key, result.status, result.error || result.raw || '');
+                        data[item.key] = null;
+                        return;
+                    }
+                    var payload = result.payload || {};
+                    if (!payload.success) {
+                        failed.push(item.key);
+                    }
+                    data[item.key] = payload;
+                });
+                var status = data.knowledgeStatus && data.knowledgeStatus.success ? data.knowledgeStatus.status : null;
+                var files = data.knowledgeList && data.knowledgeList.success ? data.knowledgeList.items || [] : [];
+                var jobs = data.knowledgeJobs && data.knowledgeJobs.success ? data.knowledgeJobs.items || [] : [];
+                var snippets = data.knowledgeSnippets && data.knowledgeSnippets.success ? data.knowledgeSnippets.items || [] : [];
+                var todoStatus = data.todoStatus && data.todoStatus.success ? data.todoStatus.status : null;
+                var todoEntries = data.todoEntries && data.todoEntries.success ? data.todoEntries.items || [] : [];
+                var productStatus = data.productStatus && data.productStatus.success ? data.productStatus.status : null;
+                var productEntries = data.productEntries && data.productEntries.success ? data.productEntries.items || [] : [];
                 var summary = $('localAiKbManagerSummary');
                 if (summary) {
                     var indexedCount = files.filter(function (item) { return !!item.indexed; }).length;
@@ -543,25 +796,271 @@
                           ' / 零散知识 ' +
                           Number(status.snippet_count || 0)
                         : '知识库概况加载失败';
+                    if (failed.length) {
+                        summary.textContent += ' / 部分接口失败 ' + failed.length;
+                    }
                 }
                 renderKbScanSettings(status && status.scan_settings ? status.scan_settings : null);
                 renderKbManagerFiles(files);
                 renderKbManagerJobs(jobs);
                 renderKbManagerSnippets(snippets);
+                renderEntityKbPanel(
+                    'localAiTodoKbEntryList',
+                    'localAiTodoKbManagerSummary',
+                    '待办知识库 ',
+                    todoStatus,
+                    todoEntries,
+                    failed.indexOf('todoStatus') >= 0 || failed.indexOf('todoEntries') >= 0
+                );
+                renderEntityKbPanel(
+                    'localAiProductKbEntryList',
+                    'localAiProductKbManagerSummary',
+                    '产品对比知识库 ',
+                    productStatus,
+                    productEntries,
+                    failed.indexOf('productStatus') >= 0 || failed.indexOf('productEntries') >= 0
+                );
                 renderKbLineFromStatus(status);
-                scheduleKbManagerPoll(status);
+                scheduleKbManagerPoll(status, todoStatus, productStatus);
             })
-            .catch(function () {});
+            .catch(function (e) {
+                var summary = $('localAiKbManagerSummary');
+                if (summary) summary.textContent = '知识库概况加载失败：' + ((e && e.message) || String(e));
+            });
     }
 
-    function scheduleKbManagerPoll(status) {
+    function scheduleKbManagerPoll(status, todoStatus, productStatus) {
         if (kbManagerPollTimer) {
             clearTimeout(kbManagerPollTimer);
             kbManagerPollTimer = null;
         }
         var modal = $('localAiKbManagerModal');
-        if (!modal || !modal.classList.contains('show') || !kbHasActiveJobs(status)) return;
+        var active = kbHasActiveJobs(status) || todoKbHasActiveJob(todoStatus) || todoKbHasActiveJob(productStatus);
+        if (!modal || !modal.classList.contains('show') || !active) return;
         kbManagerPollTimer = setTimeout(refreshKbManager, 2500);
+    }
+
+    function renderEntityKbPanel(listId, summaryId, titlePrefix, status, items, loadFailed) {
+        var wrap = $(listId);
+        var summary = $(summaryId);
+        var jobs = entityKbJobs(status);
+        var running = jobs.filter(kbJobRunning).length;
+        var total = Number((status && status.total_sources) || 0);
+        var chunks = Number((status && status.total_chunks) || 0);
+        var state = entityKbPanelState(status, loadFailed);
+        var runningJob = entityKbFindRunningJob(status);
+        var runningPct = Math.max(0, Math.min(100, Math.round(Number((runningJob && runningJob.progress) || 0) * 100)));
+
+        if (summary) {
+            if (state === 'load_failed') {
+                summary.textContent = titlePrefix + '加载失败，请重试';
+            } else if (state === 'unbuilt') {
+                summary.textContent = titlePrefix + '未建立，点击“重建”开始建立知识库';
+            } else if (state === 'build_failed') {
+                summary.textContent = titlePrefix + '建立失败，请点击“重建”重试';
+            } else if (state === 'building') {
+                summary.textContent =
+                    titlePrefix +
+                    '建立中 ' +
+                    runningPct +
+                    '%' +
+                    ' / 条目 ' +
+                    total +
+                    ' / 片段 ' +
+                    chunks +
+                    ' / 运行中 ' +
+                    running +
+                    (runningJob && runningJob.message ? ' / ' + runningJob.message : '');
+            } else {
+                summary.textContent = titlePrefix + '已建立 / 条目 ' + total + ' / 片段 ' + chunks + ' / 最近任务 ' + jobs.length;
+            }
+        }
+        if (!wrap) return;
+        if (state === 'load_failed') {
+            wrap.innerHTML = '<div class="local-ai-kb-empty">加载失败，请点击刷新重试</div>';
+            return;
+        }
+        if (state === 'unbuilt') {
+            wrap.innerHTML = '<div class="local-ai-kb-empty">知识库尚未建立。点击“重建”后会开始 embedding。</div>';
+            return;
+        }
+        if (state === 'build_failed') {
+            wrap.innerHTML = '<div class="local-ai-kb-empty">最近一次建立失败，请点击“重建”重新执行。</div>';
+            return;
+        }
+
+        var jobHtml = jobs.slice(0, 6).map(function (item) {
+            var pct = Math.max(0, Math.min(100, Math.round(Number(item.progress || 0) * 100)));
+            var countText = kbCountText(item);
+            return (
+                '<div class="local-ai-kb-item">' +
+                '<div class="local-ai-kb-item-head">' +
+                '<span class="local-ai-kb-item-title">任务 / ' + kbEscapeHtml(item.source_key || item.job_id || '') + '</span>' +
+                '<span class="badge ' +
+                (kbJobRunning(item) ? 'bg-primary' : item.status === 'completed' ? 'bg-success' : item.status === 'failed' ? 'bg-danger' : 'bg-secondary') +
+                '">' +
+                kbEscapeHtml(item.status || 'unknown') +
+                '</span>' +
+                '</div>' +
+                '<div class="local-ai-kb-item-meta"><span>' +
+                kbEscapeHtml(item.message || item.stage || '') +
+                '</span>' +
+                (countText ? '<span>' + kbEscapeHtml(countText) + '</span>' : '') +
+                '<span>' + pct + '%</span>' +
+                (item.error_text ? '<span>' + kbEscapeHtml(item.error_text) + '</span>' : '') +
+                '</div>' +
+                '</div>'
+            );
+        });
+        if (state === 'building') {
+            wrap.innerHTML = jobHtml.length ? jobHtml.join('') : '<div class="local-ai-kb-empty">正在建立知识库，请稍候…</div>';
+            return;
+        }
+
+        var entryHtml = (items || []).slice(0, 120).map(function (item) {
+            var metaBits = [
+                kbEscapeHtml(item.entity_type || 'item'),
+                '片段 ' + Number(item.chunk_count || 0),
+            ];
+            if (item.latest_job && item.latest_job.message) metaBits.push(kbEscapeHtml(item.latest_job.message));
+            if (item.last_error) metaBits.push(kbEscapeHtml(item.last_error));
+            return (
+                '<div class="local-ai-kb-item">' +
+                '<div class="local-ai-kb-item-head">' +
+                '<span class="local-ai-kb-item-title">' + kbEscapeHtml(item.display_name || item.title || item.source_key || '') + '</span>' +
+                '<span class="badge ' + entityKbItemStatusClass(item) + '">' + kbEscapeHtml(entityKbItemStatusLabel(item)) + '</span>' +
+                '</div>' +
+                '<div class="local-ai-kb-item-meta"><span>' + metaBits.join('</span><span>') + '</span></div>' +
+                '</div>'
+            );
+        });
+
+        if (!jobHtml.length && !entryHtml.length) {
+            wrap.innerHTML = '<div class="local-ai-kb-empty">知识库已建立，但当前没有可展示的条目。</div>';
+            return;
+        }
+        wrap.innerHTML = jobHtml.concat(entryHtml).join('');
+    }
+
+    function refreshKbManager(options) {
+        var opts =
+            options && typeof options === 'object' && typeof options.preventDefault !== 'function'
+                ? options
+                : {};
+        var lightweight = !!opts.lightweight && !opts.forceFull;
+        var requests = {
+            knowledgeStatus: '/api/knowledge/status',
+            knowledgeJobs: '/api/knowledge/jobs?limit=30',
+            todoStatus: '/api/local-ai/todo-kb/status',
+            productStatus: '/api/local-ai/product-compare-kb/status',
+        };
+        if (!lightweight) {
+            requests.knowledgeList = '/api/knowledge/list';
+            requests.knowledgeSnippets = '/api/knowledge/snippets';
+            requests.todoEntries = '/api/local-ai/todo-kb/entries';
+            requests.productEntries = '/api/local-ai/product-compare-kb/entries';
+        }
+        var pairs = Object.keys(requests).map(function (key) {
+            return kbFetchJsonSafe(requests[key], { timeout_ms: lightweight ? 8000 : 12000 }).then(function (result) {
+                return { key: key, result: result };
+            });
+        });
+        return Promise.all(pairs)
+            .then(function (all) {
+                var data = Object.assign({}, kbManagerCache);
+                var failed = [];
+                all.forEach(function (item) {
+                    var result = item.result || {};
+                    if (!result.ok) {
+                        failed.push(item.key);
+                        console.warn('[local-ai] kb manager request failed:', item.key, result.status, result.error || result.raw || '');
+                        return;
+                    }
+                    var payload = result.payload || {};
+                    if (!payload.success) {
+                        failed.push(item.key);
+                        return;
+                    }
+                    data[item.key] = payload;
+                    kbManagerCache[item.key] = payload;
+                });
+                var status = data.knowledgeStatus && data.knowledgeStatus.success ? data.knowledgeStatus.status : null;
+                var files = data.knowledgeList && data.knowledgeList.success ? data.knowledgeList.items || [] : [];
+                var jobs = data.knowledgeJobs && data.knowledgeJobs.success ? data.knowledgeJobs.items || [] : [];
+                var snippets = data.knowledgeSnippets && data.knowledgeSnippets.success ? data.knowledgeSnippets.items || [] : [];
+                var todoStatus = data.todoStatus && data.todoStatus.success ? data.todoStatus.status : null;
+                var todoEntries = data.todoEntries && data.todoEntries.success ? data.todoEntries.items || [] : [];
+                var productStatus = data.productStatus && data.productStatus.success ? data.productStatus.status : null;
+                var productEntries = data.productEntries && data.productEntries.success ? data.productEntries.items || [] : [];
+                var summary = $('localAiKbManagerSummary');
+                if (summary) {
+                    var indexedCount = files.filter(function (item) { return !!item.indexed; }).length;
+                    var pendingCount = files.filter(kbNeedsIndex).length;
+                    var excludedCount = status
+                        ? Number(status.excluded_files || 0)
+                        : files.filter(function (item) { return !!item.excluded; }).length;
+                    summary.textContent = status
+                        ? '候选文件 ' +
+                          files.length +
+                          ' / 已入库 ' +
+                          indexedCount +
+                          ' / 待处理 ' +
+                          pendingCount +
+                          ' / 已排除 ' +
+                          excludedCount +
+                          ' / 片段 ' +
+                          Number(status.total_chunks || 0) +
+                          ' / 零散知识 ' +
+                          Number(status.snippet_count || 0)
+                        : '知识库概况加载失败';
+                    if (failed.length) {
+                        summary.textContent += ' / 部分接口失败 ' + failed.length;
+                    }
+                }
+                renderKbScanSettings(status && status.scan_settings ? status.scan_settings : null);
+                renderKbManagerFiles(files);
+                renderKbManagerJobs(jobs);
+                renderKbManagerSnippets(snippets);
+                renderEntityKbPanel(
+                    'localAiTodoKbEntryList',
+                    'localAiTodoKbManagerSummary',
+                    '待办知识库',
+                    todoStatus,
+                    todoEntries,
+                    failed.indexOf('todoStatus') >= 0 || (failed.indexOf('todoEntries') >= 0 && !kbManagerCache.todoEntries)
+                );
+                renderEntityKbPanel(
+                    'localAiProductKbEntryList',
+                    'localAiProductKbManagerSummary',
+                    '产品对比知识库',
+                    productStatus,
+                    productEntries,
+                    failed.indexOf('productStatus') >= 0 || (failed.indexOf('productEntries') >= 0 && !kbManagerCache.productEntries)
+                );
+                renderKbLineFromStatus(status);
+                var stillActive = kbHasActiveJobs(status) || todoKbHasActiveJob(todoStatus) || todoKbHasActiveJob(productStatus);
+                if (lightweight && !stillActive) {
+                    return refreshKbManager({ forceFull: true });
+                }
+                scheduleKbManagerPoll(status, todoStatus, productStatus);
+            })
+            .catch(function (e) {
+                var summary = $('localAiKbManagerSummary');
+                if (summary) summary.textContent = '知识库概况加载失败：' + ((e && e.message) || String(e));
+            });
+    }
+
+    function scheduleKbManagerPoll(status, todoStatus, productStatus) {
+        if (kbManagerPollTimer) {
+            clearTimeout(kbManagerPollTimer);
+            kbManagerPollTimer = null;
+        }
+        var modal = $('localAiKbManagerModal');
+        var active = kbHasActiveJobs(status) || todoKbHasActiveJob(todoStatus) || todoKbHasActiveJob(productStatus);
+        if (!modal || !modal.classList.contains('show') || !active) return;
+        kbManagerPollTimer = setTimeout(function () {
+            refreshKbManager({ lightweight: true });
+        }, 4000);
     }
 
     function setGeneratingState(on) {
@@ -769,6 +1268,8 @@
             preparing: '处理中',
             processing: '处理中',
             mcp: '工具处理中',
+            model_loading: '模型加载中',
+            prompt_processing: '提示词处理中',
             generating: '生成回答中',
             planning: '规划处理中',
             completed: '处理完成',
@@ -793,7 +1294,8 @@
         loadingBox.innerHTML =
             '<div class="local-ai-loading-spinner" role="status" aria-label="加载中"></div>' +
             '<div class="local-ai-loading-title">正在发起请求…</div>' +
-            '<div class="drawio-ai-progress-track" aria-hidden="true"><div class="drawio-ai-progress-ind"></div></div>' +
+            '<div class="drawio-ai-progress-track local-ai-progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div class="drawio-ai-progress-ind local-ai-progress-ind is-determinate"></div></div>' +
+            '<div class="local-ai-loading-percent">进度 0%</div>' +
             '<div class="local-ai-loading-meta">已用 0.0 秒 · 已接收 0 字符 · 阶段: 请求中</div>';
         wrap.appendChild(loadingBox);
         box.appendChild(wrap);
@@ -801,8 +1303,37 @@
         return {
             wrap: wrap,
             titleEl: loadingBox.querySelector('.local-ai-loading-title'),
+            progressTrackEl: loadingBox.querySelector('.local-ai-progress-track'),
+            progressFillEl: loadingBox.querySelector('.local-ai-progress-ind'),
+            percentEl: loadingBox.querySelector('.local-ai-loading-percent'),
             metaEl: loadingBox.querySelector('.local-ai-loading-meta'),
         };
+    }
+
+    function clampProgressPercent(value) {
+        var n = Number(value);
+        if (!isFinite(n)) return null;
+        return Math.max(0, Math.min(100, n));
+    }
+
+    function formatProgressPercent(value) {
+        var n = clampProgressPercent(value);
+        if (n == null) return '';
+        return n >= 99.5 ? '100%' : n.toFixed(n >= 10 ? 0 : 1) + '%';
+    }
+
+    function applyLoadingProgress(refs, percent, stagePercent) {
+        if (!refs) return;
+        var n = clampProgressPercent(percent);
+        if (n == null) return;
+        var text = '进度 ' + formatProgressPercent(n);
+        var sp = clampProgressPercent(stagePercent);
+        if (sp != null && n < 99.5) {
+            text += ' · 当前阶段 ' + formatProgressPercent(sp);
+        }
+        if (refs.percentEl) refs.percentEl.textContent = text;
+        if (refs.progressFillEl) refs.progressFillEl.style.width = n + '%';
+        if (refs.progressTrackEl) refs.progressTrackEl.setAttribute('aria-valuenow', String(Math.round(n)));
     }
 
     function replaceLoadingBubbleWithMarkdown(wrap, rawText) {
@@ -896,12 +1427,17 @@
         var progressChars = 0;
         var progressPhase = 'requesting';
         var progressMessage = '正在发起请求…';
+        var progressPercent = 2;
+        var stageProgressPercent = null;
         var requestStart = performance.now();
         var loadingRemoved = false;
+        var reader = null;
+        var doneSeen = false;
         var ctl = new AbortController();
         currentStreamAbort = ctl;
         setGeneratingState(true);
         setRunStatus('对话状态：请求中');
+        applyLoadingProgress(loadingRefs, progressPercent, stageProgressPercent);
 
         var tick = window.setInterval(function () {
             if (!loadingRefs || loadingRemoved || !loadingRefs.metaEl) return;
@@ -909,8 +1445,11 @@
             if (loadingRefs.titleEl) {
                 loadingRefs.titleEl.textContent = progressMessage || '正在' + localAiPhaseLabel(progressPhase) + '…';
             }
+            applyLoadingProgress(loadingRefs, progressPercent, stageProgressPercent);
             loadingRefs.metaEl.textContent =
-                '已用 ' +
+                '进度 ' +
+                formatProgressPercent(progressPercent) +
+                ' · 已用 ' +
                 sec +
                 ' 秒 · 已接收 ' +
                 Math.max(progressChars, full.length) +
@@ -918,10 +1457,27 @@
                 localAiPhaseLabel(progressPhase);
         }, 200);
 
-        function setPhase(phase, message) {
+        function setPhase(phase, message, percent, stagePercent) {
             progressPhase = String(phase || progressPhase || 'processing');
             progressMessage = String(message || progressMessage || '');
-            setRunStatus('对话状态：' + localAiPhaseLabel(progressPhase) + (progressMessage ? ' · ' + progressMessage : ''));
+            var pct = clampProgressPercent(percent);
+            if (pct != null) {
+                progressPercent = pct;
+            } else if (progressPhase === 'completed') {
+                progressPercent = 100;
+            } else if (progressPhase === 'generating' && progressPercent < 66) {
+                progressPercent = 66;
+            }
+            var stagePct = clampProgressPercent(stagePercent);
+            stageProgressPercent = stagePct == null ? stageProgressPercent : stagePct;
+            applyLoadingProgress(loadingRefs, progressPercent, stageProgressPercent);
+            setRunStatus(
+                '对话状态：' +
+                    localAiPhaseLabel(progressPhase) +
+                    (progressMessage ? ' · ' + progressMessage : '') +
+                    ' · ' +
+                    formatProgressPercent(progressPercent)
+            );
         }
 
         function removeLoadingBubble() {
@@ -951,6 +1507,50 @@
             loadingRemoved = true;
         }
 
+        function handleParsedEvents(events) {
+            for (var i = 0; i < events.length; i++) {
+                var e = events[i];
+                if (e.event === 'token' && e.data && e.data.t) {
+                    full += e.data.t;
+                    progressChars = Math.max(progressChars, full.length);
+                    progressPercent = Math.max(
+                        clampProgressPercent(progressPercent) || 0,
+                        Math.min(96, 68 + Math.log(Math.max(full.length, 1) + 1) * 4.2)
+                    );
+                    renderStreamingAssistantBubble(full);
+                    setPhase('generating', '正在生成回答…', progressPercent);
+                } else if (e.event === 'meta' && e.data) {
+                    setPhase('preparing', '请求成功，正在准备上下文', 5);
+                } else if (e.event === 'chat_progress' && e.data) {
+                    progressChars = Math.max(progressChars, Number(e.data.received_chars || 0), full.length);
+                    setPhase(
+                        e.data.phase || 'processing',
+                        e.data.message || '',
+                        e.data.percent,
+                        e.data.stage_percent
+                    );
+                } else if (e.event === 'todo_patch') {
+                    if (!full.trim() && assistantEl && assistantEl.parentNode) {
+                        removeLoadingBubble();
+                    }
+                    setPhase('planning', '已生成待确认变更', 35);
+                    handleTodoPatch(e.data);
+                } else if (e.event === 'mcp_call' && e.data) {
+                    setPhase('mcp', '正在调用工具：' + String(e.data.tool || 'MCP'), 18);
+                    addMcpLog(e.data);
+                } else if (e.event === 'done') {
+                    doneSeen = true;
+                    stageProgressPercent = 100;
+                    setPhase('completed', '回答生成完成', 100, 100);
+                    break;
+                } else if (e.event === 'error' && e.data) {
+                    full += '\n[错误] ' + (e.data.message || JSON.stringify(e.data));
+                    progressChars = Math.max(progressChars, full.length);
+                    setPhase('error', e.data.message || '处理失败');
+                }
+            }
+        }
+
         try {
             var payload = {
                 messages: messages,
@@ -970,47 +1570,31 @@
                 finalizeAssistantBubble('请求失败: HTTP ' + res.status);
                 return full;
             }
-            setPhase('request_ok', '请求成功，等待服务端处理');
-            var reader = res.body.getReader();
+            setPhase('request_ok', '请求成功，等待服务端处理', 3);
+            reader = res.body.getReader();
             var dec = new TextDecoder();
             var carry = '';
-            while (true) {
+            while (!doneSeen) {
                 var rd = await reader.read();
-                if (rd.done) break;
+                if (rd.done) {
+                    if (carry) {
+                        var tailParsed = parseSseBlocks('\n\n', carry);
+                        carry = tailParsed.carry;
+                        handleParsedEvents(tailParsed.events || []);
+                    }
+                    break;
+                }
                 var chunk = dec.decode(rd.value, { stream: true });
                 var parsed = parseSseBlocks(chunk, carry);
                 carry = parsed.carry;
-                for (var i = 0; i < parsed.events.length; i++) {
-                    var e = parsed.events[i];
-                    if (e.event === 'token' && e.data && e.data.t) {
-                        full += e.data.t;
-                        progressChars = Math.max(progressChars, full.length);
-                        renderStreamingAssistantBubble(full);
-                        setPhase('generating', '正在生成回答…');
-                    } else if (e.event === 'meta' && e.data) {
-                        setPhase('preparing', '请求成功，正在准备上下文');
-                    } else if (e.event === 'chat_progress' && e.data) {
-                        progressChars = Math.max(progressChars, Number(e.data.received_chars || 0), full.length);
-                        setPhase(e.data.phase || 'processing', e.data.message || '');
-                    } else if (e.event === 'todo_patch') {
-                        if (!full.trim() && assistantEl && assistantEl.parentNode) {
-                            removeLoadingBubble();
-                        }
-                        setPhase('planning', '已生成待确认变更');
-                        handleTodoPatch(e.data);
-                    } else if (e.event === 'mcp_call' && e.data) {
-                        setPhase('mcp', '正在调用工具：' + String(e.data.tool || 'MCP'));
-                        addMcpLog(e.data);
-                    } else if (e.event === 'done') {
-                        setPhase('completed', '回答生成完成');
-                    } else if (e.event === 'error' && e.data) {
-                        full += '\n[错误] ' + (e.data.message || JSON.stringify(e.data));
-                        progressChars = Math.max(progressChars, full.length);
-                        setPhase('error', e.data.message || '处理失败');
-                    }
-                }
+                handleParsedEvents(parsed.events || []);
                 var box = $('localAiMessages');
                 if (box) box.scrollTop = box.scrollHeight;
+            }
+            if (doneSeen && reader) {
+                try {
+                    await reader.cancel();
+                } catch (e) {}
             }
         } catch (err) {
             if (!(err && err.name === 'AbortError')) {
@@ -1022,6 +1606,11 @@
                 setPhase('stopped', '已停止生成');
             }
         } finally {
+            if (reader) {
+                try {
+                    reader.releaseLock();
+                } catch (e) {}
+            }
             currentStreamAbort = null;
             setGeneratingState(false);
             window.clearInterval(tick);
@@ -1039,6 +1628,8 @@
     var pendingPatchRefQuestion = '';
     var pendingPatchConfirmToken = '';
     var pendingPatchSummary = '';
+    var pendingPatchJsonDirty = false;
+    var pendingPatchJsonRendering = false;
 
     function persistPendingPatch() {
         try {
@@ -1058,6 +1649,21 @@
             );
         } catch (e) {}
         refreshPendingPatchHint();
+    }
+
+    function syncPatchJsonFromOps(force) {
+        var ta = $('localAiPatchOpsJson');
+        if (!ta) return;
+        if (!force && pendingPatchJsonDirty) return;
+        pendingPatchJsonRendering = true;
+        try {
+            ta.value = JSON.stringify(Array.isArray(pendingPatchOps) ? pendingPatchOps : [], null, 2);
+            pendingPatchJsonDirty = false;
+        } catch (e) {
+            ta.value = '';
+        } finally {
+            pendingPatchJsonRendering = false;
+        }
     }
 
     function restorePendingPatch() {
@@ -1094,17 +1700,13 @@
 
     function openPendingPatchModal() {
         if (!pendingPatchOps || !pendingPatchOps.length) return;
+        pendingPatchJsonDirty = false;
         ensureRefCache().finally(function () {
             renderOpsEditor();
         });
         $('localAiPatchSummary').textContent = pendingPatchSummary || '有待确认的操作';
         renderOpsEditor();
-        var ta = $('localAiPatchOpsJson');
-        if (ta) {
-            try {
-                ta.value = JSON.stringify(pendingPatchOps, null, 2);
-            } catch (e) {}
-        }
+        syncPatchJsonFromOps(true);
         var modalEl = $('localAiTodoPatchModal');
         if (typeof bootstrap !== 'undefined' && modalEl) {
             var modal = bootstrap.Modal.getInstance(modalEl);
@@ -1315,7 +1917,7 @@
         REF_CACHE.projects.forEach(function (p) {
             var selected = cur === p.id || cur === p.ref || cur === p.name ? ' selected' : '';
             if (selected) matched = true;
-            options.push('<option value="' + p.id + '"' + selected + '>' + p.name + '（' + p.ref + '）</option>');
+            options.push('<option value="' + p.ref + '"' + selected + '>' + p.name + '（' + p.ref + '）</option>');
         });
         if (cur && !matched) {
             options.push('<option value="' + cur + '" selected>当前值（' + cur + '）</option>');
@@ -1335,7 +1937,7 @@
         arr.forEach(function (t) {
             var selected = cur === t.id || cur === t.ref || cur === t.summary ? ' selected' : '';
             if (selected) matched = true;
-            options.push('<option value="' + t.id + '"' + selected + '>' + t.summary + '（' + t.ref + '）</option>');
+            options.push('<option value="' + t.ref + '"' + selected + '>' + t.summary + '（' + t.ref + '）</option>');
         });
         if (cur && !matched) {
             options.push('<option value="' + cur + '" selected>当前值（' + cur + '）</option>');
@@ -1346,12 +1948,7 @@
     function renderOpsEditor() {
         var box = $('localAiPatchOpsEditor');
         if (!box) return;
-        var ta = $('localAiPatchOpsJson');
-        if (ta) {
-            try {
-                ta.value = JSON.stringify(Array.isArray(pendingPatchOps) ? pendingPatchOps : [], null, 2);
-            } catch (e) {}
-        }
+        syncPatchJsonFromOps(false);
         box.innerHTML = '';
         var arr = Array.isArray(pendingPatchOps) ? pendingPatchOps : [];
         if (!arr.length) {
@@ -1494,6 +2091,7 @@
                 pendingPatchOps[idx + 1] = pendingPatchOps[idx];
                 pendingPatchOps[idx] = t2;
             }
+            pendingPatchJsonDirty = false;
             renderOpsEditor();
             persistPendingPatch();
         });
@@ -1505,6 +2103,7 @@
                 var idx = parseInt(card.getAttribute('data-index') || '-1', 10);
                 if (idx < 0) return;
                 pendingPatchOps[idx] = _opDefault(sel.value);
+                pendingPatchJsonDirty = false;
                 renderOpsEditor();
                 persistPendingPatch();
                 return;
@@ -1512,15 +2111,18 @@
             var fieldSel = ev.target.closest('select[data-key][data-type]');
             if (fieldSel && fieldSel.getAttribute('data-key') === 'project_id') {
                 pendingPatchOps = collectOpsFromEditor();
+                pendingPatchJsonDirty = false;
                 renderOpsEditor();
                 persistPendingPatch();
                 return;
             }
             pendingPatchOps = collectOpsFromEditor();
+            syncPatchJsonFromOps(true);
             persistPendingPatch();
         });
         box.addEventListener('input', function () {
             pendingPatchOps = collectOpsFromEditor();
+            syncPatchJsonFromOps(true);
             persistPendingPatch();
         });
     }
@@ -1543,6 +2145,7 @@
         pendingPatchRefQuestion = window._localAiLastUserMessage || '';
         pendingPatchConfirmToken = (data.confirm_token || '').trim();
         pendingPatchSummary = data.summary || '';
+        pendingPatchJsonDirty = false;
         persistPendingPatch();
         ensureRefCache().finally(function () {
             renderOpsEditor();
@@ -1562,14 +2165,7 @@
         }
         var prevEl = $('localAiPatchPreview');
         if (prevEl) prevEl.textContent = (data.preview || []).join('\n');
-        var ta = $('localAiPatchOpsJson');
-        if (ta) {
-            try {
-                ta.value = JSON.stringify(data.ops, null, 2);
-            } catch (e) {
-                ta.value = '';
-            }
-        }
+        syncPatchJsonFromOps(true);
         var modalEl = $('localAiTodoPatchModal');
         if (typeof bootstrap !== 'undefined' && modalEl) {
             var modal = bootstrap.Modal.getInstance(modalEl);
@@ -1585,7 +2181,7 @@
     function readOpsFromPatchEditor() {
         var ta = $('localAiPatchOpsJson');
         var ops = null;
-        if (ta && ta.value && ta.value.trim()) {
+        if (pendingPatchJsonDirty && ta && ta.value && ta.value.trim()) {
             try {
                 var parsed = JSON.parse(ta.value);
                 if (Array.isArray(parsed)) ops = parsed;
@@ -1598,9 +2194,12 @@
         if (!ops) {
             pendingPatchOps = collectOpsFromEditor();
             ops = pendingPatchOps;
+            syncPatchJsonFromOps(true);
         } else {
             pendingPatchOps = ops;
+            pendingPatchJsonDirty = false;
             renderOpsEditor();
+            syncPatchJsonFromOps(true);
         }
         persistPendingPatch();
         if (!ops || !ops.length) return { ok: false, error: '没有可校验的操作' };
@@ -1642,10 +2241,10 @@
         }
         pendingPatchOps = j.ops || parsed.ops;
         pendingPatchConfirmToken = '';
+        pendingPatchJsonDirty = false;
         persistPendingPatch();
         renderOpsEditor();
-        var ta = $('localAiPatchOpsJson');
-        if (ta) ta.value = JSON.stringify(pendingPatchOps, null, 2);
+        syncPatchJsonFromOps(true);
         var p = $('localAiPatchPreview');
         if (p && Array.isArray(j.preview)) p.textContent = j.preview.join('\n');
         if (st) {
@@ -1680,10 +2279,12 @@
             pendingPatchRefQuestion = '';
             pendingPatchConfirmToken = '';
             pendingPatchSummary = '';
+            pendingPatchJsonDirty = false;
             persistPendingPatch();
             try {
                 window.dispatchEvent(new CustomEvent('yobboy:todo-updated', { detail: { source: 'local-ai' } }));
             } catch (e) {}
+            refreshKbManager();
             var okText = '变更已成功应用。';
             appendMsg('assistant', okText);
             pushAssistantHistory(okText);
@@ -1783,6 +2384,25 @@
                 }
             });
         }
+        renderEntityKbDefaultPlaceholder('localAiTodoKbManagerSummary', 'localAiTodoKbEntryList', '待办知识库');
+        renderEntityKbDefaultPlaceholder('localAiProductKbManagerSummary', 'localAiProductKbEntryList', '产品对比知识库');
+        var todoKbManagerRefreshBtn = $('localAiTodoKbManagerRefreshBtn');
+        if (todoKbManagerRefreshBtn) {
+            todoKbManagerRefreshBtn.addEventListener('click', refreshKbManager);
+        }
+        var todoKbManagerRebuildBtn = $('localAiTodoKbManagerRebuildBtn');
+        if (todoKbManagerRebuildBtn) {
+            todoKbManagerRebuildBtn.addEventListener('click', rebuildTodoKb);
+        }
+        var productKbManagerRefreshBtn = $('localAiProductKbManagerRefreshBtn');
+        if (productKbManagerRefreshBtn) {
+            productKbManagerRefreshBtn.addEventListener('click', refreshKbManager);
+        }
+        var productKbManagerRebuildBtn = $('localAiProductKbManagerRebuildBtn');
+        if (productKbManagerRebuildBtn) {
+            productKbManagerRebuildBtn.addEventListener('click', rebuildProductCompareKb);
+        }
+
         var kbRefreshBtn = $('localAiKbRefreshBtn');
         if (kbRefreshBtn) {
             kbRefreshBtn.addEventListener('click', refreshKbManager);
@@ -1945,9 +2565,16 @@
         $('localAiPatchAddOpBtn').addEventListener('click', function () {
             if (!Array.isArray(pendingPatchOps)) pendingPatchOps = [];
             pendingPatchOps.push(_opDefault('create_task'));
+            pendingPatchJsonDirty = false;
             renderOpsEditor();
             persistPendingPatch();
         });
+        var patchJson = $('localAiPatchOpsJson');
+        if (patchJson) {
+            patchJson.addEventListener('input', function () {
+                if (!pendingPatchJsonRendering) pendingPatchJsonDirty = true;
+            });
+        }
         $('localAiMcpToggleBtn').addEventListener('click', function () {
             var list = $('localAiMcpList');
             if (!list) return;

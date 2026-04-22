@@ -554,6 +554,12 @@
     line-height: 1.5;
 }
 
+.local-ai-loading-percent {
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--t-primary, #6366f1);
+}
+
 .local-ai-input-row {
     display: flex;
     gap: 8px;
@@ -1080,6 +1086,12 @@
         var(--t-primary, #6366f1)
     );
     animation: drawio-ai-ind 1.2s ease-in-out infinite;
+}
+
+.local-ai-progress-ind.is-determinate {
+    width: 0%;
+    animation: none;
+    transition: width 0.18s ease;
 }
 
 @keyframes drawio-ai-ind {

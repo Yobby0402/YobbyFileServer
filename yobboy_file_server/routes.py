@@ -19,12 +19,14 @@ import posixpath # 用于处理 URL 路径
 from .share_links import ShareLinkManager  # 导入分享链接管理器
 from .todo_manager import todo_manager
 from .todo_extended_manager import todo_extended_manager
+from . import todo_report_builder
 from .serial_manager import serial_manager
 from .shared_serial_hub import shared_serial_hub
 from .product_compare_manager import product_compare_manager
 from .logging_setup import parse_log_level
 from .paths import project_base_dir, project_path
 from . import todo_kb_store
+from . import product_compare_kb_store
 
 _routes_logger = logging.getLogger('yobboy_file_server.routes')
 
@@ -377,15 +379,10 @@ def init_app(app):
         }
 
     def _todo_kb_rebuild_all_async() -> None:
-        try:
-            todo_kb_store.queue_rebuild_all(
-                _todo_kb_root_dir(),
-                app.config.get('TODO_MANAGER'),
-                app.config.get('TODO_EXTENDED_MANAGER'),
-                app_config=_todo_kb_app_config(),
-            )
-        except Exception as exc:
-            _routes_logger.warning("todo kb async rebuild failed: %s", exc)
+        return None
+
+    def _product_compare_kb_rebuild_all_async() -> None:
+        return None
 
     # 初始化Draw.io静态文件目录（静默检查，不影响运行）
     # Draw.io是可选功能，不存在也不影响文件浏览器功能
@@ -1044,6 +1041,104 @@ def init_app(app):
             return jsonify({'success': True, 'html': html_content})
         except Exception as exc:
             return jsonify({'success': False, 'error': str(exc)}), 500
+
+    @app.route('/api/todo/v2/reports/<report_type>', methods=['GET'])
+    def todo_v2_report_list(report_type):
+        """获取日报/周报列表"""
+        if not has_todo_access():
+            return jsonify({'success': False, 'error': '未授权'}), 401
+
+        extended_manager = current_app.config['TODO_EXTENDED_MANAGER']
+        try:
+            items = extended_manager.list_reports(report_type)
+            return jsonify({'success': True, 'items': items})
+        except ValueError as exc:
+            return jsonify({'success': False, 'error': str(exc)}), 400
+
+    @app.route('/api/todo/v2/reports/<report_type>/generate', methods=['POST'])
+    def todo_v2_report_generate(report_type):
+        """生成并可选保存日报/周报"""
+        if not has_todo_access():
+            return jsonify({'success': False, 'error': '未授权'}), 401
+
+        manager = current_app.config['TODO_MANAGER']
+        extended_manager = current_app.config['TODO_EXTENDED_MANAGER']
+        payload = request.json or {}
+        save = bool(payload.get('save', True))
+
+        try:
+            if report_type == 'daily':
+                report = todo_report_builder.build_daily_report(
+                    manager,
+                    extended_manager,
+                    date_str=(payload.get('date') or '').strip() or None,
+                )
+            elif report_type == 'weekly':
+                report = todo_report_builder.build_weekly_report(
+                    manager,
+                    extended_manager,
+                    week_key=(payload.get('week_key') or '').strip() or None,
+                    ref_date=(payload.get('date') or '').strip() or None,
+                )
+            else:
+                return jsonify({'success': False, 'error': '不支持的 report_type'}), 400
+        except ValueError as exc:
+            return jsonify({'success': False, 'error': str(exc)}), 400
+
+        record = report.to_record()
+        if save:
+            record = extended_manager.set_report(report_type, report.key, record)
+            _todo_kb_rebuild_all_async()
+        return jsonify({'success': True, 'report': record, 'saved': save})
+
+    @app.route('/api/todo/v2/reports/<report_type>/<report_key>', methods=['GET', 'PUT', 'DELETE'])
+    def todo_v2_report_detail(report_type, report_key):
+        """获取、更新、删除日报/周报"""
+        if not has_todo_access():
+            return jsonify({'success': False, 'error': '未授权'}), 401
+
+        extended_manager = current_app.config['TODO_EXTENDED_MANAGER']
+
+        if request.method == 'GET':
+            try:
+                item = extended_manager.get_report(report_type, report_key)
+            except ValueError as exc:
+                return jsonify({'success': False, 'error': str(exc)}), 400
+            if not item:
+                return jsonify({'success': False, 'error': '报表不存在'}), 404
+            return jsonify({'success': True, 'report': item})
+
+        if request.method == 'PUT':
+            payload = request.json or {}
+            try:
+                existing = extended_manager.get_report(report_type, report_key)
+                if not existing:
+                    return jsonify({'success': False, 'error': '报表不存在'}), 404
+                merged = {
+                    **existing,
+                    'title': payload.get('title', existing.get('title', '')),
+                    'content': payload.get('content', existing.get('content', '')),
+                    'period_start': payload.get('period_start', existing.get('period_start', '')),
+                    'period_end': payload.get('period_end', existing.get('period_end', '')),
+                    'source_tasks': payload.get('source_tasks', existing.get('source_tasks', [])),
+                    'source_notes': payload.get('source_notes', existing.get('source_notes', [])),
+                    'generated_at': payload.get('generated_at', existing.get('generated_at', '')),
+                    'created_at': existing.get('created_at', ''),
+                }
+                item = extended_manager.set_report(report_type, report_key, merged)
+                _todo_kb_rebuild_all_async()
+                return jsonify({'success': True, 'report': item})
+            except ValueError as exc:
+                return jsonify({'success': False, 'error': str(exc)}), 400
+
+        try:
+            success = extended_manager.delete_report(report_type, report_key)
+        except ValueError as exc:
+            return jsonify({'success': False, 'error': str(exc)}), 400
+        if not success:
+            return jsonify({'success': False, 'error': '报表不存在'}), 404
+        _todo_kb_rebuild_all_async()
+        return jsonify({'success': True})
 
     @app.route('/api/todo/v2/file_tree', methods=['GET'])
     def todo_v2_file_tree():
@@ -2246,6 +2341,7 @@ def init_app(app):
         
         try:
             file_data = manager.create_file(name)
+            _product_compare_kb_rebuild_all_async()
             return jsonify({'success': True, 'file': file_data})
         except Exception as exc:
             return jsonify({'success': False, 'error': str(exc)}), 400
@@ -2271,6 +2367,7 @@ def init_app(app):
             payload = request.json or {}
             try:
                 file_data = manager.update_file(file_id, name=payload.get('name'))
+                _product_compare_kb_rebuild_all_async()
                 return jsonify({'success': True, 'file': file_data})
             except FileNotFoundError:
                 return jsonify({'success': False, 'error': '文件不存在'}), 404
@@ -2280,6 +2377,7 @@ def init_app(app):
         # DELETE
         try:
             manager.delete_file(file_id)
+            _product_compare_kb_rebuild_all_async()
             return jsonify({'success': True, 'file_id': file_id})
         except Exception as exc:
             return jsonify({'success': False, 'error': str(exc)}), 500
@@ -2309,6 +2407,7 @@ def init_app(app):
                     direction=payload.get('direction', 'higher')
                 )
             file_data = manager.get_file(file_id)
+            _product_compare_kb_rebuild_all_async()
             return jsonify({'success': True, 'attribute': attr, 'file': file_data})
         except FileNotFoundError:
             return jsonify({'success': False, 'error': '文件不存在'}), 404
@@ -2337,6 +2436,7 @@ def init_app(app):
                     direction=payload.get('direction')
                 )
                 file_data = manager.get_file(file_id)
+                _product_compare_kb_rebuild_all_async()
                 return jsonify({'success': True, 'attribute': attr, 'file': file_data})
             except FileNotFoundError:
                 return jsonify({'success': False, 'error': '文件不存在'}), 404
@@ -2347,6 +2447,7 @@ def init_app(app):
         try:
             manager.delete_attribute(file_id, attr_id)
             file_data = manager.get_file(file_id)
+            _product_compare_kb_rebuild_all_async()
             return jsonify({'success': True, 'attribute_id': attr_id, 'file': file_data})
         except FileNotFoundError:
             return jsonify({'success': False, 'error': '文件不存在'}), 404
@@ -2366,6 +2467,7 @@ def init_app(app):
         try:
             manager.reorder_attributes(file_id, attr_orders)
             file_data = manager.get_file(file_id)
+            _product_compare_kb_rebuild_all_async()
             return jsonify({'success': True, 'file': file_data})
         except FileNotFoundError:
             return jsonify({'success': False, 'error': '文件不存在'}), 404
@@ -2390,6 +2492,7 @@ def init_app(app):
                 link=payload.get('link')
             )
             file_data = manager.get_file(file_id)
+            _product_compare_kb_rebuild_all_async()
             return jsonify({'success': True, 'product': product, 'file': file_data})
         except FileNotFoundError:
             return jsonify({'success': False, 'error': '文件不存在'}), 404
@@ -2416,6 +2519,7 @@ def init_app(app):
                     link=payload.get('link')
                 )
                 file_data = manager.get_file(file_id)
+                _product_compare_kb_rebuild_all_async()
                 return jsonify({'success': True, 'product': product, 'file': file_data})
             except FileNotFoundError:
                 return jsonify({'success': False, 'error': '文件不存在'}), 404
@@ -2426,6 +2530,7 @@ def init_app(app):
         try:
             manager.delete_product(file_id, product_id)
             file_data = manager.get_file(file_id)
+            _product_compare_kb_rebuild_all_async()
             return jsonify({'success': True, 'product_id': product_id, 'file': file_data})
         except FileNotFoundError:
             return jsonify({'success': False, 'error': '文件不存在'}), 404
@@ -2445,6 +2550,7 @@ def init_app(app):
         try:
             manager.reorder_products(file_id, product_orders)
             file_data = manager.get_file(file_id)
+            _product_compare_kb_rebuild_all_async()
             return jsonify({'success': True, 'file': file_data})
         except FileNotFoundError:
             return jsonify({'success': False, 'error': '文件不存在'}), 404
@@ -2487,6 +2593,7 @@ def init_app(app):
                 if product.get('belonging', '').strip() == belonging:
                     product['color'] = color
             manager._save_file(file_id, data)
+            _product_compare_kb_rebuild_all_async()
             return jsonify({'success': True, 'file': data})
         except FileNotFoundError:
             return jsonify({'success': False, 'error': '文件不存在'}), 404

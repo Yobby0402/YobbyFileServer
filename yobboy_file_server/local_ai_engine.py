@@ -38,6 +38,98 @@ def _openai_compat_chat_root(probe_root: str) -> str:
     return r
 
 
+def _lmstudio_rest_chat_root(probe_root: str) -> str:
+    """
+    LM Studio REST Chat API 位于 …/api/v1/chat，会额外发送模型加载与 prompt 处理进度事件。
+    """
+    r = (probe_root or "").strip().rstrip("/")
+    if r.endswith("/api/v1"):
+        return r
+    if r.endswith("/v1"):
+        return r[: -len("/v1")] + "/api/v1"
+    return r + "/api/v1"
+
+
+def _plain_text_from_content(content: Any) -> str:
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: List[str] = []
+        for part in content:
+            if not isinstance(part, dict):
+                continue
+            if part.get("type") == "text":
+                parts.append(str(part.get("text") or ""))
+            elif part.get("type") == "image_url":
+                parts.append("[图片]")
+        return "\n".join(p for p in parts if p).strip()
+    return str(content or "")
+
+
+def _rest_input_from_content(content: Any) -> Any:
+    if isinstance(content, list):
+        items: List[Dict[str, str]] = []
+        text_parts: List[str] = []
+        has_image = False
+        for part in content:
+            if not isinstance(part, dict):
+                continue
+            if part.get("type") == "text":
+                text = str(part.get("text") or "")
+                if text:
+                    text_parts.append(text)
+            elif part.get("type") == "image_url":
+                image_url = part.get("image_url") or {}
+                url = str(image_url.get("url") or "")
+                if url.startswith("data:"):
+                    has_image = True
+                    if text_parts:
+                        items.append({"type": "message", "content": "\n".join(text_parts).strip()})
+                        text_parts = []
+                    items.append({"type": "image", "data_url": url})
+        if has_image:
+            if text_parts:
+                items.append({"type": "message", "content": "\n".join(text_parts).strip()})
+            return items
+        return "\n".join(text_parts).strip() or "继续"
+    text = _plain_text_from_content(content).strip()
+    return text or "继续"
+
+
+def _rest_prompt_and_input(messages: List[Dict[str, Any]]) -> tuple[str, Any]:
+    system_text = ""
+    work = list(messages or [])
+    if work and work[0].get("role") == "system":
+        system_text = _plain_text_from_content(work[0].get("content")).strip()
+        work = work[1:]
+
+    last_user_idx = -1
+    for idx in range(len(work) - 1, -1, -1):
+        if work[idx].get("role") == "user":
+            last_user_idx = idx
+            break
+
+    if last_user_idx < 0:
+        return system_text, "继续"
+
+    prior = work[:last_user_idx]
+    last_input = _rest_input_from_content(work[last_user_idx].get("content"))
+    transcript_lines: List[str] = []
+    for item in prior[-18:]:
+        role = "用户" if item.get("role") == "user" else "助手"
+        text = _plain_text_from_content(item.get("content")).strip()
+        if not text:
+            continue
+        if len(text) > 1800:
+            text = text[:1800].rstrip() + "…"
+        transcript_lines.append(f"{role}: {text}")
+
+    if transcript_lines:
+        history = "以下是此前对话记录，仅用于延续上下文；最新用户消息会在 input 中单独提供。\n" + "\n\n".join(transcript_lines)
+        system_text = (system_text + "\n\n" + history).strip() if system_text else history
+    return system_text, last_input
+
+
 def _http_json(method: str, url: str, body: Optional[Dict[str, Any]] = None, timeout: float = 5.0) -> Any:
     data = None
     headers = {"Accept": "application/json"}
@@ -394,13 +486,12 @@ def _shrink_messages_for_lm_context(
     return out
 
 
-def stream_generate(
+def _prepare_generation_request(
     app_config: Dict[str, Any],
     messages: List[Dict[str, Any]],
-    system: Optional[str] = None,
-    max_new_tokens: Optional[int] = None,
-) -> Generator[str, None, None]:
-    """通过 LM Studio OpenAI 兼容 API 逐段产出文本。"""
+    system: Optional[str],
+    max_new_tokens: Optional[int],
+) -> Dict[str, Any]:
     global _backend, _load_error, _api_root, _active_model
     ctx = _effective_lm_context_tokens(app_config)
     min_reply = max(192, min(1024, ctx // 5))
@@ -411,8 +502,7 @@ def stream_generate(
         with _engine_lock:
             _backend = "none"
             _load_error = probe["error"]
-        yield f"\n[生成错误] {probe['error']}\n"
-        return
+        return {"error": probe["error"]}
 
     with _engine_lock:
         _backend = "lm_studio_api"
@@ -432,6 +522,190 @@ def stream_generate(
         "max_tokens": max_tok,
         "stream": True,
     }
+    return {
+        "probe": probe,
+        "built": built,
+        "body": body,
+        "ctx": ctx,
+        "max_tok": max_tok,
+    }
+
+
+def _parse_sse_block(block: str) -> tuple[str, str]:
+    event_name = "message"
+    data_lines: List[str] = []
+    for raw in block.splitlines():
+        line = raw.strip("\r")
+        if not line or line.startswith(":"):
+            continue
+        if line.startswith("event:"):
+            event_name = line[6:].strip() or "message"
+        elif line.startswith("data:"):
+            data_lines.append(line[5:].lstrip())
+    return event_name, "\n".join(data_lines)
+
+
+def _iter_sse_json(resp: Any) -> Generator[tuple[str, Any], None, None]:
+    buffer = ""
+    for raw_line in resp:
+        buffer += raw_line.decode("utf-8", errors="ignore")
+        while "\n\n" in buffer:
+            block, buffer = buffer.split("\n\n", 1)
+            event_name, data_text = _parse_sse_block(block)
+            if not data_text:
+                continue
+            if data_text.strip() == "[DONE]":
+                yield event_name, "[DONE]"
+                continue
+            try:
+                yield event_name, json.loads(data_text)
+            except json.JSONDecodeError:
+                yield event_name, {"raw": data_text}
+    if buffer.strip():
+        event_name, data_text = _parse_sse_block(buffer)
+        if data_text:
+            try:
+                yield event_name, json.loads(data_text)
+            except json.JSONDecodeError:
+                yield event_name, {"raw": data_text}
+
+
+def _stream_generate_rest_events(
+    app_config: Dict[str, Any],
+    prepared: Dict[str, Any],
+) -> Generator[Dict[str, Any], None, None]:
+    probe = prepared["probe"]
+    system_prompt, rest_input = _rest_prompt_and_input(prepared["built"])
+    body: Dict[str, Any] = {
+        "model": probe["model"],
+        "input": rest_input,
+        "temperature": float(app_config.get("LOCAL_AI_TEMPERATURE", 0.7) or 0.7),
+        "top_p": float(app_config.get("LOCAL_AI_TOP_P", 0.95) or 0.95),
+        "max_output_tokens": int(prepared["max_tok"]),
+        "context_length": int(prepared["ctx"]),
+        "stream": True,
+        "store": False,
+    }
+    if system_prompt:
+        body["system_prompt"] = system_prompt
+    data = json.dumps(body).encode("utf-8")
+    rest_root = _lmstudio_rest_chat_root(probe["api_root"])
+    req = urllib.request.Request(
+        rest_root + "/chat",
+        data=data,
+        method="POST",
+        headers={
+            "Content-Type": "application/json",
+            "Accept": "text/event-stream",
+        },
+    )
+
+    emitted = ""
+    with urllib.request.urlopen(req, timeout=300) as resp:
+        for event_name, obj in _iter_sse_json(resp):
+            if obj == "[DONE]":
+                break
+            if not isinstance(obj, dict):
+                continue
+            typ = str(obj.get("type") or event_name or "").strip()
+            if typ in ("model_load.progress", "prompt_processing.progress"):
+                raw_progress = obj.get("progress")
+                try:
+                    stage_percent = max(0.0, min(100.0, float(raw_progress) * 100.0))
+                except (TypeError, ValueError):
+                    stage_percent = None
+                if typ == "model_load.progress":
+                    overall = 6.0 + (stage_percent or 0.0) * 0.18
+                    phase = "model_loading"
+                    message = "LM Studio 正在加载模型"
+                else:
+                    overall = 24.0 + (stage_percent or 0.0) * 0.42
+                    phase = "prompt_processing"
+                    message = "LM Studio 正在处理提示词"
+                yield {
+                    "type": "progress",
+                    "phase": phase,
+                    "message": message,
+                    "percent": round(overall, 1),
+                    "stage_percent": round(stage_percent, 1) if stage_percent is not None else None,
+                }
+                continue
+            if typ in ("message.start", "response.start"):
+                yield {
+                    "type": "progress",
+                    "phase": "generating",
+                    "message": "LM Studio 已开始生成回答",
+                    "percent": 68.0,
+                }
+                continue
+            if typ in ("message.delta", "response.output_text.delta", "content.delta"):
+                text = (
+                    obj.get("content")
+                    or obj.get("text")
+                    or obj.get("delta")
+                    or ((obj.get("message") or {}).get("content") if isinstance(obj.get("message"), dict) else "")
+                )
+                if text:
+                    emitted += str(text)
+                    yield {"type": "token", "text": str(text)}
+                continue
+            if typ in ("reasoning.delta", "response.reasoning.delta"):
+                yield {
+                    "type": "progress",
+                    "phase": "generating",
+                    "message": "LM Studio 正在推理",
+                    "percent": 66.0,
+                }
+                continue
+            if typ in ("chat.end", "response.completed", "message.end"):
+                result = obj.get("result") if isinstance(obj.get("result"), dict) else {}
+                output_text = ""
+                if result:
+                    output_text = str(result.get("output_text") or result.get("text") or "")
+                    if not output_text and isinstance(result.get("content"), str):
+                        output_text = str(result.get("content") or "")
+                if output_text and not emitted:
+                    emitted += output_text
+                    yield {"type": "token", "text": output_text}
+                stats = obj.get("stats") or (result.get("stats") if isinstance(result, dict) else None) or {}
+                if stats:
+                    yield {"type": "stats", "stats": stats}
+                yield {
+                    "type": "progress",
+                    "phase": "completed",
+                    "message": "LM Studio 生成完成",
+                    "percent": 100.0,
+                }
+                break
+            if typ in ("error", "chat.error", "response.error"):
+                message = str(obj.get("message") or obj.get("error") or obj)
+                yield {"type": "error", "message": message}
+                break
+
+
+def _stream_generate_openai_events(
+    app_config: Dict[str, Any],
+    prepared: Dict[str, Any],
+    *,
+    fallback_reason: str = "",
+) -> Generator[Dict[str, Any], None, None]:
+    probe = prepared["probe"]
+    body = prepared["body"]
+    if fallback_reason:
+        yield {
+            "type": "progress",
+            "phase": "generating",
+            "message": "LM Studio 进度事件不可用，已切回兼容流",
+            "percent": 66.0,
+            "details": {"fallback_reason": fallback_reason[:300]},
+        }
+    else:
+        yield {
+            "type": "progress",
+            "phase": "generating",
+            "message": "正在连接 LM Studio 兼容流",
+            "percent": 60.0,
+        }
     data = json.dumps(body).encode("utf-8")
     chat_root = _openai_compat_chat_root(probe["api_root"])
     req = urllib.request.Request(
@@ -462,12 +736,54 @@ def stream_generate(
                 delta = choices[0].get("delta") or {}
                 content = delta.get("content")
                 if content:
-                    yield content
+                    yield {"type": "token", "text": content}
     except urllib.error.HTTPError as e:
         detail = e.read().decode("utf-8", errors="ignore")
-        yield f"\n[生成错误] HTTP {e.code}: {detail or e.reason}\n"
+        yield {"type": "error", "message": f"HTTP {e.code}: {detail or e.reason}"}
     except Exception as e:
-        yield f"\n[生成错误] {e}\n"
+        yield {"type": "error", "message": str(e)}
+
+
+def stream_generate_events(
+    app_config: Dict[str, Any],
+    messages: List[Dict[str, Any]],
+    system: Optional[str] = None,
+    max_new_tokens: Optional[int] = None,
+) -> Generator[Dict[str, Any], None, None]:
+    """通过 LM Studio 流式生成，并尽量透出 REST 进度事件。"""
+    prepared = _prepare_generation_request(app_config, messages, system, max_new_tokens)
+    if prepared.get("error"):
+        yield {"type": "error", "message": str(prepared["error"])}
+        return
+
+    rest_error = ""
+    try:
+        for event in _stream_generate_rest_events(app_config, prepared):
+            yield event
+        return
+    except urllib.error.HTTPError as e:
+        detail = e.read().decode("utf-8", errors="ignore")
+        rest_error = f"REST HTTP {e.code}: {detail or e.reason}"
+    except Exception as e:
+        rest_error = f"REST {e}"
+
+    for event in _stream_generate_openai_events(app_config, prepared, fallback_reason=rest_error):
+        yield event
+
+
+def stream_generate(
+    app_config: Dict[str, Any],
+    messages: List[Dict[str, Any]],
+    system: Optional[str] = None,
+    max_new_tokens: Optional[int] = None,
+) -> Generator[str, None, None]:
+    """通过 LM Studio 逐段产出文本，供旧调用点保持兼容。"""
+    for event in stream_generate_events(app_config, messages, system=system, max_new_tokens=max_new_tokens):
+        typ = event.get("type")
+        if typ == "token":
+            yield str(event.get("text") or "")
+        elif typ == "error":
+            yield f"\n[生成错误] {event.get('message') or '未知错误'}\n"
 
 def generate_once(
     app_config: Dict[str, Any],

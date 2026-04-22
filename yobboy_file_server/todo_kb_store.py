@@ -264,6 +264,47 @@ def _build_meeting_note_doc(note: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _build_report_doc(report_type: str, report: Dict[str, Any]) -> Dict[str, Any]:
+    key = str(report.get("key") or "").strip()
+    entity_type = "daily_report" if report_type == "daily" else "weekly_report"
+    title_prefix = "日报" if report_type == "daily" else "周报"
+    source_tasks = report.get("source_tasks") if isinstance(report.get("source_tasks"), list) else []
+    source_notes = report.get("source_notes") if isinstance(report.get("source_notes"), list) else []
+    source_lines: List[str] = []
+    if source_tasks:
+        source_lines.append("关联任务:")
+        for task in source_tasks[:20]:
+            if not isinstance(task, dict):
+                continue
+            source_lines.append(
+                f"- {task.get('project_name') or ''} / {task.get('summary') or ''} ({task.get('progress') or 0}%)"
+            )
+    if source_notes:
+        source_lines.append("关联笔记:")
+        for note in source_notes[:10]:
+            if isinstance(note, dict):
+                source_lines.append(f"- {note.get('date') or ''}: {note.get('content') or ''}")
+    text = "\n\n".join(
+        item
+        for item in (
+            str(report.get("content") or "").strip(),
+            "\n".join(source_lines).strip(),
+        )
+        if item
+    )
+    updated_at = str(report.get("updated_at") or report.get("generated_at") or report.get("created_at") or _now_iso())
+    return {
+        "entity_type": entity_type,
+        "entity_id": key,
+        "source_key": _source_key(entity_type, key),
+        "display_name": f"{title_prefix}/{key or '未命名'}",
+        "title": str(report.get("title") or f"{title_prefix} {key}").strip(),
+        "tags": _safe_tags(["todo", entity_type, title_prefix]),
+        "text": text,
+        "updated_at": updated_at,
+    }
+
+
 def _collect_task_docs(project: Dict[str, Any], task: Dict[str, Any], extended_manager: Any) -> List[Dict[str, Any]]:
     docs = [_build_task_doc(project, task, extended_manager)]
     comments = task.get("comments") or []
@@ -301,13 +342,33 @@ def _iter_all_docs(todo_manager: Any, extended_manager: Any) -> List[Dict[str, A
         for note in notes:
             if isinstance(note, dict):
                 docs.append(_build_meeting_note_doc(note))
+        for report_type in ("daily", "weekly"):
+            try:
+                reports = list(extended_manager.list_reports(report_type) or [])
+            except Exception:
+                reports = []
+            for report in reports:
+                if isinstance(report, dict):
+                    docs.append(_build_report_doc(report_type, report))
     return docs
 
 
-def _index_doc(root_dir: str, doc: Dict[str, Any], *, app_config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+def _index_doc(
+    root_dir: str,
+    doc: Dict[str, Any],
+    *,
+    app_config: Optional[Dict[str, Any]] = None,
+    progress_callback: Optional[Any] = None,
+) -> Dict[str, Any]:
     text = str(doc.get("text") or "").strip()
     chunks = knowledge_store._chunk_markdown_text(text)
-    vectors, embed_error = knowledge_store._batch_embed_texts(app_config, [item["text"] for item in chunks], is_query=False)
+    vectors, embed_error = knowledge_store._batch_embed_texts(
+        app_config,
+        [item["text"] for item in chunks],
+        is_query=False,
+        progress_callback=progress_callback,
+        progress_stage="embedding",
+    )
     status = "indexed" if chunks and not embed_error and len(vectors) == len(chunks) else "indexed_partial"
     indexed_at = _now_iso()
     source = knowledge_index_db.upsert_source(
@@ -387,7 +448,20 @@ def rebuild_all(
     indexed_items: List[Dict[str, Any]] = []
     total = max(1, len(docs))
     for idx, doc in enumerate(docs, start=1):
-        indexed_items.append(_index_doc(root_n, doc, app_config=app_config))
+        def doc_progress(**fields: Any) -> None:
+            if progress_callback is None:
+                return
+            doc_progress_value = max(0.0, min(1.0, float(fields.get("progress") or 0.0)))
+            overall = min(0.98, 0.1 + 0.88 * (((idx - 1) + doc_progress_value) / total))
+            progress_callback(
+                stage=str(fields.get("stage") or "embedding"),
+                message=f"正在生成待办向量 {idx}/{len(docs)}：{fields.get('message') or doc.get('title') or doc.get('display_name') or ''}",
+                progress=overall,
+                current_count=idx,
+                total_count=len(docs),
+            )
+
+        indexed_items.append(_index_doc(root_n, doc, app_config=app_config, progress_callback=doc_progress))
         if progress_callback is not None:
             progress_callback(
                 stage="indexing",

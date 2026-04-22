@@ -21,6 +21,7 @@ from . import local_ai_engine
 from . import local_mcp_bridge
 from . import local_ai_skills
 from . import todo_kb_store
+from . import product_compare_kb_store
 from . import todo_ai_bridge
 
 # Draw.io 模式：不拼接通用 Skill；可选 drawio-ai-local.{md,txt}（节选思路参考 next-ai-draw-io，Apache-2.0）。
@@ -348,12 +349,108 @@ def _todo_kb_root_dir() -> str:
     return str(current_app.config.get("ROOT_DIR") or current_app.config.get("BASE_DIR") or "")
 
 
-def _chat_progress_payload(phase: str, message: str, received_chars: int = 0) -> Dict[str, Any]:
-    return {
+def _product_compare_kb_root_dir() -> str:
+    return str(current_app.config.get("ROOT_DIR") or current_app.config.get("BASE_DIR") or "")
+
+
+def _queue_todo_kb_rebuild_safe() -> None:
+    return None
+
+
+def _queue_product_compare_kb_rebuild_safe() -> None:
+    return None
+
+
+def _kb_section(title: str, text: str) -> str:
+    body = str(text or "").strip()
+    if not body:
+        return ""
+    return f"--- {title} ---\n{body}"
+
+
+def _chat_progress_payload(
+    phase: str,
+    message: str,
+    received_chars: int = 0,
+    *,
+    percent: Optional[float] = None,
+    stage_percent: Optional[float] = None,
+    details: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    phase_key = str(phase or "")
+    default_percents = {
+        "preparing": 5.0,
+        "mcp": 18.0,
+        "processing": 42.0,
+        "planning": 35.0,
+        "model_loading": 12.0,
+        "prompt_processing": 42.0,
+        "generating": 66.0,
+        "completed": 100.0,
+    }
+    payload: Dict[str, Any] = {
         "phase": phase,
         "message": message,
         "received_chars": max(0, int(received_chars or 0)),
     }
+    if percent is None:
+        percent = default_percents.get(phase_key)
+    if percent is not None:
+        try:
+            payload["percent"] = round(max(0.0, min(100.0, float(percent))), 1)
+        except (TypeError, ValueError):
+            pass
+    if stage_percent is not None:
+        try:
+            payload["stage_percent"] = round(max(0.0, min(100.0, float(stage_percent))), 1)
+        except (TypeError, ValueError):
+            pass
+    if details:
+        payload["details"] = details
+    return payload
+
+
+def _stream_chat_model_sse(
+    cfg: Dict[str, Any],
+    messages: List[Dict[str, Any]],
+    *,
+    system: Optional[str] = None,
+    max_new_tokens: Optional[int] = None,
+) -> Generator[str, None, None]:
+    received_chars = 0
+    for event in local_ai_engine.stream_generate_events(
+        cfg,
+        messages,
+        system=system,
+        max_new_tokens=max_new_tokens,
+    ):
+        event_type = str(event.get("type") or "")
+        if event_type == "token":
+            text = str(event.get("text") or "")
+            if not text:
+                continue
+            received_chars += len(text)
+            yield _sse("token", {"t": text})
+            continue
+        if event_type == "progress":
+            yield _sse(
+                "chat_progress",
+                _chat_progress_payload(
+                    str(event.get("phase") or "processing"),
+                    str(event.get("message") or ""),
+                    received_chars,
+                    percent=event.get("percent"),
+                    stage_percent=event.get("stage_percent"),
+                    details=event.get("details") if isinstance(event.get("details"), dict) else None,
+                ),
+            )
+            continue
+        if event_type == "stats":
+            yield _sse("generation_stats", event.get("stats") or {})
+            continue
+        if event_type == "error":
+            yield _sse("error", {"message": str(event.get("message") or "生成失败")})
+            return
 
 
 def register_local_ai_routes(app) -> None:
@@ -834,7 +931,7 @@ def register_local_ai_routes(app) -> None:
             todo_attach = ""
             if (
                 tm
-                and mode in ("general", "knowledge")
+                and mode == "general"
                 and todo_ai_bridge.message_suggests_todo_context(last_user)
             ):
                 yield _sse("chat_progress", _chat_progress_payload("mcp", "正在读取待办上下文"))
@@ -877,6 +974,9 @@ def register_local_ai_routes(app) -> None:
                     ctx = ""
                     hits: List[Dict[str, Any]] = []
                     names: List[str] = []
+                    todo_hits: List[Dict[str, Any]] = []
+                    product_compare_hits: List[Dict[str, Any]] = []
+                    knowledge_sections: List[str] = []
                     mcp_kb, mcp_meta = _mcp_call_with_meta(
                         "kb_retrieve",
                         {"query": last_user, "top_k": 6, "max_file_bytes": 200000},
@@ -895,13 +995,39 @@ def register_local_ai_routes(app) -> None:
                             app_config=_app_ai_config(),
                         )
                     if ctx.strip():
-                        knowledge_attach = "\n\n--- 知识库摘录 ---\n\n" + ctx.strip()
+                        knowledge_sections.append(_kb_section("文件知识库", ctx.strip()))
+                    if mode == "knowledge":
+                        todo_ctx, todo_hits = todo_kb_store.retrieve_for_query(
+                            _todo_kb_root_dir(),
+                            last_user,
+                            top_k=5,
+                            app_config=_app_ai_config(),
+                        )
+                        if todo_ctx.strip():
+                            knowledge_sections.append(_kb_section("待办知识库", todo_ctx.strip()))
+                        compare_manager = current_app.config.get("PRODUCT_COMPARE_MANAGER")
+                        if compare_manager is not None:
+                            compare_ctx, product_compare_hits = product_compare_kb_store.retrieve_for_query(
+                                _product_compare_kb_root_dir(),
+                                last_user,
+                                top_k=5,
+                                app_config=_app_ai_config(),
+                            )
+                            if compare_ctx.strip():
+                                knowledge_sections.append(_kb_section("产品对比知识库", compare_ctx.strip()))
+                    if knowledge_sections:
+                        knowledge_attach = "\n\n--- 知识库摘录 ---\n\n" + "\n\n".join(knowledge_sections)
                     else:
                         knowledge_attach = (
                             "\n\n--- 知识库摘录 ---\n\n"
                             "(未命中正文；请确认已把目标 .md/.txt 加入知识库，或换更精确关键词。)"
                         )
-                    knowledge_meta = {"hits": hits, "name_suggestions": names}
+                    knowledge_meta = {
+                        "hits": hits,
+                        "name_suggestions": names,
+                        "todo_hits": todo_hits,
+                        "product_compare_hits": product_compare_hits,
+                    }
                     yield _sse("chat_progress", _chat_progress_payload("processing", "知识库上下文已就绪"))
 
             if mode == "todo":
@@ -926,6 +1052,7 @@ def register_local_ai_routes(app) -> None:
                                 "todo_plan_ops",
                                 {
                                     "ops": pr.get("ops"),
+                                    "ref_question": last_user,
                                     "caller_id": _mcp_caller_id(),
                                     "auto_due_date": True,
                                 },
@@ -1012,8 +1139,8 @@ def register_local_ai_routes(app) -> None:
                     skills_block,
                 )
                 yield _sse("chat_progress", _chat_progress_payload("generating", "上下文已准备完成，正在生成回答"))
-                for piece in local_ai_engine.stream_generate(cfg, messages, system=system):
-                    yield _sse("token", {"t": piece})
+                for event_chunk in _stream_chat_model_sse(cfg, messages, system=system):
+                    yield event_chunk
                 yield _sse("done", {})
                 return
 
@@ -1054,8 +1181,8 @@ def register_local_ai_routes(app) -> None:
                     yield _sse("knowledge_meta", knowledge_meta)
 
             yield _sse("chat_progress", _chat_progress_payload("generating", "上下文已准备完成，正在生成回答"))
-            for piece in local_ai_engine.stream_generate(cfg, messages, system=system):
-                yield _sse("token", {"t": piece})
+            for event_chunk in _stream_chat_model_sse(cfg, messages, system=system):
+                yield event_chunk
             yield _sse("done", {})
 
         return Response(
@@ -1102,7 +1229,7 @@ def register_local_ai_routes(app) -> None:
         if pr.get("ok") and isinstance(pr.get("ops"), list) and pr.get("ops"):
             mcp_plan, mcp_meta = _mcp_call_with_meta(
                 "todo_plan_ops",
-                {"ops": pr.get("ops"), "caller_id": _mcp_caller_id(), "auto_due_date": True},
+                {"ops": pr.get("ops"), "ref_question": msg, "caller_id": _mcp_caller_id(), "auto_due_date": True},
                 timeout_sec=15.0,
             )
             if mcp_plan and mcp_plan.get("ok"):
@@ -1158,6 +1285,8 @@ def register_local_ai_routes(app) -> None:
         if not isinstance(ops, list):
             return jsonify({"success": False, "error": "ops 必须为数组"}), 400
         ref_q = (body.get("ref_question") or "").strip()
+        tm = current_app.config.get("TODO_MANAGER")
+        cat = todo_ai_bridge.build_mutate_ref_catalog_only(tm, ref_q)
         if _use_mcp_bridge():
             mcp_res, mcp_meta = _mcp_call_with_meta(
                 "todo_validate_ops",
@@ -1166,10 +1295,11 @@ def register_local_ai_routes(app) -> None:
             )
             if mcp_res and mcp_res.get("ok"):
                 d = mcp_res.get("data") or {}
+                ops_for_ui = todo_ai_bridge.display_todo_ops_with_refs(d.get("ops") or ops, cat)
                 return jsonify(
                     {
                         "success": True,
-                        "ops": d.get("ops") or ops,
+                        "ops": ops_for_ui,
                         "preview": d.get("preview_lines") or [],
                         "mcp_call": mcp_meta,
                         "trace_id": mcp_res.get("trace_id"),
@@ -1180,14 +1310,18 @@ def register_local_ai_routes(app) -> None:
                 details = (mcp_res.get("error") or {}).get("details") or {}
                 return jsonify({"success": False, "error": err, "preview": details.get("preview_lines") or [], "mcp_call": mcp_meta}), 400
 
-        tm = current_app.config.get("TODO_MANAGER")
-        cat = todo_ai_bridge.build_mutate_ref_catalog_only(tm, ref_q)
         ops_expanded = todo_ai_bridge.expand_natural_todo_refs(ops, cat)
         ops_expanded = todo_ai_bridge.enrich_todo_ops_due_dates(ops_expanded, ref_q)
         preview, err = todo_ai_bridge.validate_and_describe_ops(tm, ops_expanded)
         if err:
             return jsonify({"success": False, "error": err, "preview": preview or []}), 400
-        return jsonify({"success": True, "ops": ops_expanded, "preview": preview or []})
+        return jsonify(
+            {
+                "success": True,
+                "ops": todo_ai_bridge.display_todo_ops_with_refs(ops_expanded, cat),
+                "preview": preview or [],
+            }
+        )
 
     @app.route("/api/local-ai/todo/summary", methods=["GET"])
     def local_ai_todo_summary_api():
@@ -1266,12 +1400,13 @@ def register_local_ai_routes(app) -> None:
         confirm_token = (body.get("confirm_token") or "").strip()
         caller_id = str(body.get("caller_id") or _mcp_caller_id())
         idem = (body.get("idempotency_key") or "").strip() or f"web-{uuid.uuid4().hex[:12]}"
+        ref_q = (body.get("ref_question") or "").strip()
         mcp_meta: Optional[Dict[str, Any]] = None
         if _use_mcp_bridge():
             if not confirm_token:
                 mcp_plan, mcp_meta = _mcp_call_with_meta(
                     "todo_plan_ops",
-                    {"ops": ops, "caller_id": caller_id, "auto_due_date": True},
+                    {"ops": ops, "ref_question": ref_q, "caller_id": caller_id, "auto_due_date": True},
                     timeout_sec=15.0,
                 )
                 if mcp_plan and mcp_plan.get("ok"):
@@ -1292,6 +1427,7 @@ def register_local_ai_routes(app) -> None:
                     "todo_apply_ops",
                     {
                         "ops": ops,
+                        "ref_question": ref_q,
                         "confirm_token": confirm_token,
                         "caller_id": caller_id,
                         "idempotency_key": idem,
@@ -1300,6 +1436,7 @@ def register_local_ai_routes(app) -> None:
                 )
                 if mcp_apply and mcp_apply.get("ok"):
                     _refresh_todo_manager_from_disk()
+                    _queue_todo_kb_rebuild_safe()
                     return jsonify(
                         {
                             "success": True,
@@ -1316,7 +1453,7 @@ def register_local_ai_routes(app) -> None:
                     if err_code in ("CONFIRM_TOKEN_INVALID", "CONFIRM_TOKEN_USED", "CONFIRM_TOKEN_MISMATCH"):
                         replan, replan_meta = _mcp_call_with_meta(
                             "todo_plan_ops",
-                            {"ops": ops, "caller_id": caller_id, "auto_due_date": True},
+                            {"ops": ops, "ref_question": ref_q, "caller_id": caller_id, "auto_due_date": True},
                             timeout_sec=15.0,
                         )
                         if replan and replan.get("ok"):
@@ -1326,6 +1463,7 @@ def register_local_ai_routes(app) -> None:
                                     "todo_apply_ops",
                                     {
                                         "ops": ops,
+                                        "ref_question": ref_q,
                                         "confirm_token": new_token,
                                         "caller_id": caller_id,
                                         "idempotency_key": idem,
@@ -1334,6 +1472,7 @@ def register_local_ai_routes(app) -> None:
                                 )
                                 if mcp_apply2 and mcp_apply2.get("ok"):
                                     _refresh_todo_manager_from_disk()
+                                    _queue_todo_kb_rebuild_safe()
                                     return jsonify(
                                         {
                                             "success": True,
@@ -1362,7 +1501,6 @@ def register_local_ai_routes(app) -> None:
                         400,
                     )
         tm = current_app.config.get("TODO_MANAGER")
-        ref_q = (body.get("ref_question") or "").strip()
         cat = todo_ai_bridge.build_mutate_ref_catalog_only(tm, ref_q)
         ops = todo_ai_bridge.expand_natural_todo_refs(ops, cat)
         ops = todo_ai_bridge.enrich_todo_ops_due_dates(ops, ref_q)
@@ -1372,6 +1510,7 @@ def register_local_ai_routes(app) -> None:
         ok, err_msg = todo_ai_bridge.apply_todo_ops(tm, ops, expand_refs=False)
         if not ok:
             return jsonify({"success": False, "error": err_msg}), 400
+        _queue_todo_kb_rebuild_safe()
         return jsonify({"success": True, "message": "已应用"})
 
     @app.route("/api/local-ai/todo-kb/rebuild", methods=["POST"])
@@ -1397,6 +1536,12 @@ def register_local_ai_routes(app) -> None:
             return jsonify({"success": False, "error": "未登录"}), 401
         return jsonify({"success": True, "status": todo_kb_store.get_index_status(_todo_kb_root_dir())})
 
+    @app.route("/api/local-ai/todo-kb/entries", methods=["GET"])
+    def local_ai_todo_kb_entries():
+        if not _auth_ok():
+            return jsonify({"success": False, "error": "未登录"}), 401
+        return jsonify({"success": True, "items": todo_kb_store.list_entries(_todo_kb_root_dir())})
+
     @app.route("/api/local-ai/todo-kb/search", methods=["GET"])
     def local_ai_todo_kb_search():
         if not _auth_ok():
@@ -1410,6 +1555,53 @@ def register_local_ai_routes(app) -> None:
             top_k = 6
         context, hits = todo_kb_store.retrieve_for_query(
             _todo_kb_root_dir(),
+            query,
+            top_k=top_k,
+            app_config=_app_ai_config(),
+        )
+        return jsonify({"success": True, "context": context, "hits": hits})
+
+    @app.route("/api/local-ai/product-compare-kb/rebuild", methods=["POST"])
+    def local_ai_product_compare_kb_rebuild():
+        if not _auth_ok():
+            return jsonify({"success": False, "error": "未登录"}), 401
+        root = _product_compare_kb_root_dir()
+        manager = current_app.config.get("PRODUCT_COMPARE_MANAGER")
+        if not root or manager is None:
+            return jsonify({"success": False, "error": "PRODUCT_COMPARE_MANAGER 未初始化"}), 400
+        body = request.get_json(silent=True) or {}
+        run_async = bool(body.get("async", True))
+        if run_async:
+            job = product_compare_kb_store.queue_rebuild_all(root, manager, app_config=_app_ai_config())
+            return jsonify({"success": True, "queued": True, "job": job})
+        result = product_compare_kb_store.rebuild_all(root, manager, app_config=_app_ai_config())
+        return jsonify({"success": True, "queued": False, "result": result})
+
+    @app.route("/api/local-ai/product-compare-kb/status", methods=["GET"])
+    def local_ai_product_compare_kb_status():
+        if not _auth_ok():
+            return jsonify({"success": False, "error": "未登录"}), 401
+        return jsonify({"success": True, "status": product_compare_kb_store.get_index_status(_product_compare_kb_root_dir())})
+
+    @app.route("/api/local-ai/product-compare-kb/entries", methods=["GET"])
+    def local_ai_product_compare_kb_entries():
+        if not _auth_ok():
+            return jsonify({"success": False, "error": "未登录"}), 401
+        return jsonify({"success": True, "items": product_compare_kb_store.list_entries(_product_compare_kb_root_dir())})
+
+    @app.route("/api/local-ai/product-compare-kb/search", methods=["GET"])
+    def local_ai_product_compare_kb_search():
+        if not _auth_ok():
+            return jsonify({"success": False, "error": "未登录"}), 401
+        query = str(request.args.get("q") or "").strip()
+        if not query:
+            return jsonify({"success": False, "error": "q 不能为空"}), 400
+        try:
+            top_k = int(request.args.get("top_k", "6"))
+        except ValueError:
+            top_k = 6
+        context, hits = product_compare_kb_store.retrieve_for_query(
+            _product_compare_kb_root_dir(),
             query,
             top_k=top_k,
             app_config=_app_ai_config(),

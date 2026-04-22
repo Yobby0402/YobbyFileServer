@@ -661,6 +661,81 @@
     </div>
 
     <!-- 项目链接管理模态框 -->
+
+    <!-- 日报 / 周报模态框 -->
+    <div class="modal fade" id="todoReportModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered" style="width: 88vw; max-width: 88vw; height: 82vh; max-height: 82vh;">
+            <div class="modal-content" style="height: 100%; display: flex; flex-direction: column;">
+                <div class="modal-header">
+                    <h5 class="modal-title">📊 日报 / 周报</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body" style="flex: 1; overflow: hidden; display: flex; flex-direction: column;">
+                    <div style="display: flex; gap: 15px; flex: 1; overflow: hidden;">
+                        <div style="width: 320px; border-right: 1px solid #ddd; padding-right: 12px; display: flex; flex-direction: column; overflow: hidden;">
+                            <div class="mb-2">
+                                <label class="form-label mb-1">类型</label>
+                                <select class="form-select form-select-sm" id="todoReportTypeSelect">
+                                    <option value="daily">日报</option>
+                                    <option value="weekly">周报</option>
+                                </select>
+                            </div>
+                            <div class="mb-2">
+                                <label class="form-label mb-1">日期</label>
+                                <input type="date" class="form-control form-control-sm" id="todoReportDateInput">
+                                <small class="text-muted">日报使用该日期；周报按该日期所在周生成</small>
+                            </div>
+                            <div class="d-grid gap-2 mb-3">
+                                <button type="button" class="btn btn-sm btn-primary" id="generateTodoReportBtn">
+                                    <i class="fas fa-magic"></i> 生成并保存
+                                </button>
+                                <button type="button" class="btn btn-sm btn-outline-secondary" id="refreshTodoReportListBtn">
+                                    <i class="fas fa-sync"></i> 刷新列表
+                                </button>
+                            </div>
+                            <h6 class="mb-2">历史报表</h6>
+                            <div id="todoReportListContainer" style="flex: 1; overflow-y: auto;">
+                                <p class="text-muted small">暂无报表</p>
+                            </div>
+                        </div>
+                        <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden;">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <div>
+                                    <strong id="todoReportCurrentTitle">请选择或生成报表</strong>
+                                    <div class="small text-muted" id="todoReportCurrentMeta"></div>
+                                </div>
+                                <div class="btn-group btn-group-sm">
+                                    <button type="button" class="btn btn-outline-primary" id="saveTodoReportBtn">
+                                        <i class="fas fa-save"></i> 保存修改
+                                    </button>
+                                    <button type="button" class="btn btn-outline-danger" id="deleteTodoReportBtn">
+                                        <i class="fas fa-trash"></i> 删除
+                                    </button>
+                                </div>
+                            </div>
+                            <div style="display: flex; gap: 10px; flex: 1; overflow: hidden;">
+                                <div style="flex: 1; display: flex; flex-direction: column; min-width: 0;">
+                                    <label class="form-label small">Markdown 内容</label>
+                                    <textarea class="form-control" id="todoReportContentInput" style="flex: 1; min-height: 320px; resize: none;" placeholder="生成或选择日报/周报后可在这里编辑"></textarea>
+                                </div>
+                                <div style="flex: 1; display: flex; flex-direction: column; min-width: 0;">
+                                    <label class="form-label small">预览</label>
+                                    <div class="markdown-body" id="todoReportPreview" style="flex: 1; overflow-y: auto; padding: 15px; border: 1px solid #ddd; border-radius: 4px; background: #f9f9f9; min-height: 320px;">
+                                        <p class="text-muted">预览将在这里显示</p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="small text-muted mt-2" id="todoReportSourceSummary"></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div class="modal fade" id="projectLinksModal" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog modal-lg modal-dialog-centered">
             <div class="modal-content">
@@ -986,6 +1061,10 @@
         <button type="button" class="toolbar-btn note-btn" id="meetingNoteBtn" title="会议记录">
             📝
             <span class="tooltip-text">会议记录</span>
+        </button>
+        <button type="button" class="toolbar-btn note-btn" id="todoReportBtn" title="日报 / 周报">
+            📊
+            <span class="tooltip-text">日报 / 周报</span>
         </button>
     </div>
 

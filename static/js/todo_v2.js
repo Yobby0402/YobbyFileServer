@@ -3503,6 +3503,344 @@
     // 将deleteNote暴露到全局作用域
     window.deleteNote = deleteNote;
 
+    // ===== 日报 / 周报 =====
+
+    let currentTodoReportType = 'daily';
+    let currentTodoReportKey = null;
+    let currentTodoReport = null;
+    let todoReportEventsBound = false;
+
+    function getTodoReportRefs() {
+        return {
+            modal: document.getElementById('todoReportModal'),
+            typeSelect: document.getElementById('todoReportTypeSelect'),
+            dateInput: document.getElementById('todoReportDateInput'),
+            generateBtn: document.getElementById('generateTodoReportBtn'),
+            refreshBtn: document.getElementById('refreshTodoReportListBtn'),
+            listContainer: document.getElementById('todoReportListContainer'),
+            title: document.getElementById('todoReportCurrentTitle'),
+            meta: document.getElementById('todoReportCurrentMeta'),
+            contentInput: document.getElementById('todoReportContentInput'),
+            preview: document.getElementById('todoReportPreview'),
+            sourceSummary: document.getElementById('todoReportSourceSummary'),
+            saveBtn: document.getElementById('saveTodoReportBtn'),
+            deleteBtn: document.getElementById('deleteTodoReportBtn'),
+        };
+    }
+
+    function getLocalDateValue(dateValue = new Date()) {
+        const year = dateValue.getFullYear();
+        const month = String(dateValue.getMonth() + 1).padStart(2, '0');
+        const day = String(dateValue.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+    }
+
+    function getTodoReportTypeLabel(reportType) {
+        return reportType === 'weekly' ? '周报' : '日报';
+    }
+
+    function formatTodoReportPeriod(report) {
+        if (!report) return '';
+        const start = report.period_start || '';
+        const end = report.period_end || '';
+        if (start && end && start !== end) {
+            return `${start} ~ ${end}`;
+        }
+        return start || end || report.key || '';
+    }
+
+    async function fetchTodoReportJson(url, options = {}) {
+        const response = await fetch(url, options);
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok || !result.success) {
+            throw new Error(result.error || `请求失败：${response.status}`);
+        }
+        return result;
+    }
+
+    function openTodoReportModal() {
+        const reportRefs = getTodoReportRefs();
+        if (!reportRefs.modal) {
+            showAlert('danger', '找不到日报/周报窗口');
+            return;
+        }
+
+        bindTodoReportEvents();
+
+        currentTodoReportType = reportRefs.typeSelect?.value || currentTodoReportType || 'daily';
+        if (reportRefs.dateInput && !reportRefs.dateInput.value) {
+            reportRefs.dateInput.value = getLocalDateValue();
+        }
+
+        let modal = bootstrap.Modal.getInstance(reportRefs.modal);
+        if (!modal) {
+            modal = new bootstrap.Modal(reportRefs.modal);
+        }
+        modal.show();
+        loadTodoReportList(currentTodoReportType);
+    }
+
+    function bindTodoReportEvents() {
+        if (todoReportEventsBound) return;
+        const reportRefs = getTodoReportRefs();
+
+        if (reportRefs.typeSelect) {
+            reportRefs.typeSelect.addEventListener('change', function() {
+                currentTodoReportType = this.value || 'daily';
+                currentTodoReportKey = null;
+                currentTodoReport = null;
+                resetTodoReportDetail();
+                loadTodoReportList(currentTodoReportType);
+            });
+        }
+
+        if (reportRefs.generateBtn) {
+            reportRefs.generateBtn.addEventListener('click', generateTodoReport);
+        }
+
+        if (reportRefs.refreshBtn) {
+            reportRefs.refreshBtn.addEventListener('click', function() {
+                loadTodoReportList(currentTodoReportType);
+            });
+        }
+
+        if (reportRefs.saveBtn) {
+            reportRefs.saveBtn.addEventListener('click', saveTodoReport);
+        }
+
+        if (reportRefs.deleteBtn) {
+            reportRefs.deleteBtn.addEventListener('click', deleteTodoReport);
+        }
+
+        if (reportRefs.contentInput) {
+            reportRefs.contentInput.addEventListener('input', function() {
+                updateTodoReportPreview(this.value);
+            });
+        }
+
+        todoReportEventsBound = true;
+    }
+
+    function resetTodoReportDetail() {
+        const reportRefs = getTodoReportRefs();
+        if (reportRefs.title) reportRefs.title.textContent = '请选择或生成报表';
+        if (reportRefs.meta) reportRefs.meta.textContent = '';
+        if (reportRefs.contentInput) reportRefs.contentInput.value = '';
+        if (reportRefs.sourceSummary) reportRefs.sourceSummary.textContent = '';
+        updateTodoReportPreview('');
+    }
+
+    async function loadTodoReportList(reportType = currentTodoReportType) {
+        currentTodoReportType = reportType || 'daily';
+        const reportRefs = getTodoReportRefs();
+        if (reportRefs.listContainer) {
+            reportRefs.listContainer.innerHTML = '<p class="text-muted small">加载中...</p>';
+        }
+
+        try {
+            const result = await fetchTodoReportJson(`/api/todo/v2/reports/${currentTodoReportType}`);
+            renderTodoReportList(result.items || []);
+        } catch (error) {
+            if (reportRefs.listContainer) {
+                reportRefs.listContainer.innerHTML = `<p class="text-danger small">${escapeHtml(error.message || '加载失败')}</p>`;
+            }
+            showAlert('danger', error.message || '加载报表列表失败');
+        }
+    }
+
+    function renderTodoReportList(items) {
+        const reportRefs = getTodoReportRefs();
+        if (!reportRefs.listContainer) return;
+
+        if (!items || items.length === 0) {
+            reportRefs.listContainer.innerHTML = '<p class="text-muted small">暂无报表</p>';
+            return;
+        }
+
+        let html = '<div class="list-group list-group-flush">';
+        items.forEach(report => {
+            const key = report.key || '';
+            const isActive = key && key === currentTodoReportKey;
+            const period = formatTodoReportPeriod(report);
+            const updatedAt = report.updated_at ? formatDateTime(report.updated_at) : '';
+            html += `
+                <button type="button" class="list-group-item list-group-item-action ${isActive ? 'active' : ''}"
+                        data-report-type="${escapeHtml(currentTodoReportType)}"
+                        data-report-key="${escapeHtml(key)}">
+                    <div class="d-flex justify-content-between align-items-start">
+                        <strong>${escapeHtml(report.title || key || '未命名报表')}</strong>
+                        <small>${escapeHtml(getTodoReportTypeLabel(currentTodoReportType))}</small>
+                    </div>
+                    <div class="small ${isActive ? '' : 'text-muted'}">${escapeHtml(period)}</div>
+                    <div class="small ${isActive ? '' : 'text-muted'}">${escapeHtml(updatedAt)}</div>
+                </button>
+            `;
+        });
+        html += '</div>';
+        reportRefs.listContainer.innerHTML = html;
+
+        reportRefs.listContainer.querySelectorAll('[data-report-key]').forEach(button => {
+            button.addEventListener('click', function() {
+                const reportType = this.dataset.reportType || currentTodoReportType;
+                const reportKey = this.dataset.reportKey || '';
+                loadTodoReportDetail(reportType, reportKey);
+            });
+        });
+    }
+
+    async function generateTodoReport() {
+        const reportRefs = getTodoReportRefs();
+        const reportType = reportRefs.typeSelect?.value || currentTodoReportType || 'daily';
+        const dateValue = reportRefs.dateInput?.value || getLocalDateValue();
+
+        if (reportRefs.generateBtn) {
+            reportRefs.generateBtn.disabled = true;
+            reportRefs.generateBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 生成中...';
+        }
+
+        try {
+            const result = await fetchTodoReportJson(`/api/todo/v2/reports/${reportType}/generate`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ date: dateValue, save: true }),
+            });
+            currentTodoReportType = reportType;
+            setCurrentTodoReport(result.report);
+            await loadTodoReportList(reportType);
+            showAlert('success', `${getTodoReportTypeLabel(reportType)}已生成`);
+        } catch (error) {
+            showAlert('danger', error.message || '生成报表失败');
+        } finally {
+            if (reportRefs.generateBtn) {
+                reportRefs.generateBtn.disabled = false;
+                reportRefs.generateBtn.innerHTML = '<i class="fas fa-magic"></i> 生成并保存';
+            }
+        }
+    }
+
+    async function loadTodoReportDetail(reportType, reportKey) {
+        if (!reportKey) return;
+
+        try {
+            const result = await fetchTodoReportJson(
+                `/api/todo/v2/reports/${reportType}/${encodeURIComponent(reportKey)}`
+            );
+            currentTodoReportType = reportType || 'daily';
+            setCurrentTodoReport(result.report);
+            await loadTodoReportList(currentTodoReportType);
+        } catch (error) {
+            showAlert('danger', error.message || '加载报表失败');
+        }
+    }
+
+    function setCurrentTodoReport(report) {
+        const reportRefs = getTodoReportRefs();
+        currentTodoReport = report || null;
+        currentTodoReportKey = report?.key || null;
+
+        if (reportRefs.typeSelect) {
+            reportRefs.typeSelect.value = currentTodoReportType;
+        }
+        if (reportRefs.title) {
+            reportRefs.title.textContent = report?.title || '未命名报表';
+        }
+        if (reportRefs.meta) {
+            const period = formatTodoReportPeriod(report);
+            const updatedAt = report?.updated_at ? formatDateTime(report.updated_at) : '';
+            reportRefs.meta.textContent = [period, updatedAt ? `更新：${updatedAt}` : ''].filter(Boolean).join(' · ');
+        }
+        if (reportRefs.contentInput) {
+            reportRefs.contentInput.value = report?.content || '';
+        }
+        if (reportRefs.sourceSummary) {
+            const taskCount = Array.isArray(report?.source_tasks) ? report.source_tasks.length : 0;
+            const noteCount = Array.isArray(report?.source_notes) ? report.source_notes.length : 0;
+            reportRefs.sourceSummary.textContent = `来源：${taskCount} 个任务，${noteCount} 条会议记录`;
+        }
+        updateTodoReportPreview(report?.content || '');
+    }
+
+    async function saveTodoReport() {
+        const reportRefs = getTodoReportRefs();
+        if (!currentTodoReportKey || !currentTodoReport) {
+            showAlert('warning', '请先选择或生成报表');
+            return;
+        }
+
+        const content = reportRefs.contentInput?.value || '';
+        try {
+            const result = await fetchTodoReportJson(
+                `/api/todo/v2/reports/${currentTodoReportType}/${encodeURIComponent(currentTodoReportKey)}`,
+                {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        title: currentTodoReport.title || `${getTodoReportTypeLabel(currentTodoReportType)} ${currentTodoReportKey}`,
+                        content,
+                    }),
+                }
+            );
+            setCurrentTodoReport(result.report);
+            await loadTodoReportList(currentTodoReportType);
+            showAlert('success', '报表已保存');
+        } catch (error) {
+            showAlert('danger', error.message || '保存报表失败');
+        }
+    }
+
+    async function deleteTodoReport() {
+        if (!currentTodoReportKey) {
+            showAlert('warning', '请先选择要删除的报表');
+            return;
+        }
+        if (!confirm(`确定删除 ${currentTodoReportKey} 的${getTodoReportTypeLabel(currentTodoReportType)}吗？`)) {
+            return;
+        }
+
+        try {
+            await fetchTodoReportJson(
+                `/api/todo/v2/reports/${currentTodoReportType}/${encodeURIComponent(currentTodoReportKey)}`,
+                { method: 'DELETE' }
+            );
+            currentTodoReportKey = null;
+            currentTodoReport = null;
+            resetTodoReportDetail();
+            await loadTodoReportList(currentTodoReportType);
+            showAlert('success', '报表已删除');
+        } catch (error) {
+            showAlert('danger', error.message || '删除报表失败');
+        }
+    }
+
+    function updateTodoReportPreview(content) {
+        const reportRefs = getTodoReportRefs();
+        if (!reportRefs.preview) return;
+
+        if (!content || !content.trim()) {
+            reportRefs.preview.innerHTML = '<p class="text-muted">预览将在这里显示</p>';
+            return;
+        }
+
+        if (typeof marked !== 'undefined') {
+            try {
+                if (marked.setOptions) {
+                    marked.setOptions({
+                        breaks: true,
+                        gfm: true,
+                        headerIds: false,
+                        mangle: false
+                    });
+                }
+                reportRefs.preview.innerHTML = marked.parse(content);
+                return;
+            } catch (error) {
+                console.error('日报/周报 Markdown 渲染失败:', error);
+            }
+        }
+
+        reportRefs.preview.innerHTML = `<pre style="white-space: pre-wrap; word-break: break-word;">${escapeHtml(content)}</pre>`;
+    }
+
     // ===== 项目描述和链接管理 =====
     
     let currentProjectIdForDescription = null;
@@ -4400,6 +4738,11 @@
         const meetingNoteBtn = document.getElementById('meetingNoteBtn');
         if (meetingNoteBtn) {
             meetingNoteBtn.addEventListener('click', openMeetingNoteModal);
+        }
+
+        const todoReportBtn = document.getElementById('todoReportBtn');
+        if (todoReportBtn) {
+            todoReportBtn.addEventListener('click', openTodoReportModal);
         }
         
         // 初始化待完成任务列表折叠状态

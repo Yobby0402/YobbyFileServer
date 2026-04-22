@@ -491,6 +491,209 @@ def expand_natural_todo_refs(
     return out
 
 
+def display_todo_ops_with_refs(
+    ops: List[Dict[str, Any]], catalog: Dict[str, Any]
+) -> List[Dict[str, Any]]:
+    """Convert internal UUID refs in ops back to stable human-facing refs."""
+    if not ops or not catalog:
+        return copy.deepcopy(ops)
+    out = copy.deepcopy(ops)
+    pmap: Dict[int, str] = catalog.get("projects") or {}
+    tmap: Dict[Tuple[int, int], str] = catalog.get("tasks") or {}
+    cmap: Dict[Tuple[int, int, int], str] = catalog.get("comments") or {}
+    proj_refs = {str(v): f"项{k}" for k, v in pmap.items() if v}
+    task_refs = {str(v): f"项{pi}·任{ti}" for (pi, ti), v in tmap.items() if v}
+    comment_refs = {str(v): f"项{pi}·任{ti}·评{ci}" for (pi, ti, ci), v in cmap.items() if v}
+
+    def ref_proj(v: Any) -> Any:
+        if not isinstance(v, str):
+            return v
+        s = v.strip()
+        return proj_refs.get(s, s)
+
+    def ref_task(v: Any) -> Any:
+        if not isinstance(v, str):
+            return v
+        s = v.strip()
+        return task_refs.get(s, s)
+
+    def ref_comment(v: Any) -> Any:
+        if not isinstance(v, str):
+            return v
+        s = v.strip()
+        return comment_refs.get(s, s)
+
+    for op in out:
+        if not isinstance(op, dict):
+            continue
+        if "project_id" in op and op["project_id"] is not None:
+            op["project_id"] = ref_proj(str(op["project_id"]))
+        if "task_id" in op and op["task_id"] is not None:
+            op["task_id"] = ref_task(str(op["task_id"]))
+        if "comment_id" in op and op["comment_id"] is not None:
+            op["comment_id"] = ref_comment(str(op["comment_id"]))
+    return out
+
+
+def _message_looks_like_existing_task_update(message: str) -> bool:
+    m = str(message or "")
+    if not m.strip():
+        return False
+    create_terms = (
+        "创建任务",
+        "新建任务",
+        "新增任务",
+        "添加任务",
+        "加一个任务",
+        "加一条任务",
+        "创建一个任务",
+        "新建一个任务",
+    )
+    explicit_existing_terms = (
+        "不要新建",
+        "不是新建",
+        "已有任务",
+        "现有任务",
+        "修改任务",
+        "更新任务",
+        "把任务",
+        "将任务",
+    )
+    if any(term in m for term in create_terms) and not any(term in m for term in explicit_existing_terms):
+        return False
+    update_terms = (
+        "修改",
+        "更新",
+        "改成",
+        "改为",
+        "设为",
+        "设置",
+        "调整",
+        "补充",
+        "追加",
+        "重命名",
+        "改名",
+        "进度",
+        "完成",
+        "结论",
+        "周计划",
+        "描述",
+        "说明",
+        "优先级",
+        "任务类型",
+        "截止",
+        "日报",
+        "周报",
+        "显示",
+        "隐藏",
+    )
+    return any(term in m for term in update_terms)
+
+
+def _project_by_id(projects: List[Dict[str, Any]], project_id: Any) -> Optional[Dict[str, Any]]:
+    pid = str(project_id or "").strip()
+    if not pid:
+        return None
+    for project in projects:
+        if str(project.get("id") or "").strip() == pid:
+            return project
+    return None
+
+
+def _find_task_target_for_update(
+    user_message: str,
+    projects: List[Dict[str, Any]],
+    op: Dict[str, Any],
+) -> Optional[Tuple[Dict[str, Any], Dict[str, Any]]]:
+    combined = "\n".join(
+        str(x or "")
+        for x in (
+            user_message,
+            op.get("summary"),
+            op.get("description"),
+            op.get("weekly_plan"),
+            op.get("conclusion"),
+        )
+        if x is not None
+    )
+    project = _project_by_id(projects, op.get("project_id"))
+    search_projects = [project] if project else projects
+    hit = _find_best_task_by_summary_in_query(combined, search_projects)
+    if hit:
+        return hit
+    candidates: List[Tuple[int, Dict[str, Any], Dict[str, Any]]] = []
+    for project in search_projects:
+        for task in project.get("tasks") or []:
+            summary = str(task.get("summary") or "").strip()
+            if len(summary) < 4:
+                continue
+            if summary in combined:
+                candidates.append((len(summary), project, task))
+    if not candidates:
+        return None
+    candidates.sort(key=lambda item: -item[0])
+    if len(candidates) == 1 or candidates[0][0] > candidates[1][0]:
+        return candidates[0][1], candidates[0][2]
+    return None
+
+
+def _should_rename_task(message: str) -> bool:
+    return any(term in str(message or "") for term in ("标题", "名称", "重命名", "改名"))
+
+
+def _coerce_mistaken_create_task_updates(
+    tm: TodoManager,
+    user_message: str,
+    ops: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    if not _message_looks_like_existing_task_update(user_message):
+        return ops
+    data = tm.list_all()
+    projects = list(data.get("projects") or [])
+    out = copy.deepcopy(ops)
+    for idx, op in enumerate(out):
+        if not isinstance(op, dict) or op.get("op") != "create_task":
+            continue
+        target = _find_task_target_for_update(user_message, projects, op)
+        if not target:
+            continue
+        project, task = target
+        converted: Dict[str, Any] = {
+            "op": "update_task",
+            "project_id": project.get("id"),
+            "task_id": task.get("id"),
+        }
+        for key in (
+            "description",
+            "priority",
+            "progress",
+            "due_date",
+            "task_type",
+            "weekly_plan",
+            "conclusion",
+            "show_in_report",
+        ):
+            if key in op:
+                converted[key] = op[key]
+        if "summary" in op and _should_rename_task(user_message):
+            converted["summary"] = op.get("summary")
+        if (
+            len(converted) <= 3
+            and op.get("summary")
+            and not _should_rename_task(user_message)
+        ):
+            summary_text = str(op.get("summary") or "").strip()
+            if "结论" in user_message:
+                converted["conclusion"] = summary_text
+            elif "周计划" in user_message:
+                converted["weekly_plan"] = summary_text
+            elif any(term in user_message for term in ("描述", "说明", "内容")):
+                converted["description"] = summary_text
+        if len(converted) > 3:
+            out[idx] = converted
+    return out
+
+
 _MAX_PROJECT_DETAIL_TASKS = 200
 _MAX_TASK_HISTORY_LINES = 24
 _MAX_COMMENT_LINES = 40
@@ -1083,12 +1286,14 @@ def propose_todo_ops_json(tm: TodoManager, user_message: str, llm_generate_fn) -
     ops = data.get("ops")
     if not isinstance(ops, list):
         return {"ok": False, "error": "缺少 ops 数组", "raw": raw, "preview": None}
-    ops = expand_natural_todo_refs(ops, catalog)
-    ops = enrich_todo_ops_due_dates(ops, user_message)
-    preview, err = validate_and_describe_ops(tm, ops)
+    ops_expanded = expand_natural_todo_refs(ops, catalog)
+    ops_expanded = _coerce_mistaken_create_task_updates(tm, user_message, ops_expanded)
+    ops_expanded = enrich_todo_ops_due_dates(ops_expanded, user_message)
+    preview, err = validate_and_describe_ops(tm, ops_expanded)
     if err:
         return {"ok": False, "error": err, "raw": raw, "preview": preview}
-    return {"ok": True, "summary": data.get("summary", ""), "ops": ops, "preview": preview, "raw": raw}
+    ops_display = display_todo_ops_with_refs(ops_expanded, catalog)
+    return {"ok": True, "summary": data.get("summary", ""), "ops": ops_display, "preview": preview, "raw": raw}
 
 
 def validate_and_describe_ops(tm: TodoManager, ops: List[Dict[str, Any]]) -> Tuple[Optional[List[str]], Optional[str]]:

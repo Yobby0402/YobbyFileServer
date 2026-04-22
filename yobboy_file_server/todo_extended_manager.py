@@ -4,12 +4,18 @@ import os
 import sys
 import threading
 from copy import deepcopy
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
 from .paths import project_base_dir
 
 _todo_ext_log = logging.getLogger('yobboy_file_server.todo_extended')
+_SUPPORTED_REPORT_TYPES = ("daily", "weekly")
+
+
+def _now_local_iso() -> str:
+    return datetime.now().isoformat()
 
 
 def _get_base_dir() -> str:
@@ -37,7 +43,9 @@ class TodoExtendedManager:
             "project_descriptions": {},  # project_id -> description_md
             "project_links": {},  # project_id -> [{"id": str, "name": str, "url": str}]
             "task_links": {},  # task_id -> [{"id": str, "name": str, "url": str}]
-            "meeting_notes": {}  # date_str -> {"date": str, "content": str, "created_at": str, "updated_at": str}
+            "meeting_notes": {},  # date_str -> {"date": str, "content": str, "created_at": str, "updated_at": str}
+            "daily_reports": {},  # date_str -> report data
+            "weekly_reports": {},  # week_key -> report data
         }
         self._load()
 
@@ -55,21 +63,27 @@ class TodoExtendedManager:
                         "project_descriptions": data.get("project_descriptions", {}),
                         "project_links": data.get("project_links", {}),
                         "task_links": data.get("task_links", {}),
-                        "meeting_notes": data.get("meeting_notes", {})
+                        "meeting_notes": data.get("meeting_notes", {}),
+                        "daily_reports": data.get("daily_reports", {}),
+                        "weekly_reports": data.get("weekly_reports", {}),
                     }
                 else:
                     self._data = {
                         "project_descriptions": {},
                         "project_links": {},
                         "task_links": {},
-                        "meeting_notes": {}
+                        "meeting_notes": {},
+                        "daily_reports": {},
+                        "weekly_reports": {},
                     }
         except Exception:
             self._data = {
                 "project_descriptions": {},
                 "project_links": {},
                 "task_links": {},
-                "meeting_notes": {}
+                "meeting_notes": {},
+                "daily_reports": {},
+                "weekly_reports": {},
             }
             self._persist()
 
@@ -232,20 +246,17 @@ class TodoExtendedManager:
 
     def set_meeting_note(self, date_str: str, content: str) -> None:
         """设置指定日期的会议记录"""
-        from datetime import datetime
         with self._lock:
             if date_str not in self._data["meeting_notes"]:
-                # 新建笔记
                 self._data["meeting_notes"][date_str] = {
                     "date": date_str,
                     "content": content,
-                    "created_at": datetime.now().isoformat(),
-                    "updated_at": datetime.now().isoformat()
+                    "created_at": _now_local_iso(),
+                    "updated_at": _now_local_iso(),
                 }
             else:
-                # 更新笔记
                 self._data["meeting_notes"][date_str]["content"] = content
-                self._data["meeting_notes"][date_str]["updated_at"] = datetime.now().isoformat()
+                self._data["meeting_notes"][date_str]["updated_at"] = _now_local_iso()
             self._persist()
 
     def delete_meeting_note(self, date_str: str) -> bool:
@@ -256,6 +267,69 @@ class TodoExtendedManager:
                 self._persist()
                 return True
             return False
+
+    # ===== 日报 / 周报 =====
+
+    def _report_bucket_name(self, report_type: str) -> str:
+        kind = str(report_type or "").strip().lower()
+        if kind not in _SUPPORTED_REPORT_TYPES:
+            raise ValueError("不支持的 report_type")
+        return f"{kind}_reports"
+
+    def list_reports(self, report_type: str) -> List[Dict[str, Any]]:
+        bucket_name = self._report_bucket_name(report_type)
+        with self._lock:
+            items = []
+            for key, raw in self._data.get(bucket_name, {}).items():
+                if not isinstance(raw, dict):
+                    continue
+                item = deepcopy(raw)
+                item.setdefault("key", key)
+                items.append(item)
+            items.sort(key=lambda item: str(item.get("key") or ""), reverse=True)
+            return items
+
+    def get_report(self, report_type: str, key: str) -> Optional[Dict[str, Any]]:
+        bucket_name = self._report_bucket_name(report_type)
+        with self._lock:
+            raw = self._data.get(bucket_name, {}).get(key)
+            if not isinstance(raw, dict):
+                return None
+            item = deepcopy(raw)
+            item.setdefault("key", key)
+            return item
+
+    def set_report(self, report_type: str, key: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+        bucket_name = self._report_bucket_name(report_type)
+        with self._lock:
+            bucket = self._data.setdefault(bucket_name, {})
+            previous = bucket.get(key) if isinstance(bucket.get(key), dict) else {}
+            now = _now_local_iso()
+            item = {
+                "key": key,
+                "title": str(payload.get("title") or previous.get("title") or ""),
+                "content": str(payload.get("content") or previous.get("content") or ""),
+                "period_start": str(payload.get("period_start") or previous.get("period_start") or ""),
+                "period_end": str(payload.get("period_end") or previous.get("period_end") or ""),
+                "source_tasks": deepcopy(payload.get("source_tasks") or previous.get("source_tasks") or []),
+                "source_notes": deepcopy(payload.get("source_notes") or previous.get("source_notes") or []),
+                "generated_at": str(payload.get("generated_at") or previous.get("generated_at") or now),
+                "created_at": str(previous.get("created_at") or payload.get("created_at") or now),
+                "updated_at": now,
+            }
+            bucket[key] = item
+            self._persist()
+            return deepcopy(item)
+
+    def delete_report(self, report_type: str, key: str) -> bool:
+        bucket_name = self._report_bucket_name(report_type)
+        with self._lock:
+            bucket = self._data.get(bucket_name, {})
+            if key not in bucket:
+                return False
+            del bucket[key]
+            self._persist()
+            return True
 
 
 # 全局实例
