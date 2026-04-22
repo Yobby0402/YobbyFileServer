@@ -8,7 +8,7 @@ import logging
 import math
 import unicodedata
 from datetime import datetime
-from typing import Optional
+from typing import Any, Dict, Optional
 # 确保在文件顶部添加必要的导入
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify, send_from_directory, send_file, make_response, abort, current_app, Response
 import markdown
@@ -24,6 +24,7 @@ from .shared_serial_hub import shared_serial_hub
 from .product_compare_manager import product_compare_manager
 from .logging_setup import parse_log_level
 from .paths import project_base_dir, project_path
+from . import todo_kb_store
 
 _routes_logger = logging.getLogger('yobboy_file_server.routes')
 
@@ -359,6 +360,36 @@ def init_app(app):
     from .local_erp_routes import register_local_erp_routes
     register_local_erp_routes(app)
 
+    def _todo_kb_root_dir() -> str:
+        return str(app.config.get('ROOT_DIR') or project_base_dir())
+
+    def _todo_kb_app_config() -> Dict[str, Any]:
+        return {
+            "LOCAL_AI_API_BASE_URL": app.config.get("LOCAL_AI_API_BASE_URL", ""),
+            "LOCAL_AI_EMBED_API_BASE_URL": app.config.get(
+                "LOCAL_AI_EMBED_API_BASE_URL",
+                app.config.get("LOCAL_AI_API_BASE_URL", ""),
+            ),
+            "LOCAL_AI_EMBED_MODEL": app.config.get("LOCAL_AI_EMBED_MODEL", ""),
+            "LOCAL_AI_EMBED_API_KEY": app.config.get("LOCAL_AI_EMBED_API_KEY", "lm-studio"),
+            "LOCAL_AI_EMBED_QUERY_INSTRUCTION": app.config.get(
+                "LOCAL_AI_EMBED_QUERY_INSTRUCTION",
+                "Represent this query for retrieving relevant passages from the local knowledge base.",
+            ),
+            "LOCAL_AI_EMBED_BATCH_SIZE": app.config.get("LOCAL_AI_EMBED_BATCH_SIZE", 16),
+        }
+
+    def _todo_kb_rebuild_all_async() -> None:
+        try:
+            todo_kb_store.queue_rebuild_all(
+                _todo_kb_root_dir(),
+                app.config.get('TODO_MANAGER'),
+                app.config.get('TODO_EXTENDED_MANAGER'),
+                app_config=_todo_kb_app_config(),
+            )
+        except Exception as exc:
+            _routes_logger.warning("todo kb async rebuild failed: %s", exc)
+
     # 初始化Draw.io静态文件目录（静默检查，不影响运行）
     # Draw.io是可选功能，不存在也不影响文件浏览器功能
     
@@ -643,6 +674,7 @@ def init_app(app):
         payload = request.json or {}
         try:
             project = manager.create_project(payload)
+            _todo_kb_rebuild_all_async()
             return jsonify({'success': True, 'project': project})
         except Exception as exc:
             return jsonify({'success': False, 'error': str(exc)}), 400
@@ -666,6 +698,7 @@ def init_app(app):
             payload = request.json or {}
             try:
                 project = manager.update_project(project_id, payload)
+                _todo_kb_rebuild_all_async()
                 return jsonify({'success': True, 'project': project})
             except ValueError:
                 return jsonify({'success': False, 'error': '项目不存在'}), 404
@@ -675,6 +708,7 @@ def init_app(app):
         # DELETE
         try:
             project = manager.delete_project(project_id)
+            _todo_kb_rebuild_all_async()
             return jsonify({'success': True, 'project': project})
         except ValueError:
             return jsonify({'success': False, 'error': '项目不存在'}), 404
@@ -689,6 +723,7 @@ def init_app(app):
         payload = request.json or {}
         try:
             task, update_record = manager.create_task(project_id, payload)
+            _todo_kb_rebuild_all_async()
             return jsonify({'success': True, 'task': task, 'update_record': update_record})
         except ValueError as exc:
             return jsonify({'success': False, 'error': str(exc)}), 404
@@ -717,6 +752,7 @@ def init_app(app):
             payload = request.json or {}
             try:
                 task, update_records = manager.update_task(project_id, task_id, payload)
+                _todo_kb_rebuild_all_async()
                 return jsonify({'success': True, 'task': task, 'update_records': update_records})
             except ValueError as exc:
                 return jsonify({'success': False, 'error': str(exc)}), 404
@@ -726,6 +762,7 @@ def init_app(app):
         # DELETE
         try:
             task = manager.delete_task(project_id, task_id)
+            _todo_kb_rebuild_all_async()
             return jsonify({'success': True, 'task': task})
         except ValueError as exc:
             return jsonify({'success': False, 'error': str(exc)}), 404
@@ -761,6 +798,7 @@ def init_app(app):
 
         try:
             task, update_record = manager.add_comment(project_id, task_id, comment_text)
+            _todo_kb_rebuild_all_async()
             return jsonify({'success': True, 'task': task, 'update_record': update_record})
         except ValueError as exc:
             return jsonify({'success': False, 'error': str(exc)}), 400
@@ -776,6 +814,7 @@ def init_app(app):
         manager = current_app.config['TODO_MANAGER']
         try:
             task = manager.delete_comment(project_id, task_id, comment_id)
+            _todo_kb_rebuild_all_async()
             return jsonify({'success': True, 'task': task})
         except ValueError as exc:
             return jsonify({'success': False, 'error': str(exc)}), 404
@@ -811,10 +850,12 @@ def init_app(app):
             payload = request.json or {}
             description_md = payload.get('description', '')
             extended_manager.set_project_description(project_id, description_md)
+            _todo_kb_rebuild_all_async()
             return jsonify({'success': True, 'description': description_md})
 
         # DELETE
         extended_manager.delete_project_description(project_id)
+        _todo_kb_rebuild_all_async()
         return jsonify({'success': True})
 
     @app.route('/api/todo/v2/projects/<project_id>/description/preview', methods=['POST'])
@@ -854,6 +895,7 @@ def init_app(app):
             return jsonify({'success': False, 'error': '链接名称和地址不能为空'}), 400
 
         link = extended_manager.add_project_link(project_id, name, url)
+        _todo_kb_rebuild_all_async()
         return jsonify({'success': True, 'link': link})
 
     @app.route('/api/todo/v2/projects/<project_id>/links/<link_id>', methods=['PUT', 'DELETE'])
@@ -874,12 +916,14 @@ def init_app(app):
 
             link = extended_manager.update_project_link(project_id, link_id, name, url)
             if link:
+                _todo_kb_rebuild_all_async()
                 return jsonify({'success': True, 'link': link})
             return jsonify({'success': False, 'error': '链接不存在'}), 404
 
         # DELETE
         success = extended_manager.delete_project_link(project_id, link_id)
         if success:
+            _todo_kb_rebuild_all_async()
             return jsonify({'success': True})
         return jsonify({'success': False, 'error': '链接不存在'}), 404
 
@@ -904,6 +948,7 @@ def init_app(app):
             return jsonify({'success': False, 'error': '链接名称和地址不能为空'}), 400
 
         link = extended_manager.add_task_link(task_id, name, url)
+        _todo_kb_rebuild_all_async()
         return jsonify({'success': True, 'link': link})
 
     @app.route('/api/todo/v2/tasks/<task_id>/links/<link_id>', methods=['PUT', 'DELETE'])
@@ -924,12 +969,14 @@ def init_app(app):
 
             link = extended_manager.update_task_link(task_id, link_id, name, url)
             if link:
+                _todo_kb_rebuild_all_async()
                 return jsonify({'success': True, 'link': link})
             return jsonify({'success': False, 'error': '链接不存在'}), 404
 
         # DELETE
         success = extended_manager.delete_task_link(task_id, link_id)
         if success:
+            _todo_kb_rebuild_all_async()
             return jsonify({'success': True})
         return jsonify({'success': False, 'error': '链接不存在'}), 404
 
@@ -955,6 +1002,7 @@ def init_app(app):
             return jsonify({'success': False, 'error': '日期不能为空'}), 400
 
         extended_manager.set_meeting_note(date_str, content)
+        _todo_kb_rebuild_all_async()
         return jsonify({'success': True})
 
     @app.route('/api/todo/v2/meeting_notes/<date_str>', methods=['GET', 'PUT', 'DELETE'])
@@ -975,11 +1023,13 @@ def init_app(app):
             payload = request.json or {}
             content = payload.get('content', '')
             extended_manager.set_meeting_note(date_str, content)
+            _todo_kb_rebuild_all_async()
             return jsonify({'success': True})
 
         # DELETE
         success = extended_manager.delete_meeting_note(date_str)
         if success:
+            _todo_kb_rebuild_all_async()
             return jsonify({'success': True})
         return jsonify({'success': False, 'error': '笔记不存在'}), 404
 
