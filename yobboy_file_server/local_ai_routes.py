@@ -20,6 +20,7 @@ from . import knowledge_store
 from . import local_ai_engine
 from . import local_mcp_bridge
 from . import local_ai_skills
+from . import todo_kb_store
 from . import todo_ai_bridge
 
 # Draw.io 模式：不拼接通用 Skill；可选 drawio-ai-local.{md,txt}（节选思路参考 next-ai-draw-io，Apache-2.0）。
@@ -341,6 +342,10 @@ def _app_ai_config() -> Dict[str, Any]:
 
 def _sse(event: str, obj: Any) -> str:
     return f"event: {event}\ndata: {json.dumps(obj, ensure_ascii=False)}\n\n"
+
+
+def _todo_kb_root_dir() -> str:
+    return str(current_app.config.get("ROOT_DIR") or current_app.config.get("BASE_DIR") or "")
 
 
 def _chat_progress_payload(phase: str, message: str, received_chars: int = 0) -> Dict[str, Any]:
@@ -834,13 +839,21 @@ def register_local_ai_routes(app) -> None:
             ):
                 yield _sse("chat_progress", _chat_progress_payload("mcp", "正在读取待办上下文"))
                 todo_text = ""
+                kb_ctx, _todo_kb_hits = todo_kb_store.retrieve_for_query(
+                    _todo_kb_root_dir(),
+                    last_user,
+                    top_k=5,
+                    app_config=_app_ai_config(),
+                )
+                if kb_ctx:
+                    todo_text = kb_ctx
                 mcp_ctx, mcp_meta = _mcp_call_with_meta(
                     "todo_get_context_preview",
                     {"level": "auto", "q": last_user},
                     timeout_sec=8.0,
                 )
                 yield _sse("mcp_call", mcp_meta)
-                if mcp_ctx and mcp_ctx.get("ok"):
+                if not todo_text and mcp_ctx and mcp_ctx.get("ok"):
                     todo_text = str((mcp_ctx.get("data") or {}).get("text") or "")
                 if not todo_text:
                     todo_text = todo_ai_bridge.build_adaptive_todo_context_for_llm(tm, last_user)
@@ -938,7 +951,12 @@ def register_local_ai_routes(app) -> None:
                     yield _sse("done", {})
                     return
 
-                snap = ""
+                snap, _todo_kb_hits = todo_kb_store.retrieve_for_query(
+                    _todo_kb_root_dir(),
+                    last_user,
+                    top_k=6,
+                    app_config=_app_ai_config(),
+                )
                 meta = None
                 mcp_ctx, mcp_meta = _mcp_call_with_meta(
                     "todo_get_context_preview",
@@ -946,7 +964,7 @@ def register_local_ai_routes(app) -> None:
                     timeout_sec=8.0,
                 )
                 yield _sse("mcp_call", mcp_meta)
-                if mcp_ctx and mcp_ctx.get("ok"):
+                if not snap and mcp_ctx and mcp_ctx.get("ok"):
                     snap = str((mcp_ctx.get("data") or {}).get("text") or "")
                 if not snap:
                     snap, meta = todo_ai_bridge.build_adaptive_todo_context_and_meta(tm, last_user)
@@ -1355,6 +1373,48 @@ def register_local_ai_routes(app) -> None:
         if not ok:
             return jsonify({"success": False, "error": err_msg}), 400
         return jsonify({"success": True, "message": "已应用"})
+
+    @app.route("/api/local-ai/todo-kb/rebuild", methods=["POST"])
+    def local_ai_todo_kb_rebuild():
+        if not _auth_ok():
+            return jsonify({"success": False, "error": "未登录"}), 401
+        root = _todo_kb_root_dir()
+        tm = current_app.config.get("TODO_MANAGER")
+        ext = current_app.config.get("TODO_EXTENDED_MANAGER")
+        if not root or tm is None:
+            return jsonify({"success": False, "error": "TODO_MANAGER 未初始化"}), 400
+        body = request.get_json(silent=True) or {}
+        run_async = bool(body.get("async", True))
+        if run_async:
+            job = todo_kb_store.queue_rebuild_all(root, tm, ext, app_config=_app_ai_config())
+            return jsonify({"success": True, "queued": True, "job": job})
+        result = todo_kb_store.rebuild_all(root, tm, ext, app_config=_app_ai_config())
+        return jsonify({"success": True, "queued": False, "result": result})
+
+    @app.route("/api/local-ai/todo-kb/status", methods=["GET"])
+    def local_ai_todo_kb_status():
+        if not _auth_ok():
+            return jsonify({"success": False, "error": "未登录"}), 401
+        return jsonify({"success": True, "status": todo_kb_store.get_index_status(_todo_kb_root_dir())})
+
+    @app.route("/api/local-ai/todo-kb/search", methods=["GET"])
+    def local_ai_todo_kb_search():
+        if not _auth_ok():
+            return jsonify({"success": False, "error": "未登录"}), 401
+        query = str(request.args.get("q") or "").strip()
+        if not query:
+            return jsonify({"success": False, "error": "q 不能为空"}), 400
+        try:
+            top_k = int(request.args.get("top_k", "6"))
+        except ValueError:
+            top_k = 6
+        context, hits = todo_kb_store.retrieve_for_query(
+            _todo_kb_root_dir(),
+            query,
+            top_k=top_k,
+            app_config=_app_ai_config(),
+        )
+        return jsonify({"success": True, "context": context, "hits": hits})
 
     @app.route("/api/knowledge/entry", methods=["GET"])
     def knowledge_get():
