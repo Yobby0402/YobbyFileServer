@@ -17,8 +17,8 @@
 </div>
 
 > **🚀 新手？** 查看 [快速开始指南](快速开始.md) 3分钟快速上手！
-> **当前版本：R1.5 · 更新日期 2026-04-21**
-> **稳定版本：R1.5 · 发布日期 2026-04-21**
+> **当前版本：R1.5 · 更新日期 2026-04-23**
+> **稳定版本：R1.5 · 发布日期 2026-04-23**
 
 ---
 
@@ -50,9 +50,9 @@ Yobboy 文件服务器是一个集成了文件浏览、Markdown 预览、Draw.io
 不需要复杂配置，不需要记住奇怪的命令，双击 exe，点击启动，扫码/输网址，搞定！
 妈妈再也不用担心我不会搭建服务器了 😎
 
-### 🌟 R1.5 版本功能更新 (2026-04-21)
+### 🌟 R1.5 版本功能更新 (2026-04-23)
 
-> 当前分支为 R1.5 非 ERP 同步版：包含知识库、本地 AI、MCP、打包与项目结构更新；本地离线 ERP 功能请切换到 `dev-erp` 分支查看。
+> 当前主线已整合本地离线 ERP、知识库、本地 AI、MCP、打包与项目结构更新，可直接在 `main` 分支使用。
 
 **🧠 知识库完善**
 - **RAG 知识库落地**：支持 `.md` / `.markdown` / `.txt` 文件预处理、切片、Embedding 入库与基于来源的问答
@@ -60,10 +60,15 @@ Yobboy 文件服务器是一个集成了文件浏览、Markdown 预览、Draw.io
 - **扫描文件夹设置**：按分享根目录一级文件夹勾选扫描范围，取消勾选即可排除整个目录树
 - **性能与体验优化**：扫描改为单次遍历、后台进度节流、Markdown 格式预览、空闲时停止知识库 API 轮询
 
+**🏭 ERP 主线合并**
+- **本地离线 ERP**：物料、仓库、库存单据、BOM、工单、追溯和 ERP AI 已并入 `main`
+- **AI 对话联动**：本地 AI 面板新增 `ERP` 模式；知识库模式在 ERP 页面或 ERP 关键词问题中会自动挂载 ERP 本地快照
+- **MCP 工具扩展**：新增 `erp_get_context`，与待办、知识库、Draw.io 工具统一显示调用记录
+
 ### 🌟 R1.4-dev 版本功能更新 (2026-04-08)
 
 **🤖 本地 AI + MCP 工具调用**
-- **本地 AI 面板**：新增本地 AI 对话面板，支持通用/知识库/代办三种模式，支持流式输出与手动停止生成
+- **本地 AI 面板**：新增本地 AI 对话面板，支持通用/知识库/待办/ERP 等模式，支持流式输出与手动停止生成
 - **MCP 桥接接入**：后端通过 `yobboy_file_server/local_mcp_bridge.py` 调用 `mcp_server.py`（兼容入口，真实实现位于 `yobboy_file_server/mcp_server.py`）（JSON-RPC over stdio），本地 AI 优先使用 MCP 工具完成待办与知识库操作
 - **MCP 调用记录面板**：在 AI 界面和 Draw.io AI 界面中展示每次工具调用结果，便于排查与审计
 
@@ -522,6 +527,14 @@ python scripts/build_exe.py
 
 生成的 exe 文件位于 `dist/YobboyFileServer.exe`
 
+ERP 已合并到 `main`，发布打包统一使用主线：
+
+```bash
+python scripts/build_exe.py --all-variants
+```
+
+该命令当前输出 `dist-main/`；历史 `dev-com` / `dev-erp` 参数会映射到 `main`，不再维护独立分支产物。
+
 
 ### 项目结构
 
@@ -585,12 +598,12 @@ This project was born to save your back and your dignity!
 No complex configuration needed, no weird commands to memorize. Double-click exe, hit start, scan/type URL, done!
 Mom will never worry about me not knowing how to set up a server again 😎
 
-### 🌟 R1.5 Latest Features (2026-04-21)
+### 🌟 R1.5 Latest Features (2026-04-23)
 
-- 🏭 **ERP Branch Note**: Local offline ERP is available on the `dev-erp` branch; this branch keeps the non-ERP R1.5 sync.
+- 🏭 **ERP Mainline Note**: Local offline ERP is now integrated into the `main` branch alongside the R1.5 knowledge-base and local-AI workflow.
 - 🧠 **Knowledge Base Upgrade**: Adds practical Markdown/TXT RAG indexing, embedding storage, background progress, source-aware answers, loose knowledge snippets, and first-level folder scan filtering.
-- 🤖 **Local AI Improvements**: Improves LM Studio/OpenAI-compatible embedding integration, separates chat and embedding tests, keeps responses streaming, and reduces idle knowledge API polling.
-- 📦 **Packaging Update**: Includes package entrypoints, knowledge-base runtime modules, and user-facing release documents in packaged builds.
+- 🤖 **Local AI Improvements**: Adds General / Knowledge / Todo / ERP modes, ERP context through MCP, streaming responses, and reduced idle knowledge API polling.
+- 📦 **Packaging Update**: Includes ERP runtime files, knowledge-base modules, MCP tools, and user-facing release documents in packaged builds.
 
 ### 🌟 v4.0 Latest Features
 

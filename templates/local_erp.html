@@ -1,0 +1,2893 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    {% include '_theme_bootstrap.html' %}
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Yobboy Tiny ERP系统</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap.min.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/font-awesome.min.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/themes.css') }}">
+    <style>
+        body {
+            background:
+                radial-gradient(circle at top right, color-mix(in srgb, var(--t-primary, #4f7cff) 18%, transparent), transparent 28%),
+                radial-gradient(circle at bottom left, color-mix(in srgb, var(--t-primary, #4f7cff) 12%, transparent), transparent 32%),
+                var(--t-bg-page, #f5f7fb);
+            color: var(--t-text-main, #243042);
+            position: relative;
+            overflow-x: hidden;
+        }
+        body::before,
+        body::after {
+            content: "";
+            position: fixed;
+            inset: auto;
+            pointer-events: none;
+            z-index: 0;
+            filter: blur(18px);
+            opacity: 0.85;
+        }
+        body::before {
+            width: 38vw;
+            height: 38vw;
+            left: -10vw;
+            top: -8vw;
+            background:
+                radial-gradient(circle, color-mix(in srgb, var(--t-primary, #4f7cff) 24%, transparent) 0%, transparent 68%),
+                radial-gradient(circle at 35% 35%, rgba(255,255,255,0.45) 0%, transparent 30%);
+        }
+        body::after {
+            width: 32vw;
+            height: 32vw;
+            right: -8vw;
+            bottom: -10vw;
+            background:
+                radial-gradient(circle, color-mix(in srgb, var(--t-primary, #4f7cff) 18%, transparent) 0%, transparent 70%),
+                radial-gradient(circle at 60% 45%, rgba(255,255,255,0.28) 0%, transparent 28%);
+        }
+        .erp-shell { display: flex; min-height: 100vh; position: relative; }
+        .erp-sidebar {
+            width: 260px; padding: 24px 16px;
+            background: var(--t-bg-panel-opaque, rgba(255,255,255,0.88));
+            border-right: 1px solid var(--t-border-light, rgba(0,0,0,0.08));
+            backdrop-filter: blur(14px);
+            box-shadow: 18px 0 40px rgba(15, 23, 42, 0.08);
+        }
+        .erp-logo {
+            font-weight: 700; font-size: 1.2rem; margin-bottom: 18px;
+            color: var(--t-primary, #4f7cff);
+            letter-spacing: 0.02em;
+        }
+        .erp-nav a {
+            display: block; padding: 10px 14px; border-radius: 14px; margin-bottom: 8px;
+            text-decoration: none; color: inherit;
+            border: 1px solid transparent;
+            transition: all 0.2s ease;
+        }
+        .erp-nav a:hover {
+            background: color-mix(in srgb, var(--t-primary, #4f7cff) 10%, transparent);
+            border-color: color-mix(in srgb, var(--t-primary, #4f7cff) 16%, transparent);
+            transform: translateX(2px);
+        }
+        .erp-nav a.active { background: var(--t-primary, #4f7cff); color: #fff; }
+        .erp-main { flex: 1; padding: 24px; position: relative; }
+        .erp-main::before {
+            content: "";
+            position: absolute;
+            inset: 8px 12px 8px 12px;
+            border-radius: 28px;
+            pointer-events: none;
+            background:
+                linear-gradient(180deg, rgba(255,255,255,0.10), transparent 18%),
+                linear-gradient(135deg, color-mix(in srgb, var(--t-primary, #4f7cff) 5%, transparent), transparent 45%);
+            border: 1px solid color-mix(in srgb, var(--t-primary, #4f7cff) 10%, transparent);
+            opacity: 0.9;
+        }
+        .page-card {
+            background: var(--t-bg-panel, rgba(255,255,255,0.92)); border-radius: 22px; padding: 20px;
+            box-shadow: 0 12px 36px rgba(15, 23, 42, 0.08);
+            border: 1px solid var(--t-border-light, rgba(255,255,255,0.5));
+            backdrop-filter: blur(12px);
+        }
+        .metric-card {
+            background: linear-gradient(
+                135deg,
+                color-mix(in srgb, var(--t-primary, #4f7cff) 10%, var(--t-bg-panel, #fff)),
+                color-mix(in srgb, var(--t-primary, #4f7cff) 18%, var(--t-bg-panel, #fff))
+            );
+            border-radius: 18px; padding: 16px; height: 100%;
+            border: 1px solid color-mix(in srgb, var(--t-primary, #4f7cff) 12%, transparent);
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.35);
+        }
+        .metric-label { font-size: 0.9rem; opacity: 0.8; }
+        .metric-value { font-size: 1.8rem; font-weight: 700; }
+        .toolbar { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+        .table-wrap {
+            max-height: 520px; overflow: auto; border-radius: 16px;
+            border: 1px solid color-mix(in srgb, var(--t-primary, #4f7cff) 8%, transparent);
+            background: color-mix(in srgb, var(--t-bg-panel, #fff) 88%, transparent);
+        }
+        .compare-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 12px;
+        }
+        .compare-card {
+            border-radius: 18px;
+            padding: 16px;
+            background: color-mix(in srgb, var(--t-primary, #4f7cff) 8%, var(--t-bg-panel, #fff));
+            border: 1px solid color-mix(in srgb, var(--t-primary, #4f7cff) 12%, transparent);
+        }
+        .compare-list {
+            display: grid;
+            gap: 10px;
+        }
+        .compare-item {
+            border-radius: 14px;
+            padding: 12px 14px;
+            background: color-mix(in srgb, var(--t-bg-panel, #fff) 90%, transparent);
+            border: 1px solid color-mix(in srgb, var(--t-primary, #4f7cff) 10%, transparent);
+        }
+        .compare-diff {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            margin-right: 10px;
+            font-size: 0.85rem;
+        }
+        .table > :not(caption) > * > * {
+            background: transparent;
+            color: var(--t-text-main, #243042);
+            border-bottom-color: color-mix(in srgb, var(--t-primary, #4f7cff) 10%, transparent);
+        }
+        .table thead th {
+            position: sticky;
+            top: 0;
+            z-index: 1;
+            background: color-mix(in srgb, var(--t-bg-panel, #fff) 92%, var(--t-primary, #4f7cff) 8%);
+            backdrop-filter: blur(10px);
+        }
+        .answer-box { white-space: pre-wrap; min-height: 110px; }
+        .small-muted { color: var(--t-text-muted, #6b7280); font-size: 0.9rem; }
+        .code-box {
+            min-height: 180px; font-family: Consolas, monospace; white-space: pre-wrap;
+            background: color-mix(in srgb, var(--t-primary, #4f7cff) 6%, var(--t-bg-panel, #fff));
+            border: 1px solid color-mix(in srgb, var(--t-primary, #4f7cff) 10%, transparent);
+            border-radius: 16px;
+        }
+        .bom-editor-shell {
+            padding: 14px 16px;
+            border-radius: 18px;
+            background: color-mix(in srgb, var(--t-primary, #4f7cff) 5%, var(--t-bg-panel, #fff));
+            border: 1px solid color-mix(in srgb, var(--t-primary, #4f7cff) 10%, transparent);
+        }
+        .bom-row-index {
+            width: 32px;
+            height: 32px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 50%;
+            background: color-mix(in srgb, var(--t-primary, #4f7cff) 12%, transparent);
+            color: var(--t-primary, #4f7cff);
+            font-weight: 700;
+            font-size: 0.82rem;
+        }
+        .bom-editor-advanced summary {
+            cursor: pointer;
+            color: var(--t-text-muted, #6b7280);
+            user-select: none;
+        }
+        .bom-editor-advanced[open] summary {
+            margin-bottom: 10px;
+        }
+        .status-pill {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 4px 10px;
+            border-radius: 999px;
+            font-size: 0.82rem;
+            font-weight: 700;
+            background: color-mix(in srgb, var(--t-primary, #4f7cff) 12%, transparent);
+            color: var(--t-primary, #4f7cff);
+        }
+        .work-order-summary {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 10px;
+            margin-bottom: 14px;
+        }
+        .work-order-summary-item {
+            padding: 12px;
+            border-radius: 16px;
+            background: color-mix(in srgb, var(--t-primary, #4f7cff) 6%, var(--t-bg-panel, #fff));
+            border: 1px solid color-mix(in srgb, var(--t-primary, #4f7cff) 10%, transparent);
+        }
+        .work-order-summary-label {
+            color: var(--t-text-muted, #6b7280);
+            font-size: 0.82rem;
+        }
+        .work-order-summary-value {
+            font-size: 1.05rem;
+            font-weight: 700;
+        }
+        .mini-progress {
+            height: 8px;
+            border-radius: 999px;
+            overflow: hidden;
+            background: color-mix(in srgb, var(--t-primary, #4f7cff) 10%, transparent);
+        }
+        .mini-progress-bar {
+            height: 100%;
+            border-radius: inherit;
+            background: linear-gradient(90deg, var(--t-primary, #4f7cff), color-mix(in srgb, var(--t-primary, #4f7cff) 70%, white));
+        }
+        .trace-summary-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 10px;
+        }
+        .trace-summary-card {
+            padding: 12px 14px;
+            border-radius: 16px;
+            background: color-mix(in srgb, var(--t-primary, #4f7cff) 6%, var(--t-bg-panel, #fff));
+            border: 1px solid color-mix(in srgb, var(--t-primary, #4f7cff) 10%, transparent);
+        }
+        .trace-summary-label {
+            color: var(--t-text-muted, #6b7280);
+            font-size: 0.82rem;
+        }
+        .trace-summary-value {
+            font-size: 1.02rem;
+            font-weight: 700;
+        }
+        .trace-graph-shell {
+            position: relative;
+            min-height: 360px;
+            overflow: auto;
+            border-radius: 18px;
+            border: 1px solid color-mix(in srgb, var(--t-primary, #4f7cff) 10%, transparent);
+            background:
+                linear-gradient(180deg, rgba(255,255,255,0.25), transparent 30%),
+                color-mix(in srgb, var(--t-primary, #4f7cff) 4%, var(--t-bg-panel, #fff));
+        }
+        .trace-graph-board {
+            position: relative;
+            min-height: 360px;
+        }
+        .trace-graph-lines {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            overflow: visible;
+        }
+        .trace-node {
+            position: absolute;
+            width: 190px;
+            padding: 12px;
+            border-radius: 16px;
+            border: 1px solid color-mix(in srgb, var(--t-primary, #4f7cff) 12%, transparent);
+            background: color-mix(in srgb, var(--t-bg-panel, #fff) 94%, transparent);
+            box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
+        }
+        .trace-node-type {
+            font-size: 0.74rem;
+            color: var(--t-primary, #4f7cff);
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            font-weight: 700;
+        }
+        .trace-node-title {
+            font-weight: 700;
+            margin-top: 2px;
+            word-break: break-word;
+        }
+        .trace-node-subtitle {
+            font-size: 0.82rem;
+            color: var(--t-text-muted, #6b7280);
+            margin-top: 4px;
+            word-break: break-word;
+        }
+        .trace-edge-label {
+            fill: var(--t-text-main, #243042);
+            font-size: 11px;
+            paint-order: stroke;
+            stroke: rgba(255,255,255,0.92);
+            stroke-width: 4px;
+            stroke-linejoin: round;
+        }
+        .trace-stage-badge {
+            font-size: 0.76rem;
+            font-weight: 700;
+            color: var(--t-text-muted, #6b7280);
+        }
+        .badge-soft {
+            background: color-mix(in srgb, var(--t-primary, #4f7cff) 12%, transparent);
+            color: var(--t-primary, #4f7cff);
+            padding: 4px 10px; border-radius: 999px; font-size: 0.8rem;
+        }
+        .toolbar-spacer { flex: 1 1 auto; }
+        .modal .page-card {
+            background: color-mix(in srgb, var(--t-primary, #4f7cff) 4%, var(--t-bg-panel, #fff));
+            border: 1px solid color-mix(in srgb, var(--t-primary, #4f7cff) 10%, transparent);
+            box-shadow: none;
+        }
+        .modal-content {
+            background: var(--t-bg-panel-opaque, rgba(255,255,255,0.95));
+            border: 1px solid var(--t-border-light, rgba(255,255,255,0.5));
+            border-radius: 24px;
+            box-shadow: 0 24px 60px rgba(15, 23, 42, 0.18);
+            backdrop-filter: blur(18px);
+        }
+        .modal-header, .modal-footer {
+            border-color: color-mix(in srgb, var(--t-primary, #4f7cff) 10%, transparent);
+        }
+        .form-control, .form-select {
+            border-radius: 14px;
+            border-color: color-mix(in srgb, var(--t-primary, #4f7cff) 14%, transparent);
+            background: color-mix(in srgb, var(--t-bg-panel, #fff) 94%, transparent);
+            color: var(--t-text-main, #243042);
+        }
+        .form-control:focus, .form-select:focus {
+            border-color: color-mix(in srgb, var(--t-primary, #4f7cff) 36%, transparent);
+            box-shadow: 0 0 0 0.2rem color-mix(in srgb, var(--t-primary, #4f7cff) 18%, transparent);
+        }
+        .btn {
+            border-radius: 12px;
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, var(--t-primary, #4f7cff), color-mix(in srgb, var(--t-primary, #4f7cff) 74%, white));
+            border-color: transparent;
+            box-shadow: 0 10px 18px color-mix(in srgb, var(--t-primary, #4f7cff) 28%, transparent);
+        }
+        .btn-primary:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 14px 24px color-mix(in srgb, var(--t-primary, #4f7cff) 32%, transparent);
+        }
+        .btn-outline-primary, .btn-outline-secondary {
+            border-width: 1px;
+            background: color-mix(in srgb, var(--t-bg-panel, #fff) 92%, transparent);
+        }
+        .floating-toolbar {
+            position: fixed;
+            right: 20px;
+            bottom: 20px;
+            z-index: 1030;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .toolbar-btn {
+            width: 58px;
+            height: 58px;
+            border-radius: 50%;
+            border: 1px solid color-mix(in srgb, var(--t-primary, #4f7cff) 14%, transparent);
+            background: linear-gradient(135deg, var(--t-primary, #4f7cff), color-mix(in srgb, var(--t-primary, #4f7cff) 74%, white));
+            color: #fff;
+            font-size: 22px;
+            cursor: pointer;
+            box-shadow: 0 12px 24px rgba(15, 23, 42, 0.18);
+            transition: all 0.25s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            text-decoration: none;
+            overflow: hidden;
+        }
+        .toolbar-btn:hover {
+            transform: translateY(-3px) scale(1.02);
+            color: #fff;
+            box-shadow: 0 16px 30px rgba(15, 23, 42, 0.22);
+        }
+        .toolbar-btn.secondary-btn {
+            background: linear-gradient(135deg, #43a5ff, #5fd0ff);
+        }
+        .toolbar-btn.success-btn {
+            background: linear-gradient(135deg, #3ecf8e, #63e6be);
+        }
+        .toolbar-btn.warning-btn {
+            background: linear-gradient(135deg, #ff9f43, #ffd166);
+        }
+        .toolbar-btn.dark-btn {
+            background: linear-gradient(135deg, #54657e, #7a8ca6);
+        }
+        .toolbar-btn .tooltip-text {
+            position: absolute;
+            right: 70px;
+            background: rgba(15, 23, 42, 0.88);
+            color: #fff;
+            padding: 6px 10px;
+            border-radius: 8px;
+            white-space: nowrap;
+            font-size: 13px;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.2s ease;
+        }
+        .toolbar-btn:hover .tooltip-text { opacity: 1; }
+        html[data-morph="glassmorphism"] .erp-sidebar,
+        html[data-morph="glassmorphism"] .page-card,
+        html[data-morph="glassmorphism"] .modal-content {
+            background: color-mix(in srgb, var(--t-bg-panel-opaque, rgba(255,255,255,0.84)) 88%, transparent);
+            backdrop-filter: blur(22px);
+        }
+        html[data-morph="glassmorphism"] .toolbar-btn {
+            backdrop-filter: blur(16px);
+            border-color: color-mix(in srgb, white 28%, var(--t-primary, #4f7cff));
+        }
+        html[data-morph="claymorphism"] .page-card,
+        html[data-morph="claymorphism"] .metric-card {
+            box-shadow:
+                inset 0 2px 4px rgba(255,255,255,0.5),
+                0 18px 40px rgba(15, 23, 42, 0.12);
+        }
+        @media (max-width: 991px) {
+            .erp-shell { flex-direction: column; }
+            .erp-sidebar { width: 100%; border-right: 0; border-bottom: 1px solid var(--t-border-light, rgba(0,0,0,0.08)); }
+            .floating-toolbar {
+                right: 16px;
+                bottom: 16px;
+            }
+            .toolbar-btn {
+                width: 52px;
+                height: 52px;
+                font-size: 20px;
+            }
+        }
+    </style>
+</head>
+<body>
+<div class="erp-shell">
+    <aside class="erp-sidebar">
+        <div class="erp-logo"><i class="fa fa-cubes"></i> Yobboy Tiny ERP系统</div>
+        <div class="small-muted mb-3">Yobboy 原创 · 本地离线库存 / BOM / 工单 / 追踪 / AI</div>
+        <nav class="erp-nav">
+            <a href="/erp/dashboard" class="{% if active_page == 'dashboard' %}active{% endif %}"><i class="fa fa-dashboard"></i> 工作台</a>
+            <a href="/erp/master-data/items" class="{% if active_page == 'items' %}active{% endif %}"><i class="fa fa-archive"></i> 物料与仓库</a>
+            <a href="/erp/inventory/balances" class="{% if active_page == 'inventory' %}active{% endif %}"><i class="fa fa-database"></i> 库存</a>
+            <a href="/erp/inventory/documents" class="{% if active_page == 'documents' %}active{% endif %}"><i class="fa fa-file-text-o"></i> 单据</a>
+            <a href="/erp/bom" class="{% if active_page == 'bom' %}active{% endif %}"><i class="fa fa-sitemap"></i> BOM</a>
+            <a href="/erp/work-orders" class="{% if active_page == 'work_orders' %}active{% endif %}"><i class="fa fa-cogs"></i> 工单</a>
+            <a href="/erp/trace" class="{% if active_page == 'trace' %}active{% endif %}"><i class="fa fa-random"></i> 追踪</a>
+            <a href="/erp/ai" class="{% if active_page == 'ai' %}active{% endif %}"><i class="fa fa-comments-o"></i> AI 助手</a>
+            <a href="/" class="mt-4"><i class="fa fa-home"></i> 返回首页</a>
+        </nav>
+    </aside>
+
+    <main class="erp-main">
+        {% if active_page == 'dashboard' %}
+        <section id="page-dashboard">
+            <div class="page-card">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h2 class="h4 mb-0">Yobboy Tiny ERP系统工作台</h2>
+                    <button class="btn btn-outline-primary btn-sm" onclick="loadDashboard()">刷新</button>
+                </div>
+                <div class="row g-3 mb-3" id="dashboardMetrics"></div>
+                <div class="row g-3">
+                    <div class="col-lg-6">
+                        <div class="page-card h-100">
+                            <h3 class="h6">安全库存预警</h3>
+                            <div class="table-wrap">
+                                <table class="table table-sm">
+                                    <thead><tr><th>物料</th><th>可用库存</th><th>安全库存</th></tr></thead>
+                                    <tbody id="warningTable"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-lg-6">
+                        <div class="page-card h-100">
+                            <h3 class="h6">最近单据</h3>
+                            <div class="table-wrap">
+                                <table class="table table-sm">
+                                    <thead><tr><th>单号</th><th>类型</th><th>状态</th><th>日期</th></tr></thead>
+                                    <tbody id="recentDocsTable"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+        {% endif %}
+
+        {% if active_page == 'items' %}
+        <section id="page-items">
+            <div class="page-card">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h2 class="h4 mb-0">物料与仓库主数据</h2>
+                    <div class="toolbar">
+                        <input class="form-control form-control-sm" id="itemKeyword" placeholder="搜索编码或名称" style="width: 220px;">
+                        <button class="btn btn-outline-primary btn-sm" onclick="loadItems()">搜索</button>
+                    </div>
+                </div>
+                <div class="row g-3">
+                    <div class="col-lg-7">
+                        <div class="page-card h-100">
+                            <div class="d-flex justify-content-between align-items-center mb-3">
+                                <h3 class="h6 mb-0">物料列表</h3>
+                                <div class="toolbar">
+                                    <span class="small-muted">新建与编辑均通过弹窗完成</span>
+                                    <button class="btn btn-primary btn-sm" type="button" onclick="openNewItemModal()">新建物料</button>
+                                </div>
+                            </div>
+                            <div class="table-wrap">
+                                <table class="table table-striped table-sm align-middle">
+                                    <thead>
+                                    <tr><th>编码</th><th>名称</th><th>类型</th><th>当前库存</th><th>安全库存</th><th>操作</th></tr>
+                                    </thead>
+                                    <tbody id="itemsTable"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-lg-5">
+                        <div class="page-card mb-3">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <h3 class="h6 mb-0">自定义字段配置</h3>
+                                <div class="toolbar">
+                                    <button class="btn btn-outline-secondary btn-sm" type="button" onclick="loadCustomFields()">刷新</button>
+                                    <button class="btn btn-primary btn-sm" type="button" onclick="openCustomFieldModal()">新建字段</button>
+                                </div>
+                            </div>
+                            <div class="table-wrap">
+                                <table class="table table-striped table-sm align-middle">
+                                    <thead><tr><th>字段名</th><th>显示名</th><th>类型</th><th>必填</th><th>默认值</th></tr></thead>
+                                    <tbody id="customFieldsTable"></tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <div class="page-card">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <h3 class="h6 mb-0">仓库列表</h3>
+                                <div class="toolbar">
+                                    <button class="btn btn-outline-secondary btn-sm" type="button" onclick="loadWarehouses()">刷新</button>
+                                    <button class="btn btn-primary btn-sm" type="button" onclick="openNewWarehouseModal()">新建仓库</button>
+                                </div>
+                            </div>
+                            <div class="table-wrap">
+                                <table class="table table-striped table-sm align-middle">
+                                    <thead><tr><th>编码</th><th>名称</th><th>类型</th><th>状态</th><th>操作</th></tr></thead>
+                                    <tbody id="warehousesTable"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+        {% endif %}
+
+        {% if active_page == 'inventory' %}
+        <section id="page-inventory">
+            <div class="row g-3">
+                <div class="col-xl-7">
+                    <div class="page-card">
+                        <div class="d-flex justify-content-between align-items-center mb-3">
+                            <h2 class="h4 mb-0">库存余额</h2>
+                            <button class="btn btn-outline-primary btn-sm" onclick="loadBalances()">刷新</button>
+                        </div>
+                        <div class="table-wrap">
+                            <table class="table table-striped table-sm">
+                                <thead><tr><th>物料</th><th>仓库</th><th>批次</th><th>现存量</th><th>安全库存</th></tr></thead>
+                                <tbody id="balancesTable"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-xl-5">
+                    <div class="page-card mb-3">
+                        <h3 class="h6">最近库存流水</h3>
+                        <div class="table-wrap">
+                            <table class="table table-sm">
+                                <thead><tr><th>日期</th><th>物料</th><th>方向</th><th>数量</th><th>单据</th></tr></thead>
+                                <tbody id="ledgerTable"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+        {% endif %}
+
+        {% if active_page == 'documents' %}
+        <section id="page-documents">
+            <div class="page-card">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <div>
+                        <h2 class="h4 mb-1">库存单据</h2>
+                        <div class="small-muted">录入改为弹窗，列表区保留更大的查看空间</div>
+                    </div>
+                    <div class="toolbar">
+                        <button class="btn btn-outline-secondary btn-sm" onclick="loadDocuments()">刷新列表</button>
+                        <button class="btn btn-primary btn-sm" type="button" onclick="openDocumentModal()">新建单据</button>
+                    </div>
+                </div>
+                <div class="table-wrap">
+                    <table class="table table-striped table-sm">
+                        <thead><tr><th>单号</th><th>类型</th><th>状态</th><th>日期</th><th>行数</th><th>操作</th></tr></thead>
+                        <tbody id="documentsTable"></tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+        {% endif %}
+
+        {% if active_page == 'bom' %}
+        <section id="page-bom">
+            <div class="row g-3">
+                <div class="col-xl-7">
+                    <div class="page-card">
+                        <div class="d-flex justify-content-between align-items-center mb-3">
+                            <div>
+                                <h2 class="h4 mb-1">BOM 管理</h2>
+                                <div class="small-muted">支持 BOM 编辑与版本对比，便于持续维护配方变更</div>
+                            </div>
+                            <div class="toolbar">
+                                <button class="btn btn-outline-secondary btn-sm" onclick="loadBoms()">刷新列表</button>
+                                <span class="badge-soft" id="bomCountBadge">0 个 BOM</span>
+                                <button class="btn btn-primary btn-sm" type="button" onclick="openBomModal()">新建 BOM</button>
+                            </div>
+                        </div>
+                        <div class="table-wrap">
+                            <table class="table table-striped table-sm">
+                                <thead><tr><th>BOM 编号</th><th>父项</th><th>版本</th><th>状态</th><th>子件数</th><th>操作</th></tr></thead>
+                                <tbody id="bomTable"></tbody>
+                            </table>
+                        </div>
+                        <div class="small-muted mt-2">子件 JSON 支持字段：`component_item_id`、`qty`、`loss_rate`、`remark`</div>
+                    </div>
+                </div>
+                <div class="col-xl-5">
+                    <div class="page-card mb-3">
+                        <div class="d-flex justify-content-between align-items-center mb-3">
+                            <div>
+                                <h3 class="h6 mb-1">版本对比</h3>
+                                <div class="small-muted">选择两个版本，查看新增、移除和变更的子件</div>
+                            </div>
+                            <button class="btn btn-outline-primary btn-sm" type="button" onclick="compareBoms()">开始对比</button>
+                        </div>
+                        <div class="row g-2 mb-3">
+                            <div class="col-md-6"><select id="bomCompareLeft" class="form-select form-select-sm"></select></div>
+                            <div class="col-md-6"><select id="bomCompareRight" class="form-select form-select-sm"></select></div>
+                        </div>
+                        <div id="bomCompareResult" class="small-muted">请选择两个 BOM 版本进行对比。</div>
+                    </div>
+                    <div class="page-card">
+                        <div class="d-flex justify-content-between align-items-center mb-3">
+                            <div>
+                                <h3 class="h6 mb-1">版本时间线</h3>
+                                <div class="small-muted">查看同一父项下的版本演进，并可复制为新版本</div>
+                            </div>
+                            <button class="btn btn-outline-secondary btn-sm" type="button" onclick="clearBomVersionTimeline()">清空</button>
+                        </div>
+                        <div id="bomVersionTimeline" class="small-muted">从 BOM 列表选择一个版本查看时间线。</div>
+                    </div>
+                </div>
+            </div>
+        </section>
+        {% endif %}
+
+        {% if active_page == 'work_orders' %}
+        <section id="page-work-orders">
+            <div class="row g-3">
+                <div class="col-xl-4">
+                    <div class="page-card mb-3">
+                        <div class="d-flex justify-content-between align-items-center mb-3">
+                            <h2 class="h4 mb-0">工单操作</h2>
+                            <button class="btn btn-primary btn-sm" type="button" onclick="openWorkOrderModal()">新建工单</button>
+                        </div>
+                        <div class="small-muted">工单创建改为弹窗，当前区域保留执行与状态流转。</div>
+                    </div>
+                    <div class="page-card">
+                        <h3 class="h6">工单操作</h3>
+                        <div class="row g-2">
+                            <div class="col-12"><select id="woSelected" class="form-select form-select-sm" onchange="showSelectedWorkOrderDetail()"></select></div>
+                            <div class="col-md-6"><input id="woCompleteQty" class="form-control form-control-sm" placeholder="完工数量"></div>
+                            <div class="col-md-6"><input id="woCompleteBatch" class="form-control form-control-sm" placeholder="完工批次"></div>
+                            <div class="col-12 d-flex gap-2">
+                                <button class="btn btn-outline-primary btn-sm" onclick="issueWorkOrder()">一键领料</button>
+                                <button class="btn btn-outline-warning btn-sm" onclick="returnWorkOrder()">退料回仓</button>
+                                <button class="btn btn-outline-success btn-sm" onclick="completeWorkOrder()">完工入库</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-xl-8">
+                    <div class="page-card mb-3">
+                        <div class="d-flex justify-content-between align-items-center mb-3">
+                            <h3 class="h6 mb-0">工单列表</h3>
+                            <div class="toolbar">
+                                <button class="btn btn-outline-secondary btn-sm" onclick="loadWorkOrders()">刷新</button>
+                                <button class="btn btn-primary btn-sm" type="button" onclick="openWorkOrderModal()">新建工单</button>
+                            </div>
+                        </div>
+                        <div class="table-wrap">
+                            <table class="table table-striped table-sm">
+                                <thead><tr><th>工单号</th><th>成品</th><th>BOM</th><th>计划</th><th>已完工</th><th>状态</th></tr></thead>
+                                <tbody id="workOrderTable"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <div class="page-card">
+                        <div class="d-flex justify-content-between align-items-center gap-2 mb-3 flex-wrap">
+                            <div>
+                                <h3 class="h6 mb-1">工单详情与执行面板</h3>
+                                <div class="small-muted">点击工单后可查看进度、理论用料、已领已退，并按明细执行领料/退料。</div>
+                            </div>
+                            <span class="badge-soft" id="workOrderDetailBadge">未选择</span>
+                        </div>
+                        <div id="workOrderDetailEmpty" class="small-muted">请选择工单查看理论用料与关联关系。</div>
+                        <div id="workOrderDetailPanel" style="display:none;">
+                            <div id="workOrderSummary" class="work-order-summary"></div>
+                            <div class="d-flex justify-content-between align-items-center gap-2 mb-2 flex-wrap">
+                                <div>
+                                    <div class="fw-semibold">用料执行</div>
+                                    <div class="small-muted">可按剩余/可退自动填充，也可手动输入本次领料或退料数量。</div>
+                                </div>
+                                <div class="toolbar">
+                                    <button class="btn btn-outline-primary btn-sm" type="button" onclick="fillWorkOrderIssueRemaining()">填剩余领料</button>
+                                    <button class="btn btn-outline-warning btn-sm" type="button" onclick="fillWorkOrderReturnAvailable()">填可退数量</button>
+                                    <button class="btn btn-outline-secondary btn-sm" type="button" onclick="clearWorkOrderLineInputs()">清空</button>
+                                </div>
+                            </div>
+                            <div class="table-wrap mb-3">
+                                <table class="table table-sm align-middle mb-0">
+                                    <thead>
+                                        <tr>
+                                            <th>物料</th>
+                                            <th>应领</th>
+                                            <th>已领</th>
+                                            <th>已退</th>
+                                            <th>消耗</th>
+                                            <th>待领</th>
+                                            <th>可退</th>
+                                            <th>本次领料</th>
+                                            <th>本次退料</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="workOrderMaterialsTable"></tbody>
+                                </table>
+                            </div>
+                            <div class="d-flex gap-2 mb-3 flex-wrap">
+                                <button class="btn btn-primary btn-sm" type="button" onclick="issueWorkOrderFromDetail()">按表格领料</button>
+                                <button class="btn btn-outline-warning btn-sm" type="button" onclick="returnWorkOrderFromDetail()">按表格退料</button>
+                                <button class="btn btn-outline-success btn-sm" type="button" onclick="completeWorkOrder()">完工入库</button>
+                            </div>
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <div>
+                                    <div class="fw-semibold">关联单据</div>
+                                    <div class="small-muted">展示该工单与领料、退料、完工入库单据之间的关系。</div>
+                                </div>
+                            </div>
+                            <div class="table-wrap">
+                                <table class="table table-sm mb-0">
+                                    <thead><tr><th>来源</th><th>去向</th><th>关系</th><th>时间</th></tr></thead>
+                                    <tbody id="workOrderRelationsTable"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+        {% endif %}
+
+        {% if active_page == 'trace' %}
+        <section id="page-trace">
+            <div class="row g-3">
+                <div class="col-xl-4">
+                    <div class="page-card">
+                        <h2 class="h4 mb-3">物料追踪查询</h2>
+                        <div class="row g-2">
+                            <div class="col-12"><input id="traceKeyword" class="form-control form-control-sm" placeholder="物料编码 / 名称"></div>
+                            <div class="col-12"><input id="traceBatchNo" class="form-control form-control-sm" placeholder="批次号"></div>
+                            <div class="col-12 d-flex gap-2">
+                                <button class="btn btn-primary btn-sm" onclick="loadTraceLinks()">查询追踪</button>
+                                <button class="btn btn-outline-secondary btn-sm" onclick="fillTraceFromSelectedWorkOrder()">带入当前工单物料</button>
+                            </div>
+                        </div>
+                        <div class="small-muted mt-3">当前已支持查看采购入库、领料、退料、完工入库等链路。</div>
+                    </div>
+                </div>
+                <div class="col-xl-8">
+                    <div class="page-card mb-3">
+                        <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+                            <div>
+                                <h3 class="h6 mb-1">追踪图视图</h3>
+                                <div class="small-muted">将库存、单据、工单之间的流向以可视化节点方式展示。</div>
+                            </div>
+                            <div class="d-flex gap-2 flex-wrap">
+                                <span class="badge-soft" id="traceGraphNodeBadge">0 个节点</span>
+                                <span class="badge-soft" id="traceGraphEdgeBadge">0 条边</span>
+                            </div>
+                        </div>
+                        <div id="traceSummaryCards" class="trace-summary-grid mb-3"></div>
+                        <div class="trace-graph-shell">
+                            <div id="traceGraphBoard" class="trace-graph-board">
+                                <svg id="traceGraphLines" class="trace-graph-lines"></svg>
+                                <div id="traceGraphEmpty" class="small-muted p-4">请输入物料或批次后查看追踪图。</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="page-card">
+                        <div class="d-flex justify-content-between align-items-center mb-3">
+                            <h3 class="h6 mb-0">追踪链路</h3>
+                            <span class="badge-soft" id="traceCountBadge">0 条记录</span>
+                        </div>
+                        <div class="table-wrap">
+                            <table class="table table-striped table-sm">
+                                <thead><tr><th>物料</th><th>批次</th><th>来源</th><th>去向</th><th>数量</th><th>链路类型</th><th>时间</th></tr></thead>
+                                <tbody id="traceTable"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+        {% endif %}
+
+        {% if active_page == 'ai' %}
+        <section id="page-ai">
+            <div class="row g-3">
+                <div class="col-xl-4">
+                    <div class="page-card">
+                        <h2 class="h4 mb-3">ERP AI 问题模板</h2>
+                        <div class="small-muted mb-3">使用全站统一的本地 AI 弹窗，并通过 MCP 自动读取 ERP 本地数据。</div>
+                        <div class="d-grid gap-2">
+                            <button class="btn btn-outline-primary btn-sm text-start" onclick="askPreset('哪些物料低于安全库存')">哪些物料低于安全库存</button>
+                            <button class="btn btn-outline-primary btn-sm text-start" onclick="askPreset('查询当前库存情况')">查询当前库存情况</button>
+                            <button class="btn btn-outline-primary btn-sm text-start" onclick="askPreset('最近有哪些单据影响了库存')">最近有哪些单据影响了库存</button>
+                            <button class="btn btn-outline-primary btn-sm text-start" onclick="askPreset('帮我解释最近工单的领料、退料和完工情况')">解释最近工单执行情况</button>
+                            <button class="btn btn-outline-primary btn-sm text-start" onclick="askPreset('帮我分析当前 BOM 和物料追踪链路')">分析 BOM 与追踪链路</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-xl-8">
+                    <div class="page-card">
+                        <h2 class="h4 mb-3">统一 AI 弹窗</h2>
+                        <div class="small-muted mb-3">
+                            ERP 不再使用独立问答框；点击下方按钮会打开与首页、待办等页面一致的本地 AI 弹窗。
+                            弹窗会携带当前 ERP 页面、已选择工单、BOM、追踪过滤条件等上下文，并通过 MCP 读取本地 ERP 快照。
+                        </div>
+                        <div class="input-group mb-3">
+                            <input id="aiQueryInput" class="form-control" placeholder="例如：查询物料 ITEM001 当前库存">
+                            <button class="btn btn-primary" onclick="submitAiQuery()">打开并发送</button>
+                            <button class="btn btn-outline-secondary" onclick="openErpAiPanel(document.getElementById('aiQueryInput').value || '', false)">只打开弹窗</button>
+                        </div>
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <div class="page-card h-100">
+                                    <h3 class="h6">MCP 上下文</h3>
+                                    <div class="small-muted">共享 AI 会在请求中附带 `page_context.source=erp`，后端通过 `erp_get_context` MCP 工具读取 ERP 快照。</div>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="page-card h-100">
+                                    <h3 class="h6">可问范围</h3>
+                                    <ul class="mb-0 small-muted">
+                                        <li>库存、预警、物料余额</li>
+                                        <li>BOM 子件、版本与配方解释</li>
+                                        <li>工单领料、退料、完工进度</li>
+                                        <li>批次与物料去向追踪</li>
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+        {% endif %}
+
+        {% if active_page == 'items' %}
+        <div class="modal fade" id="itemModal" tabindex="-1" aria-hidden="true">
+            <div class="modal-dialog modal-lg modal-dialog-scrollable">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="itemFormTitle">新增物料</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="small-muted mb-3">请填写物料基础资料；数量类字段可留空，留空时按 `0` 处理。</div>
+                        <div class="row g-2">
+                            <input id="itemId" type="hidden">
+                            <div class="col-md-6"><input id="itemCode" class="form-control form-control-sm" placeholder="物料编码，例如 RAW-001"></div>
+                            <div class="col-md-6"><input id="itemName" class="form-control form-control-sm" placeholder="物料名称，例如 铝壳外壳"></div>
+                            <div class="col-md-6"><input id="itemSpec" class="form-control form-control-sm" placeholder="规格型号，例如 10cm / 蓝色 / 2mm"></div>
+                            <div class="col-md-6">
+                                <select id="itemType" class="form-select form-select-sm">
+                                    <option value="raw_material">原材料</option>
+                                    <option value="semi_finished">半成品</option>
+                                    <option value="finished_goods">成品</option>
+                                    <option value="consumable">耗材</option>
+                                </select>
+                            </div>
+                            <div class="col-md-6"><input id="itemSafetyStock" class="form-control form-control-sm" placeholder="安全库存阈值，例如 100；留空按 0"></div>
+                            <div class="col-md-6"><input id="itemMinStock" class="form-control form-control-sm" placeholder="最低库存阈值，例如 50；留空按 0"></div>
+                            <div class="col-md-6"><select id="itemWarehouse" class="form-select form-select-sm"></select></div>
+                            <div class="col-md-6">
+                                <select id="itemEnabled" class="form-select form-select-sm">
+                                    <option value="1">启用</option>
+                                    <option value="0">停用</option>
+                                </select>
+                            </div>
+                            <div class="col-12"><textarea id="itemRemark" class="form-control form-control-sm" rows="3" placeholder="备注"></textarea></div>
+                            <div class="col-12">
+                                <div class="page-card">
+                                    <div class="d-flex justify-content-between align-items-center mb-2">
+                                        <h4 class="h6 mb-0">自定义字段值</h4>
+                                        <span class="badge-soft" id="itemCustomFieldCount">0 个字段</span>
+                                    </div>
+                                    <div class="row g-2" id="itemCustomFieldContainer"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button class="btn btn-outline-secondary btn-sm" type="button" onclick="resetItemForm()">重置</button>
+                        <button class="btn btn-primary btn-sm" type="button" onclick="saveItem()">保存物料</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="modal fade" id="warehouseModal" tabindex="-1" aria-hidden="true">
+            <div class="modal-dialog modal-lg modal-dialog-scrollable">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="warehouseFormTitle">新增仓库</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="small-muted mb-3">请填写仓库主数据，编码建议唯一且简短易识别。</div>
+                        <div class="row g-2">
+                            <input id="warehouseId" type="hidden">
+                            <div class="col-md-6"><input id="warehouseCode" class="form-control form-control-sm" placeholder="仓库编码，例如 MAIN / RM-01"></div>
+                            <div class="col-md-6"><input id="warehouseName" class="form-control form-control-sm" placeholder="仓库名称，例如 主仓库 / 原料仓"></div>
+                            <div class="col-md-6">
+                                <select id="warehouseType" class="form-select form-select-sm">
+                                    <option value="normal">普通仓</option>
+                                    <option value="production">生产仓</option>
+                                    <option value="returns">退料仓</option>
+                                </select>
+                            </div>
+                            <div class="col-md-6">
+                                <select id="warehouseEnabled" class="form-select form-select-sm">
+                                    <option value="1">启用</option>
+                                    <option value="0">停用</option>
+                                </select>
+                            </div>
+                            <div class="col-12"><textarea id="warehouseRemark" class="form-control form-control-sm" rows="2" placeholder="备注"></textarea></div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button class="btn btn-outline-secondary btn-sm" type="button" onclick="resetWarehouseForm()">重置</button>
+                        <button class="btn btn-primary btn-sm" type="button" onclick="saveWarehouse()">保存仓库</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="modal fade" id="customFieldModal" tabindex="-1" aria-hidden="true">
+            <div class="modal-dialog modal-lg modal-dialog-scrollable">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">新增自定义字段</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="small-muted mb-3">字段名建议用英文或下划线；排序越小越靠前，留空按 `0`。</div>
+                        <div class="row g-2">
+                            <div class="col-md-6"><input id="customFieldName" class="form-control form-control-sm" placeholder="字段名，例如 material_grade"></div>
+                            <div class="col-md-6"><input id="customFieldLabel" class="form-control form-control-sm" placeholder="字段显示名，例如 材料等级"></div>
+                            <div class="col-md-4">
+                                <select id="customFieldType" class="form-select form-select-sm">
+                                    <option value="text">文本</option>
+                                    <option value="number">数字</option>
+                                    <option value="select">选项</option>
+                                    <option value="textarea">多行文本</option>
+                                </select>
+                            </div>
+                            <div class="col-md-4"><input id="customFieldOptions" class="form-control form-control-sm" placeholder="选项，例如 A,B,C 或 [\"A\",\"B\"]"></div>
+                            <div class="col-md-4"><input id="customFieldDefault" class="form-control form-control-sm" placeholder="默认值，例如 A"></div>
+                            <div class="col-md-6">
+                                <select id="customFieldRequired" class="form-select form-select-sm">
+                                    <option value="0">非必填</option>
+                                    <option value="1">必填</option>
+                                </select>
+                            </div>
+                            <div class="col-md-6"><input id="customFieldSort" class="form-control form-control-sm" placeholder="显示顺序，例如 10；留空按 0"></div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button class="btn btn-outline-secondary btn-sm" type="button" onclick="resetCustomFieldForm()">重置</button>
+                        <button class="btn btn-primary btn-sm" type="button" onclick="saveCustomField()">保存字段</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        {% if active_page == 'documents' %}
+        <div class="modal fade" id="documentModal" tabindex="-1" aria-hidden="true">
+            <div class="modal-dialog modal-lg modal-dialog-scrollable">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">新建库存单据</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="small-muted mb-3">请选择单据类型与仓库，再填写物料、数量和批次。</div>
+                        <div class="row g-2">
+                            <div class="col-md-6">
+                                <select id="docType" class="form-select form-select-sm">
+                                    <option value="purchase_in">采购入库</option>
+                                    <option value="other_in">其他入库</option>
+                                    <option value="material_issue">领料出库</option>
+                                    <option value="other_out">其他出库</option>
+                                    <option value="transfer">仓库调拨</option>
+                                </select>
+                            </div>
+                            <div class="col-md-6"><input id="docBizDate" type="date" class="form-control form-control-sm"></div>
+                            <div class="col-md-6"><select id="docSourceWarehouse" class="form-select form-select-sm"></select></div>
+                            <div class="col-md-6"><select id="docTargetWarehouse" class="form-select form-select-sm"></select></div>
+                            <div class="col-md-6"><select id="docItem" class="form-select form-select-sm"></select></div>
+                            <div class="col-md-6"><input id="docQty" class="form-control form-control-sm" placeholder="数量，例如 20"></div>
+                            <div class="col-md-6"><input id="docBatch" class="form-control form-control-sm" placeholder="批次号，例如 BATCH-20260421-01"></div>
+                            <div class="col-md-6"><input id="docRemark" class="form-control form-control-sm" placeholder="备注，例如 首批采购入库"></div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button class="btn btn-outline-secondary btn-sm" type="button" onclick="resetDocumentForm()">重置</button>
+                        <button class="btn btn-primary btn-sm" type="button" onclick="createAndSubmitDocument()">创建并提交</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        {% if active_page == 'bom' %}
+        <div class="modal fade" id="bomModal" tabindex="-1" aria-hidden="true">
+            <div class="modal-dialog modal-lg modal-dialog-scrollable">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="bomFormTitle">新建 BOM</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="small-muted mb-3">请选择父项与版本，再维护 BOM 子件结构。</div>
+                        <div class="row g-2">
+                            <input id="bomId" type="hidden">
+                            <div class="col-md-6"><select id="bomParentItem" class="form-select form-select-sm"></select></div>
+                            <div class="col-md-6"><input id="bomVersion" class="form-control form-control-sm" value="V1" placeholder="版本号，例如 V1 / V2"></div>
+                            <div class="col-12"><input id="bomCode" class="form-control form-control-sm" placeholder="可选：BOM 编号，例如 BOM-FG001-V1"></div>
+                            <div class="col-md-6">
+                                <select id="bomStatus" class="form-select form-select-sm">
+                                    <option value="submitted">已提交</option>
+                                    <option value="draft">草稿</option>
+                                    <option value="inactive">停用</option>
+                                </select>
+                            </div>
+                            <div class="col-md-6">
+                                <select id="bomDefaultVersion" class="form-select form-select-sm">
+                                    <option value="1">设为默认版本</option>
+                                    <option value="0">不设为默认版本</option>
+                                </select>
+                            </div>
+                            <div class="col-12">
+                                <div class="bom-editor-shell">
+                                    <div class="d-flex justify-content-between align-items-center gap-2 mb-2 flex-wrap">
+                                        <div>
+                                            <div class="fw-semibold">BOM 子件清单</div>
+                                            <div class="small-muted">优先使用表格维护子件、数量、损耗率与备注。</div>
+                                        </div>
+                                        <button class="btn btn-outline-primary btn-sm" type="button" onclick="addBomItemRow()">
+                                            <i class="fa fa-plus"></i> 新增子件
+                                        </button>
+                                    </div>
+                                    <div class="table-wrap">
+                                        <table class="table table-sm align-middle mb-0">
+                                            <thead>
+                                                <tr>
+                                                    <th style="width: 72px;">序号</th>
+                                                    <th>子件物料</th>
+                                                    <th style="width: 110px;">数量</th>
+                                                    <th style="width: 110px;">损耗率%</th>
+                                                    <th>备注</th>
+                                                    <th style="width: 88px;">操作</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="bomItemsEditorBody"></tbody>
+                                        </table>
+                                    </div>
+                                    <div id="bomItemsEditorHint" class="small-muted mt-2">请至少维护一个有效子件。</div>
+                                    <details class="bom-editor-advanced mt-3">
+                                        <summary>高级 JSON 编辑</summary>
+                                        <div class="d-flex justify-content-between align-items-center gap-2 mb-2 flex-wrap">
+                                            <div class="small-muted">如直接修改 JSON，可点击“应用到表格”同步；保存时若 JSON 被改动，将优先按 JSON 保存。</div>
+                                            <button class="btn btn-outline-secondary btn-sm" type="button" onclick="applyBomItemsJsonToEditor()">应用到表格</button>
+                                        </div>
+                                        <textarea id="bomItemsJson" class="form-control form-control-sm code-box" placeholder='BOM 子件 JSON，例如：[{"component_item_id":1,"qty":2}]'></textarea>
+                                    </details>
+                                </div>
+                            </div>
+                            <div class="col-12"><textarea id="bomRemark" class="form-control form-control-sm" rows="2" placeholder="备注"></textarea></div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button class="btn btn-outline-secondary btn-sm" type="button" onclick="resetBomForm()">重置</button>
+                        <button class="btn btn-primary btn-sm" type="button" id="bomSaveButton" onclick="saveBom()">保存 BOM</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        {% if active_page == 'work_orders' %}
+        <div class="modal fade" id="workOrderModal" tabindex="-1" aria-hidden="true">
+            <div class="modal-dialog modal-lg modal-dialog-scrollable">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">新建工单</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="small-muted mb-3">请选择成品、BOM 与目标仓库，再填写计划生产数量。</div>
+                        <div class="row g-2">
+                            <div class="col-12"><select id="woParentItem" class="form-select form-select-sm"></select></div>
+                            <div class="col-12"><select id="woBom" class="form-select form-select-sm"></select></div>
+                            <div class="col-md-6"><input id="woPlanQty" class="form-control form-control-sm" placeholder="计划生产数量，例如 100"></div>
+                            <div class="col-md-6"><select id="woWarehouse" class="form-select form-select-sm"></select></div>
+                            <div class="col-md-6"><input id="woStartDate" type="date" class="form-control form-control-sm"></div>
+                            <div class="col-md-6"><input id="woEndDate" type="date" class="form-control form-control-sm"></div>
+                            <div class="col-12"><textarea id="woRemark" class="form-control form-control-sm" rows="2" placeholder="备注"></textarea></div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button class="btn btn-outline-secondary btn-sm" type="button" onclick="resetWorkOrderForm()">重置</button>
+                        <button class="btn btn-primary btn-sm" type="button" onclick="createWorkOrder()">创建工单</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+    </main>
+</div>
+
+<div class="floating-toolbar">
+    <button type="button" class="toolbar-btn warning-btn" id="erpQuickActionBtn" title="快速新建" onclick="openQuickCreate()">
+        <i class="fa fa-plus"></i>
+        <span class="tooltip-text" id="erpQuickActionTip">快速新建</span>
+    </button>
+    <a href="/erp/dashboard" class="toolbar-btn success-btn" title="ERP 工作台">
+        <i class="fa fa-dashboard"></i>
+        <span class="tooltip-text">ERP 工作台</span>
+    </a>
+    <button type="button" class="toolbar-btn dark-btn" title="回到顶部" onclick="scrollToTopSmooth()">
+        <i class="fa fa-arrow-up"></i>
+        <span class="tooltip-text">回到顶部</span>
+    </button>
+    <a href="/" class="toolbar-btn" title="返回首页">
+        <i class="fa fa-home"></i>
+        <span class="tooltip-text">返回首页</span>
+    </a>
+</div>
+
+<script src="{{ url_for('static', filename='js/bootstrap.bundle.min.js') }}"></script>
+{% include 'partials/local_ai_dock.html' %}
+<script>
+    const activePage = {{ active_page|tojson }};
+    let cachedItems = [];
+    let cachedWarehouses = [];
+    let cachedBoms = [];
+    let cachedWorkOrders = [];
+    let cachedCustomFields = [];
+    let cachedTraceLinks = [];
+    let fallbackModalState = { activeId: null, backdrop: null };
+
+    async function apiGet(url) {
+        const response = await fetch(url);
+        return response.json();
+    }
+
+    async function apiSend(url, method, payload) {
+        const response = await fetch(url, {
+            method,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        return response.json();
+    }
+
+    async function apiPost(url, payload) {
+        return apiSend(url, 'POST', payload);
+    }
+
+    async function apiPut(url, payload) {
+        return apiSend(url, 'PUT', payload);
+    }
+
+    function showError(message) {
+        window.alert(message || '请求失败');
+    }
+
+    function escapeHtml(value) {
+        return String(value ?? '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    function formatDocType(value) {
+        const map = {
+            purchase_in: '采购入库',
+            other_in: '其他入库',
+            material_issue: '领料出库',
+            material_return: '退料回仓',
+            other_out: '其他出库',
+            transfer: '仓库调拨',
+            production_in: '完工入库'
+        };
+        return map[value] || value;
+    }
+
+    function formatWorkOrderStatus(value) {
+        const map = {
+            draft: '草稿',
+            released: '已下达',
+            in_progress: '进行中',
+            completed: '已完成',
+            cancelled: '已取消'
+        };
+        return map[value] || value || '-';
+    }
+
+    function formatQty(value) {
+        return Number(value || 0).toFixed(2);
+    }
+
+    function clampPercent(value) {
+        const numberValue = Number(value || 0);
+        if (!Number.isFinite(numberValue)) return 0;
+        return Math.max(0, Math.min(100, numberValue));
+    }
+
+    function formatTraceType(value) {
+        const map = {
+            purchase_to_stock: '采购入库',
+            stock_to_issue: '库存领料',
+            issue_to_work_order: '领料到工单',
+            work_order_to_return: '工单退料',
+            return_to_stock: '退料入库',
+            work_order_to_finished_goods: '完工入库',
+            transfer_between_warehouses: '仓库调拨',
+            other_to_stock: '其他入库',
+            stock_to_other: '其他出库',
+            inventory_flow: '库存流转'
+        };
+        return map[value] || value || '-';
+    }
+
+    function formatTraceDocType(value) {
+        const map = {
+            stock: '库存',
+            purchase_in: '采购入库单',
+            material_issue: '领料单',
+            material_return: '退料单',
+            production_in: '完工入库单',
+            transfer: '调拨单',
+            other_in: '其他入库单',
+            other_out: '其他出库单',
+            work_order: '工单'
+        };
+        return map[value] || value || '-';
+    }
+
+    function getTraceStage(value) {
+        const map = {
+            purchase_in: 0,
+            other_in: 0,
+            transfer: 1,
+            stock: 1,
+            material_issue: 2,
+            work_order: 3,
+            material_return: 4,
+            production_in: 5,
+            other_out: 5
+        };
+        return map[value] ?? 2;
+    }
+
+    function buildTraceNodeKey(docType, docId) {
+        return `${docType || 'unknown'}:${docId || 0}`;
+    }
+
+    function buildTraceNodeTitle(docType, docId) {
+        return `${formatTraceDocType(docType)} #${docId ?? '-'}`;
+    }
+
+    function renderTraceSummary(links) {
+        const container = document.getElementById('traceSummaryCards');
+        if (!container) return;
+        if (!links.length) {
+            container.innerHTML = `
+                <div class="trace-summary-card">
+                    <div class="trace-summary-label">链路摘要</div>
+                    <div class="trace-summary-value">暂无数据</div>
+                </div>
+            `;
+            return;
+        }
+        const batchCount = new Set(links.map(item => item.batch_no || '').filter(Boolean)).size;
+        const docTypes = new Set(links.flatMap(item => [item.from_doc_type, item.to_doc_type]).filter(Boolean)).size;
+        const totalQty = links.reduce((sum, item) => sum + Number(item.qty || 0), 0);
+        const latestTime = links[0]?.created_at || '-';
+        container.innerHTML = [
+            ['链路记录', `${links.length} 条`],
+            ['批次数', `${batchCount} 个`],
+            ['节点类型', `${docTypes} 类`],
+            ['流转数量', formatQty(totalQty)],
+            ['最近时间', latestTime]
+        ].map(([label, value]) => `
+            <div class="trace-summary-card">
+                <div class="trace-summary-label">${escapeHtml(label)}</div>
+                <div class="trace-summary-value">${escapeHtml(value)}</div>
+            </div>
+        `).join('');
+    }
+
+    function renderTraceGraph(links) {
+        const board = document.getElementById('traceGraphBoard');
+        const linesSvg = document.getElementById('traceGraphLines');
+        const empty = document.getElementById('traceGraphEmpty');
+        const nodeBadge = document.getElementById('traceGraphNodeBadge');
+        const edgeBadge = document.getElementById('traceGraphEdgeBadge');
+        if (!board || !linesSvg) return;
+
+        board.querySelectorAll('.trace-node, .trace-stage-badge').forEach(element => element.remove());
+        linesSvg.innerHTML = '';
+
+        if (!links.length) {
+            if (empty) empty.style.display = 'block';
+            board.style.width = '100%';
+            board.style.height = '360px';
+            if (nodeBadge) nodeBadge.textContent = '0 个节点';
+            if (edgeBadge) edgeBadge.textContent = '0 条边';
+            return;
+        }
+
+        if (empty) empty.style.display = 'none';
+        const nodeMap = new Map();
+        links.forEach(link => {
+            const fromKey = buildTraceNodeKey(link.from_doc_type, link.from_doc_id);
+            const toKey = buildTraceNodeKey(link.to_doc_type, link.to_doc_id);
+            if (!nodeMap.has(fromKey)) {
+                nodeMap.set(fromKey, {
+                    key: fromKey,
+                    docType: link.from_doc_type,
+                    docId: link.from_doc_id,
+                    stage: getTraceStage(link.from_doc_type),
+                    title: buildTraceNodeTitle(link.from_doc_type, link.from_doc_id),
+                    subtitle: `${link.item_code} / ${link.batch_no || '无批次'}`
+                });
+            }
+            if (!nodeMap.has(toKey)) {
+                nodeMap.set(toKey, {
+                    key: toKey,
+                    docType: link.to_doc_type,
+                    docId: link.to_doc_id,
+                    stage: getTraceStage(link.to_doc_type),
+                    title: buildTraceNodeTitle(link.to_doc_type, link.to_doc_id),
+                    subtitle: `${link.item_code} / ${link.batch_no || '无批次'}`
+                });
+            }
+        });
+
+        const stages = new Map();
+        Array.from(nodeMap.values())
+            .sort((left, right) => left.stage - right.stage || String(left.docId).localeCompare(String(right.docId)))
+            .forEach(node => {
+                if (!stages.has(node.stage)) stages.set(node.stage, []);
+                stages.get(node.stage).push(node);
+            });
+
+        const stageKeys = Array.from(stages.keys()).sort((left, right) => left - right);
+        const columnWidth = 250;
+        const nodeWidth = 190;
+        const nodeHeight = 88;
+        const verticalGap = 28;
+        const leftPadding = 36;
+        const topPadding = 52;
+        const maxRows = Math.max(...stageKeys.map(stage => stages.get(stage).length));
+        const boardWidth = Math.max(820, leftPadding * 2 + stageKeys.length * columnWidth);
+        const boardHeight = Math.max(360, topPadding + maxRows * (nodeHeight + verticalGap) + 44);
+        board.style.width = `${boardWidth}px`;
+        board.style.height = `${boardHeight}px`;
+        linesSvg.setAttribute('viewBox', `0 0 ${boardWidth} ${boardHeight}`);
+        linesSvg.setAttribute('width', String(boardWidth));
+        linesSvg.setAttribute('height', String(boardHeight));
+
+        stageKeys.forEach((stage, stageIndex) => {
+            const label = document.createElement('div');
+            label.className = 'trace-stage-badge';
+            label.textContent = `阶段 ${stage + 1}`;
+            label.style.position = 'absolute';
+            label.style.left = `${leftPadding + stageIndex * columnWidth}px`;
+            label.style.top = '18px';
+            board.appendChild(label);
+        });
+
+        const positionedNodes = new Map();
+        stageKeys.forEach((stage, stageIndex) => {
+            const items = stages.get(stage);
+            items.forEach((node, rowIndex) => {
+                const left = leftPadding + stageIndex * columnWidth;
+                const top = topPadding + rowIndex * (nodeHeight + verticalGap);
+                positionedNodes.set(node.key, {
+                    ...node,
+                    left,
+                    top,
+                    centerX: left + nodeWidth / 2,
+                    centerY: top + nodeHeight / 2
+                });
+                const element = document.createElement('div');
+                element.className = 'trace-node';
+                element.style.left = `${left}px`;
+                element.style.top = `${top}px`;
+                element.innerHTML = `
+                    <div class="trace-node-type">${escapeHtml(formatTraceDocType(node.docType))}</div>
+                    <div class="trace-node-title">${escapeHtml(node.title)}</div>
+                    <div class="trace-node-subtitle">${escapeHtml(node.subtitle)}</div>
+                `;
+                board.appendChild(element);
+            });
+        });
+
+        const markerId = 'traceArrowHead';
+        linesSvg.innerHTML = `
+            <defs>
+                <marker id="${markerId}" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="strokeWidth">
+                    <path d="M0,0 L10,5 L0,10 z" fill="rgba(79,124,255,0.8)"></path>
+                </marker>
+            </defs>
+        `;
+
+        links.forEach(link => {
+            const fromNode = positionedNodes.get(buildTraceNodeKey(link.from_doc_type, link.from_doc_id));
+            const toNode = positionedNodes.get(buildTraceNodeKey(link.to_doc_type, link.to_doc_id));
+            if (!fromNode || !toNode) return;
+
+            const startX = fromNode.left + nodeWidth;
+            const startY = fromNode.centerY;
+            const endX = toNode.left;
+            const endY = toNode.centerY;
+            const controlOffset = Math.max(36, (endX - startX) / 2);
+            const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+            path.setAttribute('d', `M ${startX} ${startY} C ${startX + controlOffset} ${startY}, ${endX - controlOffset} ${endY}, ${endX} ${endY}`);
+            path.setAttribute('fill', 'none');
+            path.setAttribute('stroke', 'rgba(79,124,255,0.55)');
+            path.setAttribute('stroke-width', '2.4');
+            path.setAttribute('marker-end', `url(#${markerId})`);
+            linesSvg.appendChild(path);
+
+            const midX = (startX + endX) / 2;
+            const midY = (startY + endY) / 2 - 8;
+            const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+            label.setAttribute('x', String(midX));
+            label.setAttribute('y', String(midY));
+            label.setAttribute('text-anchor', 'middle');
+            label.setAttribute('class', 'trace-edge-label');
+            label.textContent = `${formatTraceType(link.trace_type)} · ${formatQty(link.qty)}`;
+            linesSvg.appendChild(label);
+        });
+
+        if (nodeBadge) nodeBadge.textContent = `${positionedNodes.size} 个节点`;
+        if (edgeBadge) edgeBadge.textContent = `${links.length} 条边`;
+    }
+
+    function setSelectOptions(ids, placeholder, optionsHtml) {
+        ids.forEach(id => {
+            const element = document.getElementById(id);
+            if (!element) return;
+            element.innerHTML = `<option value="">${placeholder}</option>${optionsHtml}`;
+        });
+    }
+
+    function getQuickCreateConfig() {
+        const config = {
+            items: { title: '新建物料', icon: 'fa-archive', action: openNewItemModal },
+            documents: { title: '新建单据', icon: 'fa-file-text-o', action: openDocumentModal },
+            bom: { title: '新建 BOM', icon: 'fa-sitemap', action: openBomModal },
+            work_orders: { title: '新建工单', icon: 'fa-cogs', action: openWorkOrderModal }
+        };
+        return config[activePage] || null;
+    }
+
+    function setupFloatingToolbar() {
+        const quickBtn = document.getElementById('erpQuickActionBtn');
+        const quickTip = document.getElementById('erpQuickActionTip');
+        if (!quickBtn || !quickTip) return;
+        const quickConfig = getQuickCreateConfig();
+        if (!quickConfig) {
+            quickBtn.style.display = 'none';
+            return;
+        }
+        quickBtn.style.display = 'flex';
+        quickBtn.title = quickConfig.title;
+        quickTip.textContent = quickConfig.title;
+        quickBtn.innerHTML = `
+            <i class="fa ${quickConfig.icon}"></i>
+            <span class="tooltip-text" id="erpQuickActionTip">${quickConfig.title}</span>
+        `;
+    }
+
+    function openQuickCreate() {
+        const quickConfig = getQuickCreateConfig();
+        if (quickConfig?.action) {
+            quickConfig.action();
+        }
+    }
+
+    function scrollToTopSmooth() {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    function showModal(id) {
+        const element = document.getElementById(id);
+        if (!element) return;
+        if (window.bootstrap?.Modal) {
+            bootstrap.Modal.getOrCreateInstance(element).show();
+            return;
+        }
+        if (fallbackModalState.activeId === id) return;
+        if (fallbackModalState.activeId && fallbackModalState.activeId !== id) {
+            hideModal(fallbackModalState.activeId);
+        }
+        element.style.display = 'block';
+        element.removeAttribute('aria-hidden');
+        element.setAttribute('aria-modal', 'true');
+        element.classList.add('show');
+        document.body.classList.add('modal-open');
+        document.body.style.overflow = 'hidden';
+        const backdrop = document.createElement('div');
+        backdrop.className = 'modal-backdrop fade show';
+        document.body.appendChild(backdrop);
+        fallbackModalState = { activeId: id, backdrop };
+    }
+
+    function hideModal(id) {
+        const element = document.getElementById(id);
+        if (!element) return;
+        if (window.bootstrap?.Modal) {
+            const instance = bootstrap.Modal.getInstance(element);
+            if (instance) {
+                instance.hide();
+                return;
+            }
+            bootstrap.Modal.getOrCreateInstance(element).hide();
+            return;
+        }
+        element.classList.remove('show');
+        element.style.display = 'none';
+        element.setAttribute('aria-hidden', 'true');
+        element.removeAttribute('aria-modal');
+        if (fallbackModalState.backdrop) {
+            fallbackModalState.backdrop.remove();
+        }
+        fallbackModalState = { activeId: null, backdrop: null };
+        document.body.classList.remove('modal-open');
+        document.body.style.overflow = '';
+    }
+
+    function bindModalDismissHandlers() {
+        document.querySelectorAll('.modal').forEach(modal => {
+            modal.addEventListener('click', event => {
+                if (window.bootstrap?.Modal) return;
+                const clickedDismiss = event.target.closest('[data-bs-dismiss="modal"]');
+                if (clickedDismiss || event.target === modal) {
+                    hideModal(modal.id);
+                }
+            });
+        });
+        document.addEventListener('keydown', event => {
+            if (window.bootstrap?.Modal) return;
+            if (event.key === 'Escape' && fallbackModalState.activeId) {
+                hideModal(fallbackModalState.activeId);
+            }
+        });
+    }
+
+    function resetCustomFieldForm() {
+        ['customFieldName', 'customFieldLabel', 'customFieldOptions', 'customFieldDefault'].forEach(id => {
+            const element = document.getElementById(id);
+            if (element) element.value = '';
+        });
+        const fieldType = document.getElementById('customFieldType');
+        if (fieldType) fieldType.value = 'text';
+        const required = document.getElementById('customFieldRequired');
+        if (required) required.value = '0';
+        const sort = document.getElementById('customFieldSort');
+        if (sort) sort.value = '';
+    }
+
+    function resetDocumentForm() {
+        const today = new Date().toISOString().slice(0, 10);
+        const mapping = {
+            docBizDate: today,
+            docQty: '',
+            docBatch: '',
+            docRemark: ''
+        };
+        Object.entries(mapping).forEach(([id, value]) => {
+            const element = document.getElementById(id);
+            if (element) element.value = value;
+        });
+        ['docType', 'docSourceWarehouse', 'docTargetWarehouse', 'docItem'].forEach(id => {
+            const element = document.getElementById(id);
+            if (!element) return;
+            element.value = id === 'docType' ? 'purchase_in' : '';
+        });
+    }
+
+    function resetBomForm() {
+        const mapping = {
+            bomId: '',
+            bomVersion: 'V1',
+            bomCode: '',
+            bomItemsJson: '',
+            bomRemark: ''
+        };
+        Object.entries(mapping).forEach(([id, value]) => {
+            const element = document.getElementById(id);
+            if (element) element.value = value;
+        });
+        const parentItem = document.getElementById('bomParentItem');
+        if (parentItem) parentItem.value = '';
+        const bomStatus = document.getElementById('bomStatus');
+        if (bomStatus) bomStatus.value = 'submitted';
+        const bomDefaultVersion = document.getElementById('bomDefaultVersion');
+        if (bomDefaultVersion) bomDefaultVersion.value = '1';
+        const title = document.getElementById('bomFormTitle');
+        if (title) title.textContent = '新建 BOM';
+        const saveButton = document.getElementById('bomSaveButton');
+        if (saveButton) saveButton.textContent = '保存 BOM';
+        renderBomItemRows([]);
+    }
+
+    function resetWorkOrderForm() {
+        const today = new Date().toISOString().slice(0, 10);
+        const mapping = {
+            woPlanQty: '',
+            woRemark: '',
+            woStartDate: today,
+            woEndDate: ''
+        };
+        Object.entries(mapping).forEach(([id, value]) => {
+            const element = document.getElementById(id);
+            if (element) element.value = value;
+        });
+        ['woParentItem', 'woBom', 'woWarehouse'].forEach(id => {
+            const element = document.getElementById(id);
+            if (element) element.value = '';
+        });
+    }
+
+    function openNewItemModal() {
+        resetItemForm();
+        showModal('itemModal');
+    }
+
+    function openNewWarehouseModal() {
+        resetWarehouseForm();
+        showModal('warehouseModal');
+    }
+
+    function openCustomFieldModal() {
+        resetCustomFieldForm();
+        showModal('customFieldModal');
+    }
+
+    function openDocumentModal() {
+        resetDocumentForm();
+        showModal('documentModal');
+    }
+
+    function openBomModal() {
+        resetBomForm();
+        showModal('bomModal');
+    }
+
+    function getBomItemOptionHtml(selectedValue = '') {
+        const normalized = String(selectedValue || '');
+        const options = cachedItems.map(item => {
+            const selected = String(item.id) === normalized ? 'selected' : '';
+            const label = `${item.item_code} / ${item.item_name}`;
+            return `<option value="${item.id}" ${selected}>${escapeHtml(label)}</option>`;
+        }).join('');
+        return `<option value="">请选择子件物料</option>${options}`;
+    }
+
+    function updateBomItemsHint() {
+        const hint = document.getElementById('bomItemsEditorHint');
+        const body = document.getElementById('bomItemsEditorBody');
+        if (!hint || !body) return;
+        const validRows = collectBomItemsFromRows({ strict: false }).length;
+        hint.textContent = validRows > 0
+            ? `当前已维护 ${validRows} 个有效子件。`
+            : '请至少维护一个有效子件。';
+    }
+
+    function updateBomRowIndexes() {
+        document.querySelectorAll('#bomItemsEditorBody tr').forEach((row, index) => {
+            const badge = row.querySelector('[data-role="row-index"]');
+            if (badge) badge.textContent = index + 1;
+        });
+    }
+
+    function syncBomItemsJson(items = null) {
+        const textarea = document.getElementById('bomItemsJson');
+        if (!textarea) return;
+        const normalizedItems = items || collectBomItemsFromRows({ strict: false });
+        const serialized = JSON.stringify(normalizedItems, null, 2);
+        textarea.value = serialized;
+        textarea.dataset.generated = serialized;
+        updateBomItemsHint();
+    }
+
+    function createBomItemRow(initial = {}) {
+        const row = document.createElement('tr');
+        const componentItemId = initial.component_item_id || '';
+        const qty = initial.qty ?? '';
+        const lossRate = initial.loss_rate ?? '';
+        const remark = initial.remark || '';
+        const unitId = initial.unit_id || '';
+        row.dataset.unitId = unitId ? String(unitId) : '';
+        row.innerHTML = `
+            <td><span class="bom-row-index" data-role="row-index">1</span></td>
+            <td>
+                <select class="form-select form-select-sm" data-role="component-item">
+                    ${getBomItemOptionHtml(componentItemId)}
+                </select>
+            </td>
+            <td><input class="form-control form-control-sm" data-role="qty" type="number" min="0" step="0.0001" value="${escapeHtml(qty)}" placeholder="数量"></td>
+            <td><input class="form-control form-control-sm" data-role="loss-rate" type="number" min="0" step="0.01" value="${escapeHtml(lossRate)}" placeholder="0"></td>
+            <td><input class="form-control form-control-sm" data-role="remark" value="${escapeHtml(remark)}" placeholder="备注"></td>
+            <td>
+                <button class="btn btn-outline-danger btn-sm" type="button" onclick="removeBomItemRow(this)">
+                    <i class="fa fa-trash-o"></i>
+                </button>
+            </td>
+        `;
+        row.querySelectorAll('select, input').forEach(element => {
+            element.addEventListener('input', () => syncBomItemsJson());
+            element.addEventListener('change', event => {
+                if (event.target.dataset.role === 'component-item') {
+                    row.dataset.unitId = row.dataset.unitId || '';
+                }
+                syncBomItemsJson();
+            });
+        });
+        return row;
+    }
+
+    function renderBomItemRows(items = []) {
+        const body = document.getElementById('bomItemsEditorBody');
+        if (!body) return;
+        body.innerHTML = '';
+        const sourceItems = Array.isArray(items) ? items : [];
+        if (sourceItems.length === 0) {
+            body.appendChild(createBomItemRow());
+        } else {
+            sourceItems.forEach(item => body.appendChild(createBomItemRow(item)));
+        }
+        updateBomRowIndexes();
+        syncBomItemsJson(sourceItems);
+    }
+
+    function addBomItemRow(initial = {}) {
+        const body = document.getElementById('bomItemsEditorBody');
+        if (!body) return;
+        body.appendChild(createBomItemRow(initial));
+        updateBomRowIndexes();
+        syncBomItemsJson();
+    }
+
+    function removeBomItemRow(trigger) {
+        const body = document.getElementById('bomItemsEditorBody');
+        const row = trigger?.closest('tr');
+        if (!body || !row) return;
+        row.remove();
+        if (!body.children.length) {
+            body.appendChild(createBomItemRow());
+        }
+        updateBomRowIndexes();
+        syncBomItemsJson();
+    }
+
+    function collectBomItemsFromRows(options = {}) {
+        const strict = options.strict !== false;
+        const rows = Array.from(document.querySelectorAll('#bomItemsEditorBody tr'));
+        return rows.reduce((items, row) => {
+            const componentItemId = row.querySelector('[data-role="component-item"]')?.value || '';
+            const qtyValue = row.querySelector('[data-role="qty"]')?.value || '';
+            const lossRateValue = row.querySelector('[data-role="loss-rate"]')?.value || '';
+            const remark = row.querySelector('[data-role="remark"]')?.value?.trim() || '';
+            const isBlank = !componentItemId && !qtyValue && !lossRateValue && !remark;
+            if (isBlank) return items;
+
+            const qty = Number(qtyValue);
+            const hasValidQty = Number.isFinite(qty) && qty > 0;
+            if (strict && (!componentItemId || !hasValidQty)) {
+                throw new Error('请为每一行 BOM 子件选择物料并填写大于 0 的数量');
+            }
+            if (!componentItemId || !hasValidQty) {
+                return items;
+            }
+
+            const payload = {
+                component_item_id: Number(componentItemId),
+                qty
+            };
+            if (lossRateValue !== '') {
+                const lossRate = Number(lossRateValue);
+                if (Number.isFinite(lossRate)) payload.loss_rate = lossRate;
+            }
+            if (remark) payload.remark = remark;
+            if (row.dataset.unitId) payload.unit_id = Number(row.dataset.unitId);
+            items.push(payload);
+            return items;
+        }, []);
+    }
+
+    function refreshBomItemSelectOptions() {
+        document.querySelectorAll('#bomItemsEditorBody [data-role="component-item"]').forEach(select => {
+            const selectedValue = select.value;
+            select.innerHTML = getBomItemOptionHtml(selectedValue);
+            if (selectedValue) select.value = selectedValue;
+        });
+    }
+
+    function applyBomItemsJsonToEditor() {
+        const textarea = document.getElementById('bomItemsJson');
+        if (!textarea) return;
+        let items;
+        try {
+            items = JSON.parse(textarea.value || '[]');
+        } catch (error) {
+            return showError('BOM 子件 JSON 格式不正确');
+        }
+        if (!Array.isArray(items)) {
+            return showError('BOM 子件 JSON 必须是数组');
+        }
+        renderBomItemRows(items);
+    }
+
+    async function openEditBomModal(bomId) {
+        const result = await apiGet(`/api/erp/boms/${bomId}`);
+        if (!result.success) return showError(result.error);
+        const bom = result.bom;
+        document.getElementById('bomId').value = bom.id;
+        document.getElementById('bomParentItem').value = bom.parent_item_id || '';
+        document.getElementById('bomVersion').value = bom.version_no || 'V1';
+        document.getElementById('bomCode').value = bom.bom_code || '';
+        document.getElementById('bomStatus').value = bom.status || 'submitted';
+        document.getElementById('bomDefaultVersion').value = bom.is_default_version ? '1' : '0';
+        renderBomItemRows((bom.items || []).map(item => ({
+            component_item_id: item.component_item_id,
+            qty: item.qty,
+            unit_id: item.unit_id,
+            loss_rate: item.loss_rate,
+            remark: item.remark || ''
+        })));
+        document.getElementById('bomRemark').value = bom.remark || '';
+        const title = document.getElementById('bomFormTitle');
+        if (title) title.textContent = `编辑 BOM：${bom.bom_code}`;
+        const saveButton = document.getElementById('bomSaveButton');
+        if (saveButton) saveButton.textContent = '更新 BOM';
+        showModal('bomModal');
+    }
+
+    function setBomCompareSlot(slot, bomId) {
+        const target = document.getElementById(slot === 'left' ? 'bomCompareLeft' : 'bomCompareRight');
+        if (!target) return;
+        target.value = String(bomId);
+        showBomVersionsByBom(bomId);
+        compareBoms();
+    }
+
+    function clearBomVersionTimeline() {
+        const container = document.getElementById('bomVersionTimeline');
+        if (container) {
+            container.dataset.focusBomId = '';
+            container.innerHTML = '从 BOM 列表选择一个版本查看时间线。';
+        }
+    }
+
+    function getNextBomVersion(parentItemId) {
+        const related = cachedBoms.filter(item => String(item.parent_item_id) === String(parentItemId));
+        let maxVersion = 0;
+        related.forEach(item => {
+            const match = String(item.version_no || '').trim().toUpperCase().match(/^V(\d+)$/);
+            if (match) {
+                maxVersion = Math.max(maxVersion, Number(match[1]));
+            }
+        });
+        return maxVersion > 0 ? `V${maxVersion + 1}` : `V${related.length + 1 || 1}`;
+    }
+
+    function renderBomVersionTimeline(versions, focusBomId = '') {
+        const container = document.getElementById('bomVersionTimeline');
+        if (!container) return;
+        container.dataset.focusBomId = String(focusBomId || '');
+        if (!versions.length) {
+            container.innerHTML = '<div class="small-muted">暂无可展示的 BOM 版本。</div>';
+            return;
+        }
+        container.innerHTML = `
+            <div class="compare-list">
+                ${versions.map(item => `
+                    <div class="compare-item ${String(item.id) === String(focusBomId) ? 'border-primary' : ''}">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <div>
+                                <div class="fw-bold">${item.bom_code}</div>
+                                <div class="small-muted">${item.parent_item_code} / ${item.version_no} ${item.is_default_version ? '· 默认版本' : ''}</div>
+                            </div>
+                            <div class="badge-soft">${item.status}</div>
+                        </div>
+                        <div class="small-muted mb-2">子件数：${item.component_count} · 生效日期：${item.effective_date || '-'} · 更新时间：${item.updated_at || '-'}</div>
+                        <div class="d-flex gap-1 flex-wrap">
+                            <button class="btn btn-outline-primary btn-sm" type="button" onclick="openEditBomModal(${item.id})">编辑</button>
+                            <button class="btn btn-outline-secondary btn-sm" type="button" onclick="setBomCompareSlot('left', ${item.id})">放左侧</button>
+                            <button class="btn btn-outline-secondary btn-sm" type="button" onclick="setBomCompareSlot('right', ${item.id})">放右侧</button>
+                            <button class="btn btn-primary btn-sm" type="button" onclick="copyBomAsNewVersion(${item.id})">复制新版本</button>
+                        </div>
+                    </div>
+                `).join('')}
+            </div>
+        `;
+    }
+
+    async function showBomVersionsByBom(bomId) {
+        const selected = cachedBoms.find(item => String(item.id) === String(bomId));
+        if (!selected) return clearBomVersionTimeline();
+        const result = await apiGet(`/api/erp/boms?parent_item_id=${encodeURIComponent(selected.parent_item_id)}`);
+        if (!result.success) return showError(result.error);
+        renderBomVersionTimeline(result.boms || [], bomId);
+    }
+
+    async function copyBomAsNewVersion(bomId) {
+        const result = await apiGet(`/api/erp/boms/${bomId}`);
+        if (!result.success) return showError(result.error);
+        const bom = result.bom;
+        resetBomForm();
+        document.getElementById('bomParentItem').value = bom.parent_item_id || '';
+        document.getElementById('bomVersion').value = getNextBomVersion(bom.parent_item_id);
+        document.getElementById('bomCode').value = '';
+        document.getElementById('bomStatus').value = bom.status || 'submitted';
+        document.getElementById('bomDefaultVersion').value = '0';
+        renderBomItemRows((bom.items || []).map(item => ({
+            component_item_id: item.component_item_id,
+            qty: item.qty,
+            unit_id: item.unit_id,
+            loss_rate: item.loss_rate,
+            remark: item.remark || ''
+        })));
+        document.getElementById('bomRemark').value = `${bom.remark || ''}${bom.remark ? '；' : ''}复制自 ${bom.bom_code}`;
+        const title = document.getElementById('bomFormTitle');
+        if (title) title.textContent = `复制为新版本：${bom.bom_code}`;
+        const saveButton = document.getElementById('bomSaveButton');
+        if (saveButton) saveButton.textContent = '创建新版本';
+        showModal('bomModal');
+    }
+
+    function renderBomCompareResult(comparison) {
+        const container = document.getElementById('bomCompareResult');
+        if (!container) return;
+        if (!comparison) {
+            container.innerHTML = '<div class="small-muted">请选择两个 BOM 版本进行对比。</div>';
+            return;
+        }
+        const summary = comparison.summary || {};
+        const added = comparison.added_items || [];
+        const removed = comparison.removed_items || [];
+        const changed = comparison.changed_items || [];
+        container.innerHTML = `
+            <div class="compare-grid mb-3">
+                <div class="compare-card">
+                    <div class="small-muted mb-1">左侧版本</div>
+                    <div class="fw-bold">${comparison.left_bom.bom_code}</div>
+                    <div class="small-muted">${comparison.left_bom.parent_item_code} / ${comparison.left_bom.version_no}</div>
+                </div>
+                <div class="compare-card">
+                    <div class="small-muted mb-1">右侧版本</div>
+                    <div class="fw-bold">${comparison.right_bom.bom_code}</div>
+                    <div class="small-muted">${comparison.right_bom.parent_item_code} / ${comparison.right_bom.version_no}</div>
+                </div>
+                <div class="compare-card">
+                    <div class="small-muted mb-1">变更摘要</div>
+                    <div>新增 ${summary.added_count || 0} 项</div>
+                    <div>移除 ${summary.removed_count || 0} 项</div>
+                    <div>变更 ${summary.changed_count || 0} 项</div>
+                </div>
+            </div>
+            ${comparison.same_parent_item ? '' : '<div class="alert alert-warning py-2 mb-3">当前对比的两个 BOM 不属于同一父项，仅供参考。</div>'}
+            <div class="compare-list">
+                <div class="compare-item">
+                    <div class="fw-bold mb-2">新增子件</div>
+                    ${added.length ? added.map(item => `<div>${item.component_item_code} / ${item.component_item_name} × ${Number(item.qty).toFixed(2)}</div>`).join('') : '<div class="small-muted">无</div>'}
+                </div>
+                <div class="compare-item">
+                    <div class="fw-bold mb-2">移除子件</div>
+                    ${removed.length ? removed.map(item => `<div>${item.component_item_code} / ${item.component_item_name} × ${Number(item.qty).toFixed(2)}</div>`).join('') : '<div class="small-muted">无</div>'}
+                </div>
+                <div class="compare-item">
+                    <div class="fw-bold mb-2">字段变更</div>
+                    ${changed.length ? changed.map(item => `
+                        <div class="mb-2">
+                            <div class="fw-semibold">${item.component_item_code} / ${item.component_item_name}</div>
+                            <div class="small-muted">
+                                ${item.field_changes.map(change => `<span class="compare-diff">${change.field}: ${change.left} → ${change.right}</span>`).join('')}
+                            </div>
+                        </div>
+                    `).join('') : '<div class="small-muted">无</div>'}
+                </div>
+            </div>
+        `;
+    }
+
+    async function compareBoms() {
+        const leftBomId = document.getElementById('bomCompareLeft')?.value;
+        const rightBomId = document.getElementById('bomCompareRight')?.value;
+        if (!leftBomId || !rightBomId) {
+            return renderBomCompareResult(null);
+        }
+        const result = await apiGet(`/api/erp/boms/compare?left_bom_id=${encodeURIComponent(leftBomId)}&right_bom_id=${encodeURIComponent(rightBomId)}`);
+        if (!result.success) return showError(result.error);
+        renderBomCompareResult(result.comparison);
+    }
+
+    function openWorkOrderModal() {
+        resetWorkOrderForm();
+        showModal('workOrderModal');
+    }
+
+    function resetItemForm() {
+        const mapping = {
+            itemId: '',
+            itemCode: '',
+            itemName: '',
+            itemSpec: '',
+            itemSafetyStock: '',
+            itemMinStock: '',
+            itemRemark: ''
+        };
+        Object.entries(mapping).forEach(([id, value]) => {
+            const element = document.getElementById(id);
+            if (element) element.value = value;
+        });
+        const itemType = document.getElementById('itemType');
+        if (itemType) itemType.value = 'raw_material';
+        const itemEnabled = document.getElementById('itemEnabled');
+        if (itemEnabled) itemEnabled.value = '1';
+        const title = document.getElementById('itemFormTitle');
+        if (title) title.textContent = '新增物料';
+        renderItemCustomFields({});
+    }
+
+    function fillItemForm(itemId) {
+        const item = cachedItems.find(entry => String(entry.id) === String(itemId));
+        if (!item) return;
+        document.getElementById('itemId').value = item.id;
+        document.getElementById('itemCode').value = item.item_code || '';
+        document.getElementById('itemName').value = item.item_name || '';
+        document.getElementById('itemSpec').value = item.spec || '';
+        document.getElementById('itemType').value = item.item_type || 'raw_material';
+        document.getElementById('itemSafetyStock').value = item.safety_stock ?? 0;
+        document.getElementById('itemMinStock').value = item.min_stock ?? 0;
+        document.getElementById('itemWarehouse').value = item.default_warehouse_id || '';
+        document.getElementById('itemEnabled').value = item.is_enabled ? '1' : '0';
+        document.getElementById('itemRemark').value = item.remark || '';
+        const title = document.getElementById('itemFormTitle');
+        if (title) title.textContent = `编辑物料：${item.item_code}`;
+        renderItemCustomFields(item.custom_field_values || {});
+        showModal('itemModal');
+    }
+
+    function renderItemCustomFields(values = {}) {
+        const container = document.getElementById('itemCustomFieldContainer');
+        const badge = document.getElementById('itemCustomFieldCount');
+        if (!container || !badge) return;
+        badge.textContent = `${cachedCustomFields.length} 个字段`;
+        if (!cachedCustomFields.length) {
+            container.innerHTML = '<div class="col-12 text-muted small">当前还没有配置自定义字段。</div>';
+            return;
+        }
+        container.innerHTML = cachedCustomFields.filter(field => field.is_enabled).map(field => {
+            const value = values[field.field_name] ?? field.default_value ?? '';
+            const inputId = `custom_value_${field.field_name}`;
+            if (field.field_type === 'textarea') {
+                return `
+                    <div class="col-12">
+                        <label class="form-label small mb-1">${field.field_label}</label>
+                        <textarea id="${inputId}" data-field-name="${field.field_name}" class="form-control form-control-sm" rows="2">${value}</textarea>
+                    </div>
+                `;
+            }
+            return `
+                <div class="col-md-6">
+                    <label class="form-label small mb-1">${field.field_label}</label>
+                    <input id="${inputId}" data-field-name="${field.field_name}" class="form-control form-control-sm" value="${String(value).replace(/"/g, '&quot;')}">
+                </div>
+            `;
+        }).join('');
+    }
+
+    function collectCustomFieldValues() {
+        const result = {};
+        document.querySelectorAll('#itemCustomFieldContainer [data-field-name]').forEach(element => {
+            result[element.dataset.fieldName] = element.value;
+        });
+        return result;
+    }
+
+    function resetWarehouseForm() {
+        const mapping = {
+            warehouseId: '',
+            warehouseCode: '',
+            warehouseName: '',
+            warehouseRemark: ''
+        };
+        Object.entries(mapping).forEach(([id, value]) => {
+            const element = document.getElementById(id);
+            if (element) element.value = value;
+        });
+        const warehouseType = document.getElementById('warehouseType');
+        if (warehouseType) warehouseType.value = 'normal';
+        const warehouseEnabled = document.getElementById('warehouseEnabled');
+        if (warehouseEnabled) warehouseEnabled.value = '1';
+        const warehouseCode = document.getElementById('warehouseCode');
+        if (warehouseCode) warehouseCode.readOnly = false;
+        const title = document.getElementById('warehouseFormTitle');
+        if (title) title.textContent = '新增仓库';
+    }
+
+    function fillWarehouseForm(warehouseId) {
+        const warehouse = cachedWarehouses.find(entry => String(entry.id) === String(warehouseId));
+        if (!warehouse) return;
+        document.getElementById('warehouseId').value = warehouse.id;
+        document.getElementById('warehouseCode').value = warehouse.warehouse_code || '';
+        document.getElementById('warehouseName').value = warehouse.warehouse_name || '';
+        document.getElementById('warehouseType').value = warehouse.warehouse_type || 'normal';
+        document.getElementById('warehouseEnabled').value = warehouse.is_enabled ? '1' : '0';
+        document.getElementById('warehouseRemark').value = warehouse.remark || '';
+        document.getElementById('warehouseCode').readOnly = true;
+        const title = document.getElementById('warehouseFormTitle');
+        if (title) title.textContent = `编辑仓库：${warehouse.warehouse_code}`;
+        showModal('warehouseModal');
+    }
+
+    async function loadWarehouses() {
+        const result = await apiGet('/api/erp/warehouses');
+        if (!result.success) return;
+        cachedWarehouses = result.warehouses || [];
+        const options = cachedWarehouses.map(item => `<option value="${item.id}">${item.warehouse_code} / ${item.warehouse_name}</option>`).join('');
+        setSelectOptions(['itemWarehouse', 'docSourceWarehouse', 'docTargetWarehouse', 'woWarehouse'], '请选择仓库', options);
+
+        const table = document.getElementById('warehousesTable');
+        if (table) {
+            table.innerHTML = cachedWarehouses.map(item => `
+                <tr>
+                    <td>${item.warehouse_code}</td>
+                    <td>${item.warehouse_name}</td>
+                    <td>${item.warehouse_type}</td>
+                    <td>${item.is_enabled ? '启用' : '停用'}</td>
+                    <td><button class="btn btn-outline-primary btn-sm" type="button" onclick="fillWarehouseForm(${item.id})">编辑</button></td>
+                </tr>
+            `).join('') || '<tr><td colspan="5" class="text-center text-muted">暂无仓库</td></tr>';
+        }
+    }
+
+    async function saveWarehouse() {
+        const warehouseId = document.getElementById('warehouseId').value;
+        const payload = {
+            warehouse_code: document.getElementById('warehouseCode').value,
+            warehouse_name: document.getElementById('warehouseName').value,
+            warehouse_type: document.getElementById('warehouseType').value,
+            is_enabled: document.getElementById('warehouseEnabled').value === '1',
+            remark: document.getElementById('warehouseRemark').value
+        };
+        const result = warehouseId
+            ? await apiPut(`/api/erp/warehouses/${warehouseId}`, payload)
+            : await apiPost('/api/erp/warehouses', payload);
+        if (!result.success) return showError(result.error);
+        hideModal('warehouseModal');
+        resetWarehouseForm();
+        await Promise.all([loadWarehouses(), loadDashboardIfVisible()]);
+    }
+
+    async function loadCustomFields() {
+        const result = await apiGet('/api/erp/custom-fields/items');
+        if (!result.success) return showError(result.error);
+        cachedCustomFields = result.fields || [];
+        const table = document.getElementById('customFieldsTable');
+        if (table) {
+            table.innerHTML = cachedCustomFields.map(field => `
+                <tr>
+                    <td>${field.field_name}</td>
+                    <td>${field.field_label}</td>
+                    <td>${field.field_type}</td>
+                    <td>${field.is_required ? '是' : '否'}</td>
+                    <td>${field.default_value || ''}</td>
+                </tr>
+            `).join('') || '<tr><td colspan="5" class="text-center text-muted">暂无自定义字段</td></tr>';
+        }
+        renderItemCustomFields(collectCustomFieldValues());
+    }
+
+    async function saveCustomField() {
+        const payload = {
+            field_name: document.getElementById('customFieldName').value.trim(),
+            field_label: document.getElementById('customFieldLabel').value.trim(),
+            field_type: document.getElementById('customFieldType').value,
+            options_json: document.getElementById('customFieldOptions').value,
+            default_value: document.getElementById('customFieldDefault').value,
+            is_required: document.getElementById('customFieldRequired').value === '1',
+            sort_order: document.getElementById('customFieldSort').value || 0
+        };
+        const result = await apiPost('/api/erp/custom-fields/items', payload);
+        if (!result.success) return showError(result.error);
+        hideModal('customFieldModal');
+        resetCustomFieldForm();
+        await loadCustomFields();
+    }
+
+    async function loadItems() {
+        const keyword = document.getElementById('itemKeyword')?.value || '';
+        const result = await apiGet(`/api/erp/items?keyword=${encodeURIComponent(keyword)}`);
+        if (!result.success) return showError(result.error);
+        cachedItems = result.items || [];
+
+        const table = document.getElementById('itemsTable');
+        if (table) {
+            table.innerHTML = cachedItems.map(item => `
+                <tr>
+                    <td>${item.item_code}</td>
+                    <td>${item.item_name}</td>
+                    <td>${item.item_type}</td>
+                    <td>${Number(item.qty_on_hand || 0).toFixed(2)}</td>
+                    <td>${Number(item.safety_stock || 0).toFixed(2)}</td>
+                    <td><button class="btn btn-outline-primary btn-sm" type="button" onclick="fillItemForm(${item.id})">编辑</button></td>
+                </tr>
+            `).join('') || '<tr><td colspan="6" class="text-center text-muted">暂无物料</td></tr>';
+        }
+
+        const options = cachedItems.map(item => `<option value="${item.id}">${item.item_code} / ${item.item_name}</option>`).join('');
+        setSelectOptions(['docItem', 'bomParentItem', 'woParentItem'], '请选择物料', options);
+        refreshBomItemSelectOptions();
+    }
+
+    async function saveItem() {
+        const itemId = document.getElementById('itemId').value;
+        const payload = {
+            item_code: document.getElementById('itemCode').value,
+            item_name: document.getElementById('itemName').value,
+            spec: document.getElementById('itemSpec').value,
+            item_type: document.getElementById('itemType').value,
+            safety_stock: document.getElementById('itemSafetyStock').value,
+            min_stock: document.getElementById('itemMinStock').value,
+            default_warehouse_id: document.getElementById('itemWarehouse').value,
+            is_enabled: document.getElementById('itemEnabled').value === '1',
+            remark: document.getElementById('itemRemark').value,
+            custom_field_values: collectCustomFieldValues()
+        };
+        const result = itemId
+            ? await apiPut(`/api/erp/items/${itemId}`, payload)
+            : await apiPost('/api/erp/items', payload);
+        if (!result.success) return showError(result.error);
+        hideModal('itemModal');
+        resetItemForm();
+        await Promise.all([loadItems(), loadDashboardIfVisible()]);
+    }
+
+    async function loadDashboard() {
+        const result = await apiGet('/api/erp/dashboard/summary');
+        if (!result.success) return showError(result.error);
+        const data = result.data;
+        const metrics = [
+            ['物料总数', data.item_count],
+            ['仓库数', data.warehouse_count],
+            ['BOM 数', data.bom_count],
+            ['进行中工单', data.active_work_order_count],
+            ['今日已提交单据', data.today_document_count],
+            ['安全库存预警', data.low_stock_count],
+            ['库存记录数', data.balance_row_count],
+            ['总库存量', Number(data.total_on_hand || 0).toFixed(2)]
+        ];
+        const metricBox = document.getElementById('dashboardMetrics');
+        if (metricBox) {
+            metricBox.innerHTML = metrics.map(item => `
+                <div class="col-md-4 col-xl-3">
+                    <div class="metric-card">
+                        <div class="metric-label">${item[0]}</div>
+                        <div class="metric-value">${item[1]}</div>
+                    </div>
+                </div>
+            `).join('');
+        }
+        const warningTable = document.getElementById('warningTable');
+        if (warningTable) {
+            warningTable.innerHTML = (data.warnings || []).map(item => `
+                <tr><td>${item.item_code} / ${item.item_name}</td><td>${Number(item.qty_available).toFixed(2)}</td><td>${Number(item.safety_stock).toFixed(2)}</td></tr>
+            `).join('') || '<tr><td colspan="3" class="text-center text-muted">暂无预警</td></tr>';
+        }
+        const recentDocs = document.getElementById('recentDocsTable');
+        if (recentDocs) {
+            recentDocs.innerHTML = (data.recent_documents || []).map(item => `
+                <tr><td>${item.doc_no}</td><td>${formatDocType(item.doc_type)}</td><td>${item.status}</td><td>${item.biz_date}</td></tr>
+            `).join('') || '<tr><td colspan="4" class="text-center text-muted">暂无单据</td></tr>';
+        }
+    }
+
+    async function loadBalances() {
+        const result = await apiGet('/api/erp/inventory/balances');
+        if (!result.success) return showError(result.error);
+        const table = document.getElementById('balancesTable');
+        if (table) {
+            table.innerHTML = (result.balances || []).map(item => `
+                <tr>
+                    <td>${item.item_code} / ${item.item_name}</td>
+                    <td>${item.warehouse_code} / ${item.warehouse_name}</td>
+                    <td>${item.batch_no || '-'}</td>
+                    <td>${Number(item.qty_on_hand).toFixed(2)}</td>
+                    <td>${Number(item.safety_stock).toFixed(2)}</td>
+                </tr>
+            `).join('') || '<tr><td colspan="5" class="text-center text-muted">暂无库存</td></tr>';
+        }
+
+        const ledgerResult = await apiGet('/api/erp/inventory/ledger?limit=20');
+        const ledgerTable = document.getElementById('ledgerTable');
+        if (ledgerTable) {
+            ledgerTable.innerHTML = (ledgerResult.ledger || []).map(item => `
+                <tr>
+                    <td>${item.biz_date}</td>
+                    <td>${item.item_code}</td>
+                    <td>${item.direction}</td>
+                    <td>${Number(item.qty).toFixed(2)}</td>
+                    <td>${item.doc_no}</td>
+                </tr>
+            `).join('') || '<tr><td colspan="5" class="text-center text-muted">暂无流水</td></tr>';
+        }
+    }
+
+    async function loadDocuments() {
+        const result = await apiGet('/api/erp/inventory/documents');
+        if (!result.success) return showError(result.error);
+        const table = document.getElementById('documentsTable');
+        if (table) {
+            table.innerHTML = (result.documents || []).map(item => `
+                <tr>
+                    <td>${item.doc_no}</td>
+                    <td>${formatDocType(item.doc_type)}</td>
+                    <td>${item.status}</td>
+                    <td>${item.biz_date}</td>
+                    <td>${item.line_count}</td>
+                    <td>
+                        ${item.status === 'cancelled'
+                            ? '<span class="small-muted">已取消</span>'
+                            : `<button class="btn btn-outline-danger btn-sm" type="button" onclick="cancelDocument(${item.id}, '${item.status}')">${item.status === 'draft' ? '取消草稿' : '冲销单据'}</button>`}
+                    </td>
+                </tr>
+            `).join('') || '<tr><td colspan="6" class="text-center text-muted">暂无单据</td></tr>';
+        }
+    }
+
+    async function cancelDocument(docId, status) {
+        const actionText = status === 'draft' ? '取消草稿单据' : '冲销已提交单据并回滚库存';
+        const remark = window.prompt(`请输入${actionText}原因：`, '');
+        if (remark === null) return;
+        const result = await apiPost(`/api/erp/inventory/documents/${docId}/cancel`, { remark });
+        if (!result.success) return showError(result.error);
+        await Promise.all([loadDocuments(), loadBalances(), loadDashboardIfVisible(), loadItems(), loadWorkOrdersIfVisible(), loadTraceIfVisible()]);
+    }
+
+    async function createAndSubmitDocument() {
+        const payload = {
+            doc_type: document.getElementById('docType').value,
+            biz_date: document.getElementById('docBizDate').value,
+            source_warehouse_id: document.getElementById('docSourceWarehouse').value,
+            target_warehouse_id: document.getElementById('docTargetWarehouse').value,
+            remark: document.getElementById('docRemark').value,
+            items: [{
+                item_id: document.getElementById('docItem').value,
+                qty: document.getElementById('docQty').value,
+                batch_no: document.getElementById('docBatch').value
+            }]
+        };
+        const createResult = await apiPost('/api/erp/inventory/documents', payload);
+        if (!createResult.success) return showError(createResult.error);
+        const submitResult = await apiPost(`/api/erp/inventory/documents/${createResult.document.id}/submit`, {});
+        if (!submitResult.success) return showError(submitResult.error);
+        hideModal('documentModal');
+        resetDocumentForm();
+        await Promise.all([loadDocuments(), loadBalances(), loadDashboardIfVisible(), loadItems(), loadWorkOrdersIfVisible(), loadTraceIfVisible()]);
+    }
+
+    async function loadBoms() {
+        const previousLeft = document.getElementById('bomCompareLeft')?.value || '';
+        const previousRight = document.getElementById('bomCompareRight')?.value || '';
+        const timelineFocusId = document.getElementById('bomVersionTimeline')?.dataset.focusBomId || '';
+        const result = await apiGet('/api/erp/boms');
+        if (!result.success) return showError(result.error);
+        cachedBoms = result.boms || [];
+        const table = document.getElementById('bomTable');
+        if (table) {
+            table.innerHTML = cachedBoms.map(item => `
+                <tr>
+                    <td>${item.bom_code}</td>
+                    <td>${item.parent_item_code} / ${item.parent_item_name}</td>
+                    <td>${item.version_no}</td>
+                    <td>${item.status}</td>
+                    <td>${item.component_count}</td>
+                    <td>
+                        <div class="d-flex gap-1 flex-wrap">
+                            <button class="btn btn-outline-primary btn-sm" type="button" onclick="openEditBomModal(${item.id})">编辑</button>
+                            <button class="btn btn-primary btn-sm" type="button" onclick="copyBomAsNewVersion(${item.id})">复制</button>
+                            <button class="btn btn-outline-secondary btn-sm" type="button" onclick="showBomVersionsByBom(${item.id})">版本</button>
+                            <button class="btn btn-outline-secondary btn-sm" type="button" onclick="setBomCompareSlot('left', ${item.id})">左侧</button>
+                            <button class="btn btn-outline-secondary btn-sm" type="button" onclick="setBomCompareSlot('right', ${item.id})">右侧</button>
+                        </div>
+                    </td>
+                </tr>
+            `).join('') || '<tr><td colspan="6" class="text-center text-muted">暂无 BOM</td></tr>';
+        }
+        const badge = document.getElementById('bomCountBadge');
+        if (badge) badge.textContent = `${cachedBoms.length} 个 BOM`;
+
+        const options = cachedBoms.map(item => `<option value="${item.id}">${item.bom_code} / ${item.parent_item_code}</option>`).join('');
+        setSelectOptions(['woBom'], '请选择 BOM', options);
+        setSelectOptions(['bomCompareLeft', 'bomCompareRight'], '请选择对比版本', options);
+        const leftSelect = document.getElementById('bomCompareLeft');
+        const rightSelect = document.getElementById('bomCompareRight');
+        if (leftSelect && cachedBoms.some(item => String(item.id) === String(previousLeft))) leftSelect.value = previousLeft;
+        if (rightSelect && cachedBoms.some(item => String(item.id) === String(previousRight))) rightSelect.value = previousRight;
+        if (activePage === 'bom' && leftSelect?.value && rightSelect?.value) {
+            await compareBoms();
+        }
+        if (activePage === 'bom' && timelineFocusId && cachedBoms.some(item => String(item.id) === String(timelineFocusId))) {
+            await showBomVersionsByBom(timelineFocusId);
+        }
+    }
+
+    async function saveBom() {
+        const jsonEditor = document.getElementById('bomItemsJson');
+        const generatedJson = jsonEditor?.dataset.generated || '[]';
+        let items;
+        try {
+            if (jsonEditor && jsonEditor.value.trim() !== (generatedJson || '').trim()) {
+                items = JSON.parse(jsonEditor.value || '[]');
+                if (!Array.isArray(items)) throw new Error('BOM 子件 JSON 必须是数组');
+                renderBomItemRows(items);
+            } else {
+                items = collectBomItemsFromRows();
+                syncBomItemsJson(items);
+            }
+        } catch (error) {
+            return showError(error.message || 'BOM 子件 JSON 格式不正确');
+        }
+        const bomId = document.getElementById('bomId').value;
+        const payload = {
+            parent_item_id: document.getElementById('bomParentItem').value,
+            version_no: document.getElementById('bomVersion').value,
+            bom_code: document.getElementById('bomCode').value,
+            status: document.getElementById('bomStatus').value,
+            is_default_version: document.getElementById('bomDefaultVersion').value === '1',
+            remark: document.getElementById('bomRemark').value,
+            items
+        };
+        const result = bomId
+            ? await apiPut(`/api/erp/boms/${bomId}`, payload)
+            : await apiPost('/api/erp/boms', payload);
+        if (!result.success) return showError(result.error);
+        hideModal('bomModal');
+        resetBomForm();
+        await Promise.all([loadBoms(), loadDashboardIfVisible()]);
+        if (activePage === 'bom') {
+            const leftSelect = document.getElementById('bomCompareLeft');
+            const rightSelect = document.getElementById('bomCompareRight');
+            if (leftSelect && !leftSelect.value) leftSelect.value = String(result.bom.id);
+            else if (rightSelect && !rightSelect.value) rightSelect.value = String(result.bom.id);
+            await showBomVersionsByBom(result.bom.id);
+            if (leftSelect?.value && rightSelect?.value) await compareBoms();
+        }
+    }
+
+    async function loadWorkOrders() {
+        const previousSelected = document.getElementById('woSelected')?.value || '';
+        const result = await apiGet('/api/erp/work-orders');
+        if (!result.success) return showError(result.error);
+        cachedWorkOrders = result.work_orders || [];
+        const table = document.getElementById('workOrderTable');
+        if (table) {
+            table.innerHTML = cachedWorkOrders.map(item => `
+                <tr onclick="showWorkOrderDetail(${item.id})" style="cursor:pointer;">
+                    <td>${item.work_order_no}</td>
+                    <td>${item.parent_item_code} / ${item.parent_item_name}</td>
+                    <td>${item.bom_code || '-'}</td>
+                    <td>${Number(item.plan_qty).toFixed(2)}</td>
+                    <td>${Number(item.finished_qty).toFixed(2)}</td>
+                    <td><span class="status-pill">${formatWorkOrderStatus(item.status)}</span></td>
+                </tr>
+            `).join('') || '<tr><td colspan="6" class="text-center text-muted">暂无工单</td></tr>';
+        }
+        const options = cachedWorkOrders.map(item => `<option value="${item.id}">${item.work_order_no} / ${item.parent_item_code}</option>`).join('');
+        setSelectOptions(['woSelected'], '请选择工单', options);
+        const selector = document.getElementById('woSelected');
+        if (selector && cachedWorkOrders.some(item => String(item.id) === String(previousSelected))) {
+            selector.value = previousSelected;
+        }
+    }
+
+    async function showWorkOrderDetail(workOrderId) {
+        const result = await apiGet(`/api/erp/work-orders/${workOrderId}`);
+        if (!result.success) return showError(result.error);
+        renderWorkOrderDetail(result.work_order);
+        const selector = document.getElementById('woSelected');
+        if (selector) selector.value = String(workOrderId);
+    }
+
+    function showSelectedWorkOrderDetail() {
+        const workOrderId = document.getElementById('woSelected')?.value || '';
+        if (!workOrderId) {
+            renderWorkOrderDetail(null);
+            return;
+        }
+        showWorkOrderDetail(workOrderId);
+    }
+
+    function renderWorkOrderDetail(workOrder) {
+        const empty = document.getElementById('workOrderDetailEmpty');
+        const panel = document.getElementById('workOrderDetailPanel');
+        const badge = document.getElementById('workOrderDetailBadge');
+        if (!empty || !panel) return;
+        if (!workOrder) {
+            empty.style.display = 'block';
+            panel.style.display = 'none';
+            if (badge) badge.textContent = '未选择';
+            return;
+        }
+
+        empty.style.display = 'none';
+        panel.style.display = 'block';
+        if (badge) badge.textContent = `${workOrder.work_order_no} · ${formatWorkOrderStatus(workOrder.status)}`;
+
+        const planQty = Number(workOrder.plan_qty || 0);
+        const finishedQty = Number(workOrder.finished_qty || 0);
+        const remainingQty = Math.max(planQty - finishedQty, 0);
+        const completionRate = planQty > 0 ? clampPercent((finishedQty / planQty) * 100) : 0;
+        const summary = document.getElementById('workOrderSummary');
+        if (summary) {
+            summary.innerHTML = [
+                ['工单号', workOrder.work_order_no],
+                ['状态', formatWorkOrderStatus(workOrder.status)],
+                ['成品', `${workOrder.parent_item_code || ''} / ${workOrder.parent_item_name || ''}`],
+                ['BOM', workOrder.bom_code || '-'],
+                ['计划数量', formatQty(planQty)],
+                ['已完工', formatQty(finishedQty)],
+                ['待完工', formatQty(remainingQty)],
+                ['计划日期', `${workOrder.planned_start_date || '-'} → ${workOrder.planned_end_date || '-'}`]
+            ].map(([label, value]) => `
+                <div class="work-order-summary-item">
+                    <div class="work-order-summary-label">${escapeHtml(label)}</div>
+                    <div class="work-order-summary-value">${escapeHtml(value)}</div>
+                    ${label === '已完工' ? `<div class="mini-progress mt-2"><div class="mini-progress-bar" style="width:${completionRate}%"></div></div>` : ''}
+                </div>
+            `).join('');
+        }
+
+        const materialsTable = document.getElementById('workOrderMaterialsTable');
+        if (materialsTable) {
+            materialsTable.innerHTML = (workOrder.materials || []).map(material => {
+                const requiredQty = Number(material.required_qty || 0);
+                const issuedQty = Number(material.issued_qty || 0);
+                const returnedQty = Number(material.returned_qty || 0);
+                const consumedQty = Number(material.consumed_qty || 0);
+                const remainingIssueQty = Math.max(requiredQty - issuedQty, 0);
+                const availableReturnQty = Math.max(issuedQty - returnedQty, 0);
+                return `
+                    <tr data-item-id="${material.item_id}" data-remaining-issue="${remainingIssueQty}" data-available-return="${availableReturnQty}">
+                        <td>${escapeHtml(material.item_code)} / ${escapeHtml(material.item_name)}</td>
+                        <td>${formatQty(requiredQty)}</td>
+                        <td>${formatQty(issuedQty)}</td>
+                        <td>${formatQty(returnedQty)}</td>
+                        <td>${formatQty(consumedQty)}</td>
+                        <td>${formatQty(remainingIssueQty)}</td>
+                        <td>${formatQty(availableReturnQty)}</td>
+                        <td><input class="form-control form-control-sm" data-role="wo-issue-qty" type="number" min="0" step="0.0001" placeholder="0"></td>
+                        <td><input class="form-control form-control-sm" data-role="wo-return-qty" type="number" min="0" step="0.0001" placeholder="0"></td>
+                    </tr>
+                `;
+            }).join('') || '<tr><td colspan="9" class="text-center text-muted">暂无理论用料</td></tr>';
+        }
+
+        const relationsTable = document.getElementById('workOrderRelationsTable');
+        if (relationsTable) {
+            relationsTable.innerHTML = (workOrder.relations || []).map(relation => `
+                <tr>
+                    <td>${escapeHtml(relation.from_doc_type)} #${relation.from_doc_id}</td>
+                    <td>${escapeHtml(relation.to_doc_type)} #${relation.to_doc_id}</td>
+                    <td>${escapeHtml(relation.relation_type)}</td>
+                    <td>${escapeHtml(relation.created_at || '')}</td>
+                </tr>
+            `).join('') || '<tr><td colspan="4" class="text-center text-muted">暂无关联单据</td></tr>';
+        }
+
+        const completeQty = document.getElementById('woCompleteQty');
+        if (completeQty) completeQty.value = remainingQty > 0 ? formatQty(remainingQty) : '';
+        const completeBatch = document.getElementById('woCompleteBatch');
+        if (completeBatch) completeBatch.value = `WO-${workOrder.work_order_no}`;
+    }
+
+    function collectWorkOrderMaterialLines(role, requireLines = true) {
+        const rows = Array.from(document.querySelectorAll('#workOrderMaterialsTable tr[data-item-id]'));
+        const lines = rows.reduce((result, row) => {
+            const input = row.querySelector(`[data-role="${role}"]`);
+            const qty = Number(input?.value || 0);
+            if (Number.isFinite(qty) && qty > 0) {
+                result.push({ item_id: Number(row.dataset.itemId), qty });
+            }
+            return result;
+        }, []);
+        if (requireLines && lines.length === 0) {
+            throw new Error('请先在工单明细中填写本次数量');
+        }
+        return lines;
+    }
+
+    function fillWorkOrderIssueRemaining() {
+        document.querySelectorAll('#workOrderMaterialsTable tr[data-item-id]').forEach(row => {
+            const input = row.querySelector('[data-role="wo-issue-qty"]');
+            const value = Number(row.dataset.remainingIssue || 0);
+            if (input) input.value = value > 0 ? formatQty(value) : '';
+        });
+    }
+
+    function fillWorkOrderReturnAvailable() {
+        document.querySelectorAll('#workOrderMaterialsTable tr[data-item-id]').forEach(row => {
+            const input = row.querySelector('[data-role="wo-return-qty"]');
+            const value = Number(row.dataset.availableReturn || 0);
+            if (input) input.value = value > 0 ? formatQty(value) : '';
+        });
+    }
+
+    function clearWorkOrderLineInputs() {
+        document.querySelectorAll('#workOrderMaterialsTable input').forEach(input => {
+            input.value = '';
+        });
+    }
+
+    async function refreshWorkOrderAfterAction(workOrderId) {
+        await Promise.all([loadWorkOrders(), loadBalances(), loadDocuments(), loadDashboardIfVisible(), loadTraceIfVisible()]);
+        await showWorkOrderDetail(workOrderId);
+    }
+
+    async function createWorkOrder() {
+        const payload = {
+            parent_item_id: document.getElementById('woParentItem').value,
+            bom_id: document.getElementById('woBom').value,
+            plan_qty: document.getElementById('woPlanQty').value,
+            warehouse_id: document.getElementById('woWarehouse').value,
+            planned_start_date: document.getElementById('woStartDate').value,
+            planned_end_date: document.getElementById('woEndDate').value,
+            remark: document.getElementById('woRemark').value
+        };
+        const result = await apiPost('/api/erp/work-orders', payload);
+        if (!result.success) return showError(result.error);
+        hideModal('workOrderModal');
+        resetWorkOrderForm();
+        await Promise.all([loadWorkOrders(), loadDashboardIfVisible()]);
+        await showWorkOrderDetail(result.work_order.id);
+    }
+
+    async function issueWorkOrder() {
+        const workOrderId = document.getElementById('woSelected').value;
+        if (!workOrderId) return showError('请先选择工单');
+        const result = await apiPost(`/api/erp/work-orders/${workOrderId}/issue`, {});
+        if (!result.success) return showError(result.error);
+        await refreshWorkOrderAfterAction(workOrderId);
+    }
+
+    async function issueWorkOrderFromDetail() {
+        const workOrderId = document.getElementById('woSelected').value;
+        if (!workOrderId) return showError('请先选择工单');
+        let items;
+        try {
+            items = collectWorkOrderMaterialLines('wo-issue-qty', true);
+        } catch (error) {
+            return showError(error.message);
+        }
+        const result = await apiPost(`/api/erp/work-orders/${workOrderId}/issue`, { items });
+        if (!result.success) return showError(result.error);
+        await refreshWorkOrderAfterAction(workOrderId);
+    }
+
+    async function returnWorkOrder() {
+        const workOrderId = document.getElementById('woSelected').value;
+        if (!workOrderId) return showError('请先选择工单');
+        const result = await apiPost(`/api/erp/work-orders/${workOrderId}/return`, {});
+        if (!result.success) return showError(result.error);
+        await refreshWorkOrderAfterAction(workOrderId);
+    }
+
+    async function returnWorkOrderFromDetail() {
+        const workOrderId = document.getElementById('woSelected').value;
+        if (!workOrderId) return showError('请先选择工单');
+        let items;
+        try {
+            items = collectWorkOrderMaterialLines('wo-return-qty', true);
+        } catch (error) {
+            return showError(error.message);
+        }
+        const result = await apiPost(`/api/erp/work-orders/${workOrderId}/return`, { items });
+        if (!result.success) return showError(result.error);
+        await refreshWorkOrderAfterAction(workOrderId);
+    }
+
+    async function completeWorkOrder() {
+        const workOrderId = document.getElementById('woSelected').value;
+        if (!workOrderId) return showError('请先选择工单');
+        const payload = {
+            qty: document.getElementById('woCompleteQty').value,
+            batch_no: document.getElementById('woCompleteBatch').value
+        };
+        const result = await apiPost(`/api/erp/work-orders/${workOrderId}/complete`, payload);
+        if (!result.success) return showError(result.error);
+        await refreshWorkOrderAfterAction(workOrderId);
+    }
+
+    async function loadTraceLinks() {
+        const keyword = document.getElementById('traceKeyword')?.value || '';
+        const batchNo = document.getElementById('traceBatchNo')?.value || '';
+        const result = await apiGet(`/api/erp/trace/links?keyword=${encodeURIComponent(keyword)}&batch_no=${encodeURIComponent(batchNo)}`);
+        if (!result.success) return showError(result.error);
+        const links = result.links || [];
+        cachedTraceLinks = links;
+        const table = document.getElementById('traceTable');
+        if (table) {
+            table.innerHTML = links.map(item => `
+                <tr>
+                    <td>${item.item_code} / ${item.item_name}</td>
+                    <td>${item.batch_no || '-'}</td>
+                    <td>${formatTraceDocType(item.from_doc_type)} #${item.from_doc_id}</td>
+                    <td>${formatTraceDocType(item.to_doc_type)} #${item.to_doc_id}</td>
+                    <td>${Number(item.qty).toFixed(2)}</td>
+                    <td>${formatTraceType(item.trace_type)}</td>
+                    <td>${item.created_at}</td>
+                </tr>
+            `).join('') || '<tr><td colspan="7" class="text-center text-muted">暂无追踪记录</td></tr>';
+        }
+        const badge = document.getElementById('traceCountBadge');
+        if (badge) badge.textContent = `${links.length} 条记录`;
+        renderTraceSummary(links);
+        renderTraceGraph(links);
+    }
+
+    function fillTraceFromSelectedWorkOrder() {
+        const selector = document.getElementById('woSelected');
+        if (!selector || !selector.value) return showError('请先在工单页选择工单');
+        const selected = cachedWorkOrders.find(item => String(item.id) === String(selector.value));
+        if (!selected) return showError('未找到对应工单');
+        const keyword = document.getElementById('traceKeyword');
+        if (keyword) keyword.value = selected.parent_item_code || '';
+        loadTraceLinks();
+    }
+
+    function getErpAiPageContext() {
+        const focusedWorkOrderId = document.getElementById('woSelected')?.value || '';
+        const focusedBomId =
+            document.getElementById('bomId')?.value ||
+            document.getElementById('bomCompareLeft')?.value ||
+            document.getElementById('bomCompareRight')?.value ||
+            '';
+        const focusedItemId =
+            document.getElementById('itemId')?.value ||
+            document.getElementById('docItem')?.value ||
+            document.getElementById('bomParentItem')?.value ||
+            document.getElementById('woParentItem')?.value ||
+            '';
+        return {
+            source: 'erp',
+            active_page: activePage,
+            focused_item_id: Number(focusedItemId || 0),
+            focused_bom_id: Number(focusedBomId || 0),
+            focused_work_order_id: Number(focusedWorkOrderId || 0),
+            trace_keyword: document.getElementById('traceKeyword')?.value || '',
+            trace_batch_no: document.getElementById('traceBatchNo')?.value || ''
+        };
+    }
+
+    window.YobboyLocalAIContextProvider = getErpAiPageContext;
+
+    function openErpAiPanel(message = '', send = false) {
+        const query = (message || '').trim();
+        if (window.YobboyLocalAI?.open) {
+            window.YobboyLocalAI.open({
+                mode: 'erp',
+                message: query,
+                send: Boolean(send && query),
+                focus: !send
+            });
+            return;
+        }
+        const openButton = document.getElementById('localAiOpenBtn');
+        if (openButton) {
+            const input = document.getElementById('localAiInput');
+            if (input) input.value = query;
+            openButton.click();
+            return;
+        }
+        showError('本地 AI 弹窗尚未加载完成，请稍后再试');
+    }
+
+    function askPreset(text) {
+        const input = document.getElementById('aiQueryInput');
+        if (input) input.value = text;
+        openErpAiPanel(text, true);
+    }
+
+    function submitAiQuery() {
+        const query = (document.getElementById('aiQueryInput')?.value || '').trim();
+        if (!query) return showError('请输入要咨询 ERP AI 的问题');
+        openErpAiPanel(query, true);
+    }
+
+    async function loadDashboardIfVisible() {
+        if (activePage === 'dashboard') await loadDashboard();
+    }
+
+    async function loadWorkOrdersIfVisible() {
+        if (activePage === 'work_orders') await loadWorkOrders();
+    }
+
+    async function loadTraceIfVisible() {
+        if (activePage === 'trace') await loadTraceLinks();
+    }
+
+    async function bootstrap() {
+        const today = new Date().toISOString().slice(0, 10);
+        const docBizDate = document.getElementById('docBizDate');
+        const woStartDate = document.getElementById('woStartDate');
+        if (docBizDate) docBizDate.value = today;
+        if (woStartDate) woStartDate.value = today;
+
+        bindModalDismissHandlers();
+        setupFloatingToolbar();
+        await Promise.all([loadWarehouses(), loadItems(), loadBoms(), loadCustomFields()]);
+        resetItemForm();
+        resetWarehouseForm();
+        resetCustomFieldForm();
+        resetDocumentForm();
+        resetBomForm();
+        resetWorkOrderForm();
+
+        if (activePage === 'dashboard') await loadDashboard();
+        if (activePage === 'inventory') await loadBalances();
+        if (activePage === 'documents') await loadDocuments();
+        if (activePage === 'bom') await loadBoms();
+        if (activePage === 'work_orders') await loadWorkOrders();
+        if (activePage === 'trace') await loadTraceLinks();
+    }
+
+    bootstrap();
+</script>
+<script src="{{ url_for('static', filename='js/theme_floater.js') }}"></script>
+</body>
+</html>

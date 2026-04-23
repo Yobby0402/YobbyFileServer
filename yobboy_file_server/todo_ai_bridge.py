@@ -397,11 +397,21 @@ def build_todo_mutate_snapshot_and_catalog(
         if not tasks:
             lines.append("   （无任务）")
             continue
-        shown = tasks[:cap]
-        for ti, t in enumerate(shown, start=1):
+        for ti, t in enumerate(tasks, start=1):
             tid = str(t.get("id") or "")
             if tid:
                 tmap[(pi, ti)] = tid
+            comments = t.get("comments") or []
+            if isinstance(comments, list):
+                for ci, c in enumerate(comments, start=1):
+                    if not isinstance(c, dict):
+                        continue
+                    cid = str(c.get("comment_id") or "")
+                    if cid:
+                        cmap[(pi, ti, ci)] = cid
+
+        shown = tasks[:cap]
+        for ti, t in enumerate(shown, start=1):
             summ = (t.get("summary") or "")[:100]
             prog = _task_progress_val(t)
             due = (t.get("due_date") or "").strip() or "—"
@@ -413,9 +423,6 @@ def build_todo_mutate_snapshot_and_catalog(
                 for ci, c in enumerate(comments[:12], start=1):
                     if not isinstance(c, dict):
                         continue
-                    cid = str(c.get("comment_id") or "")
-                    if cid:
-                        cmap[(pi, ti, ci)] = cid
                     body = str(c.get("content") or c.get("text") or "").strip()[:40]
                     ts = str(c.get("timestamp") or "")[:10]
                     lines.append(f"      →【项{pi}·任{ti}·评{ci}】 [{ts}] {body}")

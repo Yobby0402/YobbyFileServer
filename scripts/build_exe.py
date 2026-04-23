@@ -21,9 +21,10 @@ except Exception:
 T = TypeVar('T')
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DIST_DIR = Path('dist')
-BUILD_VARIANTS = ('main', 'dev-erp')
+BUILD_VARIANTS = ('main',)
 VARIANT_ALIASES = {
     'dev-com': 'main',
+    'dev-erp': 'main',
 }
 os.chdir(PROJECT_ROOT)
 
@@ -379,12 +380,12 @@ def parse_args():
     parser.add_argument(
         '--variant',
         choices=variant_choices,
-        help='切换到指定分支后打包，并输出到 dist-<branch> 目录（dev-com 会映射到 main）',
+        help='切换到指定分支后打包，并输出到 dist-<branch> 目录（dev-com / dev-erp 会映射到 main）',
     )
     parser.add_argument(
         '--all-variants',
         action='store_true',
-        help='依次打包 main / dev-erp，并分别输出到 dist-main / dist-dev-erp',
+        help='依次打包所有发布变体；ERP 已并入 main，目前输出 dist-main',
     )
     return parser.parse_args()
 

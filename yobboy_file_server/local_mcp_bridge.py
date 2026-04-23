@@ -32,6 +32,7 @@ class LocalMCPBridge:
         self._inited = False
         self._root_dir = ""
         self._todo_storage_path = ""
+        self._erp_db_path = ""
         self._server_cmd_sig = ""
 
     def _next_id(self) -> int:
@@ -124,11 +125,12 @@ class LocalMCPBridge:
             return False
         return True
 
-    def _ensure_inproc_server(self, root_dir: str, todo_storage_path: str = "") -> None:
+    def _ensure_inproc_server(self, root_dir: str, todo_storage_path: str = "", erp_db_path: str = "") -> None:
         need_restart = (
             self._server_inproc is None
             or self._root_dir != root_dir
             or self._todo_storage_path != (todo_storage_path or "")
+            or self._erp_db_path != (erp_db_path or "")
             or self._server_cmd_sig != "inproc"
         )
         if not need_restart:
@@ -140,17 +142,19 @@ class LocalMCPBridge:
             from .mcp_server import YFSMCPServer
         except Exception as e:
             raise MCPBridgeError(f"加载内置 MCP 失败: {e}") from e
-        self._server_inproc = YFSMCPServer(todo_storage_path, root_dir)
+        self._server_inproc = YFSMCPServer(todo_storage_path, root_dir, erp_db_path or None)
         self._root_dir = root_dir
         self._todo_storage_path = todo_storage_path or ""
+        self._erp_db_path = erp_db_path or ""
 
-    def _ensure_process(self, root_dir: str, todo_storage_path: str = "") -> None:
+    def _ensure_process(self, root_dir: str, todo_storage_path: str = "", erp_db_path: str = "") -> None:
         base_cmd, cmd_cwd, cmd_sig = self._resolve_server_command()
         need_restart = (
             self._proc is None
             or self._proc.poll() is not None
             or self._root_dir != root_dir
             or self._todo_storage_path != (todo_storage_path or "")
+            or self._erp_db_path != (erp_db_path or "")
             or self._server_cmd_sig != cmd_sig
         )
         if not need_restart:
@@ -159,6 +163,8 @@ class LocalMCPBridge:
         cmd = list(base_cmd) + ["--root-dir", root_dir]
         if todo_storage_path:
             cmd.extend(["--todo-storage-path", todo_storage_path])
+        if erp_db_path:
+            cmd.extend(["--erp-db-path", erp_db_path])
         self._proc = subprocess.Popen(
             cmd,
             stdin=subprocess.PIPE,
@@ -169,6 +175,7 @@ class LocalMCPBridge:
         self._inited = False
         self._root_dir = root_dir
         self._todo_storage_path = todo_storage_path or ""
+        self._erp_db_path = erp_db_path or ""
         self._server_cmd_sig = cmd_sig
 
     def _ensure_initialized(self) -> None:
@@ -187,11 +194,16 @@ class LocalMCPBridge:
         tool_name: str,
         arguments: Optional[Dict[str, Any]] = None,
         todo_storage_path: str = "",
+        erp_db_path: str = "",
         timeout_sec: float = 12.0,
     ) -> Dict[str, Any]:
         with self._lock:
             if self._use_inproc_server():
-                self._ensure_inproc_server(root_dir=root_dir, todo_storage_path=todo_storage_path)
+                self._ensure_inproc_server(
+                    root_dir=root_dir,
+                    todo_storage_path=todo_storage_path,
+                    erp_db_path=erp_db_path,
+                )
                 if not self._server_inproc:
                     raise MCPBridgeError("内置 MCP 未初始化")
                 try:
@@ -203,13 +215,13 @@ class LocalMCPBridge:
                 except Exception as e:
                     raise MCPBridgeError(f"内置 MCP 调用失败: {e}") from e
 
-            self._ensure_process(root_dir=root_dir, todo_storage_path=todo_storage_path)
+            self._ensure_process(root_dir=root_dir, todo_storage_path=todo_storage_path, erp_db_path=erp_db_path)
             self._ensure_initialized()
             try:
                 resp = self._rpc("tools/call", {"name": tool_name, "arguments": arguments or {}}, timeout_sec=timeout_sec)
             except Exception:
                 self.close()
-                self._ensure_process(root_dir=root_dir, todo_storage_path=todo_storage_path)
+                self._ensure_process(root_dir=root_dir, todo_storage_path=todo_storage_path, erp_db_path=erp_db_path)
                 self._ensure_initialized()
                 resp = self._rpc("tools/call", {"name": tool_name, "arguments": arguments or {}}, timeout_sec=timeout_sec)
             if resp.get("error"):

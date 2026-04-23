@@ -359,6 +359,9 @@ def init_app(app):
     from .local_ai_routes import register_local_ai_routes
     register_local_ai_routes(app)
 
+    from .local_erp_routes import register_local_erp_routes
+    register_local_erp_routes(app)
+
     def _todo_kb_root_dir() -> str:
         return str(app.config.get('ROOT_DIR') or project_base_dir())
 

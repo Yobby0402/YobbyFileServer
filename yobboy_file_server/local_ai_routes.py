@@ -195,10 +195,15 @@ def _mcp_call_with_meta(
     todo_storage_path = ""
     if tm is not None:
         todo_storage_path = str(getattr(tm, "storage_path", "") or "")
+    erp_manager = current_app.config.get("LOCAL_ERP_MANAGER")
+    erp_db_path = ""
+    if erp_manager is not None:
+        erp_db_path = str(getattr(erp_manager, "db_path", "") or "")
     try:
         payload = local_mcp_bridge.get_bridge().call_tool(
             root_dir=str(root_dir),
             todo_storage_path=todo_storage_path,
+            erp_db_path=erp_db_path,
             tool_name=tool_name,
             arguments=arguments or {},
             timeout_sec=timeout_sec,
@@ -221,6 +226,46 @@ def _extract_page_context(body: Dict[str, Any]) -> Dict[str, Any]:
     if not isinstance(raw, dict):
         return {}
     return raw
+
+
+def _is_erp_page_context(page_context: Dict[str, Any]) -> bool:
+    return str((page_context or {}).get("source") or "").strip().lower() == "erp"
+
+
+def _message_suggests_erp_context(message: str) -> bool:
+    m = str(message or "").strip().lower()
+    if not m:
+        return False
+    keywords = (
+        "erp",
+        "物料",
+        "库存",
+        "仓库",
+        "bom",
+        "工单",
+        "单据",
+        "批次",
+        "追踪",
+        "追溯",
+        "流向",
+        "领料",
+        "退料",
+        "完工",
+        "安全库存",
+        "预警",
+    )
+    return any(keyword in m for keyword in keywords)
+
+
+def _build_erp_context(query_text: str, page_context: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    erp_manager = current_app.config.get("LOCAL_ERP_MANAGER")
+    if erp_manager is None:
+        return None
+    try:
+        return erp_manager.build_ai_context(query_text or "", page_context or {})
+    except Exception as exc:
+        current_app.logger.warning("[local-ai] build ERP context failed: %s", exc)
+        return None
 
 
 def _refresh_todo_manager_from_disk() -> None:
@@ -514,7 +559,7 @@ def register_local_ai_routes(app) -> None:
             return jsonify({"success": False, "error": "未登录"}), 401
         body = request.get_json(silent=True) or {}
         mode = (body.get("mode") or "general").strip().lower()
-        if mode not in ("general", "knowledge", "todo", "drawio"):
+        if mode not in ("general", "knowledge", "todo", "erp", "drawio"):
             mode = "general"
         messages: List[Dict[str, Any]] = body.get("messages") or []
         if not messages:
@@ -971,6 +1016,36 @@ def register_local_ai_routes(app) -> None:
                 yield _sse("chat_progress", _chat_progress_payload("processing", "待办上下文已就绪"))
 
             # 通用模式下若明显在问「知识库/文档」，也自动挂知识库摘录，避免用户忘记切到知识库模式。
+            erp_attach = ""
+            erp_context_data: Optional[Dict[str, Any]] = None
+            should_attach_erp = (
+                mode == "erp"
+                or (mode in ("general", "knowledge") and _is_erp_page_context(page_context))
+                or (mode == "knowledge" and _message_suggests_erp_context(last_user))
+            )
+            if should_attach_erp:
+                yield _sse("chat_progress", _chat_progress_payload("mcp", "正在读取 ERP 上下文"))
+                mcp_erp, mcp_meta = _mcp_call_with_meta(
+                    "erp_get_context",
+                    {"query_text": last_user, "page_context": page_context},
+                    timeout_sec=8.0,
+                )
+                yield _sse("mcp_call", mcp_meta)
+                if mcp_erp and mcp_erp.get("ok"):
+                    erp_context_data = (mcp_erp.get("data") or {}) if isinstance(mcp_erp.get("data"), dict) else None
+                if not erp_context_data:
+                    erp_context_data = _build_erp_context(last_user, page_context)
+                if erp_context_data and str(erp_context_data.get("text") or "").strip():
+                    erp_attach = (
+                        "\n\n--- ERP 本地数据快照 ---\n\n"
+                        + str(erp_context_data.get("text") or "").strip()
+                    )
+                    yield _sse("chat_progress", _chat_progress_payload("processing", "ERP 上下文已就绪"))
+                elif mode == "erp":
+                    yield _sse("error", {"message": "ERP 上下文不可用，请先确认 ERP 已初始化并存在本地数据。"})
+                    yield _sse("done", {})
+                    return
+
             knowledge_attach = ""
             knowledge_meta: Optional[Dict[str, Any]] = None
             if root_dir and mode in ("general", "knowledge"):
@@ -1038,6 +1113,19 @@ def register_local_ai_routes(app) -> None:
                         "product_compare_hits": product_compare_hits,
                     }
                     yield _sse("chat_progress", _chat_progress_payload("processing", "知识库上下文已就绪"))
+
+            if mode == "erp":
+                system = local_ai_skills.merge_primary_then_skills(
+                    "你是本地离线 ERP 助手。请仅根据下方 ERP 本地数据快照回答，不要编造；"
+                    "如果快照里没有足够信息，请明确说明缺口，并优先引用仓库、物料、BOM、工单、追踪等实体名称。\n"
+                    + (erp_attach or "\n\n--- ERP 本地数据快照 ---\n\n(当前没有可用 ERP 上下文)"),
+                    skills_block,
+                )
+                yield _sse("chat_progress", _chat_progress_payload("generating", "ERP 上下文已准备完成，正在生成回答"))
+                for event_chunk in _stream_chat_model_sse(cfg, messages, system=system):
+                    yield event_chunk
+                yield _sse("done", {})
+                return
 
             if mode == "todo":
                 intent = todo_ai_bridge._heuristic_intent(last_user)
@@ -1161,10 +1249,22 @@ def register_local_ai_routes(app) -> None:
                         "你是助手：若问题涉及知识库内容，请仅根据下方「知识库摘录」回答；"
                         "若涉及待办、项目或任务，请仅根据「当前待办快照」回答，不要编造。\n\n"
                         + todo_attach
+                        + (
+                            "\n\n若问题涉及 ERP、物料、库存、仓库、BOM、工单、单据或追溯，请仅根据「ERP 本地数据快照」回答，不要编造。"
+                            + erp_attach
+                            if erp_attach
+                            else ""
+                        )
                         + "\n\n--- 知识库摘录 ---\n\n"
                     )
                 else:
                     kb_intro = "你是知识库助手。请仅根据以下摘录回答；若不足以回答，说明缺口并可参考文件名建议。\n\n"
+                    if erp_attach:
+                        kb_intro += (
+                            "若问题涉及 ERP、物料、库存、仓库、BOM、工单、单据或追溯，请仅根据「ERP 本地数据快照」回答，不要编造。"
+                            + erp_attach
+                            + "\n\n"
+                        )
                 system = local_ai_skills.merge_primary_then_skills(kb_intro + kb_body, skills_block)
                 yield _sse("knowledge_meta", knowledge_meta or {"hits": [], "name_suggestions": []})
             elif skills_block:
@@ -1173,6 +1273,12 @@ def register_local_ai_routes(app) -> None:
                     gen_base = (
                         "你是本服务器助手。待办说明见前文；若用户要**写入**待办，提示其切换到待办模式并勾选「强制解析为变更」。\n\n"
                         + todo_attach
+                    )
+                if erp_attach:
+                    gen_base = (
+                        (gen_base or "你是本服务器助手。")
+                        + "以下附带 ERP 本地数据快照；回答 ERP 相关问题时请仅基于该快照，不要编造。"
+                        + erp_attach
                     )
                 if knowledge_attach:
                     gen_base = (gen_base or "你是本服务器助手。") + knowledge_attach
@@ -1184,6 +1290,10 @@ def register_local_ai_routes(app) -> None:
                 )
                 if knowledge_attach:
                     system = system + knowledge_attach
+                if erp_attach:
+                    system = system + erp_attach
+            elif erp_attach:
+                system = "你是本服务器助手。请仅根据以下 ERP 本地数据快照回答，不要编造。\n" + erp_attach
             elif knowledge_attach:
                 system = "你是本服务器助手。请仅根据以下知识库摘录回答，不要编造。\n" + knowledge_attach
                 if knowledge_meta is not None:

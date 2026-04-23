@@ -1354,7 +1354,7 @@
             <section class="tool-screen" data-tool="file_browser" data-url="/file_browser" onclick="enterToolByIndex(0)">
                 <div class="tool-content">
                     <div class="tool-main">
-                        <div class="tool-kicker">01 / 05 · File Hub</div>
+                        <div class="tool-kicker">01 / 06 · File Hub</div>
                         <h2 class="tool-title">文件浏览器</h2>
                         <p class="tool-desc">查看、检索和共享本地文件与资料。</p>
                         <p class="tool-enter-tip"><i class="fas fa-mouse-pointer"></i>点击此页面任意位置进入</p>
@@ -1378,7 +1378,7 @@
             <section class="tool-screen layout-right" data-tool="todo_v2" data-url="/todo/v2" onclick="enterToolByIndex(1)">
                 <div class="tool-content">
                     <div class="tool-main">
-                        <div class="tool-kicker">02 / 05 · Task Studio</div>
+                        <div class="tool-kicker">02 / 06 · Task Studio</div>
                         <h2 class="tool-title">ToDo 任务管理</h2>
                         <p class="tool-desc">管理项目任务、周计划和汇报进度。</p>
                         <p class="tool-enter-tip"><i class="fas fa-mouse-pointer"></i>点击此页面任意位置进入</p>
@@ -1402,7 +1402,7 @@
             <section class="tool-screen" data-tool="product_compare" data-url="/product_compare" onclick="enterToolByIndex(2)">
                 <div class="tool-content">
                     <div class="tool-main">
-                        <div class="tool-kicker">03 / 05 · Compare Lab</div>
+                        <div class="tool-kicker">03 / 06 · Compare Lab</div>
                         <h2 class="tool-title">产品对比</h2>
                         <p class="tool-desc">对比参数差异，快速完成选型决策。</p>
                         <p class="tool-enter-tip"><i class="fas fa-mouse-pointer"></i>点击此页面任意位置进入</p>
@@ -1423,10 +1423,34 @@
                 </div>
             </section>
 
-            <section class="tool-screen layout-right" data-tool="drawio_main" data-url="/drawio_main" onclick="enterToolByIndex(3)">
+            <section class="tool-screen layout-right" data-tool="local_erp" data-url="/erp" onclick="enterToolByIndex(3)">
                 <div class="tool-content">
                     <div class="tool-main">
-                        <div class="tool-kicker">04 / 05 · Diagram Space</div>
+                        <div class="tool-kicker">04 / 06 · ERP Core</div>
+                        <h2 class="tool-title">本地离线 ERP</h2>
+                        <p class="tool-desc">管理物料、库存、BOM、工单与追溯，统一沉淀本地业务数据。</p>
+                        <p class="tool-enter-tip"><i class="fas fa-mouse-pointer"></i>点击此页面任意位置进入</p>
+                    </div>
+                    <aside class="tool-meta">
+                        <div class="tool-meta-title">业务闭环</div>
+                        <ul class="tool-points">
+                            <li>物料主数据、仓库与自定义字段集中维护</li>
+                            <li>入库出库、库存台账、预警与单据流转联动</li>
+                            <li>BOM、工单、追溯与 AI 查询共用本地数据库</li>
+                        </ul>
+                        <div class="tool-chips">
+                            <span class="tool-chip">库存</span>
+                            <span class="tool-chip">BOM</span>
+                            <span class="tool-chip">工单</span>
+                        </div>
+                    </aside>
+                </div>
+            </section>
+
+            <section class="tool-screen layout-right" data-tool="drawio_main" data-url="/drawio_main" onclick="enterToolByIndex(4)">
+                <div class="tool-content">
+                    <div class="tool-main">
+                        <div class="tool-kicker">05 / 06 · Diagram Space</div>
                         <h2 class="tool-title">Draw.io 编辑器</h2>
                         <p class="tool-desc">绘制流程图、架构图并本地保存。</p>
                         <p class="tool-enter-tip"><i class="fas fa-mouse-pointer"></i>点击此页面任意位置进入</p>
@@ -1447,10 +1471,10 @@
                 </div>
             </section>
 
-            <section class="tool-screen" data-tool="serial_tool" data-url="/serial_tool" onclick="enterToolByIndex(4)">
+            <section class="tool-screen" data-tool="serial_tool" data-url="/serial_tool" onclick="enterToolByIndex(5)">
                 <div class="tool-content">
                     <div class="tool-main">
-                        <div class="tool-kicker">05 / 05 · Serial Console</div>
+                        <div class="tool-kicker">06 / 06 · Serial Console</div>
                         <h2 class="tool-title">串口调试助手</h2>
                         <p class="tool-desc">连接串口设备，实时收发与排查问题。</p>
                         <p class="tool-enter-tip"><i class="fas fa-mouse-pointer"></i>点击此页面任意位置进入</p>
@@ -1479,8 +1503,9 @@
             <button class="switch-item is-active" type="button" aria-label="文件浏览器" onmouseenter="previewTool(0)" onclick="enterToolByIndex(0)"><i class="fas fa-folder-open"></i></button>
             <button class="switch-item" type="button" aria-label="ToDo 任务管理" onmouseenter="previewTool(1)" onclick="enterToolByIndex(1)"><i class="fas fa-tasks"></i></button>
             <button class="switch-item" type="button" aria-label="产品对比" onmouseenter="previewTool(2)" onclick="enterToolByIndex(2)"><i class="fas fa-balance-scale"></i></button>
-            <button class="switch-item" type="button" aria-label="Draw.io 编辑器" onmouseenter="previewTool(3)" onclick="enterToolByIndex(3)"><i class="fas fa-project-diagram"></i></button>
-            <button class="switch-item" type="button" aria-label="串口调试助手" onmouseenter="previewTool(4)" onclick="enterToolByIndex(4)"><i class="fas fa-plug"></i></button>
+            <button class="switch-item" type="button" aria-label="本地离线 ERP" onmouseenter="previewTool(3)" onclick="enterToolByIndex(3)"><i class="fas fa-industry"></i></button>
+            <button class="switch-item" type="button" aria-label="Draw.io 编辑器" onmouseenter="previewTool(4)" onclick="enterToolByIndex(4)"><i class="fas fa-project-diagram"></i></button>
+            <button class="switch-item" type="button" aria-label="串口调试助手" onmouseenter="previewTool(5)" onclick="enterToolByIndex(5)"><i class="fas fa-plug"></i></button>
         </div>
     </div>
 

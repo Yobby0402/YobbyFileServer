@@ -24,6 +24,7 @@ import xml.etree.ElementTree as ET
 from . import drawio_text_dsl
 from . import knowledge_store
 from . import todo_ai_bridge
+from .local_erp_manager import LocalERPManager
 from .local_ai_paths import project_base_dir
 from .todo_manager import TodoManager
 
@@ -513,8 +514,9 @@ class IdempotencyStore:
 
 
 class YFSMCPServer:
-    def __init__(self, todo_storage_path: Optional[str], root_dir: str):
+    def __init__(self, todo_storage_path: Optional[str], root_dir: str, erp_db_path: Optional[str] = None):
         self.todo_manager = TodoManager(storage_path=todo_storage_path or None)
+        self.erp_manager = LocalERPManager(db_path=erp_db_path or None)
         self.root_dir = _project_root_from_args(root_dir)
         self.confirm_tokens = ConfirmTokenStore()
         self.idempotency = IdempotencyStore()
@@ -620,6 +622,19 @@ class YFSMCPServer:
                     "additionalProperties": False,
                 },
                 "handler": self.todo_apply_ops,
+            },
+            "erp_get_context": {
+                "description": "读取本地离线 ERP 快照，用于 ERP 对话问答",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "query_text": {"type": "string"},
+                        "q": {"type": "string"},
+                        "page_context": {"type": "object"},
+                    },
+                    "additionalProperties": False,
+                },
+                "handler": self.erp_get_context,
             },
             "kb_list_entries": {
                 "description": "列出知识库条目",
@@ -996,6 +1011,15 @@ class YFSMCPServer:
             self.idempotency.set(idem, result)
         return _ok(result, trace_id)
 
+    def erp_get_context(self, args: Dict[str, Any], trace_id: str) -> Dict[str, Any]:
+        query_text = _safe_len_text(
+            args.get("query_text") or args.get("q") or "",
+            _MAX_TEXT_FIELD,
+            "query_text",
+        )
+        page_context = args.get("page_context") if isinstance(args.get("page_context"), dict) else {}
+        return _ok(self.erp_manager.build_ai_context(query_text, page_context), trace_id)
+
     def kb_list_entries(self, _args: Dict[str, Any], trace_id: str) -> Dict[str, Any]:
         items = knowledge_store.list_entries(self.root_dir)
         return _ok({"items": items, "count": len(items)}, trace_id)
@@ -1340,13 +1364,18 @@ def _parse_args() -> argparse.Namespace:
         default=os.environ.get("YFS_TODO_STORAGE_PATH", ""),
         help="Todo 数据文件路径（默认使用 todo_manager 的 data/todos/todos_v2.json）",
     )
+    p.add_argument(
+        "--erp-db-path",
+        default=os.environ.get("YFS_ERP_DB_PATH", ""),
+        help="Local ERP SQLite 数据库路径（默认使用 data/local_erp/erp.sqlite3）",
+    )
     return p.parse_args()
 
 
 def main() -> int:
     args = _parse_args()
     try:
-        server = YFSMCPServer(args.todo_storage_path, args.root_dir)
+        server = YFSMCPServer(args.todo_storage_path, args.root_dir, args.erp_db_path or None)
         server.serve_forever()
         return 0
     except Exception as e:

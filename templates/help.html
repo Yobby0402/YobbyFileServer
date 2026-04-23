@@ -280,7 +280,7 @@
                     </h1>
                     <p class="mb-3">
                         欢迎体验 R1.5 —— 集成知识库 RAG、本地 AI 与 MCP 的本地协作工具。
-                        集成了文件浏览、在线编辑、任务管理、知识库、产品对比、图表编辑、串口调试、共享串口与持续日志等多种功能；本地离线 ERP 功能位于 <code>dev-erp</code> 分支。
+                        集成了文件浏览、在线编辑、任务管理、知识库、产品对比、图表编辑、串口调试、共享串口、持续日志与本地离线 ERP 等多种功能。
                         本页汇总了快速上手、核心功能、管理配置、安全提示与常见问题，帮助你和团队高效协作。
                     </p>
                     <span class="badge-pill"><i class="fas fa-history"></i> 最后更新：2026-04-21 · 文档同步 R1.5</span>
@@ -350,10 +350,11 @@
                             <li><strong>文件浏览器</strong> — 预览、在线编辑、上传与分享</li>
                             <li><strong>ToDo 任务管理</strong> — 项目/任务、汇报视图、会议记录、Excel 导出</li>
                             <li><strong>产品对比</strong> — 属性、雷达图、参数排序</li>
+                            <li><strong>本地离线 ERP</strong> — 物料、库存、BOM、工单、追溯与 AI 查询</li>
                             <li><strong>Draw.io 编辑器</strong> — 离线绘图与保存到服务器（R1.5 支持 AI 辅助）</li>
                             <li><strong>串口调试助手</strong> — 本地 Web Serial、远程/共享串口、持续日志</li>
                         </ul>
-                        <p class="mb-0 mt-2" style="font-size:0.92rem;opacity:0.9">详细步骤见仓库内 <code>快速开始.md</code>；本地 AI / MCP 为 R1.5 能力，需自行部署兼容 OpenAI API 的本地模型服务。ERP 功能请切换到 <code>dev-erp</code> 分支。</p>
+                        <p class="mb-0 mt-2" style="font-size:0.92rem;opacity:0.9">详细步骤见仓库内 <code>快速开始.md</code>；本地 AI / MCP 为 R1.5 能力，需自行部署兼容 OpenAI API 的本地模型服务。ERP 现已合并到主线，可从首页直接进入。</p>
                     </div>
                 </div>
             </section>
@@ -399,6 +400,15 @@
                             <li>智能分析最优产品和参数排序功能。</li>
                             <li>归属分类和颜色标识，支持多产品对比。</li>
                             <li><strong>R1.4-dev</strong>：玻璃/粘土拟态主题下强化多选勾选框的选中样式。</li>
+                        </ul>
+                    </div>
+                    <div class="feature-card">
+                        <h3><i class="fas fa-industry"></i> 本地离线 ERP</h3>
+                        <ul>
+                            <li>覆盖仓库、物料、库存单据、BOM、工单与生产追溯的本地化业务闭环。</li>
+                            <li>基于 SQLite 本地存储，便于离线部署与轻量打包。</li>
+                            <li>提供 ERP 专属 AI 查询入口，可快速汇总库存、预警和业务状态。</li>
+                            <li>现已并入主线版本，可与知识库、ToDo、产品对比协同使用。</li>
                         </ul>
                     </div>
                 </div>

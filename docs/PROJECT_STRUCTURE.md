@@ -13,6 +13,8 @@ YobboyFileServer/
 │   ├── routes.py                   # 主 Web 路由
 │   ├── *_manager.py                # 业务管理器
 │   ├── local_ai_*.py               # 本地 AI / MCP 集成
+│   ├── local_erp_*.py              # 本地离线 ERP 管理器与路由
+│   ├── sql/                        # 内置业务数据库 schema
 │   ├── git_*.py                    # Git 集成
 │   ├── paths.py                    # 统一项目根目录解析
 │   └── __init__.py
@@ -65,6 +67,15 @@ python scripts/build_exe.py
 - 构建 `dist/YobboyFileServer.exe`
 - 复制 `static/`、`templates/`、`AI/skills/`
 - 复制 `yobboy_file_server/` 包，保证外部 MCP 兼容入口可运行
+- 校验 ERP、知识库、MCP 与用户文档等关键运行文件
+
+ERP 已合并到主线，发布变体收敛为 `main`：
+
+```bash
+python scripts/build_exe.py --all-variants
+```
+
+该命令当前输出 `dist-main/`；历史 `dev-com` / `dev-erp` 参数会映射到 `main`，不再要求对应分支存在。
 
 ## 新增代码放置规则
 
@@ -73,5 +84,6 @@ python scripts/build_exe.py
 - 新的页面模板放到 `templates/`
 - 新的前端资源放到 `static/`
 - 新的设计/实施文档放到 `docs/`
-- 本地离线 ERP 功能与规划文档保留在 `dev-erp` 分支；非 ERP 分支不新增 ERP 模块
+- 本地离线 ERP 功能已合并到主线分支，相关文件包括 `templates/local_erp.html`、`yobboy_file_server/local_erp_*.py` 与 `yobboy_file_server/sql/local_erp_schema.sql`
+- ERP 与知识库、本地 AI 和 ToDo 共用统一发布节奏，后续功能直接在 `main` 演进
 - 不要再把业务模块直接放到项目根目录
