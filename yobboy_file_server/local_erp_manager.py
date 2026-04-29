@@ -26,6 +26,8 @@ DOC_PREFIXES = {
 INBOUND_DOC_TYPES = {"purchase_in", "production_in", "material_return", "other_in"}
 OUTBOUND_DOC_TYPES = {"material_issue", "other_out"}
 TWO_WAY_DOC_TYPES = {"transfer"}
+INSTANCE_CHECKOUT_STATUSES = {"outbound", "in_use", "maintenance", "scrapped"}
+INSTANCE_ALL_STATUSES = {"in_stock", *INSTANCE_CHECKOUT_STATUSES}
 
 
 def _now_text() -> str:
@@ -48,6 +50,17 @@ def _normalize_int(value: Any, default: int = 0) -> int:
         return int(value)
     except (TypeError, ValueError):
         return default
+
+
+def _normalize_json_text(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value.strip()
+    try:
+        return json.dumps(value, ensure_ascii=False)
+    except (TypeError, ValueError):
+        return str(value)
 
 
 class LocalERPManager:
@@ -73,8 +86,12 @@ class LocalERPManager:
     def ensure_initialized(self) -> None:
         with self._lock:
             with self._connect() as conn:
+                # Upgrade known legacy columns before running the full schema,
+                # otherwise old databases can fail on CREATE INDEX statements.
+                self._ensure_schema_compat(conn)
                 with open(self._schema_path, "r", encoding="utf-8") as schema_file:
                     conn.executescript(schema_file.read())
+                self._ensure_schema_compat(conn)
                 self._seed_base_data(conn)
                 conn.commit()
 
@@ -83,6 +100,25 @@ class LocalERPManager:
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys = ON")
         return conn
+
+    def _ensure_schema_compat(self, conn: sqlite3.Connection) -> None:
+        self._ensure_column(conn, "items", "track_individuals", "INTEGER NOT NULL DEFAULT 0")
+        self._ensure_column(conn, "items", "individual_code_prefix", "TEXT NOT NULL DEFAULT ''")
+
+    def _ensure_column(
+        self,
+        conn: sqlite3.Connection,
+        table_name: str,
+        column_name: str,
+        definition_sql: str,
+    ) -> None:
+        rows = conn.execute(f"PRAGMA table_info({table_name})").fetchall()
+        if not rows:
+            return
+        existing_columns = {row["name"] for row in rows}
+        if column_name in existing_columns:
+            return
+        conn.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {definition_sql}")
 
     def _seed_base_data(self, conn: sqlite3.Connection) -> None:
         now = _now_text()
@@ -275,6 +311,8 @@ class LocalERPManager:
                     i.item_type,
                     i.safety_stock,
                     i.min_stock,
+                    i.track_individuals,
+                    i.individual_code_prefix,
                     i.is_enabled,
                     i.remark,
                     i.default_warehouse_id,
@@ -291,7 +329,22 @@ class LocalERPManager:
                 """,
                 params,
             ).fetchall()
-        return [dict(row) for row in rows]
+            items = [dict(row) for row in rows]
+            custom_field_map = self._get_custom_field_values_map(
+                "items",
+                [item["id"] for item in items],
+                conn=conn,
+            )
+            instance_summary_map = self._get_item_instance_summary_map(
+                [item["id"] for item in items],
+                conn=conn,
+            )
+        for item in items:
+            item["custom_field_values"] = custom_field_map.get(item["id"], {})
+            summary = instance_summary_map.get(item["id"], {})
+            item["instance_count"] = summary.get("instance_count", 0)
+            item["in_stock_instance_count"] = summary.get("in_stock_instance_count", 0)
+        return items
 
     def list_custom_fields(self, entity_name: str) -> List[Dict[str, Any]]:
         entity_name = (entity_name or "").strip()
@@ -315,15 +368,92 @@ class LocalERPManager:
         if record_id <= 0:
             return {}
         with self._connect() as conn:
+            return self._get_custom_field_values_map(entity_name, [record_id], conn=conn).get(record_id, {})
+
+    def _get_custom_field_values_map(
+        self,
+        entity_name: str,
+        record_ids: Iterable[int],
+        conn: Optional[sqlite3.Connection] = None,
+    ) -> Dict[int, Dict[str, Any]]:
+        normalized_ids = sorted(
+            {
+                normalized_id
+                for normalized_id in (_normalize_int(record_id) for record_id in (record_ids or []))
+                if normalized_id > 0
+            }
+        )
+        if not normalized_ids:
+            return {}
+
+        managed_connection = False
+        if conn is None:
+            conn = self._connect()
+            managed_connection = True
+        try:
+            placeholders = ",".join("?" for _ in normalized_ids)
             rows = conn.execute(
-                """
-                SELECT field_name, field_value
+                f"""
+                SELECT record_id, field_name, field_value
                 FROM custom_field_values
-                WHERE entity_name = ? AND record_id = ?
+                WHERE entity_name = ? AND record_id IN ({placeholders})
                 """,
-                (entity_name, record_id),
+                [entity_name, *normalized_ids],
             ).fetchall()
-        return {row["field_name"]: row["field_value"] for row in rows}
+            result = {record_id: {} for record_id in normalized_ids}
+            for row in rows:
+                result.setdefault(row["record_id"], {})[row["field_name"]] = row["field_value"]
+            return result
+        finally:
+            if managed_connection:
+                conn.close()
+
+    def _get_item_instance_summary_map(
+        self,
+        item_ids: Iterable[int],
+        conn: Optional[sqlite3.Connection] = None,
+    ) -> Dict[int, Dict[str, int]]:
+        normalized_ids = sorted(
+            {
+                normalized_id
+                for normalized_id in (_normalize_int(item_id) for item_id in (item_ids or []))
+                if normalized_id > 0
+            }
+        )
+        if not normalized_ids:
+            return {}
+
+        managed_connection = False
+        if conn is None:
+            conn = self._connect()
+            managed_connection = True
+        try:
+            placeholders = ",".join("?" for _ in normalized_ids)
+            rows = conn.execute(
+                f"""
+                SELECT
+                    item_id,
+                    COUNT(*) AS instance_count,
+                    SUM(CASE WHEN status = 'in_stock' THEN 1 ELSE 0 END) AS in_stock_instance_count
+                FROM item_instances
+                WHERE item_id IN ({placeholders})
+                GROUP BY item_id
+                """,
+                normalized_ids,
+            ).fetchall()
+            result = {
+                item_id: {"instance_count": 0, "in_stock_instance_count": 0}
+                for item_id in normalized_ids
+            }
+            for row in rows:
+                result[row["item_id"]] = {
+                    "instance_count": _normalize_int(row["instance_count"]),
+                    "in_stock_instance_count": _normalize_int(row["in_stock_instance_count"]),
+                }
+            return result
+        finally:
+            if managed_connection:
+                conn.close()
 
     def upsert_custom_field(self, entity_name: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         entity_name = (entity_name or "").strip()
@@ -416,33 +546,22 @@ class LocalERPManager:
             conn = self._connect()
             managed_connection = True
         try:
+            conn.execute(
+                "DELETE FROM custom_field_values WHERE entity_name = ? AND record_id = ?",
+                ((entity_name or "").strip(), record_id),
+            )
             for field_name, field_value in (values or {}).items():
-                existing = conn.execute(
-                    """
-                    SELECT id
-                    FROM custom_field_values
-                    WHERE entity_name = ? AND record_id = ? AND field_name = ?
-                    """,
-                    (entity_name, record_id, field_name),
-                ).fetchone()
+                normalized_name = str(field_name or "").strip()
+                if not normalized_name:
+                    continue
                 normalized_value = "" if field_value is None else str(field_value)
-                if existing is None:
-                    conn.execute(
-                        """
-                        INSERT INTO custom_field_values(entity_name, record_id, field_name, field_value)
-                        VALUES (?, ?, ?, ?)
-                        """,
-                        (entity_name, record_id, field_name, normalized_value),
-                    )
-                else:
-                    conn.execute(
-                        """
-                        UPDATE custom_field_values
-                        SET field_value = ?
-                        WHERE id = ?
-                        """,
-                        (normalized_value, existing["id"]),
-                    )
+                conn.execute(
+                    """
+                    INSERT INTO custom_field_values(entity_name, record_id, field_name, field_value)
+                    VALUES (?, ?, ?, ?)
+                    """,
+                    ((entity_name or "").strip(), record_id, normalized_name, normalized_value),
+                )
             if managed_connection:
                 conn.commit()
         finally:
@@ -480,6 +599,8 @@ class LocalERPManager:
             raise ValueError("物料名称不能为空")
 
         now = _now_text()
+        track_individuals = 1 if payload.get("track_individuals") else 0
+        individual_code_prefix = (payload.get("individual_code_prefix") or item_code).strip().upper() if track_individuals else ""
         with self._lock, self._connect() as conn:
             unit_id = _normalize_int(payload.get("unit_id")) or self._default_unit_id(conn)
             warehouse_id = _normalize_int(payload.get("default_warehouse_id")) or self._default_warehouse_id(conn)
@@ -487,9 +608,9 @@ class LocalERPManager:
                 """
                 INSERT INTO items(
                     item_code, item_name, spec, category_id, unit_id, item_type,
-                    default_warehouse_id, safety_stock, min_stock, is_enabled, remark,
-                    created_at, updated_at, created_by, updated_by
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    default_warehouse_id, safety_stock, min_stock, track_individuals, individual_code_prefix,
+                    is_enabled, remark, created_at, updated_at, created_by, updated_by
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     item_code,
@@ -501,6 +622,8 @@ class LocalERPManager:
                     warehouse_id,
                     _normalize_float(payload.get("safety_stock")),
                     _normalize_float(payload.get("min_stock")),
+                    track_individuals,
+                    individual_code_prefix,
                     1 if payload.get("is_enabled", True) else 0,
                     (payload.get("remark") or "").strip(),
                     now,
@@ -513,17 +636,38 @@ class LocalERPManager:
             self.save_custom_field_values("items", item_id, payload.get("custom_field_values") or {}, conn=conn)
             self._log_operation(conn, "erp_items", "create", "item", item_id, payload)
             conn.commit()
+        initial_instance_count = _normalize_int(payload.get("initial_instance_count"))
+        if track_individuals and initial_instance_count > 0:
+            self.create_item_instances(
+                item_id,
+                {
+                    "count": initial_instance_count,
+                    "warehouse_id": payload.get("default_warehouse_id"),
+                    "prefix": individual_code_prefix,
+                    "location_code": payload.get("initial_instance_location_code"),
+                    "remark": payload.get("initial_instance_remark") or "物料初始化个体入库",
+                },
+            )
         return self.get_item(item_id)
 
     def update_item(self, item_id: int, payload: Dict[str, Any]) -> Dict[str, Any]:
         current = self.get_item(item_id)
         now = _now_text()
+        target_track_individuals = 1 if payload.get("track_individuals", current.get("track_individuals")) else 0
+        if current.get("track_individuals") and not target_track_individuals and current.get("instance_count", 0) > 0:
+            raise ValueError("该物料已有个体记录，不能关闭个体级管理")
         with self._lock, self._connect() as conn:
+            target_prefix = (
+                (payload.get("individual_code_prefix") or current.get("individual_code_prefix") or current["item_code"]).strip().upper()
+                if target_track_individuals
+                else ""
+            )
             conn.execute(
                 """
                 UPDATE items
                 SET item_code = ?, item_name = ?, spec = ?, item_type = ?, default_warehouse_id = ?,
-                    safety_stock = ?, min_stock = ?, is_enabled = ?, remark = ?, updated_at = ?, updated_by = ?
+                    safety_stock = ?, min_stock = ?, track_individuals = ?, individual_code_prefix = ?,
+                    is_enabled = ?, remark = ?, updated_at = ?, updated_by = ?
                 WHERE id = ?
                 """,
                 (
@@ -534,6 +678,8 @@ class LocalERPManager:
                     _normalize_int(payload.get("default_warehouse_id"), current["default_warehouse_id"] or 0) or None,
                     _normalize_float(payload.get("safety_stock"), current["safety_stock"]),
                     _normalize_float(payload.get("min_stock"), current["min_stock"]),
+                    target_track_individuals,
+                    target_prefix,
                     1 if payload.get("is_enabled", current["is_enabled"]) else 0,
                     (payload.get("remark") if "remark" in payload else current["remark"]) or "",
                     now,
@@ -541,10 +687,39 @@ class LocalERPManager:
                     item_id,
                 ),
             )
-            self.save_custom_field_values("items", item_id, payload.get("custom_field_values") or {}, conn=conn)
+            if "custom_field_values" in payload:
+                self.save_custom_field_values("items", item_id, payload.get("custom_field_values") or {}, conn=conn)
             self._log_operation(conn, "erp_items", "update", "item", item_id, payload)
             conn.commit()
         return self.get_item(item_id)
+
+    def delete_item(self, item_id: int) -> Dict[str, Any]:
+        current = self.get_item(item_id)
+        with self._lock, self._connect() as conn:
+            blocking_checks = [
+                ("库存单据", "SELECT 1 FROM stock_document_items WHERE item_id = ? LIMIT 1"),
+                ("库存流水", "SELECT 1 FROM inventory_ledger WHERE item_id = ? LIMIT 1"),
+                ("库存余额", "SELECT 1 FROM inventory_balances WHERE item_id = ? LIMIT 1"),
+                ("BOM父项", "SELECT 1 FROM boms WHERE parent_item_id = ? LIMIT 1"),
+                ("BOM子项", "SELECT 1 FROM bom_items WHERE component_item_id = ? LIMIT 1"),
+                ("工单成品", "SELECT 1 FROM work_orders WHERE parent_item_id = ? LIMIT 1"),
+                ("工单用料", "SELECT 1 FROM work_order_materials WHERE item_id = ? LIMIT 1"),
+                ("个体记录", "SELECT 1 FROM item_instances WHERE item_id = ? LIMIT 1"),
+                ("追踪链路", "SELECT 1 FROM material_trace_links WHERE item_id = ? LIMIT 1"),
+            ]
+            blocking_reasons = [
+                label
+                for label, query in blocking_checks
+                if conn.execute(query, (item_id,)).fetchone() is not None
+            ]
+            if blocking_reasons:
+                raise ValueError(f"该物料已有业务数据，不能删除：{'、'.join(blocking_reasons)}")
+
+            conn.execute("DELETE FROM custom_field_values WHERE entity_name = 'items' AND record_id = ?", (item_id,))
+            conn.execute("DELETE FROM items WHERE id = ?", (item_id,))
+            self._log_operation(conn, "erp_items", "delete", "item", item_id, current)
+            conn.commit()
+        return current
 
     def get_item(self, item_id: int) -> Dict[str, Any]:
         with self._connect() as conn:
@@ -565,7 +740,620 @@ class LocalERPManager:
             raise ValueError("物料不存在")
         item = dict(row)
         item["custom_field_values"] = self.get_custom_field_values("items", item_id)
+        summary = self._get_item_instance_summary_map([item_id]).get(item_id, {})
+        item["instance_count"] = summary.get("instance_count", 0)
+        item["in_stock_instance_count"] = summary.get("in_stock_instance_count", 0)
         return item
+
+    def list_item_instances(
+        self,
+        item_id: Optional[int] = None,
+        keyword: str = "",
+        status: str = "",
+        warehouse_id: Optional[int] = None,
+        limit: int = 200,
+    ) -> List[Dict[str, Any]]:
+        conditions = []
+        params: List[Any] = []
+        normalized_item_id = _normalize_int(item_id)
+        if normalized_item_id > 0:
+            conditions.append("ii.item_id = ?")
+            params.append(normalized_item_id)
+        keyword = (keyword or "").strip()
+        if keyword:
+            conditions.append(
+                "(i.item_code LIKE ? OR i.item_name LIKE ? OR ii.instance_code LIKE ? OR ii.serial_no LIKE ? OR ii.owner_name LIKE ?)"
+            )
+            like_value = f"%{keyword}%"
+            params.extend([like_value, like_value, like_value, like_value, like_value])
+        status = (status or "").strip()
+        if status:
+            conditions.append("ii.status = ?")
+            params.append(status)
+        normalized_warehouse_id = _normalize_int(warehouse_id)
+        if normalized_warehouse_id > 0:
+            conditions.append("ii.warehouse_id = ?")
+            params.append(normalized_warehouse_id)
+        where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+        params.append(_normalize_int(limit, 200))
+
+        with self._connect() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT
+                    ii.*,
+                    i.item_code,
+                    i.item_name,
+                    i.item_type,
+                    i.track_individuals,
+                    w.warehouse_code,
+                    w.warehouse_name
+                FROM item_instances ii
+                INNER JOIN items i ON i.id = ii.item_id
+                LEFT JOIN warehouses w ON w.id = ii.warehouse_id
+                {where}
+                ORDER BY ii.updated_at DESC, ii.id DESC
+                LIMIT ?
+                """,
+                params,
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def list_item_instance_logs(
+        self,
+        item_id: Optional[int] = None,
+        instance_id: Optional[int] = None,
+        limit: int = 100,
+    ) -> List[Dict[str, Any]]:
+        conditions = []
+        params: List[Any] = []
+        normalized_instance_id = _normalize_int(instance_id)
+        if normalized_instance_id > 0:
+            conditions.append("l.instance_id = ?")
+            params.append(normalized_instance_id)
+        normalized_item_id = _normalize_int(item_id)
+        if normalized_item_id > 0:
+            conditions.append("ii.item_id = ?")
+            params.append(normalized_item_id)
+        where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+        params.append(_normalize_int(limit, 100))
+
+        with self._connect() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT
+                    l.*,
+                    ii.instance_code,
+                    ii.serial_no,
+                    i.item_code,
+                    i.item_name,
+                    fw.warehouse_code AS from_warehouse_code,
+                    fw.warehouse_name AS from_warehouse_name,
+                    tw.warehouse_code AS to_warehouse_code,
+                    tw.warehouse_name AS to_warehouse_name
+                FROM item_instance_logs l
+                INNER JOIN item_instances ii ON ii.id = l.instance_id
+                INNER JOIN items i ON i.id = ii.item_id
+                LEFT JOIN warehouses fw ON fw.id = l.from_warehouse_id
+                LEFT JOIN warehouses tw ON tw.id = l.to_warehouse_id
+                {where}
+                ORDER BY l.id DESC
+                LIMIT ?
+                """,
+                params,
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def _get_item_instance_row(
+        self,
+        conn: sqlite3.Connection,
+        instance_id: int,
+    ) -> sqlite3.Row:
+        row = conn.execute(
+            """
+            SELECT
+                ii.*,
+                i.item_code,
+                i.item_name,
+                i.item_type,
+                i.track_individuals,
+                i.individual_code_prefix,
+                i.default_warehouse_id,
+                w.warehouse_code,
+                w.warehouse_name
+            FROM item_instances ii
+            INNER JOIN items i ON i.id = ii.item_id
+            LEFT JOIN warehouses w ON w.id = ii.warehouse_id
+            WHERE ii.id = ?
+            """,
+            (instance_id,),
+        ).fetchone()
+        if row is None:
+            raise ValueError("个体记录不存在")
+        return row
+
+    def get_item_instance(self, instance_id: int) -> Dict[str, Any]:
+        with self._connect() as conn:
+            return dict(self._get_item_instance_row(conn, instance_id))
+
+    def update_item_instance(self, instance_id: int, payload: Dict[str, Any]) -> Dict[str, Any]:
+        now = _now_text()
+        with self._lock, self._connect() as conn:
+            current = dict(self._get_item_instance_row(conn, instance_id))
+            next_serial_no = (payload.get("serial_no") if "serial_no" in payload else current["serial_no"]) or ""
+            next_location_code = (payload.get("location_code") if "location_code" in payload else current["location_code"]) or ""
+            next_owner_name = (payload.get("owner_name") if "owner_name" in payload else current["owner_name"]) or ""
+            next_attributes_json = _normalize_json_text(
+                payload.get("attributes_json") if "attributes_json" in payload else current["attributes_json"]
+            )
+            next_remark = (payload.get("remark") if "remark" in payload else current["remark"]) or ""
+            conn.execute(
+                """
+                UPDATE item_instances
+                SET serial_no = ?, location_code = ?, owner_name = ?, attributes_json = ?,
+                    remark = ?, updated_at = ?, updated_by = ?
+                WHERE id = ?
+                """,
+                (
+                    str(next_serial_no).strip(),
+                    str(next_location_code).strip(),
+                    str(next_owner_name).strip(),
+                    next_attributes_json,
+                    str(next_remark).strip(),
+                    now,
+                    "system",
+                    instance_id,
+                ),
+            )
+            self._insert_item_instance_log(
+                conn,
+                instance_id,
+                action_type="update",
+                from_status=current["status"],
+                to_status=current["status"],
+                from_warehouse_id=current["warehouse_id"],
+                to_warehouse_id=current["warehouse_id"],
+                from_location_code=current["location_code"] or "",
+                to_location_code=str(next_location_code).strip(),
+                owner_name=str(next_owner_name).strip(),
+                remark="更新个体属性",
+            )
+            conn.commit()
+        return self.get_item_instance(instance_id)
+
+    def create_item_instances(self, item_id: int, payload: Dict[str, Any]) -> Dict[str, Any]:
+        normalized_item_id = _normalize_int(item_id)
+        if normalized_item_id <= 0:
+            raise ValueError("请选择需要生成个体的物料")
+        count = _normalize_int(payload.get("count"))
+        if count <= 0:
+            raise ValueError("生成数量必须大于 0")
+
+        with self._lock, self._connect() as conn:
+            item = conn.execute(
+                """
+                SELECT id, item_code, item_name, track_individuals, individual_code_prefix, default_warehouse_id
+                FROM items
+                WHERE id = ?
+                """,
+                (normalized_item_id,),
+            ).fetchone()
+            if item is None:
+                raise ValueError("物料不存在")
+            if not item["track_individuals"]:
+                raise ValueError("该物料未开启个体级管理")
+
+            warehouse_id = _normalize_int(payload.get("warehouse_id")) or (item["default_warehouse_id"] or self._default_warehouse_id(conn))
+            if not warehouse_id:
+                raise ValueError("个体初始化入库缺少仓库")
+            prefix = (
+                (payload.get("prefix") or item["individual_code_prefix"] or item["item_code"]).strip().upper()
+            )
+            if not prefix:
+                prefix = str(item["item_code"]).strip().upper()
+            location_code = (payload.get("location_code") or "").strip()
+            remark = (payload.get("remark") or "").strip()
+
+            created_codes: List[str] = []
+            next_index = _normalize_int(
+                conn.execute("SELECT COUNT(*) AS count_value FROM item_instances WHERE item_id = ?", (normalized_item_id,)).fetchone()["count_value"]
+            ) + 1
+            while len(created_codes) < count:
+                candidate = f"{prefix}-{next_index:04d}"
+                exists = conn.execute("SELECT 1 FROM item_instances WHERE instance_code = ? LIMIT 1", (candidate,)).fetchone()
+                next_index += 1
+                if exists is not None:
+                    continue
+                created_codes.append(candidate)
+
+            document_meta = self._create_submitted_stock_document(
+                conn,
+                {
+                    "doc_type": "other_in",
+                    "biz_date": payload.get("biz_date") or _today_text(),
+                    "target_warehouse_id": warehouse_id,
+                    "remark": remark or f"{item['item_code']} 个体初始化入库",
+                    "items": [
+                        {
+                            "item_id": normalized_item_id,
+                            "qty": 1,
+                            "batch_no": instance_code,
+                            "warehouse_id": warehouse_id,
+                            "location_code": location_code,
+                            "remark": remark,
+                        }
+                        for instance_code in created_codes
+                    ],
+                },
+            )
+
+            now = _now_text()
+            created_instances: List[Dict[str, Any]] = []
+            for instance_code in created_codes:
+                cursor = conn.execute(
+                    """
+                    INSERT INTO item_instances(
+                        item_id, instance_code, serial_no, status, warehouse_id, location_code, owner_name,
+                        attributes_json, remark, source_doc_type, source_doc_id,
+                        created_at, updated_at, created_by, updated_by
+                    ) VALUES (?, ?, '', 'in_stock', ?, ?, '', '', ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        normalized_item_id,
+                        instance_code,
+                        warehouse_id,
+                        location_code,
+                        remark,
+                        document_meta["doc_type"],
+                        document_meta["id"],
+                        now,
+                        now,
+                        "system",
+                        "system",
+                    ),
+                )
+                instance_row_id = cursor.lastrowid
+                self._insert_item_instance_log(
+                    conn,
+                    instance_row_id,
+                    action_type="create",
+                    to_status="in_stock",
+                    to_warehouse_id=warehouse_id,
+                    to_location_code=location_code,
+                    reference_doc_type=document_meta["doc_type"],
+                    reference_doc_id=document_meta["id"],
+                    remark=remark or "初始化个体入库",
+                )
+                created_instances.append(
+                    {
+                        "id": instance_row_id,
+                        "item_id": normalized_item_id,
+                        "instance_code": instance_code,
+                        "status": "in_stock",
+                        "warehouse_id": warehouse_id,
+                        "location_code": location_code,
+                    }
+                )
+            self._log_operation(
+                conn,
+                "erp_item_instances",
+                "bulk_create",
+                "item",
+                normalized_item_id,
+                {"count": count, "document_id": document_meta["id"], "codes": created_codes[:20]},
+            )
+            conn.commit()
+        return {
+            "created_count": len(created_instances),
+            "document_id": document_meta["id"],
+            "document_no": document_meta["doc_no"],
+            "instances": created_instances,
+        }
+
+    def perform_item_instance_action(self, instance_id: int, payload: Dict[str, Any]) -> Dict[str, Any]:
+        action = (payload.get("action") or "").strip().lower()
+        if not action:
+            raise ValueError("请选择个体操作")
+
+        with self._lock, self._connect() as conn:
+            current = dict(self._get_item_instance_row(conn, instance_id))
+            if current.get("track_individuals") != 1:
+                raise ValueError("该物料未开启个体级管理")
+
+            current_status = str(current["status"] or "in_stock")
+            current_warehouse_id = _normalize_int(current.get("warehouse_id"))
+            current_location_code = (current.get("location_code") or "").strip()
+            owner_name = (payload.get("owner_name") if "owner_name" in payload else current.get("owner_name")) or ""
+            remark = (payload.get("remark") or "").strip()
+
+            next_status = current_status
+            next_warehouse_id: Optional[int] = current_warehouse_id or None
+            next_location_code = current_location_code
+            doc_payload: Optional[Dict[str, Any]] = None
+
+            if action == "transfer":
+                target_warehouse_id = _normalize_int(payload.get("target_warehouse_id"))
+                if current_warehouse_id <= 0:
+                    raise ValueError("当前个体不在仓库中，无法调拨")
+                if target_warehouse_id <= 0:
+                    raise ValueError("请选择目标仓库")
+                if target_warehouse_id == current_warehouse_id:
+                    raise ValueError("目标仓库不能与当前仓库相同")
+                next_status = "in_stock"
+                next_warehouse_id = target_warehouse_id
+                next_location_code = (payload.get("target_location_code") or "").strip()
+                doc_payload = {
+                    "doc_type": "transfer",
+                    "biz_date": payload.get("biz_date") or _today_text(),
+                    "source_warehouse_id": current_warehouse_id,
+                    "target_warehouse_id": target_warehouse_id,
+                    "remark": remark or f"{current['instance_code']} 个体调拨",
+                    "items": [
+                        {
+                            "item_id": current["item_id"],
+                            "qty": 1,
+                            "batch_no": current["instance_code"],
+                            "warehouse_id": current_warehouse_id,
+                            "location_code": next_location_code,
+                            "remark": remark,
+                        }
+                    ],
+                }
+            elif action == "checkout":
+                if current_warehouse_id <= 0:
+                    raise ValueError("当前个体不在仓库中，无法出库")
+                next_status = (payload.get("next_status") or "outbound").strip()
+                if next_status not in INSTANCE_CHECKOUT_STATUSES:
+                    raise ValueError("出库后的个体状态不合法")
+                next_warehouse_id = None
+                next_location_code = (payload.get("target_location_code") or "").strip()
+                doc_payload = {
+                    "doc_type": "other_out",
+                    "biz_date": payload.get("biz_date") or _today_text(),
+                    "source_warehouse_id": current_warehouse_id,
+                    "remark": remark or f"{current['instance_code']} 个体出库",
+                    "items": [
+                        {
+                            "item_id": current["item_id"],
+                            "qty": 1,
+                            "batch_no": current["instance_code"],
+                            "warehouse_id": current_warehouse_id,
+                            "location_code": current_location_code,
+                            "remark": remark,
+                        }
+                    ],
+                }
+            elif action == "checkin":
+                target_warehouse_id = _normalize_int(payload.get("target_warehouse_id"))
+                if target_warehouse_id <= 0:
+                    raise ValueError("请选择入库仓库")
+                next_status = "in_stock"
+                next_warehouse_id = target_warehouse_id
+                next_location_code = (payload.get("target_location_code") or "").strip()
+                doc_payload = {
+                    "doc_type": "other_in",
+                    "biz_date": payload.get("biz_date") or _today_text(),
+                    "target_warehouse_id": target_warehouse_id,
+                    "remark": remark or f"{current['instance_code']} 个体入库",
+                    "items": [
+                        {
+                            "item_id": current["item_id"],
+                            "qty": 1,
+                            "batch_no": current["instance_code"],
+                            "warehouse_id": target_warehouse_id,
+                            "location_code": next_location_code,
+                            "remark": remark,
+                        }
+                    ],
+                }
+            else:
+                raise ValueError("不支持的个体操作")
+
+            document_meta = self._create_submitted_stock_document(conn, doc_payload)
+            conn.execute(
+                """
+                UPDATE item_instances
+                SET status = ?, warehouse_id = ?, location_code = ?, owner_name = ?,
+                    updated_at = ?, updated_by = ?
+                WHERE id = ?
+                """,
+                (
+                    next_status,
+                    next_warehouse_id,
+                    next_location_code,
+                    str(owner_name).strip(),
+                    _now_text(),
+                    "system",
+                    instance_id,
+                ),
+            )
+            self._insert_item_instance_log(
+                conn,
+                instance_id,
+                action_type=action,
+                from_status=current_status,
+                to_status=next_status,
+                from_warehouse_id=current_warehouse_id or None,
+                to_warehouse_id=next_warehouse_id,
+                from_location_code=current_location_code,
+                to_location_code=next_location_code,
+                reference_doc_type=document_meta["doc_type"],
+                reference_doc_id=document_meta["id"],
+                owner_name=str(owner_name).strip(),
+                remark=remark or f"个体{action}操作",
+            )
+            self._log_operation(
+                conn,
+                "erp_item_instances",
+                action,
+                "item_instance",
+                instance_id,
+                {"document_id": document_meta["id"], "next_status": next_status},
+            )
+            conn.commit()
+        return {
+            "instance": self.get_item_instance(instance_id),
+            "document_id": document_meta["id"],
+            "document_no": document_meta["doc_no"],
+        }
+
+    def _insert_item_instance_log(
+        self,
+        conn: sqlite3.Connection,
+        instance_id: int,
+        action_type: str,
+        from_status: str = "",
+        to_status: str = "",
+        from_warehouse_id: Optional[int] = None,
+        to_warehouse_id: Optional[int] = None,
+        from_location_code: str = "",
+        to_location_code: str = "",
+        reference_doc_type: str = "",
+        reference_doc_id: Optional[int] = None,
+        owner_name: str = "",
+        remark: str = "",
+    ) -> None:
+        conn.execute(
+            """
+            INSERT INTO item_instance_logs(
+                instance_id, action_type, from_status, to_status,
+                from_warehouse_id, to_warehouse_id, from_location_code, to_location_code,
+                reference_doc_type, reference_doc_id, owner_name, remark, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                instance_id,
+                (action_type or "").strip(),
+                (from_status or "").strip(),
+                (to_status or "").strip(),
+                from_warehouse_id,
+                to_warehouse_id,
+                (from_location_code or "").strip(),
+                (to_location_code or "").strip(),
+                (reference_doc_type or "").strip(),
+                _normalize_int(reference_doc_id) or None,
+                (owner_name or "").strip(),
+                (remark or "").strip(),
+                _now_text(),
+            ),
+        )
+
+    def _create_submitted_stock_document(
+        self,
+        conn: sqlite3.Connection,
+        payload: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        doc_type = (payload.get("doc_type") or "").strip()
+        if doc_type not in DOC_PREFIXES:
+            raise ValueError("不支持的单据类型")
+
+        lines = payload.get("items") or []
+        if not isinstance(lines, list) or not lines:
+            raise ValueError("单据明细不能为空")
+
+        now = _now_text()
+        doc_no = self._generate_doc_no(conn, doc_type)
+        source_warehouse_id = _normalize_int(payload.get("source_warehouse_id")) or None
+        target_warehouse_id = _normalize_int(payload.get("target_warehouse_id")) or None
+        if doc_type in INBOUND_DOC_TYPES and not target_warehouse_id:
+            target_warehouse_id = self._default_warehouse_id(conn)
+        if doc_type in OUTBOUND_DOC_TYPES and not source_warehouse_id:
+            source_warehouse_id = self._default_warehouse_id(conn)
+
+        cursor = conn.execute(
+            """
+            INSERT INTO stock_documents(
+                doc_type, doc_no, status, biz_date, source_warehouse_id, target_warehouse_id,
+                related_party_type, related_party_id, related_order_id, related_work_order_id,
+                operator_id, remark, created_at, updated_at, created_by, updated_by
+            ) VALUES (?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                doc_type,
+                doc_no,
+                payload.get("biz_date") or _today_text(),
+                source_warehouse_id,
+                target_warehouse_id,
+                (payload.get("related_party_type") or "").strip(),
+                _normalize_int(payload.get("related_party_id")) or None,
+                _normalize_int(payload.get("related_order_id")) or None,
+                _normalize_int(payload.get("related_work_order_id")) or None,
+                _normalize_int(payload.get("operator_id")) or None,
+                (payload.get("remark") or "").strip(),
+                now,
+                now,
+                "system",
+                "system",
+            ),
+        )
+        document_id = cursor.lastrowid
+        header = {
+            "id": document_id,
+            "doc_type": doc_type,
+            "biz_date": payload.get("biz_date") or _today_text(),
+            "source_warehouse_id": source_warehouse_id,
+            "target_warehouse_id": target_warehouse_id,
+            "related_work_order_id": _normalize_int(payload.get("related_work_order_id")) or None,
+            "remark": (payload.get("remark") or "").strip(),
+        }
+
+        stored_lines: List[Dict[str, Any]] = []
+        for index, raw_line in enumerate(lines, start=1):
+            item_id = _normalize_int(raw_line.get("item_id"))
+            qty = _normalize_float(raw_line.get("qty"))
+            if item_id <= 0 or qty <= 0:
+                raise ValueError("单据明细的物料和数量必须有效")
+            line_warehouse_id = _normalize_int(raw_line.get("warehouse_id")) or None
+            if doc_type in INBOUND_DOC_TYPES and not line_warehouse_id:
+                line_warehouse_id = target_warehouse_id
+            if doc_type in OUTBOUND_DOC_TYPES and not line_warehouse_id:
+                line_warehouse_id = source_warehouse_id
+            line_cursor = conn.execute(
+                """
+                INSERT INTO stock_document_items(
+                    document_id, line_no, item_id, batch_no, qty, unit_id, warehouse_id,
+                    location_code, source_trace_key, related_bom_id, remark
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    document_id,
+                    index,
+                    item_id,
+                    (raw_line.get("batch_no") or "").strip(),
+                    qty,
+                    _normalize_int(raw_line.get("unit_id")) or self._default_unit_id(conn),
+                    line_warehouse_id,
+                    (raw_line.get("location_code") or "").strip(),
+                    (raw_line.get("source_trace_key") or "").strip(),
+                    _normalize_int(raw_line.get("related_bom_id")) or None,
+                    (raw_line.get("remark") or "").strip(),
+                ),
+            )
+            stored_line = {
+                "id": line_cursor.lastrowid,
+                "document_id": document_id,
+                "line_no": index,
+                "item_id": item_id,
+                "batch_no": (raw_line.get("batch_no") or "").strip(),
+                "qty": qty,
+                "unit_id": _normalize_int(raw_line.get("unit_id")) or self._default_unit_id(conn),
+                "warehouse_id": line_warehouse_id,
+                "location_code": (raw_line.get("location_code") or "").strip(),
+                "source_trace_key": (raw_line.get("source_trace_key") or "").strip(),
+                "related_bom_id": _normalize_int(raw_line.get("related_bom_id")) or None,
+                "remark": (raw_line.get("remark") or "").strip(),
+            }
+            stored_lines.append(stored_line)
+
+        for stored_line in stored_lines:
+            self._apply_document_line(conn, header, stored_line)
+
+        conn.execute(
+            "UPDATE stock_documents SET status = 'submitted', updated_at = ?, updated_by = ? WHERE id = ?",
+            (_now_text(), "system", document_id),
+        )
+        self._log_operation(conn, "erp_inventory", "submit_document", "stock_document", document_id, {"doc_type": doc_type})
+        return {"id": document_id, "doc_no": doc_no, "doc_type": doc_type}
 
     def upsert_custom_field(self, entity_name: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         entity_name = (entity_name or "").strip()

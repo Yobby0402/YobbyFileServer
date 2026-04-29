@@ -449,6 +449,7 @@
         <nav class="erp-nav">
             <a href="/erp/dashboard" class="{% if active_page == 'dashboard' %}active{% endif %}"><i class="fa fa-dashboard"></i> 工作台</a>
             <a href="/erp/master-data/items" class="{% if active_page == 'items' %}active{% endif %}"><i class="fa fa-archive"></i> 物料与仓库</a>
+            <a href="/erp/master-data/instances" class="{% if active_page == 'instances' %}active{% endif %}"><i class="fa fa-tags"></i> 个体管理</a>
             <a href="/erp/inventory/balances" class="{% if active_page == 'inventory' %}active{% endif %}"><i class="fa fa-database"></i> 库存</a>
             <a href="/erp/inventory/documents" class="{% if active_page == 'documents' %}active{% endif %}"><i class="fa fa-file-text-o"></i> 单据</a>
             <a href="/erp/bom" class="{% if active_page == 'bom' %}active{% endif %}"><i class="fa fa-sitemap"></i> BOM</a>
@@ -519,7 +520,7 @@
                             <div class="table-wrap">
                                 <table class="table table-striped table-sm align-middle">
                                     <thead>
-                                    <tr><th>编码</th><th>名称</th><th>类型</th><th>当前库存</th><th>安全库存</th><th>操作</th></tr>
+                                    <tr><th>编码</th><th>名称</th><th>类型</th><th>当前库存</th><th>安全库存</th><th>个体管理</th><th>操作</th></tr>
                                     </thead>
                                     <tbody id="itemsTable"></tbody>
                                 </table>
@@ -528,18 +529,12 @@
                     </div>
                     <div class="col-lg-5">
                         <div class="page-card mb-3">
-                            <div class="d-flex justify-content-between align-items-center mb-2">
-                                <h3 class="h6 mb-0">自定义字段配置</h3>
-                                <div class="toolbar">
-                                    <button class="btn btn-outline-secondary btn-sm" type="button" onclick="loadCustomFields()">刷新</button>
-                                    <button class="btn btn-primary btn-sm" type="button" onclick="openCustomFieldModal()">新建字段</button>
-                                </div>
+                            <h3 class="h6 mb-2">自定义属性说明</h3>
+                            <div class="small-muted">
+                                物料的自定义属性现在按“每个物料单独维护”处理。
                             </div>
-                            <div class="table-wrap">
-                                <table class="table table-striped table-sm align-middle">
-                                    <thead><tr><th>字段名</th><th>显示名</th><th>类型</th><th>必填</th><th>默认值</th></tr></thead>
-                                    <tbody id="customFieldsTable"></tbody>
-                                </table>
+                            <div class="small-muted mt-2">
+                                请进入“新建物料 / 编辑物料”弹窗，在“自定义属性”区域按需新增属性名和属性值。
                             </div>
                         </div>
 
@@ -557,6 +552,95 @@
                                     <tbody id="warehousesTable"></tbody>
                                 </table>
                             </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+        {% endif %}
+
+        {% if active_page == 'instances' %}
+        <section id="page-instances">
+            <div class="row g-3">
+                <div class="col-xl-8">
+                    <div class="page-card">
+                        <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+                            <div>
+                                <h2 class="h4 mb-1">物料个体管理</h2>
+                                <div class="small-muted">对已开启个体级管理的物料，逐件维护属性、仓位、去向与出入库。</div>
+                            </div>
+                            <div class="toolbar">
+                                <button class="btn btn-outline-secondary btn-sm" type="button" onclick="refreshInstancesPage()">刷新</button>
+                                <button class="btn btn-primary btn-sm" type="button" onclick="openInstanceGenerateModal()">批量生成个体</button>
+                            </div>
+                        </div>
+                        <div class="row g-2 mb-3">
+                            <div class="col-md-3">
+                                <label for="instanceItemFilter" class="form-label small mb-1">物料</label>
+                                <select id="instanceItemFilter" class="form-select form-select-sm"></select>
+                            </div>
+                            <div class="col-md-3">
+                                <label for="instanceKeyword" class="form-label small mb-1">搜索关键字</label>
+                                <input id="instanceKeyword" class="form-control form-control-sm" placeholder="物料编码 / 名称 / 个体编号 / 序列号">
+                            </div>
+                            <div class="col-md-2">
+                                <label for="instanceStatusFilter" class="form-label small mb-1">个体状态</label>
+                                <select id="instanceStatusFilter" class="form-select form-select-sm">
+                                    <option value="">全部状态</option>
+                                    <option value="in_stock">在库</option>
+                                    <option value="outbound">已出库</option>
+                                    <option value="in_use">使用中</option>
+                                    <option value="maintenance">维护中</option>
+                                    <option value="scrapped">已报废</option>
+                                </select>
+                            </div>
+                            <div class="col-md-2">
+                                <label for="instanceWarehouseFilter" class="form-label small mb-1">所在仓库</label>
+                                <select id="instanceWarehouseFilter" class="form-select form-select-sm"></select>
+                            </div>
+                            <div class="col-md-2 d-flex align-items-end">
+                                <button class="btn btn-outline-primary btn-sm w-100" type="button" onclick="refreshInstancesPage()">查询</button>
+                            </div>
+                        </div>
+                        <div class="table-wrap">
+                            <table class="table table-striped table-sm align-middle">
+                                <thead>
+                                <tr>
+                                    <th>个体编号</th>
+                                    <th>物料</th>
+                                    <th>序列号</th>
+                                    <th>状态</th>
+                                    <th>仓库/位置</th>
+                                    <th>持有人/去向</th>
+                                    <th>更新时间</th>
+                                    <th>操作</th>
+                                </tr>
+                                </thead>
+                                <tbody id="instanceTable"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-xl-4">
+                    <div class="page-card mb-3">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <h3 class="h6 mb-0">个体日志</h3>
+                            <button class="btn btn-outline-secondary btn-sm" type="button" onclick="loadInstanceLogs()">刷新</button>
+                        </div>
+                        <div class="small-muted mb-2">默认显示最近 50 条个体操作日志。</div>
+                        <div class="table-wrap">
+                            <table class="table table-striped table-sm align-middle">
+                                <thead><tr><th>个体</th><th>动作</th><th>状态变化</th><th>时间</th></tr></thead>
+                                <tbody id="instanceLogTable"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <div class="page-card">
+                        <h3 class="h6 mb-2">操作说明</h3>
+                        <div class="small-muted">
+                            <div>1. 先在物料主档开启“个体级管理”。</div>
+                            <div>2. 再在此页面批量生成个体编号。</div>
+                            <div>3. 后续通过“调拨 / 出库 / 入库”逐件记录去向。</div>
                         </div>
                     </div>
                 </div>
@@ -898,10 +982,20 @@
                         <div class="small-muted mb-3">请填写物料基础资料；数量类字段可留空，留空时按 `0` 处理。</div>
                         <div class="row g-2">
                             <input id="itemId" type="hidden">
-                            <div class="col-md-6"><input id="itemCode" class="form-control form-control-sm" placeholder="物料编码，例如 RAW-001"></div>
-                            <div class="col-md-6"><input id="itemName" class="form-control form-control-sm" placeholder="物料名称，例如 铝壳外壳"></div>
-                            <div class="col-md-6"><input id="itemSpec" class="form-control form-control-sm" placeholder="规格型号，例如 10cm / 蓝色 / 2mm"></div>
                             <div class="col-md-6">
+                                <label for="itemCode" class="form-label small mb-1">物料编码</label>
+                                <input id="itemCode" class="form-control form-control-sm" placeholder="物料编码，例如 RAW-001">
+                            </div>
+                            <div class="col-md-6">
+                                <label for="itemName" class="form-label small mb-1">物料名称</label>
+                                <input id="itemName" class="form-control form-control-sm" placeholder="物料名称，例如 铝壳外壳">
+                            </div>
+                            <div class="col-md-6">
+                                <label for="itemSpec" class="form-label small mb-1">规格型号</label>
+                                <input id="itemSpec" class="form-control form-control-sm" placeholder="规格型号，例如 10cm / 蓝色 / 2mm">
+                            </div>
+                            <div class="col-md-6">
+                                <label for="itemType" class="form-label small mb-1">物料类型</label>
                                 <select id="itemType" class="form-select form-select-sm">
                                     <option value="raw_material">原材料</option>
                                     <option value="semi_finished">半成品</option>
@@ -909,22 +1003,61 @@
                                     <option value="consumable">耗材</option>
                                 </select>
                             </div>
-                            <div class="col-md-6"><input id="itemSafetyStock" class="form-control form-control-sm" placeholder="安全库存阈值，例如 100；留空按 0"></div>
-                            <div class="col-md-6"><input id="itemMinStock" class="form-control form-control-sm" placeholder="最低库存阈值，例如 50；留空按 0"></div>
-                            <div class="col-md-6"><select id="itemWarehouse" class="form-select form-select-sm"></select></div>
                             <div class="col-md-6">
+                                <label for="itemSafetyStock" class="form-label small mb-1">安全库存</label>
+                                <input id="itemSafetyStock" class="form-control form-control-sm" placeholder="安全库存阈值，例如 100；留空按 0">
+                            </div>
+                            <div class="col-md-6">
+                                <label for="itemMinStock" class="form-label small mb-1">最低库存</label>
+                                <input id="itemMinStock" class="form-control form-control-sm" placeholder="最低库存阈值，例如 50；留空按 0">
+                            </div>
+                            <div class="col-md-6">
+                                <label for="itemWarehouse" class="form-label small mb-1">默认仓库</label>
+                                <select id="itemWarehouse" class="form-select form-select-sm"></select>
+                            </div>
+                            <div class="col-md-6">
+                                <label for="itemEnabled" class="form-label small mb-1">启用状态</label>
                                 <select id="itemEnabled" class="form-select form-select-sm">
                                     <option value="1">启用</option>
                                     <option value="0">停用</option>
                                 </select>
                             </div>
-                            <div class="col-12"><textarea id="itemRemark" class="form-control form-control-sm" rows="3" placeholder="备注"></textarea></div>
+                            <div class="col-md-6">
+                                <label for="itemTrackIndividuals" class="form-label small mb-1">个体级管理</label>
+                                <select id="itemTrackIndividuals" class="form-select form-select-sm" onchange="toggleItemTrackingInputs()">
+                                    <option value="0">关闭，视为完全相同</option>
+                                    <option value="1">开启，可逐件管理</option>
+                                </select>
+                            </div>
+                            <div class="col-md-6">
+                                <label for="itemIndividualCodePrefix" class="form-label small mb-1">个体编码前缀</label>
+                                <input id="itemIndividualCodePrefix" class="form-control form-control-sm" placeholder="例如 RAW-001">
+                            </div>
+                            <div class="col-md-6" id="itemInitialInstanceCountWrap">
+                                <label for="itemInitialInstanceCount" class="form-label small mb-1">初始化个体数量</label>
+                                <input id="itemInitialInstanceCount" class="form-control form-control-sm" placeholder="例如 20，仅新建时生效">
+                            </div>
+                            <div class="col-md-6" id="itemInitialInstanceLocationWrap">
+                                <label for="itemInitialInstanceLocation" class="form-label small mb-1">初始化位置</label>
+                                <input id="itemInitialInstanceLocation" class="form-control form-control-sm" placeholder="例如 A-01-02">
+                            </div>
+                            <div class="col-12">
+                                <div class="small-muted">开启个体级管理后，可为该物料生成逐件编号，并在“个体管理”页面单独记录属性、去向和出入库。</div>
+                            </div>
+                            <div class="col-12">
+                                <label for="itemRemark" class="form-label small mb-1">备注</label>
+                                <textarea id="itemRemark" class="form-control form-control-sm" rows="3" placeholder="备注"></textarea>
+                            </div>
                             <div class="col-12">
                                 <div class="page-card">
                                     <div class="d-flex justify-content-between align-items-center mb-2">
-                                        <h4 class="h6 mb-0">自定义字段值</h4>
-                                        <span class="badge-soft" id="itemCustomFieldCount">0 个字段</span>
+                                        <h4 class="h6 mb-0">自定义属性</h4>
+                                        <div class="toolbar">
+                                            <span class="badge-soft" id="itemCustomFieldCount">0 个属性</span>
+                                            <button class="btn btn-outline-primary btn-sm" type="button" onclick="addItemCustomFieldRow()">新增属性</button>
+                                        </div>
                                     </div>
+                                    <div class="small-muted mb-2">每个物料的属性名和属性值独立保存，不与其他物料共享。</div>
                                     <div class="row g-2" id="itemCustomFieldContainer"></div>
                                 </div>
                             </div>
@@ -1158,6 +1291,172 @@
             </div>
         </div>
         {% endif %}
+
+        {% if active_page == 'instances' %}
+        <div class="modal fade" id="instanceGenerateModal" tabindex="-1" aria-hidden="true">
+            <div class="modal-dialog modal-lg modal-dialog-scrollable">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">批量生成个体</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="small-muted mb-3">为已开启个体级管理的物料生成逐件编号，并自动生成已提交的入库单。</div>
+                        <div class="row g-2">
+                            <div class="col-md-6">
+                                <label for="instanceGenerateItemId" class="form-label small mb-1">物料</label>
+                                <select id="instanceGenerateItemId" class="form-select form-select-sm" onchange="handleInstanceGenerateItemChange()"></select>
+                            </div>
+                            <div class="col-md-6">
+                                <label for="instanceGenerateCount" class="form-label small mb-1">生成数量</label>
+                                <input id="instanceGenerateCount" type="number" min="1" step="1" class="form-control form-control-sm" placeholder="例如 20">
+                            </div>
+                            <div class="col-md-6">
+                                <label for="instanceGenerateWarehouse" class="form-label small mb-1">入库仓库</label>
+                                <select id="instanceGenerateWarehouse" class="form-select form-select-sm"></select>
+                            </div>
+                            <div class="col-md-6">
+                                <label for="instanceGenerateLocation" class="form-label small mb-1">入库位置</label>
+                                <input id="instanceGenerateLocation" class="form-control form-control-sm" placeholder="例如 A-01-02">
+                            </div>
+                            <div class="col-md-6">
+                                <label for="instanceGeneratePrefix" class="form-label small mb-1">个体编码前缀</label>
+                                <input id="instanceGeneratePrefix" class="form-control form-control-sm" placeholder="默认沿用物料设置">
+                            </div>
+                            <div class="col-md-6">
+                                <label for="instanceGenerateBizDate" class="form-label small mb-1">业务日期</label>
+                                <input id="instanceGenerateBizDate" type="date" class="form-control form-control-sm">
+                            </div>
+                            <div class="col-12">
+                                <label for="instanceGenerateRemark" class="form-label small mb-1">备注</label>
+                                <textarea id="instanceGenerateRemark" class="form-control form-control-sm" rows="2" placeholder="例如 首批到货初始化"></textarea>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button class="btn btn-outline-secondary btn-sm" type="button" onclick="resetInstanceGenerateForm()">重置</button>
+                        <button class="btn btn-primary btn-sm" type="button" onclick="saveInstanceGeneration()">生成个体并入库</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="modal fade" id="instanceModal" tabindex="-1" aria-hidden="true">
+            <div class="modal-dialog modal-lg modal-dialog-scrollable">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">编辑个体</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="small-muted mb-3">这里维护单个物料个体的差异化属性，不会改动物料主数据。</div>
+                        <div class="row g-2">
+                            <input id="instanceId" type="hidden">
+                            <div class="col-md-6">
+                                <label for="instanceItemInfo" class="form-label small mb-1">所属物料</label>
+                                <input id="instanceItemInfo" class="form-control form-control-sm" readonly>
+                            </div>
+                            <div class="col-md-6">
+                                <label for="instanceCode" class="form-label small mb-1">个体编号</label>
+                                <input id="instanceCode" class="form-control form-control-sm" readonly>
+                            </div>
+                            <div class="col-md-6">
+                                <label for="instanceStatus" class="form-label small mb-1">当前状态</label>
+                                <input id="instanceStatus" class="form-control form-control-sm" readonly>
+                            </div>
+                            <div class="col-md-6">
+                                <label for="instanceWarehouseInfo" class="form-label small mb-1">当前仓库 / 位置</label>
+                                <input id="instanceWarehouseInfo" class="form-control form-control-sm" readonly>
+                            </div>
+                            <div class="col-md-6">
+                                <label for="instanceSerialNo" class="form-label small mb-1">序列号</label>
+                                <input id="instanceSerialNo" class="form-control form-control-sm" placeholder="例如 SN-20260428-001">
+                            </div>
+                            <div class="col-md-6">
+                                <label for="instanceOwnerName" class="form-label small mb-1">持有人 / 去向</label>
+                                <input id="instanceOwnerName" class="form-control form-control-sm" placeholder="例如 张三 / 客户A / 产线B">
+                            </div>
+                            <div class="col-12">
+                                <label for="instanceLocation" class="form-label small mb-1">位置</label>
+                                <input id="instanceLocation" class="form-control form-control-sm" placeholder="例如 A-01-02 / 线边区 / 客户现场">
+                            </div>
+                            <div class="col-12">
+                                <label for="instanceAttributes" class="form-label small mb-1">差异属性 JSON</label>
+                                <textarea id="instanceAttributes" class="form-control form-control-sm code-box" rows="5" placeholder='例如 {"color":"blue","firmware":"V1.0.3"}'></textarea>
+                            </div>
+                            <div class="col-12">
+                                <label for="instanceRemark" class="form-label small mb-1">备注</label>
+                                <textarea id="instanceRemark" class="form-control form-control-sm" rows="2" placeholder="备注"></textarea>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button class="btn btn-outline-secondary btn-sm" type="button" onclick="resetInstanceForm()">重置</button>
+                        <button class="btn btn-primary btn-sm" type="button" onclick="saveInstance()">保存个体</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="modal fade" id="instanceActionModal" tabindex="-1" aria-hidden="true">
+            <div class="modal-dialog modal-lg modal-dialog-scrollable">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="instanceActionModalTitle">个体操作</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="small-muted mb-3">个体出入库和调拨会自动生成并提交库存单据，同时记录个体日志。</div>
+                        <div class="row g-2">
+                            <input id="instanceActionInstanceId" type="hidden">
+                            <input id="instanceActionType" type="hidden">
+                            <div class="col-md-6">
+                                <label for="instanceActionInstanceInfo" class="form-label small mb-1">个体</label>
+                                <input id="instanceActionInstanceInfo" class="form-control form-control-sm" readonly>
+                            </div>
+                            <div class="col-md-6">
+                                <label for="instanceActionCurrentWarehouse" class="form-label small mb-1">当前仓库 / 位置</label>
+                                <input id="instanceActionCurrentWarehouse" class="form-control form-control-sm" readonly>
+                            </div>
+                            <div class="col-md-6">
+                                <label for="instanceActionCurrentStatus" class="form-label small mb-1">当前状态</label>
+                                <input id="instanceActionCurrentStatus" class="form-control form-control-sm" readonly>
+                            </div>
+                            <div class="col-md-6" id="instanceActionNextStatusWrap">
+                                <label for="instanceActionNextStatus" class="form-label small mb-1">出库后状态</label>
+                                <select id="instanceActionNextStatus" class="form-select form-select-sm">
+                                    <option value="outbound">已出库</option>
+                                    <option value="in_use">使用中</option>
+                                    <option value="maintenance">维护中</option>
+                                    <option value="scrapped">已报废</option>
+                                </select>
+                            </div>
+                            <div class="col-md-6" id="instanceActionTargetWarehouseWrap">
+                                <label for="instanceActionTargetWarehouse" class="form-label small mb-1">目标仓库</label>
+                                <select id="instanceActionTargetWarehouse" class="form-select form-select-sm"></select>
+                            </div>
+                            <div class="col-md-6" id="instanceActionTargetLocationWrap">
+                                <label for="instanceActionTargetLocation" class="form-label small mb-1">目标位置</label>
+                                <input id="instanceActionTargetLocation" class="form-control form-control-sm" placeholder="例如 B-03-01 / 客户现场">
+                            </div>
+                            <div class="col-12">
+                                <label for="instanceActionOwnerName" class="form-label small mb-1">持有人 / 去向</label>
+                                <input id="instanceActionOwnerName" class="form-control form-control-sm" placeholder="例如 张三 / 维修站 / 客户A">
+                            </div>
+                            <div class="col-12">
+                                <label for="instanceActionRemark" class="form-label small mb-1">备注</label>
+                                <textarea id="instanceActionRemark" class="form-control form-control-sm" rows="2" placeholder="备注"></textarea>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button class="btn btn-outline-secondary btn-sm" type="button" onclick="resetInstanceActionForm()">重置</button>
+                        <button class="btn btn-primary btn-sm" type="button" id="instanceActionSubmitButton" onclick="submitInstanceAction()">确认操作</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
     </main>
 </div>
 
@@ -1185,6 +1484,8 @@
 <script>
     const activePage = {{ active_page|tojson }};
     let cachedItems = [];
+    let cachedInstances = [];
+    let cachedInstanceLogs = [];
     let cachedWarehouses = [];
     let cachedBoms = [];
     let cachedWorkOrders = [];
@@ -1227,6 +1528,21 @@
             .replace(/'/g, '&#39;');
     }
 
+    function parseCustomFieldOptions(optionsValue) {
+        const raw = String(optionsValue ?? '').trim();
+        if (!raw) return [];
+        if (raw.startsWith('[') && raw.endsWith(']')) {
+            try {
+                const parsed = JSON.parse(raw);
+                if (Array.isArray(parsed)) {
+                    return parsed.map(item => String(item ?? '').trim()).filter(Boolean);
+                }
+            } catch (error) {
+            }
+        }
+        return raw.split(',').map(item => item.trim()).filter(Boolean);
+    }
+
     function formatDocType(value) {
         const map = {
             purchase_in: '采购入库',
@@ -1247,6 +1563,47 @@
             in_progress: '进行中',
             completed: '已完成',
             cancelled: '已取消'
+        };
+        return map[value] || value || '-';
+    }
+
+    function formatItemType(value) {
+        const map = {
+            raw_material: '原材料',
+            semi_finished: '半成品',
+            finished_goods: '成品',
+            consumable: '耗材'
+        };
+        return map[value] || value || '-';
+    }
+
+    function formatWarehouseType(value) {
+        const map = {
+            normal: '普通仓',
+            production: '生产仓',
+            returns: '退料仓'
+        };
+        return map[value] || value || '-';
+    }
+
+    function formatInstanceStatus(value) {
+        const map = {
+            in_stock: '在库',
+            outbound: '已出库',
+            in_use: '使用中',
+            maintenance: '维护中',
+            scrapped: '已报废'
+        };
+        return map[value] || value || '-';
+    }
+
+    function formatInstanceAction(value) {
+        const map = {
+            create: '新建',
+            update: '编辑',
+            transfer: '调拨',
+            checkout: '出库',
+            checkin: '入库'
         };
         return map[value] || value || '-';
     }
@@ -1505,6 +1862,7 @@
     function getQuickCreateConfig() {
         const config = {
             items: { title: '新建物料', icon: 'fa-archive', action: openNewItemModal },
+            instances: { title: '批量生成个体', icon: 'fa-tags', action: openInstanceGenerateModal },
             documents: { title: '新建单据', icon: 'fa-file-text-o', action: openDocumentModal },
             bom: { title: '新建 BOM', icon: 'fa-sitemap', action: openBomModal },
             work_orders: { title: '新建工单', icon: 'fa-cogs', action: openWorkOrderModal }
@@ -2060,6 +2418,142 @@
         showModal('workOrderModal');
     }
 
+    function getTrackedItems() {
+        return cachedItems.filter(item => Number(item.track_individuals || 0) === 1);
+    }
+
+    function refreshInstanceItemSelectors() {
+        const trackedItems = getTrackedItems();
+        const filter = document.getElementById('instanceItemFilter');
+        const generateSelect = document.getElementById('instanceGenerateItemId');
+        const filterValue = filter?.value || '';
+        const generateValue = generateSelect?.value || '';
+        const options = trackedItems.map(item => {
+            const summary = Number(item.instance_count || 0);
+            return `<option value="${item.id}">${escapeHtml(item.item_code)} / ${escapeHtml(item.item_name)} (${summary})</option>`;
+        }).join('');
+        if (filter) {
+            filter.innerHTML = `<option value="">全部已启用个体管理的物料</option>${options}`;
+            if (trackedItems.some(item => String(item.id) === String(filterValue))) {
+                filter.value = String(filterValue);
+            }
+        }
+        if (generateSelect) {
+            generateSelect.innerHTML = `<option value="">请选择物料</option>${options}`;
+            if (trackedItems.some(item => String(item.id) === String(generateValue))) {
+                generateSelect.value = String(generateValue);
+            }
+        }
+    }
+
+    function applyInstancePageQueryFilters() {
+        if (activePage !== 'instances') return;
+        const filter = document.getElementById('instanceItemFilter');
+        if (!filter) return;
+        const itemId = new URLSearchParams(window.location.search).get('item_id') || '';
+        if (itemId && Array.from(filter.options).some(option => option.value === itemId)) {
+            filter.value = itemId;
+        }
+    }
+
+    function resetInstanceGenerateForm() {
+        const today = new Date().toISOString().slice(0, 10);
+        const mapping = {
+            instanceGenerateCount: '',
+            instanceGenerateLocation: '',
+            instanceGeneratePrefix: '',
+            instanceGenerateRemark: '',
+            instanceGenerateBizDate: today
+        };
+        Object.entries(mapping).forEach(([id, value]) => {
+            const element = document.getElementById(id);
+            if (element) element.value = value;
+        });
+        const select = document.getElementById('instanceGenerateItemId');
+        const filter = document.getElementById('instanceItemFilter');
+        if (select) {
+            const trackedItems = getTrackedItems();
+            const preferred = filter?.value || (trackedItems[0] ? String(trackedItems[0].id) : '');
+            select.value = preferred;
+        }
+        handleInstanceGenerateItemChange();
+    }
+
+    function handleInstanceGenerateItemChange() {
+        const itemId = document.getElementById('instanceGenerateItemId')?.value || '';
+        const item = cachedItems.find(entry => String(entry.id) === String(itemId));
+        if (!item) return;
+        const prefix = document.getElementById('instanceGeneratePrefix');
+        const warehouse = document.getElementById('instanceGenerateWarehouse');
+        if (prefix) prefix.value = item.individual_code_prefix || item.item_code || '';
+        if (warehouse) warehouse.value = item.default_warehouse_id ? String(item.default_warehouse_id) : '';
+    }
+
+    function resetInstanceForm() {
+        const mapping = {
+            instanceId: '',
+            instanceItemInfo: '',
+            instanceCode: '',
+            instanceStatus: '',
+            instanceWarehouseInfo: '',
+            instanceSerialNo: '',
+            instanceOwnerName: '',
+            instanceLocation: '',
+            instanceAttributes: '',
+            instanceRemark: ''
+        };
+        Object.entries(mapping).forEach(([id, value]) => {
+            const element = document.getElementById(id);
+            if (element) element.value = value;
+        });
+    }
+
+    function resetInstanceActionForm() {
+        const mapping = {
+            instanceActionInstanceId: '',
+            instanceActionType: '',
+            instanceActionInstanceInfo: '',
+            instanceActionCurrentWarehouse: '',
+            instanceActionCurrentStatus: '',
+            instanceActionTargetLocation: '',
+            instanceActionOwnerName: '',
+            instanceActionRemark: ''
+        };
+        Object.entries(mapping).forEach(([id, value]) => {
+            const element = document.getElementById(id);
+            if (element) element.value = value;
+        });
+        const nextStatus = document.getElementById('instanceActionNextStatus');
+        if (nextStatus) nextStatus.value = 'outbound';
+        const warehouse = document.getElementById('instanceActionTargetWarehouse');
+        if (warehouse) warehouse.value = '';
+        const title = document.getElementById('instanceActionModalTitle');
+        if (title) title.textContent = '个体操作';
+        const submitButton = document.getElementById('instanceActionSubmitButton');
+        if (submitButton) submitButton.textContent = '确认操作';
+    }
+
+    function toggleItemTrackingInputs() {
+        const trackIndividuals = document.getElementById('itemTrackIndividuals')?.value === '1';
+        const isEditing = Boolean(document.getElementById('itemId')?.value);
+        const prefix = document.getElementById('itemIndividualCodePrefix');
+        const countWrap = document.getElementById('itemInitialInstanceCountWrap');
+        const locationWrap = document.getElementById('itemInitialInstanceLocationWrap');
+        const countInput = document.getElementById('itemInitialInstanceCount');
+        const locationInput = document.getElementById('itemInitialInstanceLocation');
+        if (prefix) prefix.disabled = !trackIndividuals;
+        if (countWrap) countWrap.style.display = trackIndividuals ? '' : 'none';
+        if (locationWrap) locationWrap.style.display = trackIndividuals ? '' : 'none';
+        if (countInput) {
+            countInput.disabled = !trackIndividuals || isEditing;
+            if (!trackIndividuals || isEditing) countInput.value = '';
+        }
+        if (locationInput) {
+            locationInput.disabled = !trackIndividuals || isEditing;
+            if (!trackIndividuals || isEditing) locationInput.value = '';
+        }
+    }
+
     function resetItemForm() {
         const mapping = {
             itemId: '',
@@ -2068,6 +2562,9 @@
             itemSpec: '',
             itemSafetyStock: '',
             itemMinStock: '',
+            itemIndividualCodePrefix: '',
+            itemInitialInstanceCount: '',
+            itemInitialInstanceLocation: '',
             itemRemark: ''
         };
         Object.entries(mapping).forEach(([id, value]) => {
@@ -2078,12 +2575,15 @@
         if (itemType) itemType.value = 'raw_material';
         const itemEnabled = document.getElementById('itemEnabled');
         if (itemEnabled) itemEnabled.value = '1';
+        const itemTrackIndividuals = document.getElementById('itemTrackIndividuals');
+        if (itemTrackIndividuals) itemTrackIndividuals.value = '0';
         const title = document.getElementById('itemFormTitle');
         if (title) title.textContent = '新增物料';
+        toggleItemTrackingInputs();
         renderItemCustomFields({});
     }
 
-    function fillItemForm(itemId) {
+    function fillItemFormLegacy(itemId) {
         const item = cachedItems.find(entry => String(entry.id) === String(itemId));
         if (!item) return;
         document.getElementById('itemId').value = item.id;
@@ -2102,7 +2602,7 @@
         showModal('itemModal');
     }
 
-    function renderItemCustomFields(values = {}) {
+    function renderItemCustomFieldsLegacy(values = {}) {
         const container = document.getElementById('itemCustomFieldContainer');
         const badge = document.getElementById('itemCustomFieldCount');
         if (!container || !badge) return;
@@ -2131,10 +2631,116 @@
         }).join('');
     }
 
-    function collectCustomFieldValues() {
+    async function fillItemForm(itemId) {
+        let item = cachedItems.find(entry => String(entry.id) === String(itemId));
+        const result = await apiGet(`/api/erp/items/${encodeURIComponent(itemId)}`);
+        if (result.success && result.item) {
+            item = result.item;
+        }
+        if (!item) {
+            showError('未找到物料详情');
+            return;
+        }
+        document.getElementById('itemId').value = item.id;
+        document.getElementById('itemCode').value = item.item_code || '';
+        document.getElementById('itemName').value = item.item_name || '';
+        document.getElementById('itemSpec').value = item.spec || '';
+        document.getElementById('itemType').value = item.item_type || 'raw_material';
+        document.getElementById('itemSafetyStock').value = item.safety_stock ?? 0;
+        document.getElementById('itemMinStock').value = item.min_stock ?? 0;
+        document.getElementById('itemWarehouse').value = item.default_warehouse_id || '';
+        document.getElementById('itemEnabled').value = item.is_enabled ? '1' : '0';
+        document.getElementById('itemTrackIndividuals').value = item.track_individuals ? '1' : '0';
+        document.getElementById('itemIndividualCodePrefix').value = item.individual_code_prefix || '';
+        document.getElementById('itemInitialInstanceCount').value = '';
+        document.getElementById('itemInitialInstanceLocation').value = '';
+        document.getElementById('itemRemark').value = item.remark || '';
+        const title = document.getElementById('itemFormTitle');
+        if (title) title.textContent = `编辑物料：${item.item_code}`;
+        toggleItemTrackingInputs();
+        renderItemCustomFields(item.custom_field_values || {});
+        showModal('itemModal');
+    }
+
+    function updateItemCustomFieldSummary() {
+        const container = document.getElementById('itemCustomFieldContainer');
+        const badge = document.getElementById('itemCustomFieldCount');
+        if (!container || !badge) return;
+        const rows = Array.from(container.querySelectorAll('[data-role="item-custom-field-row"]'));
+        badge.textContent = `${rows.length} 个属性`;
+        const empty = container.querySelector('[data-role="item-custom-field-empty"]');
+        if (!rows.length) {
+            if (!empty) {
+                container.innerHTML = '<div class="col-12 text-muted small" data-role="item-custom-field-empty">当前物料还没有自定义属性，点击“新增属性”即可添加。</div>';
+            }
+            return;
+        }
+        if (empty) empty.remove();
+    }
+
+    function createItemCustomFieldRow(fieldName = '', fieldValue = '') {
+        const wrapper = document.createElement('div');
+        wrapper.className = 'col-12';
+        wrapper.dataset.role = 'item-custom-field-row';
+        wrapper.innerHTML = `
+            <div class="row g-2 align-items-center">
+                <div class="col-md-5">
+                    <label class="form-label small mb-1">属性名</label>
+                    <input class="form-control form-control-sm" data-role="custom-field-name" value="${escapeHtml(fieldName)}" placeholder="例如 颜色 / 版本 / 材质">
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label small mb-1">属性值</label>
+                    <input class="form-control form-control-sm" data-role="custom-field-value" value="${escapeHtml(fieldValue)}" placeholder="例如 蓝色 / V1.0 / 铝合金">
+                </div>
+                <div class="col-md-1 d-flex align-items-end">
+                    <button class="btn btn-outline-danger btn-sm w-100" type="button" onclick="removeItemCustomFieldRow(this)">删</button>
+                </div>
+            </div>
+        `;
+        return wrapper;
+    }
+
+    function addItemCustomFieldRow(fieldName = '', fieldValue = '') {
+        const container = document.getElementById('itemCustomFieldContainer');
+        if (!container) return;
+        const empty = container.querySelector('[data-role="item-custom-field-empty"]');
+        if (empty) empty.remove();
+        container.appendChild(createItemCustomFieldRow(fieldName, fieldValue));
+        updateItemCustomFieldSummary();
+    }
+
+    function removeItemCustomFieldRow(trigger) {
+        const row = trigger?.closest('[data-role="item-custom-field-row"]');
+        if (row) row.remove();
+        updateItemCustomFieldSummary();
+    }
+
+    function renderItemCustomFields(values = {}) {
+        const container = document.getElementById('itemCustomFieldContainer');
+        if (!container) return;
+        container.innerHTML = '';
+        Object.entries(values || {}).forEach(([fieldName, fieldValue]) => {
+            container.appendChild(createItemCustomFieldRow(fieldName, fieldValue));
+        });
+        updateItemCustomFieldSummary();
+    }
+
+    function collectCustomFieldValues(strict = false) {
         const result = {};
-        document.querySelectorAll('#itemCustomFieldContainer [data-field-name]').forEach(element => {
-            result[element.dataset.fieldName] = element.value;
+        const rows = Array.from(document.querySelectorAll('#itemCustomFieldContainer [data-role="item-custom-field-row"]'));
+        rows.forEach(row => {
+            const fieldName = (row.querySelector('[data-role="custom-field-name"]')?.value || '').trim();
+            const fieldValue = (row.querySelector('[data-role="custom-field-value"]')?.value || '').trim();
+            if (!fieldName) {
+                if (strict && fieldValue) {
+                    throw new Error('请先填写自定义属性名称');
+                }
+                return;
+            }
+            if (strict && Object.prototype.hasOwnProperty.call(result, fieldName)) {
+                throw new Error(`自定义属性“${fieldName}”重复，请保留一个`);
+            }
+            result[fieldName] = fieldValue;
         });
         return result;
     }
@@ -2180,15 +2786,16 @@
         if (!result.success) return;
         cachedWarehouses = result.warehouses || [];
         const options = cachedWarehouses.map(item => `<option value="${item.id}">${item.warehouse_code} / ${item.warehouse_name}</option>`).join('');
-        setSelectOptions(['itemWarehouse', 'docSourceWarehouse', 'docTargetWarehouse', 'woWarehouse'], '请选择仓库', options);
+        setSelectOptions(['itemWarehouse', 'docSourceWarehouse', 'docTargetWarehouse', 'woWarehouse', 'instanceGenerateWarehouse', 'instanceActionTargetWarehouse'], '请选择仓库', options);
+        setSelectOptions(['instanceWarehouseFilter'], '全部仓库', options);
 
         const table = document.getElementById('warehousesTable');
         if (table) {
             table.innerHTML = cachedWarehouses.map(item => `
                 <tr>
-                    <td>${item.warehouse_code}</td>
-                    <td>${item.warehouse_name}</td>
-                    <td>${item.warehouse_type}</td>
+                    <td>${escapeHtml(item.warehouse_code)}</td>
+                    <td>${escapeHtml(item.warehouse_name)}</td>
+                    <td>${escapeHtml(formatWarehouseType(item.warehouse_type))}</td>
                     <td>${item.is_enabled ? '启用' : '停用'}</td>
                     <td><button class="btn btn-outline-primary btn-sm" type="button" onclick="fillWarehouseForm(${item.id})">编辑</button></td>
                 </tr>
@@ -2260,23 +2867,38 @@
         if (table) {
             table.innerHTML = cachedItems.map(item => `
                 <tr>
-                    <td>${item.item_code}</td>
-                    <td>${item.item_name}</td>
-                    <td>${item.item_type}</td>
+                    <td>${escapeHtml(item.item_code)}</td>
+                    <td>${escapeHtml(item.item_name)}</td>
+                    <td>${escapeHtml(formatItemType(item.item_type))}</td>
                     <td>${Number(item.qty_on_hand || 0).toFixed(2)}</td>
                     <td>${Number(item.safety_stock || 0).toFixed(2)}</td>
-                    <td><button class="btn btn-outline-primary btn-sm" type="button" onclick="fillItemForm(${item.id})">编辑</button></td>
+                    <td>${item.track_individuals ? `已开启 / ${Number(item.in_stock_instance_count || 0)} 在库 / ${Number(item.instance_count || 0)} 总数` : '关闭'}</td>
+                    <td>
+                        <div class="d-flex gap-1 flex-wrap">
+                            <button class="btn btn-outline-primary btn-sm" type="button" onclick="fillItemForm(${item.id})">编辑</button>
+                            ${item.track_individuals ? `<a class="btn btn-outline-secondary btn-sm" href="/erp/master-data/instances?item_id=${item.id}">个体</a>` : ''}
+                            <button class="btn btn-outline-danger btn-sm" type="button" onclick="deleteItem(${item.id})">删除</button>
+                        </div>
+                    </td>
                 </tr>
-            `).join('') || '<tr><td colspan="6" class="text-center text-muted">暂无物料</td></tr>';
+            `).join('') || '<tr><td colspan="7" class="text-center text-muted">暂无物料</td></tr>';
         }
 
         const options = cachedItems.map(item => `<option value="${item.id}">${item.item_code} / ${item.item_name}</option>`).join('');
         setSelectOptions(['docItem', 'bomParentItem', 'woParentItem'], '请选择物料', options);
+        refreshInstanceItemSelectors();
         refreshBomItemSelectOptions();
     }
 
     async function saveItem() {
         const itemId = document.getElementById('itemId').value;
+        const trackIndividuals = document.getElementById('itemTrackIndividuals').value === '1';
+        let customFieldValues;
+        try {
+            customFieldValues = collectCustomFieldValues(true);
+        } catch (error) {
+            return showError(error.message);
+        }
         const payload = {
             item_code: document.getElementById('itemCode').value,
             item_name: document.getElementById('itemName').value,
@@ -2286,9 +2908,15 @@
             min_stock: document.getElementById('itemMinStock').value,
             default_warehouse_id: document.getElementById('itemWarehouse').value,
             is_enabled: document.getElementById('itemEnabled').value === '1',
+            track_individuals: trackIndividuals,
+            individual_code_prefix: document.getElementById('itemIndividualCodePrefix').value,
             remark: document.getElementById('itemRemark').value,
-            custom_field_values: collectCustomFieldValues()
+            custom_field_values: customFieldValues
         };
+        if (!itemId && trackIndividuals) {
+            payload.initial_instance_count = document.getElementById('itemInitialInstanceCount').value;
+            payload.initial_instance_location_code = document.getElementById('itemInitialInstanceLocation').value;
+        }
         const result = itemId
             ? await apiPut(`/api/erp/items/${itemId}`, payload)
             : await apiPost('/api/erp/items', payload);
@@ -2296,6 +2924,214 @@
         hideModal('itemModal');
         resetItemForm();
         await Promise.all([loadItems(), loadDashboardIfVisible()]);
+    }
+
+    async function deleteItem(itemId) {
+        const item = cachedItems.find(entry => String(entry.id) === String(itemId));
+        const itemLabel = item ? `${item.item_code} / ${item.item_name}` : `#${itemId}`;
+        if (!window.confirm(`确认删除物料：${itemLabel}？\n仅未被库存、单据、BOM、工单或个体记录引用的物料可以删除。`)) {
+            return;
+        }
+        const result = await apiSend(`/api/erp/items/${itemId}`, 'DELETE', {});
+        if (!result.success) return showError(result.error);
+        await Promise.all([loadItems(), loadDashboardIfVisible()]);
+    }
+
+    function openInstanceGenerateModal() {
+        if (!getTrackedItems().length) {
+            showError('请先在物料主数据中开启个体级管理');
+            return;
+        }
+        resetInstanceGenerateForm();
+        showModal('instanceGenerateModal');
+    }
+
+    async function saveInstanceGeneration() {
+        const payload = {
+            item_id: document.getElementById('instanceGenerateItemId').value,
+            count: document.getElementById('instanceGenerateCount').value,
+            warehouse_id: document.getElementById('instanceGenerateWarehouse').value,
+            location_code: document.getElementById('instanceGenerateLocation').value,
+            prefix: document.getElementById('instanceGeneratePrefix').value,
+            biz_date: document.getElementById('instanceGenerateBizDate').value,
+            remark: document.getElementById('instanceGenerateRemark').value
+        };
+        const result = await apiPost('/api/erp/item-instances/bulk-create', payload);
+        if (!result.success) return showError(result.error);
+        hideModal('instanceGenerateModal');
+        resetInstanceGenerateForm();
+        await Promise.all([loadItems(), refreshInstancesPage(), loadDashboardIfVisible()]);
+    }
+
+    async function loadInstances() {
+        const itemId = document.getElementById('instanceItemFilter')?.value || '';
+        const keyword = document.getElementById('instanceKeyword')?.value || '';
+        const status = document.getElementById('instanceStatusFilter')?.value || '';
+        const warehouseId = document.getElementById('instanceWarehouseFilter')?.value || '';
+        const result = await apiGet(
+            `/api/erp/item-instances?item_id=${encodeURIComponent(itemId)}&keyword=${encodeURIComponent(keyword)}&status=${encodeURIComponent(status)}&warehouse_id=${encodeURIComponent(warehouseId)}`
+        );
+        if (!result.success) return showError(result.error);
+        cachedInstances = result.instances || [];
+        const table = document.getElementById('instanceTable');
+        if (table) {
+            table.innerHTML = cachedInstances.map(instance => {
+                const warehouseLabel = instance.warehouse_code
+                    ? `${instance.warehouse_code} / ${instance.warehouse_name || ''}`
+                    : '-';
+                const locationLabel = instance.location_code ? ` / ${instance.location_code}` : '';
+                const actionButtons = [
+                    `<button class="btn btn-outline-primary btn-sm" type="button" onclick="openEditInstanceModal(${instance.id})">编辑</button>`
+                ];
+                if (instance.status === 'in_stock') {
+                    actionButtons.push(`<button class="btn btn-outline-secondary btn-sm" type="button" onclick="openInstanceActionModal(${instance.id}, 'transfer')">调拨</button>`);
+                    actionButtons.push(`<button class="btn btn-outline-warning btn-sm" type="button" onclick="openInstanceActionModal(${instance.id}, 'checkout')">出库</button>`);
+                } else {
+                    actionButtons.push(`<button class="btn btn-outline-success btn-sm" type="button" onclick="openInstanceActionModal(${instance.id}, 'checkin')">入库</button>`);
+                }
+                return `
+                    <tr>
+                        <td>${escapeHtml(instance.instance_code)}</td>
+                        <td>${escapeHtml(instance.item_code)} / ${escapeHtml(instance.item_name)}</td>
+                        <td>${escapeHtml(instance.serial_no || '-')}</td>
+                        <td>${escapeHtml(formatInstanceStatus(instance.status))}</td>
+                        <td>${escapeHtml(warehouseLabel)}${escapeHtml(locationLabel)}</td>
+                        <td>${escapeHtml(instance.owner_name || '-')}</td>
+                        <td>${escapeHtml(instance.updated_at || '-')}</td>
+                        <td><div class="d-flex gap-1 flex-wrap">${actionButtons.join('')}</div></td>
+                    </tr>
+                `;
+            }).join('') || '<tr><td colspan="8" class="text-center text-muted">暂无个体记录</td></tr>';
+        }
+        return cachedInstances;
+    }
+
+    async function loadInstanceLogs(instanceId = '') {
+        const itemId = document.getElementById('instanceItemFilter')?.value || '';
+        const result = await apiGet(
+            `/api/erp/item-instances/logs?item_id=${encodeURIComponent(itemId)}&instance_id=${encodeURIComponent(instanceId)}&limit=50`
+        );
+        if (!result.success) return showError(result.error);
+        cachedInstanceLogs = result.logs || [];
+        const table = document.getElementById('instanceLogTable');
+        if (table) {
+            table.innerHTML = cachedInstanceLogs.map(log => {
+                const fromStatus = formatInstanceStatus(log.from_status);
+                const toStatus = formatInstanceStatus(log.to_status);
+                const statusChange = log.from_status || log.to_status ? `${fromStatus} → ${toStatus}` : '-';
+                return `
+                    <tr>
+                        <td>${escapeHtml(log.instance_code)}</td>
+                        <td>${escapeHtml(formatInstanceAction(log.action_type))}</td>
+                        <td>${escapeHtml(statusChange)}</td>
+                        <td>${escapeHtml(log.created_at || '-')}</td>
+                    </tr>
+                `;
+            }).join('') || '<tr><td colspan="4" class="text-center text-muted">暂无个体日志</td></tr>';
+        }
+        return cachedInstanceLogs;
+    }
+
+    async function refreshInstancesPage() {
+        await Promise.all([loadInstances(), loadInstanceLogs()]);
+    }
+
+    async function openEditInstanceModal(instanceId) {
+        const result = await apiGet(`/api/erp/item-instances/${encodeURIComponent(instanceId)}`);
+        if (!result.success) return showError(result.error);
+        const instance = result.instance;
+        resetInstanceForm();
+        document.getElementById('instanceId').value = instance.id;
+        document.getElementById('instanceItemInfo').value = `${instance.item_code} / ${instance.item_name}`;
+        document.getElementById('instanceCode').value = instance.instance_code || '';
+        document.getElementById('instanceStatus').value = formatInstanceStatus(instance.status);
+        document.getElementById('instanceWarehouseInfo').value = instance.warehouse_code
+            ? `${instance.warehouse_code} / ${instance.warehouse_name || ''}${instance.location_code ? ` / ${instance.location_code}` : ''}`
+            : (instance.location_code || '-');
+        document.getElementById('instanceSerialNo').value = instance.serial_no || '';
+        document.getElementById('instanceOwnerName').value = instance.owner_name || '';
+        document.getElementById('instanceLocation').value = instance.location_code || '';
+        document.getElementById('instanceAttributes').value = instance.attributes_json || '';
+        document.getElementById('instanceRemark').value = instance.remark || '';
+        showModal('instanceModal');
+    }
+
+    async function saveInstance() {
+        const instanceId = document.getElementById('instanceId').value;
+        const payload = {
+            serial_no: document.getElementById('instanceSerialNo').value,
+            owner_name: document.getElementById('instanceOwnerName').value,
+            location_code: document.getElementById('instanceLocation').value,
+            attributes_json: document.getElementById('instanceAttributes').value,
+            remark: document.getElementById('instanceRemark').value
+        };
+        const result = await apiPut(`/api/erp/item-instances/${instanceId}`, payload);
+        if (!result.success) return showError(result.error);
+        hideModal('instanceModal');
+        resetInstanceForm();
+        await Promise.all([loadInstances(), loadInstanceLogs(instanceId)]);
+    }
+
+    async function openInstanceActionModal(instanceId, action) {
+        const result = await apiGet(`/api/erp/item-instances/${encodeURIComponent(instanceId)}`);
+        if (!result.success) return showError(result.error);
+        const instance = result.instance;
+        resetInstanceActionForm();
+        const actionMap = {
+            transfer: { title: '个体调拨', submit: '确认调拨' },
+            checkout: { title: '个体出库', submit: '确认出库' },
+            checkin: { title: '个体入库', submit: '确认入库' }
+        };
+        document.getElementById('instanceActionInstanceId').value = instance.id;
+        document.getElementById('instanceActionType').value = action;
+        document.getElementById('instanceActionInstanceInfo').value = `${instance.instance_code} / ${instance.item_code} / ${instance.item_name}`;
+        document.getElementById('instanceActionCurrentWarehouse').value = instance.warehouse_code
+            ? `${instance.warehouse_code} / ${instance.warehouse_name || ''}${instance.location_code ? ` / ${instance.location_code}` : ''}`
+            : (instance.location_code || '-');
+        document.getElementById('instanceActionCurrentStatus').value = formatInstanceStatus(instance.status);
+        document.getElementById('instanceActionOwnerName').value = instance.owner_name || '';
+        document.getElementById('instanceActionTargetLocation').value = instance.location_code || '';
+        const title = document.getElementById('instanceActionModalTitle');
+        if (title) title.textContent = actionMap[action]?.title || '个体操作';
+        const submitButton = document.getElementById('instanceActionSubmitButton');
+        if (submitButton) submitButton.textContent = actionMap[action]?.submit || '确认操作';
+        const nextStatusWrap = document.getElementById('instanceActionNextStatusWrap');
+        const targetWarehouseWrap = document.getElementById('instanceActionTargetWarehouseWrap');
+        const targetLocationWrap = document.getElementById('instanceActionTargetLocationWrap');
+        if (nextStatusWrap) nextStatusWrap.style.display = action === 'checkout' ? '' : 'none';
+        if (targetWarehouseWrap) targetWarehouseWrap.style.display = action === 'transfer' || action === 'checkin' ? '' : 'none';
+        if (targetLocationWrap) targetLocationWrap.style.display = action ? '' : 'none';
+        const targetWarehouse = document.getElementById('instanceActionTargetWarehouse');
+        if (targetWarehouse) {
+            if (action === 'checkin') {
+                targetWarehouse.value = String(instance.default_warehouse_id || '');
+            } else {
+                targetWarehouse.value = '';
+            }
+        }
+        showModal('instanceActionModal');
+    }
+
+    async function submitInstanceAction() {
+        const instanceId = document.getElementById('instanceActionInstanceId').value;
+        const action = document.getElementById('instanceActionType').value;
+        const payload = {
+            action,
+            owner_name: document.getElementById('instanceActionOwnerName').value,
+            remark: document.getElementById('instanceActionRemark').value,
+            target_location_code: document.getElementById('instanceActionTargetLocation').value
+        };
+        if (action === 'checkout') {
+            payload.next_status = document.getElementById('instanceActionNextStatus').value;
+        }
+        if (action === 'transfer' || action === 'checkin') {
+            payload.target_warehouse_id = document.getElementById('instanceActionTargetWarehouse').value;
+        }
+        const result = await apiPost(`/api/erp/item-instances/${instanceId}/action`, payload);
+        if (!result.success) return showError(result.error);
+        hideModal('instanceActionModal');
+        resetInstanceActionForm();
+        await Promise.all([loadItems(), loadInstances(), loadInstanceLogs(instanceId), loadDashboardIfVisible()]);
     }
 
     async function loadDashboard() {
@@ -2864,21 +3700,28 @@
     async function bootstrap() {
         const today = new Date().toISOString().slice(0, 10);
         const docBizDate = document.getElementById('docBizDate');
+        const instanceGenerateBizDate = document.getElementById('instanceGenerateBizDate');
         const woStartDate = document.getElementById('woStartDate');
         if (docBizDate) docBizDate.value = today;
+        if (instanceGenerateBizDate) instanceGenerateBizDate.value = today;
         if (woStartDate) woStartDate.value = today;
 
         bindModalDismissHandlers();
         setupFloatingToolbar();
-        await Promise.all([loadWarehouses(), loadItems(), loadBoms(), loadCustomFields()]);
+        await Promise.all([loadWarehouses(), loadItems(), loadBoms()]);
         resetItemForm();
+        resetInstanceGenerateForm();
+        resetInstanceForm();
+        resetInstanceActionForm();
         resetWarehouseForm();
         resetCustomFieldForm();
         resetDocumentForm();
         resetBomForm();
         resetWorkOrderForm();
+        applyInstancePageQueryFilters();
 
         if (activePage === 'dashboard') await loadDashboard();
+        if (activePage === 'instances') await refreshInstancesPage();
         if (activePage === 'inventory') await loadBalances();
         if (activePage === 'documents') await loadDocuments();
         if (activePage === 'bom') await loadBoms();

@@ -3046,8 +3046,9 @@
                     </div>
                     <div id="uploadProgress" style="display: none;">
                         <div class="progress mb-2">
-                            <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar"
-                                style="width: 0%"></div>
+                            <div id="uploadProgressBar" class="progress-bar progress-bar-striped progress-bar-animated"
+                                role="progressbar" style="width: 0%" aria-valuenow="0" aria-valuemin="0"
+                                aria-valuemax="100"></div>
                         </div>
                         <div class="text-center"><small id="uploadStatus">准备上传...</small></div>
                     </div>
@@ -3557,7 +3558,28 @@
             modal.show();
         }
 
+        let activeUploadXhr = null;
+
+        function resetUploadUi() {
+            const progress = document.getElementById('uploadProgress');
+            const progressBar = document.getElementById('uploadProgressBar');
+            const status = document.getElementById('uploadStatus');
+            const button = document.getElementById('uploadButton');
+
+            progress.style.display = 'none';
+            progressBar.style.width = '0%';
+            progressBar.setAttribute('aria-valuenow', '0');
+            progressBar.textContent = '';
+            progressBar.className = 'progress-bar progress-bar-striped progress-bar-animated';
+            status.textContent = '准备上传...';
+            button.disabled = false;
+            button.textContent = '开始上传';
+        }
+
         function showUploadModal() {
+            if (!activeUploadXhr) {
+                resetUploadUi();
+            }
             const modal = new bootstrap.Modal(document.getElementById('uploadModal'));
             modal.show();
         }
@@ -3657,6 +3679,37 @@
                 });
         }
 
+        function formatUploadBytes(bytes) {
+            if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
+            const units = ['B', 'KB', 'MB', 'GB'];
+            let value = bytes;
+            let unitIndex = 0;
+            while (value >= 1024 && unitIndex < units.length - 1) {
+                value /= 1024;
+                unitIndex++;
+            }
+            return value.toFixed(value >= 10 || unitIndex === 0 ? 0 : 1) + ' ' + units[unitIndex];
+        }
+
+        function parseUploadResponse(xhr) {
+            try {
+                return JSON.parse(xhr.responseText || '{}');
+            } catch (error) {
+                return {
+                    success: false,
+                    error: xhr.responseText || ('服务器返回 HTTP ' + xhr.status)
+                };
+            }
+        }
+
+        function setUploadResultState(type, message) {
+            const progressBar = document.getElementById('uploadProgressBar');
+            const status = document.getElementById('uploadStatus');
+            progressBar.classList.remove('progress-bar-animated', 'progress-bar-striped', 'bg-success', 'bg-danger');
+            progressBar.classList.add(type === 'success' ? 'bg-success' : 'bg-danger');
+            status.textContent = message;
+        }
+
         // 上传文件
         function uploadFiles() {
             const fileInput = document.getElementById('uploadFiles');
@@ -3671,30 +3724,104 @@
             for (let i = 0; i < files.length; i++) {
                 formData.append('files', files[i]);
             }
-            formData.append('path', '{{ current_path }}');
+            formData.append('path', {{ current_path|tojson }});
 
-            document.getElementById('uploadProgress').style.display = 'block';
-            document.getElementById('uploadButton').disabled = true;
+            const progress = document.getElementById('uploadProgress');
+            const progressBar = document.getElementById('uploadProgressBar');
+            const status = document.getElementById('uploadStatus');
+            const button = document.getElementById('uploadButton');
 
-            fetch('/upload_files', {
-                method: 'POST',
-                body: formData
-            })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.success) {
-                        alert('上传成功！共上传 ' + data.count + ' 个文件');
-                        location.reload();
-                    } else {
-                        alert('上传失败: ' + data.error);
-                        document.getElementById('uploadButton').disabled = false;
-                    }
-                })
-                .catch(error => {
-                    alert('上传失败: ' + error);
-                    document.getElementById('uploadButton').disabled = false;
-                });
+            progress.style.display = 'block';
+            progressBar.style.width = '0%';
+            progressBar.setAttribute('aria-valuenow', '0');
+            progressBar.textContent = '0%';
+            progressBar.className = 'progress-bar progress-bar-striped progress-bar-animated';
+            status.textContent = '正在连接服务器...';
+            button.disabled = true;
+            button.textContent = '上传中...';
+
+            const xhr = new XMLHttpRequest();
+            activeUploadXhr = xhr;
+            xhr.open('POST', '/upload_files', true);
+            xhr.timeout = 30 * 60 * 1000;
+
+            xhr.upload.onprogress = function (event) {
+                if (event.lengthComputable) {
+                    const percent = Math.min(99, Math.round((event.loaded / event.total) * 100));
+                    progressBar.style.width = percent + '%';
+                    progressBar.setAttribute('aria-valuenow', String(percent));
+                    progressBar.textContent = percent + '%';
+                    status.textContent = '已上传 ' + formatUploadBytes(event.loaded) + ' / ' + formatUploadBytes(event.total);
+                } else {
+                    status.textContent = '已上传 ' + formatUploadBytes(event.loaded);
+                }
+            };
+
+            xhr.onload = function () {
+                activeUploadXhr = null;
+                status.textContent = '服务器正在处理上传结果...';
+
+                const data = parseUploadResponse(xhr);
+                if (xhr.status >= 200 && xhr.status < 300 && data.success) {
+                    progressBar.style.width = '100%';
+                    progressBar.setAttribute('aria-valuenow', '100');
+                    progressBar.textContent = '100%';
+                    setUploadResultState('success', data.message || ('上传成功，共上传 ' + data.count + ' 个文件'));
+                    alert('上传成功！共上传 ' + data.count + ' 个文件');
+                    location.reload();
+                    return;
+                }
+
+                const message = data.error || ('上传失败，服务器返回 HTTP ' + xhr.status);
+                setUploadResultState('error', message);
+                button.disabled = false;
+                button.textContent = '重新上传';
+
+                if (data.count && data.count > 0) {
+                    alert(message + '\n页面将刷新以显示已上传的文件。');
+                    location.reload();
+                } else {
+                    alert('上传失败: ' + message);
+                }
+            };
+
+            xhr.onerror = function () {
+                activeUploadXhr = null;
+                setUploadResultState('error', '网络错误，上传未完成');
+                button.disabled = false;
+                button.textContent = '重新上传';
+                alert('上传失败: 网络错误，上传未完成');
+            };
+
+            xhr.ontimeout = function () {
+                activeUploadXhr = null;
+                setUploadResultState('error', '上传超时，请检查网络或减小文件后重试');
+                button.disabled = false;
+                button.textContent = '重新上传';
+                alert('上传失败: 上传超时，请检查网络或减小文件后重试');
+            };
+
+            xhr.onabort = function () {
+                activeUploadXhr = null;
+                setUploadResultState('error', '上传已取消');
+                button.disabled = false;
+                button.textContent = '重新上传';
+            };
+
+            xhr.send(formData);
         }
+
+        document.addEventListener('DOMContentLoaded', function () {
+            const uploadModal = document.getElementById('uploadModal');
+            if (!uploadModal) return;
+            uploadModal.addEventListener('hidden.bs.modal', function () {
+                if (activeUploadXhr) {
+                    activeUploadXhr.abort();
+                }
+                document.getElementById('uploadFiles').value = '';
+                resetUploadUi();
+            });
+        });
 
         // ========== Git功能相关代码 ==========
         let currentGitPath = '{{ current_path or "" }}';

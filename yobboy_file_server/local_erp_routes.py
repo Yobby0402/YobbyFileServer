@@ -35,6 +35,10 @@ def register_local_erp_routes(app, manager: LocalERPManager | None = None) -> No
     def erp_items_page():
         return _page("items")
 
+    @app.route("/erp/master-data/instances")
+    def erp_item_instances_page():
+        return _page("instances")
+
     @app.route("/erp/inventory/balances")
     def erp_inventory_page():
         return _page("inventory")
@@ -121,7 +125,7 @@ def register_local_erp_routes(app, manager: LocalERPManager | None = None) -> No
         except ValueError as exc:
             return jsonify({"success": False, "error": str(exc)}), 400
 
-    @app.route("/api/erp/items/<int:item_id>", methods=["GET", "PUT"])
+    @app.route("/api/erp/items/<int:item_id>", methods=["GET", "PUT", "DELETE"])
     def erp_item_detail(item_id: int):
         login_redirect = _require_login()
         if login_redirect is not None:
@@ -129,10 +133,84 @@ def register_local_erp_routes(app, manager: LocalERPManager | None = None) -> No
         try:
             if request.method == "GET":
                 return jsonify({"success": True, "item": erp_manager.get_item(item_id)})
+            if request.method == "DELETE":
+                deleted_item = erp_manager.delete_item(item_id)
+                return jsonify({"success": True, "deleted_item": deleted_item})
 
             payload = request.get_json(silent=True) or {}
             item = erp_manager.update_item(item_id, payload)
             return jsonify({"success": True, "item": item})
+        except ValueError as exc:
+            return jsonify({"success": False, "error": str(exc)}), 400
+
+    @app.route("/api/erp/item-instances")
+    def erp_item_instances():
+        login_redirect = _require_login()
+        if login_redirect is not None:
+            return login_redirect
+        return jsonify(
+            {
+                "success": True,
+                "instances": erp_manager.list_item_instances(
+                    item_id=request.args.get("item_id", type=int),
+                    keyword=request.args.get("keyword", ""),
+                    status=request.args.get("status", ""),
+                    warehouse_id=request.args.get("warehouse_id", type=int),
+                    limit=request.args.get("limit", 200, type=int),
+                ),
+            }
+        )
+
+    @app.route("/api/erp/item-instances/logs")
+    def erp_item_instance_logs():
+        login_redirect = _require_login()
+        if login_redirect is not None:
+            return login_redirect
+        return jsonify(
+            {
+                "success": True,
+                "logs": erp_manager.list_item_instance_logs(
+                    item_id=request.args.get("item_id", type=int),
+                    instance_id=request.args.get("instance_id", type=int),
+                    limit=request.args.get("limit", 100, type=int),
+                ),
+            }
+        )
+
+    @app.route("/api/erp/item-instances/bulk-create", methods=["POST"])
+    def erp_item_instances_bulk_create():
+        login_redirect = _require_login()
+        if login_redirect is not None:
+            return login_redirect
+        payload = request.get_json(silent=True) or {}
+        try:
+            result = erp_manager.create_item_instances(int(payload.get("item_id") or 0), payload)
+            return jsonify({"success": True, "result": result}), 201
+        except ValueError as exc:
+            return jsonify({"success": False, "error": str(exc)}), 400
+
+    @app.route("/api/erp/item-instances/<int:instance_id>", methods=["GET", "PUT"])
+    def erp_item_instance_detail(instance_id: int):
+        login_redirect = _require_login()
+        if login_redirect is not None:
+            return login_redirect
+        try:
+            if request.method == "GET":
+                return jsonify({"success": True, "instance": erp_manager.get_item_instance(instance_id)})
+            payload = request.get_json(silent=True) or {}
+            return jsonify({"success": True, "instance": erp_manager.update_item_instance(instance_id, payload)})
+        except ValueError as exc:
+            return jsonify({"success": False, "error": str(exc)}), 400
+
+    @app.route("/api/erp/item-instances/<int:instance_id>/action", methods=["POST"])
+    def erp_item_instance_action(instance_id: int):
+        login_redirect = _require_login()
+        if login_redirect is not None:
+            return login_redirect
+        payload = request.get_json(silent=True) or {}
+        try:
+            result = erp_manager.perform_item_instance_action(instance_id, payload)
+            return jsonify({"success": True, **result})
         except ValueError as exc:
             return jsonify({"success": False, "error": str(exc)}), 400
 

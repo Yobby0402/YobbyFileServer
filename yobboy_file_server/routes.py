@@ -6,11 +6,13 @@ import configparser
 import json
 import logging
 import math
+import tempfile
 import unicodedata
 from datetime import datetime
 from typing import Any, Dict, Optional
 # 确保在文件顶部添加必要的导入
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify, send_from_directory, send_file, make_response, abort, current_app, Response
+from werkzeug.exceptions import RequestEntityTooLarge
 import markdown
 from markdown_it import MarkdownIt
 from mdit_py_plugins import tasklists, deflist, footnote
@@ -40,6 +42,172 @@ def log_message(message, level='INFO'):
 def is_logged_in():
     """检查用户是否已登录"""
     return 'logged_in' in session
+
+
+WINDOWS_RESERVED_FILENAMES = {
+    "CON", "PRN", "AUX", "NUL",
+    "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+    "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+}
+
+
+def _is_path_under_root(root_path: str, candidate_path: str) -> bool:
+    """Return True when candidate_path is inside root_path, using path boundaries."""
+    try:
+        root_abs = os.path.abspath(root_path)
+        candidate_abs = os.path.abspath(candidate_path)
+        common = os.path.commonpath([root_abs, candidate_abs])
+    except (OSError, ValueError):
+        return False
+    return os.path.normcase(common) == os.path.normcase(root_abs)
+
+
+def _resolve_upload_target_dir(root_path: str, browser_path: str) -> str:
+    """Resolve a browser-relative path into an existing upload target directory."""
+    if not root_path:
+        raise ValueError("文件根目录未配置")
+
+    root_abs = os.path.abspath(root_path)
+    raw_path = (browser_path or "").replace("\\", "/").strip()
+    if raw_path.startswith("//") or re.match(r"^[A-Za-z]:", raw_path):
+        raise PermissionError("无权访问该路径")
+
+    raw_path = raw_path.lstrip("/")
+    normalized = posixpath.normpath(raw_path) if raw_path else ""
+    if normalized in ("", "."):
+        target_dir = root_abs
+    elif normalized == ".." or normalized.startswith("../"):
+        raise PermissionError("无权访问该路径")
+    else:
+        target_dir = os.path.abspath(os.path.join(root_abs, *normalized.split("/")))
+
+    if not _is_path_under_root(root_abs, target_dir):
+        raise PermissionError("无权访问该路径")
+    if not os.path.exists(target_dir):
+        raise FileNotFoundError("上传目录不存在")
+    if not os.path.isdir(target_dir):
+        raise NotADirectoryError("上传目标不是目录")
+    return target_dir
+
+
+def _clean_upload_filename(filename: str) -> str:
+    """Normalize a browser supplied filename while preserving non-ASCII names."""
+    cleaned = unicodedata.normalize("NFC", filename or "")
+    cleaned = cleaned.replace("\x00", "").replace("\\", "/")
+    cleaned = posixpath.basename(cleaned).strip().rstrip(" .")
+
+    if not cleaned or cleaned in (".", ".."):
+        raise ValueError("文件名不能为空")
+    if any(ord(ch) < 32 for ch in cleaned):
+        raise ValueError(f"文件名包含非法控制字符: {cleaned}")
+    if any(ch in cleaned for ch in '<>:"|?*/\\'):
+        raise ValueError(f"文件名包含非法字符: {cleaned}")
+
+    stem = cleaned.split(".", 1)[0].upper()
+    if stem in WINDOWS_RESERVED_FILENAMES:
+        raise ValueError(f"文件名为系统保留名称: {cleaned}")
+    return cleaned
+
+
+def _save_upload_atomically(file_storage, target_dir: str, filename: str) -> str:
+    """Save an uploaded file through a temporary file, then atomically replace target."""
+    fd, temp_path = tempfile.mkstemp(prefix=f".{filename}.", suffix=".uploading", dir=target_dir)
+    os.close(fd)
+    final_path = os.path.join(target_dir, filename)
+
+    try:
+        file_storage.save(temp_path)
+        if not _is_path_under_root(target_dir, final_path):
+            raise PermissionError("无权访问该路径")
+        os.replace(temp_path, final_path)
+    finally:
+        if os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except OSError:
+                _routes_logger.warning("清理上传临时文件失败: %s", temp_path)
+    return final_path
+
+
+def _upload_size_error_response():
+    max_bytes = current_app.config.get("MAX_CONTENT_LENGTH")
+    max_mb = int(max_bytes / (1024 * 1024)) if max_bytes else None
+    if max_mb:
+        message = f"上传文件过大，当前限制为 {max_mb} MB"
+    else:
+        message = "上传文件过大"
+    return jsonify({'success': False, 'error': message}), 413
+
+
+def handle_upload_files_request():
+    """Handle file uploads for the browser file manager."""
+    if not is_logged_in():
+        return jsonify({'success': False, 'error': '未登录'}), 401
+
+    try:
+        files = request.files.getlist('files')
+        if not files:
+            return jsonify({'success': False, 'error': '没有文件'}), 400
+
+        path = request.form.get('path', '')
+        root_path = current_app.config['ROOT_DIR']
+        target_dir = _resolve_upload_target_dir(root_path, path)
+
+        uploaded = []
+        failed = []
+        for file in files:
+            original_name = file.filename or ''
+            try:
+                filename = _clean_upload_filename(original_name)
+                file_path = _save_upload_atomically(file, target_dir, filename)
+                uploaded.append({
+                    'name': filename,
+                    'size': os.path.getsize(file_path),
+                })
+            except Exception as file_error:
+                failed.append({
+                    'name': original_name or '(未命名文件)',
+                    'error': str(file_error),
+                })
+                _routes_logger.warning("上传文件失败: %s -> %s", original_name, file_error)
+
+        count = len(uploaded)
+        failed_count = len(failed)
+        if count == 0:
+            return jsonify({
+                'success': False,
+                'error': failed[0]['error'] if failed else '没有可上传的有效文件',
+                'count': 0,
+                'failed': failed_count,
+                'errors': failed,
+            }), 400
+
+        if failed_count:
+            return jsonify({
+                'success': False,
+                'error': f'已上传 {count} 个文件，{failed_count} 个文件失败',
+                'count': count,
+                'failed': failed_count,
+                'files': uploaded,
+                'errors': failed,
+            }), 207
+
+        return jsonify({
+            'success': True,
+            'message': f'成功上传{count}个文件',
+            'count': count,
+            'failed': 0,
+            'files': uploaded,
+        })
+    except PermissionError as e:
+        return jsonify({'success': False, 'error': str(e)}), 403
+    except (FileNotFoundError, NotADirectoryError, ValueError) as e:
+        return jsonify({'success': False, 'error': str(e)}), 400
+    except RequestEntityTooLarge:
+        return _upload_size_error_response()
+    except Exception as e:
+        _routes_logger.exception("上传失败")
+        return jsonify({'success': False, 'error': f'上传失败: {str(e)}'}), 500
 
 
 REMOTE_SERIAL_HTTPS_MODE_FULL = 'full'
@@ -339,6 +507,10 @@ def init_app(app):
     """初始化路由"""
     global current_app
     current_app = app
+
+    @app.errorhandler(RequestEntityTooLarge)
+    def handle_request_entity_too_large(error):
+        return _upload_size_error_response()
     
     # 初始化分享链接管理器
     share_manager = ShareLinkManager()
@@ -4954,46 +5126,7 @@ def init_app(app):
     @app.route('/upload_files', methods=['POST'])
     def upload_files():
         """上传文件"""
-        if not is_logged_in():
-            return jsonify({'success': False, 'error': '未登录'}), 401
-        
-        try:
-            if 'files' not in request.files:
-                return jsonify({'success': False, 'error': '没有文件'}), 400
-            
-            files = request.files.getlist('files')
-            path = request.form.get('path', '')
-            
-            root_path = current_app.config['ROOT_DIR']
-            if path:
-                target_dir = os.path.join(root_path, path)
-            else:
-                target_dir = root_path
-            
-            # 安全检查
-            if not os.path.abspath(target_dir).startswith(os.path.abspath(root_path)):
-                return jsonify({'success': False, 'error': '无权访问该路径'}), 403
-            
-            # 确保目录存在
-            os.makedirs(target_dir, exist_ok=True)
-            
-            count = 0
-            for file in files:
-                if file.filename:
-                    filename = file.filename
-                    file_path = os.path.join(target_dir, filename)
-                    
-                    # 再次检查完整路径
-                    if not os.path.abspath(file_path).startswith(os.path.abspath(root_path)):
-                        continue
-                    
-                    file.save(file_path)
-                    count += 1
-            
-            return jsonify({'success': True, 'message': f'成功上传{count}个文件', 'count': count})
-            
-        except Exception as e:
-            return jsonify({'success': False, 'error': f'上传失败: {str(e)}'}), 500
+        return handle_upload_files_request()
 
 
 

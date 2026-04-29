@@ -163,6 +163,8 @@ class LocalERPManagerTests(unittest.TestCase):
             }
         )
         self.assertEqual(item["custom_field_values"]["material_grade"], "B")
+        listed_items = self.manager.list_items(keyword="CF001")
+        self.assertEqual(listed_items[0]["custom_field_values"]["material_grade"], "B")
 
         with self.assertRaises(ValueError):
             self.manager.update_warehouse(warehouse["id"], {"is_enabled": False})
@@ -170,6 +172,76 @@ class LocalERPManagerTests(unittest.TestCase):
         self.manager.update_item(item["id"], {"is_enabled": False})
         disabled_warehouse = self.manager.update_warehouse(warehouse["id"], {"is_enabled": False})
         self.assertEqual(disabled_warehouse["is_enabled"], 0)
+
+    def test_item_custom_properties_are_saved_per_item(self):
+        warehouse_id = self.manager.list_warehouses()[0]["id"]
+        item_a = self.manager.create_item(
+            {
+                "item_code": "ATTR001",
+                "item_name": "独立属性物料A",
+                "item_type": "raw_material",
+                "default_warehouse_id": warehouse_id,
+                "custom_field_values": {"颜色": "红色", "版本": "V1"},
+            }
+        )
+        item_b = self.manager.create_item(
+            {
+                "item_code": "ATTR002",
+                "item_name": "独立属性物料B",
+                "item_type": "raw_material",
+                "default_warehouse_id": warehouse_id,
+                "custom_field_values": {"颜色": "蓝色"},
+            }
+        )
+
+        self.assertEqual(item_a["custom_field_values"], {"颜色": "红色", "版本": "V1"})
+        self.assertEqual(item_b["custom_field_values"], {"颜色": "蓝色"})
+
+        updated_item_a = self.manager.update_item(
+            item_a["id"],
+            {
+                "custom_field_values": {"版本": "V2", "负责人": "张三"},
+            },
+        )
+        self.assertEqual(updated_item_a["custom_field_values"], {"版本": "V2", "负责人": "张三"})
+        self.assertEqual(self.manager.get_item(item_b["id"])["custom_field_values"], {"颜色": "蓝色"})
+
+    def test_delete_unused_item_and_reject_delete_when_referenced(self):
+        warehouse_id = self.manager.list_warehouses()[0]["id"]
+        deletable_item = self.manager.create_item(
+            {
+                "item_code": "DEL001",
+                "item_name": "可删除物料",
+                "item_type": "raw_material",
+                "default_warehouse_id": warehouse_id,
+                "custom_field_values": {"备注属性": "待删除"},
+            }
+        )
+
+        deleted_item = self.manager.delete_item(deletable_item["id"])
+        self.assertEqual(deleted_item["item_code"], "DEL001")
+        with self.assertRaises(ValueError):
+            self.manager.get_item(deletable_item["id"])
+
+        referenced_item = self.manager.create_item(
+            {
+                "item_code": "DEL002",
+                "item_name": "不可删除物料",
+                "item_type": "raw_material",
+                "default_warehouse_id": warehouse_id,
+            }
+        )
+        purchase_doc = self.manager.create_stock_document(
+            {
+                "doc_type": "purchase_in",
+                "target_warehouse_id": warehouse_id,
+                "items": [{"item_id": referenced_item["id"], "qty": 3, "batch_no": "DEL-LOT-1"}],
+            }
+        )
+        self.manager.submit_document(purchase_doc["id"])
+
+        with self.assertRaises(ValueError):
+            self.manager.delete_item(referenced_item["id"])
 
     def test_ai_query_returns_warning_summary(self):
         result = self.manager.ai_query("哪些物料低于安全库存")
@@ -418,6 +490,105 @@ class LocalERPManagerTests(unittest.TestCase):
         self.assertEqual(rolled_back_work_order["status"], "released")
         self.assertEqual(rolled_back_work_order["materials"][0]["issued_qty"], 0.0)
         self.assertEqual(rolled_back_work_order["materials"][0]["consumed_qty"], 0.0)
+
+    def test_tracked_item_instances_follow_stock_and_logs(self):
+        main_warehouse_id = self.manager.list_warehouses()[0]["id"]
+        secondary_warehouse = self.manager.create_warehouse(
+            {
+                "warehouse_code": "INS-SUB",
+                "warehouse_name": "个体测试分仓",
+                "warehouse_type": "production",
+            }
+        )
+
+        item = self.manager.create_item(
+            {
+                "item_code": "INST001",
+                "item_name": "个体追踪物料",
+                "item_type": "raw_material",
+                "default_warehouse_id": main_warehouse_id,
+                "track_individuals": True,
+                "individual_code_prefix": "INST001",
+                "initial_instance_count": 2,
+                "initial_instance_location_code": "A-01",
+            }
+        )
+        self.assertEqual(item["track_individuals"], 1)
+
+        instances = self.manager.list_item_instances(item_id=item["id"])
+        self.assertEqual(len(instances), 2)
+        instance_codes = {entry["instance_code"] for entry in instances}
+        self.assertEqual(instance_codes, {"INST001-0001", "INST001-0002"})
+
+        balances = self.manager.list_inventory_balances(keyword="INST001")
+        self.assertEqual(len(balances), 2)
+        self.assertEqual({entry["batch_no"] for entry in balances}, instance_codes)
+        self.assertTrue(all(entry["qty_on_hand"] == 1.0 for entry in balances))
+
+        updated_instance = self.manager.update_item_instance(
+            instances[0]["id"],
+            {
+                "serial_no": "SN-001",
+                "owner_name": "测试工位",
+                "location_code": "A-02",
+                "attributes_json": {"firmware": "V1.0.0"},
+                "remark": "初始化属性",
+            },
+        )
+        self.assertEqual(updated_instance["serial_no"], "SN-001")
+        self.assertEqual(updated_instance["owner_name"], "测试工位")
+        self.assertIn("firmware", updated_instance["attributes_json"])
+
+        transferred = self.manager.perform_item_instance_action(
+            instances[0]["id"],
+            {
+                "action": "transfer",
+                "target_warehouse_id": secondary_warehouse["id"],
+                "target_location_code": "B-01",
+                "owner_name": "线边仓",
+                "remark": "转移到线边仓",
+            },
+        )
+        self.assertEqual(transferred["instance"]["status"], "in_stock")
+        self.assertEqual(transferred["instance"]["warehouse_id"], secondary_warehouse["id"])
+        self.assertEqual(transferred["instance"]["location_code"], "B-01")
+
+        checked_out = self.manager.perform_item_instance_action(
+            instances[0]["id"],
+            {
+                "action": "checkout",
+                "next_status": "in_use",
+                "target_location_code": "产线一",
+                "owner_name": "产线一",
+                "remark": "发往产线",
+            },
+        )
+        self.assertEqual(checked_out["instance"]["status"], "in_use")
+        self.assertIsNone(checked_out["instance"]["warehouse_id"])
+
+        checked_in = self.manager.perform_item_instance_action(
+            instances[0]["id"],
+            {
+                "action": "checkin",
+                "target_warehouse_id": main_warehouse_id,
+                "target_location_code": "A-03",
+                "owner_name": "主仓返库",
+                "remark": "返库",
+            },
+        )
+        self.assertEqual(checked_in["instance"]["status"], "in_stock")
+        self.assertEqual(checked_in["instance"]["warehouse_id"], main_warehouse_id)
+        self.assertEqual(checked_in["instance"]["location_code"], "A-03")
+
+        action_logs = self.manager.list_item_instance_logs(instance_id=instances[0]["id"], limit=10)
+        self.assertTrue(any(log["action_type"] == "create" for log in action_logs))
+        self.assertTrue(any(log["action_type"] == "update" for log in action_logs))
+        self.assertTrue(any(log["action_type"] == "transfer" for log in action_logs))
+        self.assertTrue(any(log["action_type"] == "checkout" for log in action_logs))
+        self.assertTrue(any(log["action_type"] == "checkin" for log in action_logs))
+
+        with self.assertRaises(ValueError):
+            self.manager.update_item(item["id"], {"track_individuals": False})
 
     def test_schema_path_falls_back_to_exe_side_package_copy(self):
         with tempfile.TemporaryDirectory() as temp_dir:

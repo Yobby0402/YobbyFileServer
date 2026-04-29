@@ -59,6 +59,8 @@ CREATE TABLE IF NOT EXISTS items (
     default_warehouse_id INTEGER,
     safety_stock REAL NOT NULL DEFAULT 0,
     min_stock REAL NOT NULL DEFAULT 0,
+    track_individuals INTEGER NOT NULL DEFAULT 0,
+    individual_code_prefix TEXT NOT NULL DEFAULT '',
     is_enabled INTEGER NOT NULL DEFAULT 1,
     remark TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL DEFAULT '',
@@ -87,6 +89,42 @@ CREATE TABLE IF NOT EXISTS custom_field_values (
     record_id INTEGER NOT NULL,
     field_name TEXT NOT NULL,
     field_value TEXT NOT NULL DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS item_instances (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    item_id INTEGER NOT NULL,
+    instance_code TEXT NOT NULL UNIQUE,
+    serial_no TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'in_stock',
+    warehouse_id INTEGER,
+    location_code TEXT NOT NULL DEFAULT '',
+    owner_name TEXT NOT NULL DEFAULT '',
+    attributes_json TEXT NOT NULL DEFAULT '',
+    remark TEXT NOT NULL DEFAULT '',
+    source_doc_type TEXT NOT NULL DEFAULT '',
+    source_doc_id INTEGER,
+    created_at TEXT NOT NULL DEFAULT '',
+    updated_at TEXT NOT NULL DEFAULT '',
+    created_by TEXT NOT NULL DEFAULT '',
+    updated_by TEXT NOT NULL DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS item_instance_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    instance_id INTEGER NOT NULL,
+    action_type TEXT NOT NULL,
+    from_status TEXT NOT NULL DEFAULT '',
+    to_status TEXT NOT NULL DEFAULT '',
+    from_warehouse_id INTEGER,
+    to_warehouse_id INTEGER,
+    from_location_code TEXT NOT NULL DEFAULT '',
+    to_location_code TEXT NOT NULL DEFAULT '',
+    reference_doc_type TEXT NOT NULL DEFAULT '',
+    reference_doc_id INTEGER,
+    owner_name TEXT NOT NULL DEFAULT '',
+    remark TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS boms (
@@ -273,6 +311,7 @@ CREATE TABLE IF NOT EXISTS operation_logs (
 CREATE INDEX IF NOT EXISTS idx_items_code ON items(item_code);
 CREATE INDEX IF NOT EXISTS idx_items_name ON items(item_name);
 CREATE INDEX IF NOT EXISTS idx_items_type ON items(item_type);
+CREATE INDEX IF NOT EXISTS idx_items_track_individuals ON items(track_individuals);
 CREATE INDEX IF NOT EXISTS idx_warehouses_code ON warehouses(warehouse_code);
 CREATE INDEX IF NOT EXISTS idx_boms_parent_item_id ON boms(parent_item_id);
 CREATE INDEX IF NOT EXISTS idx_bom_items_bom_id ON bom_items(bom_id);
@@ -287,3 +326,7 @@ CREATE INDEX IF NOT EXISTS idx_inventory_balances_item_wh ON inventory_balances(
 CREATE INDEX IF NOT EXISTS idx_work_orders_status ON work_orders(status);
 CREATE INDEX IF NOT EXISTS idx_work_order_materials_work_order_id ON work_order_materials(work_order_id);
 CREATE INDEX IF NOT EXISTS idx_custom_field_values_entity_record ON custom_field_values(entity_name, record_id);
+CREATE INDEX IF NOT EXISTS idx_item_instances_item_id ON item_instances(item_id);
+CREATE INDEX IF NOT EXISTS idx_item_instances_status ON item_instances(status);
+CREATE INDEX IF NOT EXISTS idx_item_instances_warehouse ON item_instances(warehouse_id);
+CREATE INDEX IF NOT EXISTS idx_item_instance_logs_instance_id ON item_instance_logs(instance_id);

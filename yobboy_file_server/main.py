@@ -34,6 +34,26 @@ from .shared_serial_hub import (
 )
 from .paths import project_base_dir
 
+DEFAULT_MAX_UPLOAD_SIZE_MB = 0
+
+
+def normalize_max_upload_size_mb(value, default=DEFAULT_MAX_UPLOAD_SIZE_MB):
+    """Normalize upload limit in MB. 0 disables Flask's request size limit."""
+    try:
+        size = int(value)
+    except (TypeError, ValueError):
+        size = default
+    return max(size, 0)
+
+
+def apply_upload_size_config(app, value=None):
+    max_upload_size_mb = normalize_max_upload_size_mb(value)
+    app.config['MAX_UPLOAD_SIZE_MB'] = max_upload_size_mb
+    app.config['MAX_CONTENT_LENGTH'] = (
+        max_upload_size_mb * 1024 * 1024 if max_upload_size_mb > 0 else None
+    )
+
+
 # Windows 上先加载 torch，可避免某些环境里 PyQt5 之后再导入 torch 时 c10.dll 初始化失败。
 try:
     if importlib.util.find_spec('torch') is not None:
@@ -438,6 +458,7 @@ def create_app(debug=False):
     app.secret_key = 'your_super_secret_key_change_this_in_production'
     app.config['CONFIG_FILE'] = get_config_path()
     app.config['DEFAULT_ROOT_DIR'] = os.path.expanduser("~")
+    apply_upload_size_config(app)
 
     # 调试模式由启动参数控制，避免 GUI 场景默认开启调试
     app.debug = debug
@@ -1296,6 +1317,9 @@ def load_or_create_config(app):
             git_enabled = settings.get('git_enabled', 'false').lower() == 'true'  # Git功能开关
             git_workdir = settings.get('git_workdir', '')  # Git工作目录
             git_external_app_path = settings.get('git_external_app_path', '')  # Git外部软件路径（如VSCode）
+            max_upload_size_mb = normalize_max_upload_size_mb(
+                settings.get('max_upload_size', DEFAULT_MAX_UPLOAD_SIZE_MB)
+            )
             remote_serial_enabled = settings.get('remote_serial_enabled', 'false').lower() == 'true'
             remote_serial_https_mode = normalize_remote_serial_https_mode(
                 settings.get('remote_serial_https_mode', REMOTE_SERIAL_HTTPS_MODE_FULL)
@@ -1318,6 +1342,7 @@ def load_or_create_config(app):
             app.config['GIT_ENABLED'] = git_enabled
             app.config['GIT_WORKDIR'] = os.path.normpath(git_workdir) if git_workdir else ''
             app.config['GIT_EXTERNAL_APP_PATH'] = git_external_app_path if git_external_app_path else ''
+            apply_upload_size_config(app, max_upload_size_mb)
             app.config['REMOTE_SERIAL_ENABLED'] = remote_serial_enabled
             app.config['REMOTE_SERIAL_HTTPS_MODE'] = remote_serial_https_mode
             app.config['SERIAL_HTTPS_PORT'] = serial_https_port
@@ -1351,6 +1376,7 @@ def load_or_create_config(app):
             app.config['PORT'] = 5000
             app.config['GIT_ENABLED'] = False
             app.config['GIT_WORKDIR'] = ''
+            apply_upload_size_config(app)
             app.config['REMOTE_SERIAL_ENABLED'] = False
             app.config['REMOTE_SERIAL_HTTPS_MODE'] = REMOTE_SERIAL_HTTPS_MODE_FULL
             app.config['SERIAL_HTTPS_PORT'] = default_serial_https_port(app.config['PORT'])
@@ -1370,6 +1396,7 @@ def load_or_create_config(app):
         app.config['PORT'] = 5000
         app.config['GIT_ENABLED'] = False
         app.config['GIT_WORKDIR'] = ''
+        apply_upload_size_config(app)
         app.config['REMOTE_SERIAL_ENABLED'] = False
         app.config['REMOTE_SERIAL_HTTPS_MODE'] = REMOTE_SERIAL_HTTPS_MODE_FULL
         app.config['SERIAL_HTTPS_PORT'] = default_serial_https_port(app.config['PORT'])
@@ -1399,6 +1426,7 @@ def read_runtime_settings(create_if_missing=True, config_file=None):
         'GIT_ENABLED': False,
         'GIT_WORKDIR': '',
         'GIT_EXTERNAL_APP_PATH': '',
+        'MAX_UPLOAD_SIZE_MB': DEFAULT_MAX_UPLOAD_SIZE_MB,
         'REMOTE_SERIAL_ENABLED': False,
         'REMOTE_SERIAL_HTTPS_MODE': REMOTE_SERIAL_HTTPS_MODE_FULL,
         'SERIAL_HTTPS_PORT': default_serial_https_port(5000),
@@ -1427,6 +1455,9 @@ def read_runtime_settings(create_if_missing=True, config_file=None):
             git_workdir = settings.get('git_workdir', '')
             settings_data['GIT_WORKDIR'] = os.path.normpath(git_workdir) if git_workdir else ''
             settings_data['GIT_EXTERNAL_APP_PATH'] = settings.get('git_external_app_path', '')
+            settings_data['MAX_UPLOAD_SIZE_MB'] = normalize_max_upload_size_mb(
+                settings.get('max_upload_size', DEFAULT_MAX_UPLOAD_SIZE_MB)
+            )
             settings_data['REMOTE_SERIAL_ENABLED'] = settings.get('remote_serial_enabled', 'false').lower() == 'true'
             settings_data['REMOTE_SERIAL_HTTPS_MODE'] = normalize_remote_serial_https_mode(
                 settings.get('remote_serial_https_mode', REMOTE_SERIAL_HTTPS_MODE_FULL)
@@ -1468,12 +1499,16 @@ def save_runtime_settings(settings_data, config_file=None):
     existing_https_cert_file = ''
     existing_https_key_file = ''
     existing_log_level = 'INFO'
+    existing_max_upload_size_mb = DEFAULT_MAX_UPLOAD_SIZE_MB
     if os.path.exists(config_file):
         existing_config = configparser.ConfigParser()
         existing_config.read(config_file, encoding='utf-8')
         if 'settings' in existing_config:
             existing_settings = existing_config['settings']
             existing_log_level = (existing_settings.get('log_level', 'INFO') or 'INFO').strip() or 'INFO'
+            existing_max_upload_size_mb = normalize_max_upload_size_mb(
+                existing_settings.get('max_upload_size', DEFAULT_MAX_UPLOAD_SIZE_MB)
+            )
             existing_remote_serial_enabled = existing_settings.get('remote_serial_enabled', 'false').lower() == 'true'
             existing_remote_serial_https_mode = normalize_remote_serial_https_mode(
                 existing_settings.get('remote_serial_https_mode', REMOTE_SERIAL_HTTPS_MODE_FULL)
@@ -1501,6 +1536,9 @@ def save_runtime_settings(settings_data, config_file=None):
     )
     https_cert_file = (settings_data.get('HTTPS_CERT_FILE', existing_https_cert_file) or '').strip()
     https_key_file = (settings_data.get('HTTPS_KEY_FILE', existing_https_key_file) or '').strip()
+    max_upload_size_mb = normalize_max_upload_size_mb(
+        settings_data.get('MAX_UPLOAD_SIZE_MB', existing_max_upload_size_mb)
+    )
 
     config = configparser.ConfigParser()
     if os.path.exists(config_file):
@@ -1514,6 +1552,7 @@ def save_runtime_settings(settings_data, config_file=None):
         'git_enabled': str(settings_data.get('GIT_ENABLED', False)).lower(),
         'git_workdir': settings_data.get('GIT_WORKDIR', ''),
         'git_external_app_path': settings_data.get('GIT_EXTERNAL_APP_PATH', ''),
+        'max_upload_size': str(max_upload_size_mb),
         'remote_serial_enabled': str(remote_serial_enabled).lower(),
         'remote_serial_https_mode': remote_serial_https_mode,
         'serial_https_port': str(serial_https_port),
@@ -1540,6 +1579,7 @@ def save_config(app):
         'GIT_ENABLED': app.config.get('GIT_ENABLED', False),
         'GIT_WORKDIR': app.config.get('GIT_WORKDIR', ''),
         'GIT_EXTERNAL_APP_PATH': app.config.get('GIT_EXTERNAL_APP_PATH', ''),
+        'MAX_UPLOAD_SIZE_MB': app.config.get('MAX_UPLOAD_SIZE_MB', DEFAULT_MAX_UPLOAD_SIZE_MB),
         'REMOTE_SERIAL_ENABLED': app.config.get('REMOTE_SERIAL_ENABLED', False),
         'REMOTE_SERIAL_HTTPS_MODE': app.config.get('REMOTE_SERIAL_HTTPS_MODE', REMOTE_SERIAL_HTTPS_MODE_FULL),
         'SERIAL_HTTPS_PORT': app.config.get('SERIAL_HTTPS_PORT', default_serial_https_port(app.config.get('PORT', 5000))),
