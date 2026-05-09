@@ -55,13 +55,6 @@ def apply_upload_size_config(app, value=None):
     )
 
 
-# Windows 上先加载 torch，可避免某些环境里 PyQt5 之后再导入 torch 时 c10.dll 初始化失败。
-try:
-    if importlib.util.find_spec('torch') is not None:
-        import torch as _torch_preload  # noqa: F401
-except Exception:
-    _torch_preload = None
-
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                                 QPushButton, QTextEdit, QLabel, QGroupBox, QMessageBox,
                                 QSystemTrayIcon, QMenu, QAction, QDialog, QLineEdit,
