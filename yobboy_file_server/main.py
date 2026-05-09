@@ -33,6 +33,7 @@ from .shared_serial_hub import (
     shared_serial_hub,
 )
 from .paths import project_base_dir
+from .paths import get_data_dir, get_logs_dir as get_runtime_logs_dir, resolve_path
 
 DEFAULT_MAX_UPLOAD_SIZE_MB = 0
 
@@ -1335,6 +1336,8 @@ def load_or_create_config(app):
 
             # 保存配置到app中（即使路径不存在也保留用户设置）
             app.config['ROOT_DIR'] = os.path.normpath(root_dir) if root_dir else app.config['DEFAULT_ROOT_DIR']
+            app.config['DATA_DIR'] = resolve_path(settings.get('data_dir', 'data'), project_base_dir())
+            app.config['LOG_DIR'] = resolve_path(settings.get('log_dir', 'logs'), project_base_dir())
             app.config['PASSWORD'] = password
             app.config['ADMIN_PASSWORD'] = admin_password
             app.config['CLOSE_TO_TRAY'] = close_to_tray
@@ -1370,6 +1373,8 @@ def load_or_create_config(app):
             # 配置文件格式错误，使用默认值并保存
             app_logger.warning("[警告] 配置文件格式错误，使用默认配置")
             app.config['ROOT_DIR'] = app.config['DEFAULT_ROOT_DIR']
+            app.config['DATA_DIR'] = get_data_dir(config_file=config_file, create=False)
+            app.config['LOG_DIR'] = get_runtime_logs_dir(config_file=config_file, create=False)
             app.config['PASSWORD'] = 'password'
             app.config['ADMIN_PASSWORD'] = 'admin123'
             app.config['CLOSE_TO_TRAY'] = False
@@ -1390,6 +1395,8 @@ def load_or_create_config(app):
         # 配置文件不存在，创建默认配置
         app_logger.info("配置文件不存在，创建默认配置")
         app.config['ROOT_DIR'] = app.config['DEFAULT_ROOT_DIR']
+        app.config['DATA_DIR'] = get_data_dir(config_file=config_file, create=False)
+        app.config['LOG_DIR'] = get_runtime_logs_dir(config_file=config_file, create=False)
         app.config['PASSWORD'] = 'password'
         app.config['ADMIN_PASSWORD'] = 'admin123'
         app.config['CLOSE_TO_TRAY'] = False
@@ -1419,6 +1426,8 @@ def read_runtime_settings(create_if_missing=True, config_file=None):
     settings_data = {
         'CONFIG_FILE': config_file,
         'ROOT_DIR': default_root_dir,
+        'DATA_DIR': get_data_dir(config_file=config_file, create=False),
+        'LOG_DIR': get_runtime_logs_dir(config_file=config_file, create=False),
         'PASSWORD': 'password',
         'ADMIN_PASSWORD': 'admin123',
         'CLOSE_TO_TRAY': False,
@@ -1443,6 +1452,14 @@ def read_runtime_settings(create_if_missing=True, config_file=None):
             settings = config['settings']
             root_dir = settings.get('root_dir', default_root_dir)
             settings_data['ROOT_DIR'] = os.path.normpath(root_dir) if root_dir else default_root_dir
+            settings_data['DATA_DIR'] = resolve_path(
+                settings.get('data_dir', settings_data['DATA_DIR']),
+                project_base_dir(),
+            )
+            settings_data['LOG_DIR'] = resolve_path(
+                settings.get('log_dir', settings_data['LOG_DIR']),
+                project_base_dir(),
+            )
             settings_data['PASSWORD'] = settings.get('password', 'password')
             settings_data['ADMIN_PASSWORD'] = settings.get('admin_password', 'admin123')
             settings_data['CLOSE_TO_TRAY'] = settings.get('close_to_tray', 'false').lower() == 'true'
@@ -1500,6 +1517,8 @@ def save_runtime_settings(settings_data, config_file=None):
     existing_https_key_file = ''
     existing_log_level = 'INFO'
     existing_max_upload_size_mb = DEFAULT_MAX_UPLOAD_SIZE_MB
+    existing_data_dir = get_data_dir(config_file=config_file, create=False)
+    existing_log_dir = get_runtime_logs_dir(config_file=config_file, create=False)
     if os.path.exists(config_file):
         existing_config = configparser.ConfigParser()
         existing_config.read(config_file, encoding='utf-8')
@@ -1519,6 +1538,8 @@ def save_runtime_settings(settings_data, config_file=None):
             )
             existing_https_cert_file = existing_settings.get('https_cert_file', '').strip()
             existing_https_key_file = existing_settings.get('https_key_file', '').strip()
+            existing_data_dir = resolve_path(existing_settings.get('data_dir', existing_data_dir), project_base_dir())
+            existing_log_dir = resolve_path(existing_settings.get('log_dir', existing_log_dir), project_base_dir())
 
     remote_serial_enabled_value = settings_data.get('REMOTE_SERIAL_ENABLED', existing_remote_serial_enabled)
     if isinstance(remote_serial_enabled_value, str):
@@ -1536,6 +1557,8 @@ def save_runtime_settings(settings_data, config_file=None):
     )
     https_cert_file = (settings_data.get('HTTPS_CERT_FILE', existing_https_cert_file) or '').strip()
     https_key_file = (settings_data.get('HTTPS_KEY_FILE', existing_https_key_file) or '').strip()
+    data_dir = resolve_path(settings_data.get('DATA_DIR', existing_data_dir), project_base_dir())
+    log_dir = resolve_path(settings_data.get('LOG_DIR', existing_log_dir), project_base_dir())
     max_upload_size_mb = normalize_max_upload_size_mb(
         settings_data.get('MAX_UPLOAD_SIZE_MB', existing_max_upload_size_mb)
     )
@@ -1545,6 +1568,8 @@ def save_runtime_settings(settings_data, config_file=None):
         config.read(config_file, encoding='utf-8')
     config['settings'] = {
         'root_dir': settings_data.get('ROOT_DIR', os.path.expanduser("~")),
+        'data_dir': data_dir,
+        'log_dir': log_dir,
         'password': settings_data.get('PASSWORD', 'password'),
         'admin_password': settings_data.get('ADMIN_PASSWORD', 'admin123'),
         'close_to_tray': str(settings_data.get('CLOSE_TO_TRAY', False)).lower(),
@@ -1572,6 +1597,8 @@ def save_config(app):
     settings_data = {
         'CONFIG_FILE': app.config['CONFIG_FILE'],
         'ROOT_DIR': app.config['ROOT_DIR'],
+        'DATA_DIR': app.config.get('DATA_DIR', get_data_dir(config_file=app.config['CONFIG_FILE'], create=False)),
+        'LOG_DIR': app.config.get('LOG_DIR', get_runtime_logs_dir(config_file=app.config['CONFIG_FILE'], create=False)),
         'PASSWORD': app.config['PASSWORD'],
         'ADMIN_PASSWORD': app.config.get('ADMIN_PASSWORD', 'admin123'),
         'CLOSE_TO_TRAY': app.config.get('CLOSE_TO_TRAY', False),
@@ -2771,6 +2798,8 @@ class SettingsDialog(QDialog):
         self,
         parent=None,
         current_root='',
+        current_data_dir='',
+        current_log_dir='',
         current_password='',
         current_admin_password='',
         current_close_to_tray=False,
@@ -2790,6 +2819,8 @@ class SettingsDialog(QDialog):
         self.setMinimumSize(620, 420)
         self.resize(760, 680)
         self.current_root = current_root
+        self.current_data_dir = current_data_dir
+        self.current_log_dir = current_log_dir
         self.current_password = current_password
         self.current_admin_password = current_admin_password
         self.current_close_to_tray = current_close_to_tray
@@ -2806,6 +2837,8 @@ class SettingsDialog(QDialog):
         self.current_https_cert_file = current_https_cert_file
         self.current_https_key_file = current_https_key_file
         self.new_root = current_root
+        self.new_data_dir = current_data_dir
+        self.new_log_dir = current_log_dir
         self.new_password = current_password
         self.new_admin_password = current_admin_password
         self.new_close_to_tray = current_close_to_tray
@@ -2972,6 +3005,34 @@ class SettingsDialog(QDialog):
         root_layout.addWidget(browse_button)
 
         form_layout.addRow(root_label, root_widget)
+
+        data_dir_label = QLabel("数据目录：")
+        data_dir_widget = QWidget()
+        data_dir_layout = QHBoxLayout(data_dir_widget)
+        data_dir_layout.setContentsMargins(0, 0, 0, 0)
+        data_dir_layout.setSpacing(10)
+
+        self.data_dir_edit = QLineEdit(self.current_data_dir)
+        self.data_dir_edit.setReadOnly(True)
+        data_dir_layout.addWidget(self.data_dir_edit, 1)
+
+        data_dir_browse_button = QPushButton("📁 浏览")
+        data_dir_browse_button.setObjectName("browseButton")
+        data_dir_browse_button.clicked.connect(self.browse_data_directory)
+        data_dir_layout.addWidget(data_dir_browse_button)
+
+        form_layout.addRow(data_dir_label, data_dir_widget)
+
+        data_dir_hint = QLabel("数据目录用于保存工作区数据，如待办、收藏、ERP、本地知识库等。")
+        data_dir_hint.setStyleSheet("""
+            font-size: 9pt;
+            color: #3498db;
+            font-weight: normal;
+            padding: 5px;
+            background: #e3f2fd;
+            border-radius: 4px;
+        """)
+        form_layout.addRow("", data_dir_hint)
 
         # 登录密码设置
         password_label = QLabel("登录密码：")
@@ -3532,6 +3593,18 @@ class SettingsDialog(QDialog):
             self.root_edit.setText(directory)
             self.new_root = directory
 
+    def browse_data_directory(self):
+        directory = QFileDialog.getExistingDirectory(
+            self,
+            "选择数据目录",
+            self.data_dir_edit.text() or self.root_edit.text() or os.path.expanduser("~"),
+            QFileDialog.ShowDirsOnly | QFileDialog.DontResolveSymlinks
+        )
+
+        if directory:
+            self.data_dir_edit.setText(directory)
+            self.new_data_dir = directory
+
     def browse_git_workdir(self):
         """浏览选择Git工作目录"""
         directory = QFileDialog.getExistingDirectory(
@@ -3708,6 +3781,7 @@ class SettingsDialog(QDialog):
         """确认保存"""
         # 验证输入
         self.new_root = self.root_edit.text()
+        self.new_data_dir = self.data_dir_edit.text().strip()
         self.new_password = self.password_edit.text()
         self.new_admin_password = self.admin_password_edit.text()
         self.new_close_to_tray = self.close_to_tray_checkbox.isChecked()
@@ -3734,6 +3808,10 @@ class SettingsDialog(QDialog):
 
         if not self.new_root or not os.path.exists(self.new_root):
             QMessageBox.warning(self, "错误", "请选择有效的根目录")
+            return
+
+        if not self.new_data_dir:
+            QMessageBox.warning(self, "错误", "请选择有效的数据目录")
             return
 
         if not self.new_password:
@@ -3889,6 +3967,8 @@ class SettingsDialog(QDialog):
         """获取设置"""
         return (
             self.new_root,
+            self.new_data_dir,
+            self.new_log_dir,
             self.new_password,
             self.new_admin_password,
             self.new_close_to_tray,
@@ -4762,6 +4842,8 @@ class MainWindow(QMainWindow):
         # 获取当前配置（轻量读取，避免初始化 Flask/SocketIO）
         settings = read_runtime_settings()
         current_root = settings.get('ROOT_DIR', os.path.expanduser('~'))
+        current_data_dir = settings.get('DATA_DIR', get_data_dir(create=False))
+        current_log_dir = settings.get('LOG_DIR', get_runtime_logs_dir(create=False))
         current_password = settings.get('PASSWORD', 'password')
         current_admin_password = settings.get('ADMIN_PASSWORD', 'admin123')
         current_close_to_tray = settings.get('CLOSE_TO_TRAY', False)
@@ -4780,6 +4862,8 @@ class MainWindow(QMainWindow):
         dialog = SettingsDialog(
             self,
             current_root,
+            current_data_dir,
+            current_log_dir,
             current_password,
             current_admin_password,
             current_close_to_tray,
@@ -4797,6 +4881,8 @@ class MainWindow(QMainWindow):
         if dialog.exec_() == QDialog.Accepted:
             (
                 new_root,
+                new_data_dir,
+                new_log_dir,
                 new_password,
                 new_admin_password,
                 new_close_to_tray,
@@ -4819,6 +4905,8 @@ class MainWindow(QMainWindow):
                 save_payload = {
                     'CONFIG_FILE': config_file,
                     'ROOT_DIR': new_root,
+                    'DATA_DIR': new_data_dir,
+                    'LOG_DIR': new_log_dir,
                     'PASSWORD': new_password,
                     'ADMIN_PASSWORD': new_admin_password,
                     'CLOSE_TO_TRAY': new_close_to_tray,
@@ -4856,6 +4944,8 @@ class MainWindow(QMainWindow):
                     f"设置已成功保存到配置文件！\n\n"
                     f"配置文件位置:\n{config_file}\n\n"
                     f"根目录: {new_root}\n"
+                    f"数据目录: {new_data_dir}\n"
+                    f"日志目录: {new_log_dir}\n"
                     f"登录密码: {'*' * len(new_password)} (已加密显示)\n"
                     f"管理员密码: {'*' * len(new_admin_password)} (已加密显示)\n"
                     f"服务器端口: {new_port}\n"

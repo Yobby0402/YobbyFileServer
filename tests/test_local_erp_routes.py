@@ -481,6 +481,142 @@ class LocalERPRoutesTests(unittest.TestCase):
         self.assertTrue(logs_payload["success"])
         self.assertGreaterEqual(len(logs_payload["logs"]), 4)
 
+    def test_item_instance_bulk_endpoints_and_item_ids_filters(self):
+        main_warehouse_id = self.client.get("/api/erp/warehouses").get_json()["warehouses"][0]["id"]
+        transfer_warehouse = self.client.post(
+            "/api/erp/warehouses",
+            json={
+                "warehouse_code": "ROUTE-BULK",
+                "warehouse_name": "接口批量仓",
+                "warehouse_type": "production",
+            },
+        ).get_json()["warehouse"]
+
+        item_a = self.client.post(
+            "/api/erp/items",
+            json={
+                "item_code": "ROUTE-BULK-A",
+                "item_name": "接口批量物料A",
+                "default_warehouse_id": main_warehouse_id,
+                "track_individuals": True,
+                "individual_code_prefix": "RBA",
+                "initial_instance_count": 2,
+                "initial_instance_location_code": "A-01",
+            },
+        ).get_json()["item"]
+        item_b = self.client.post(
+            "/api/erp/items",
+            json={
+                "item_code": "ROUTE-BULK-B",
+                "item_name": "接口批量物料B",
+                "default_warehouse_id": main_warehouse_id,
+                "track_individuals": True,
+                "individual_code_prefix": "RBB",
+                "initial_instance_count": 1,
+                "initial_instance_location_code": "B-01",
+            },
+        ).get_json()["item"]
+
+        filtered_response = self.client.get(f"/api/erp/item-instances?item_ids={item_a['id']},{item_b['id']}")
+        self.assertEqual(filtered_response.status_code, 200)
+        filtered_payload = filtered_response.get_json()
+        self.assertTrue(filtered_payload["success"])
+        self.assertEqual(len(filtered_payload["instances"]), 3)
+        target_ids = [entry["id"] for entry in filtered_payload["instances"] if entry["item_id"] == item_a["id"]]
+        self.assertEqual(len(target_ids), 2)
+
+        bulk_update_response = self.client.post(
+            "/api/erp/item-instances/bulk-update",
+            json={
+                "instance_ids": target_ids,
+                "owner_name": "接口批量工位",
+                "location_code": "LINE-02",
+                "attribute_values": {"version": "V2"},
+                "remark": "批量属性更新",
+            },
+        )
+        self.assertEqual(bulk_update_response.status_code, 200)
+        bulk_update_payload = bulk_update_response.get_json()
+        self.assertTrue(bulk_update_payload["success"])
+        self.assertEqual(bulk_update_payload["result"]["updated_count"], 2)
+
+        bulk_transfer_response = self.client.post(
+            "/api/erp/item-instances/bulk-action",
+            json={
+                "instance_ids": target_ids,
+                "action": "transfer",
+                "target_warehouse_id": transfer_warehouse["id"],
+                "target_location_code": "T-02",
+                "owner_name": "接口线边仓",
+                "remark": "批量调拨",
+            },
+        )
+        self.assertEqual(bulk_transfer_response.status_code, 200)
+        bulk_transfer_payload = bulk_transfer_response.get_json()
+        self.assertTrue(bulk_transfer_payload["success"])
+        self.assertEqual(bulk_transfer_payload["result"]["processed_count"], 2)
+
+        logs_response = self.client.get(f"/api/erp/item-instances/logs?item_ids={item_a['id']}")
+        self.assertEqual(logs_response.status_code, 200)
+        logs_payload = logs_response.get_json()
+        self.assertTrue(logs_payload["success"])
+        self.assertTrue(logs_payload["logs"])
+        self.assertTrue(all(log["item_code"] == item_a["item_code"] for log in logs_payload["logs"]))
+
+        bulk_delete_response = self.client.post(
+            "/api/erp/item-instances/bulk-action",
+            json={
+                "instance_ids": [target_ids[0]],
+                "action": "delete",
+                "remark": "接口批量删除",
+            },
+        )
+        self.assertEqual(bulk_delete_response.status_code, 200)
+        bulk_delete_payload = bulk_delete_response.get_json()
+        self.assertTrue(bulk_delete_payload["success"])
+        self.assertEqual(bulk_delete_payload["result"]["processed_count"], 1)
+
+        remaining_payload = self.client.get(f"/api/erp/item-instances?item_ids={item_a['id']}").get_json()
+        self.assertEqual(len(remaining_payload["instances"]), 1)
+        item_b_payload = self.client.get(f"/api/erp/item-instances?item_ids={item_b['id']}").get_json()
+        self.assertEqual(len(item_b_payload["instances"]), 1)
+
+    def test_item_instance_level_custom_field_templates_flow_through_routes(self):
+        main_warehouse_id = self.client.get("/api/erp/warehouses").get_json()["warehouses"][0]["id"]
+        item_response = self.client.post(
+            "/api/erp/items",
+            json={
+                "item_code": "ROUTE-IMEI",
+                "item_name": "接口个体属性模板物料",
+                "default_warehouse_id": main_warehouse_id,
+                "track_individuals": True,
+                "individual_code_prefix": "RIMEI",
+                "initial_instance_count": 1,
+                "custom_field_definitions": {
+                    "IMEI": {"default_value": "", "instance_level": True},
+                    "卡号": {"default_value": "", "instance_level": True},
+                },
+            },
+        )
+        self.assertEqual(item_response.status_code, 201)
+        created_item = item_response.get_json()["item"]
+        self.assertTrue(created_item["custom_field_definitions"]["IMEI"]["instance_level"])
+
+        instances_payload = self.client.get(f"/api/erp/item-instances?item_ids={created_item['id']}").get_json()
+        self.assertEqual(len(instances_payload["instances"]), 1)
+        instance = instances_payload["instances"][0]
+        self.assertEqual(instance["attribute_values"]["IMEI"], "")
+        self.assertEqual(instance["attribute_values"]["卡号"], "")
+
+        update_response = self.client.put(
+            f"/api/erp/item-instances/{instance['id']}",
+            json={"attribute_values": {"IMEI": "8600", "卡号": "8986"}},
+        )
+        self.assertEqual(update_response.status_code, 200)
+        updated_instance = update_response.get_json()["instance"]
+        self.assertEqual(updated_instance["attribute_values"]["IMEI"], "8600")
+        self.assertEqual(updated_instance["attribute_values"]["卡号"], "8986")
+
 
 if __name__ == "__main__":
     unittest.main()

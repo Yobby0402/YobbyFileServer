@@ -8,7 +8,7 @@ import os
 import sys
 from typing import Any, Mapping, Optional, Tuple
 
-from .paths import project_base_dir
+from .paths import get_data_path, project_base_dir
 
 
 def ai_root() -> str:
@@ -28,7 +28,7 @@ def default_hf_home() -> str:
 
 
 def default_knowledge_storage_dir() -> str:
-    return os.path.join(project_base_dir(), "data", "local_ai")
+    return get_data_path("local_ai")
 
 
 def ensure_ai_layout() -> None:

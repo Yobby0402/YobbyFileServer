@@ -269,10 +269,57 @@
         for (var p = 0; p < patterns.length; p++) {
             patterns[p].lastIndex = 0;
             var m = patterns[p].exec(text);
-            if (m) return m[1].trim();
+            if (m) {
+                var knownBody = normalizeYobboyFlowSource(m[1]);
+                return extractLooseYobboyFlowLines(knownBody) || knownBody;
+            }
         }
-        if (/^\s*(node\s+\S|edge\s+\S|\S+\s*->\s*\S+)/m.test(text)) return text;
+        var anyFence = /```[^\n\r`]*\s*([\s\S]*?)```/gi;
+        var fm;
+        while ((fm = anyFence.exec(text)) !== null) {
+            var body = normalizeYobboyFlowSource(fm[1]);
+            var looseBody = extractLooseYobboyFlowLines(body);
+            if (looseBody) return looseBody;
+        }
+        var looseText = extractLooseYobboyFlowLines(text);
+        if (looseText) return looseText;
         return '';
+    }
+
+    function looksLikeYobboyFlow(text) {
+        if (!String(text || '').trim()) return false;
+        if (/<mxfile\b|<mxGraphModel\b|<diagram\b/i.test(text)) return false;
+        return /^\s*(kind\s*:|graph\s+\S+|flowchart\s+\S+|node\s+\S|edge\s+\S|[\w.-]+\s*(?:\[|\{|\(\[|\(\(|\()|\S+\s*(?:--\s+.*?\s+-->|-->|---|==>|-\.->|->)\s*\S+)/m.test(text);
+    }
+
+    function normalizeYobboyFlowSource(text) {
+        return String(text || '')
+            .replace(/^\ufeff/, '')
+            .replace(/→/g, '->')
+            .replace(/－>/g, '->')
+            .trim();
+    }
+
+    function extractLooseYobboyFlowLines(text) {
+        var lines = normalizeYobboyFlowSource(text).split(/\r?\n/);
+        var out = [];
+        var started = false;
+        var meaningful = 0;
+        for (var i = 0; i < lines.length; i++) {
+            var line = lines[i];
+            var s = line.trim();
+            var isDsl = looksLikeYobboyFlow(line);
+            var isAllowed = !s || s.charAt(0) === '#' || isDsl;
+            if (!started) {
+                if (!isDsl) continue;
+                started = true;
+            } else if (!isAllowed) {
+                break;
+            }
+            out.push(line);
+            if (isDsl) meaningful++;
+        }
+        return meaningful ? out.join('\n').trim() : '';
     }
 
     function parseNodeLine(line, lineno) {
@@ -327,28 +374,123 @@
         return { src: src, tgt: tgt, label: elabel };
     }
 
-    var MERMAID_EDGE = /^(\S+)\s*->\s*(\S+)(?:\s+(.*))?$/;
+    var MERMAID_DIRECTIVE = /^(?:graph|flowchart)\s+(?:TB|TD|BT|LR|RL)\s*$/i;
+    var MERMAID_NODE_DECL = /^[A-Za-z0-9_.-]+\s*(?:\[|\{|\(\[|\(\(|\()/;
+    var MERMAID_EDGE = /^\s*(.+?)\s*(?:(-->|---|==>|-\.->|->)\s*(?:\|([^|]*)\|)?|--\s*(.*?)\s*-->)\s*(.+?)\s*$/;
+
+    function statementLines(body) {
+        var out = [];
+        var lines = String(body || '').split(/\r?\n/);
+        for (var i = 0; i < lines.length; i++) {
+            var parts = lines[i].split(';');
+            for (var j = 0; j < parts.length; j++) out.push({ lineno: i + 1, text: parts[j] });
+        }
+        return out;
+    }
+
+    function cleanMermaidLine(line) {
+        var s = String(line || '').trim();
+        if (!s || s.indexOf('%%') === 0) return '';
+        return s;
+    }
+
+    function cleanMermaidLabel(label) {
+        var s = String(label || '').trim();
+        if (s.length >= 2 && s.charAt(0) === s.charAt(s.length - 1) && (s.charAt(0) === '"' || s.charAt(0) === "'")) {
+            s = s.slice(1, -1).trim();
+        }
+        if (s.length >= 2 && (s.charAt(0) === '/' || s.charAt(0) === '\\') && (s.charAt(s.length - 1) === '/' || s.charAt(s.length - 1) === '\\')) {
+            s = s.slice(1, -1).trim();
+        }
+        return s;
+    }
+
+    function stripMermaidClassSuffix(text) {
+        return String(text || '').trim().replace(/\s*:::[A-Za-z0-9_.-]+\s*$/, '');
+    }
+
+    function parseMermaidNodeRef(text, lineno) {
+        var raw = stripMermaidClassSuffix(text);
+        var patterns = [
+            [/^([A-Za-z0-9_.-]+)\s*\(\[\s*([\s\S]*?)\s*\]\)$/, 'rounded'],
+            [/^([A-Za-z0-9_.-]+)\s*\(\(\s*([\s\S]*?)\s*\)\)$/, 'ellipse'],
+            [/^([A-Za-z0-9_.-]+)\s*\{\{\s*([\s\S]*?)\s*\}\}$/, 'diamond'],
+            [/^([A-Za-z0-9_.-]+)\s*\{\s*([\s\S]*?)\s*\}$/, 'diamond'],
+            [/^([A-Za-z0-9_.-]+)\s*\[\s*([\s\S]*?)\s*\]$/, 'rect'],
+            [/^([A-Za-z0-9_.-]+)\s*\(\s*([\s\S]*?)\s*\)$/, 'rounded'],
+        ];
+        for (var i = 0; i < patterns.length; i++) {
+            var m = patterns[i][0].exec(raw);
+            if (!m) continue;
+            var rawLabel = m[2] || '';
+            var shape = patterns[i][1];
+            if (shape === 'rect' && /^[\/\\]/.test(rawLabel.trim())) shape = 'parallelogram';
+            return {
+                nid: m[1],
+                label: cleanMermaidLabel(rawLabel) || m[1],
+                shape: shape,
+                x: null,
+                y: null,
+                w: 120,
+                h: 60,
+            };
+        }
+        if (!raw) throw new Error('Mermaid 节点为空（第 ' + lineno + ' 行）');
+        var nid = raw.split(/\s+/, 1)[0];
+        return { nid: nid, label: nid, shape: 'rounded', x: null, y: null, w: 120, h: 60 };
+    }
+
+    function parseMermaidNodeDeclLine(line, lineno) {
+        var s = cleanMermaidLine(line);
+        if (!s || !MERMAID_NODE_DECL.test(s)) return null;
+        try {
+            var spec = parseMermaidNodeRef(s, lineno);
+            return spec.label !== spec.nid || spec.shape !== 'rounded' ? spec : null;
+        } catch (e) {
+            return null;
+        }
+    }
 
     function parseMermaidEdgeLine(line, lineno) {
-        var m = MERMAID_EDGE.exec(line.trim());
+        var m = MERMAID_EDGE.exec(cleanMermaidLine(line));
         if (!m) throw new Error('无法解析的连线行（第 ' + lineno + ' 行）');
-        var src = m[1];
-        var tgt = m[2];
-        var rest = (m[3] || '').trim();
-        if (src === 'node' || tgt === 'node')
+        var srcText = (m[1] || '').trim();
+        var op = m[2] || '';
+        var label = (m[3] || m[4] || '').trim();
+        var tgtText = (m[5] || '').trim();
+        if (!label && op === '->' && !/[\[\]\{\}\(\)]/.test(tgtText)) {
+            var parts = tgtText.split(/\s+/, 2);
+            if (parts.length === 2) {
+                tgtText = parts[0];
+                label = parts[1].trim();
+            }
+        }
+        var src = parseMermaidNodeRef(srcText, lineno);
+        var tgt = parseMermaidNodeRef(tgtText, lineno);
+        if (src.nid === 'node' || tgt.nid === 'node')
             throw new Error('请使用关键字 node / edge 声明（第 ' + lineno + ' 行）');
-        return { src: src, tgt: tgt, label: rest };
+        return { edge: { src: src.nid, tgt: tgt.nid, label: cleanMermaidLabel(label) }, nodes: [src, tgt] };
     }
 
     function parseYobboyFlowBody(body) {
         if (!String(body || '').trim()) throw new Error('yobboy-flow 正文为空');
-        var lines = String(body).split(/\r?\n/);
+        var lines = statementLines(body);
         var nodesOrder = [];
         var nodeMap = {};
         var edges = [];
+        function upsertInferredNode(spec) {
+            var existing = nodeMap[spec.nid];
+            if (!existing) {
+                nodeMap[spec.nid] = spec;
+                nodesOrder.push(spec);
+                return;
+            }
+            if (existing.label === existing.nid && spec.label !== spec.nid) existing.label = spec.label;
+            if (existing.shape === 'rounded' && spec.shape !== 'rounded') existing.shape = spec.shape;
+        }
         for (var li = 0; li < lines.length; li++) {
-            var lineno = li + 1;
-            var s = lines[li].trim();
+            var lineno = lines[li].lineno;
+            var s = String(lines[li].text || '').trim();
             if (!s || s.charAt(0) === '#') continue;
             var low = s.toLowerCase();
             if (low.indexOf('kind:') === 0) {
@@ -368,8 +510,18 @@
                 edges.push(parseEdgeLine(s, lineno));
                 continue;
             }
-            if (s.indexOf('->') >= 0 && low.indexOf('node') !== 0) {
-                edges.push(parseMermaidEdgeLine(s, lineno));
+            if (MERMAID_DIRECTIVE.test(s)) {
+                continue;
+            }
+            if (MERMAID_EDGE.test(s) && low.indexOf('node') !== 0) {
+                var parsedEdge = parseMermaidEdgeLine(s, lineno);
+                for (var pi = 0; pi < parsedEdge.nodes.length; pi++) upsertInferredNode(parsedEdge.nodes[pi]);
+                edges.push(parsedEdge.edge);
+                continue;
+            }
+            var mermaidNode = parseMermaidNodeDeclLine(s, lineno);
+            if (mermaidNode) {
+                upsertInferredNode(mermaidNode);
                 continue;
             }
             throw new Error('无法识别的行（第 ' + lineno + ' 行）: ' + s.slice(0, 80));

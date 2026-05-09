@@ -10,116 +10,113 @@
     <!-- Theme System -->
     <link rel="stylesheet" href="{{ url_for('static', filename='css/themes.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/app_style.css') }}">
-    <style>
-        body {
-            font-family: "Source Han Sans CN", "Microsoft YaHei", "PingFang SC", Arial, sans-serif;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            min-height: 100vh;
-            background: var(--t-bg-body);
-            margin: 0;
-        }
-        .login-card {
-            background: var(--t-bg-panel);
-            padding: 44px 40px;
-            border-radius: 20px;
-            box-shadow: var(--t-shadow-lg);
-            text-align: center;
-            width: 100%;
-            max-width: 420px;
-            border: 1px solid var(--t-border-light);
-            backdrop-filter: blur(8px);
-            transition: transform 0.25s ease, box-shadow 0.25s ease;
-        }
-        .login-card:hover {
-            transform: translateY(-4px);
-            box-shadow: 0 22px 48px rgba(0, 0, 0, 0.25);
-        }
-        .login-icon {
-            font-size: 48px;
-            color: var(--t-primary);
-            margin-bottom: 20px;
-        }
-        h1 {
-            color: var(--t-primary-hover);
-            margin-bottom: 28px;
-            font-weight: 700;
-        }
-        .form-group {
-            margin-bottom: 20px;
-            text-align: left;
-        }
-        .form-label {
-            font-weight: 600;
-            color: var(--t-text-muted);
-            margin-bottom: 6px;
-        }
-        .form-control {
-            border-radius: 14px;
-            padding: 12px 16px;
-            font-size: 16px;
-            background-color: #ffffff !important;
-            color: var(--t-text-main) !important;
-            border-color: var(--t-border) !important;
-        }
-        .form-control:focus {
-            border-color: var(--t-primary) !important;
-            box-shadow: var(--t-focus-ring) !important;
-        }
-        .btn-primary {
-            width: 100%;
-            border-radius: 14px;
-            padding: 13px 0;
-            font-size: 16px;
-            font-weight: 600;
-        }
-        .btn-primary i {
-            margin-right: 6px;
-        }
-        .alert {
-            margin-top: 20px;
-            border-radius: 8px;
-            padding: 12px;
-        }
-        .alert-danger {
-            background-color: rgba(231, 76, 60, 0.1);
-            border-color: rgba(231, 76, 60, 0.25);
-            color: var(--t-danger);
-        }
-        @media (max-width: 576px) {
-            .login-card {
-                padding: 34px 24px;
-                margin: 0 15px;
-            }
-        }
-    </style>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/login.css') }}">
 </head>
 <body>
-    <div class="login-card">
-        <div class="login-icon">
-            <i class="fa fa-folder-open"></i>
-        </div>
-        <h1>文件服务器 - 登录</h1>
-        <form method="post">
-            <div class="form-group">
-                <label for="password" class="form-label">密码</label>
-                <input type="password" class="form-control" id="password" name="password" placeholder="请输入密码" required>
+    <div class="login-shell">
+        <section class="tetris-panel">
+            <div class="tetris-stage" id="tetrisStage">
+                <canvas id="tetrisCanvas" aria-hidden="true"></canvas>
             </div>
-            <button type="submit" class="btn btn-primary">
-                <i class="fa fa-sign-in mr-2"></i>登录
-            </button>
-        </form>
-        {% if error %}
-            <div class="alert alert-danger">
-                <i class="fa fa-exclamation-circle mr-2"></i>{{ error }}
+        </section>
+
+        <section class="login-panel">
+            <div class="login-card">
+                <div class="login-hero">
+                    <span class="login-eyebrow">Yobboy Server</span>
+                    <h1>进入服务器</h1>
+                </div>
+
+                <form method="post" id="loginForm" action="{{ url_for('login') }}" novalidate>
+                    <div class="form-group">
+                        <label for="password" class="form-label">访问密码</label>
+                        <input
+                            type="password"
+                            class="form-control"
+                            id="password"
+                            name="password"
+                            placeholder="输入密码"
+                            maxlength="{{ password_max_length or 25 }}"
+                            autocomplete="current-password"
+                            required
+                        >
+                    </div>
+                    <button type="submit" class="btn btn-primary" id="loginButton">
+                        <i class="fa fa-sign-in mr-2"></i>登录
+                    </button>
+                </form>
+
+                <div class="login-theme-panel" id="loginThemePanel">
+                    <div class="theme-panel-header">
+                        <span class="theme-panel-title">界面风格</span>
+                    </div>
+                    <div class="login-theme-row">
+                        <button type="button" class="theme-swatch" data-theme-color="jasmine" aria-label="茉莉奶白"></button>
+                        <button type="button" class="theme-swatch" data-theme-color="ocean" aria-label="海洋蓝"></button>
+                        <button type="button" class="theme-swatch" data-theme-color="forest" aria-label="雾林灰绿"></button>
+                        <button type="button" class="theme-swatch" data-theme-color="sunset" aria-label="落日橙"></button>
+                        <button type="button" class="theme-swatch" data-theme-color="lavender" aria-label="雾紫灰"></button>
+                        <button type="button" class="theme-swatch" data-theme-color="graphite" aria-label="石墨银灰"></button>
+                    </div>
+                    <div class="morph-switch" role="group" aria-label="拟态风格">
+                        <button type="button" class="morph-segment" data-morph="flat">纯色</button>
+                        <button type="button" class="morph-segment" data-morph="glassmorphism">玻璃</button>
+                        <button type="button" class="morph-segment" data-morph="claymorphism">粘土</button>
+                    </div>
+                </div>
+
+                <div class="alert alert-danger {% if not error %}d-none{% endif %}" id="loginError" role="alert">
+                    <i class="fa fa-exclamation-circle mr-2"></i><span id="loginErrorText">{{ error or '' }}</span>
+                </div>
             </div>
-        {% endif %}
+        </section>
     </div>
-    
+
+    <script>
+        window.loginTetrisConfig = {
+            loginUrl: "{{ url_for('login') }}",
+            redirectUrl: "{{ url_for('index') }}",
+            passwordMaxLength: {{ password_max_length or 25 }}
+        };
+    </script>
     <script src="/static/js/jquery-3.6.0.min.js"></script>
     <script src="/static/js/bootstrap.bundle.min.js"></script>
-<script src="{{ url_for('static', filename='js/theme_floater.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/theme_floater.js') }}"></script>
+    <script>
+        (function () {
+            function refreshThemePanel() {
+                const themeColor = document.documentElement.getAttribute("data-theme-color") || "jasmine";
+                const morph = document.documentElement.getAttribute("data-morph") || "flat";
+                document.querySelectorAll(".theme-swatch").forEach(function (button) {
+                    button.classList.toggle("is-active", button.getAttribute("data-theme-color") === themeColor);
+                });
+                document.querySelectorAll(".morph-segment").forEach(function (button) {
+                    button.classList.toggle("is-active", button.getAttribute("data-morph") === morph);
+                });
+            }
+
+            document.addEventListener("DOMContentLoaded", function () {
+                document.querySelectorAll(".theme-swatch").forEach(function (button) {
+                    button.addEventListener("click", function () {
+                        if (window.setThemeColor) {
+                            window.setThemeColor(button.getAttribute("data-theme-color"));
+                        }
+                    });
+                });
+                document.querySelectorAll(".morph-segment").forEach(function (button) {
+                    button.addEventListener("click", function () {
+                        if (window.setMorph) {
+                            window.setMorph(button.getAttribute("data-morph"));
+                        }
+                    });
+                });
+                refreshThemePanel();
+                window.addEventListener("themechanged", refreshThemePanel);
+            });
+        })();
+    </script>
+    <script src="{{ url_for('static', filename='js/vendor/matter.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/login_tetris.js') }}"></script>
 </body>
 </html>
 

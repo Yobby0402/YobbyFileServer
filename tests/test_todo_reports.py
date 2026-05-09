@@ -53,6 +53,59 @@ def test_daily_and_weekly_report_generation_and_persistence(tmp_path: Path):
     assert reloaded.get_report("weekly", weekly.key)["content"] == saved_weekly["content"]
 
 
+def test_weekly_report_can_hide_progress_percent_and_use_softer_text(tmp_path: Path):
+    manager = TodoManager(storage_path=str(tmp_path / "todos_v2.json"))
+    extended = TodoExtendedManager(storage_path=str(tmp_path / "todos_extended.json"))
+    project = manager.create_project({"name": "ERP 项目"})
+    task, _ = manager.create_task(
+        project["id"],
+        {
+            "summary": "周报体验调整",
+            "weekly_plan": "继续优化导出效果",
+            "progress": 60,
+        },
+    )
+    manager.add_comment(project["id"], task["id"], "完成周报文案调整")
+    report_date = task["created_at"][:10]
+
+    weekly = todo_report_builder.build_weekly_report(
+        manager,
+        extended,
+        ref_date=report_date,
+        show_progress_percent=False,
+    )
+
+    assert "60%" not in weekly.content
+    assert "这周继续推进" in weekly.content
+    assert "这周处理了" in weekly.content
+    assert "下周准备：继续优化导出效果" in weekly.content
+
+
+def test_daily_report_can_hide_progress_percent(tmp_path: Path):
+    manager = TodoManager(storage_path=str(tmp_path / "todos_v2.json"))
+    extended = TodoExtendedManager(storage_path=str(tmp_path / "todos_extended.json"))
+    project = manager.create_project({"name": "ERP 项目"})
+    task, _ = manager.create_task(
+        project["id"],
+        {
+            "summary": "日报体验调整",
+            "progress": 35,
+        },
+    )
+    manager.add_comment(project["id"], task["id"], "完成日报文案调整")
+    report_date = task["created_at"][:10]
+
+    daily = todo_report_builder.build_daily_report(
+        manager,
+        extended,
+        date_str=report_date,
+        show_progress_percent=False,
+    )
+
+    assert "35%" not in daily.content
+    assert "进行中" in daily.content
+
+
 def test_todo_kb_indexes_saved_reports(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(knowledge_index_db, "db_path", lambda: str(tmp_path / "knowledge.sqlite3"))
     monkeypatch.setattr(todo_kb_store.knowledge_store, "_batch_embed_texts", _fake_embed)

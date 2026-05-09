@@ -723,9 +723,9 @@
                 userContent = [
                     {
                         type: 'text',
-                        text:
-                            q ||
-                            drawioOutputMode === 'xml'
+                        text: q
+                            ? q
+                            : drawioOutputMode === 'xml'
                                 ? '请根据附图生成或还原为 draw.io 图（输出完整 <mxfile>…</mxfile>，勿在 XML 外套 Markdown）。'
                                 : '请根据附图生成或还原为 draw.io 图：输出 ```yobboy-flow 围栏内文本（勿输出 <mxfile> XML）。',
                     },
@@ -736,7 +736,9 @@
             } else {
                 userContent = q;
             }
-            messages.push({ role: 'user', content: userContent });
+            var currentUserMsg = { role: 'user', content: userContent };
+            var currentTurnSucceeded = false;
+            messages.push(currentUserMsg);
             appendUserBubble(displayText, thumbs.length ? thumbs : null);
             clearPendingImages();
             saveHist(messages);
@@ -799,6 +801,13 @@
 
             function finishErr(msg) {
                 window.clearInterval(tick);
+                if (!currentTurnSucceeded) {
+                    var ix = messages.indexOf(currentUserMsg);
+                    if (ix >= 0) {
+                        messages.splice(ix, 1);
+                        saveHist(messages);
+                    }
+                }
                 asstEl.innerHTML = '';
                 var err = document.createElement('div');
                 err.style.padding = '10px 12px';
@@ -932,6 +941,7 @@
                         }
                     }
                 }
+                currentTurnSucceeded = true;
                 messages.push({ role: 'assistant', content: lastAssistantRaw, meta: generationMeta || undefined });
                 saveHist(messages);
                 finishOk();

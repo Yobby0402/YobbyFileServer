@@ -9,7 +9,7 @@ from collections import deque
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Set, Tuple
 
-from .paths import project_base_dir
+from .paths import get_logs_path, project_base_dir
 
 
 DEFAULT_RECENT_LIMIT = 500
@@ -48,7 +48,7 @@ class SharedSerialHub:
         self.owner_channels: Dict[str, Set[str]] = {}
         self.pending_writes: Dict[str, Dict] = {}
 
-        self.history_root = os.path.join(self._get_base_dir(), "logs", "shared_serial_history")
+        self.history_root = get_logs_path("shared_serial_history")
         os.makedirs(self.history_root, exist_ok=True)
 
     # ------------------------------------------------------------------ #

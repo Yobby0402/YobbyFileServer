@@ -9,6 +9,7 @@ import math
 import tempfile
 import unicodedata
 from datetime import datetime
+from html import escape as html_escape
 from typing import Any, Dict, Optional
 # 确保在文件顶部添加必要的导入
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify, send_from_directory, send_file, make_response, abort, current_app, Response
@@ -26,7 +27,7 @@ from .serial_manager import serial_manager
 from .shared_serial_hub import shared_serial_hub
 from .product_compare_manager import product_compare_manager
 from .logging_setup import parse_log_level
-from .paths import project_base_dir, project_path
+from .paths import get_data_path as runtime_data_path, get_logs_path, project_base_dir, project_path
 from . import todo_kb_store
 from . import product_compare_kb_store
 
@@ -36,6 +37,548 @@ _routes_logger = logging.getLogger('yobboy_file_server.routes')
 def log_message(message, level='INFO'):
     """路由层 Git 相关日志（委托给统一 logging 树）。"""
     _routes_logger.log(parse_log_level(level, logging.INFO), '%s', message)
+
+
+def _truthy(value: Any, default: bool = False) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    return str(value).strip().lower() in ("1", "true", "yes", "y", "on", "是", "启用")
+
+
+def _polish_todo_report_content(report_type: str, content: str, app_config: Dict[str, Any]) -> str:
+    """Use the configured local model to polish a generated ToDo report."""
+    from . import local_ai_engine
+
+    report_label = "周报" if report_type == "weekly" else "日报"
+    system = (
+        "你是中文工作汇报编辑。请只输出润色后的 Markdown 正文。"
+        "除原始项目名称、任务名称中的专有名词外，不要添加英文词汇。"
+        "不得新增事实、不得扩大范围、不得改变日期、不得引入未提供的任务。"
+    )
+    prompt = (
+        f"请润色下面的{report_label}，保持中文表达、Markdown 结构和原有事实。"
+        "内容必须仍然只覆盖原文列出的日期范围内的变更。\n\n"
+        f"{content}"
+    )
+    result = local_ai_engine.generate_once(
+        app_config,
+        [{"role": "user", "content": prompt}],
+        system=system,
+        max_new_tokens=1600,
+    ).strip()
+    if not result or "[生成错误]" in result:
+        raise RuntimeError(result or "AI 没有返回内容")
+    if result.startswith("```"):
+        result = re.sub(r"^```(?:markdown)?\s*", "", result, flags=re.IGNORECASE).strip()
+        result = re.sub(r"\s*```$", "", result).strip()
+    source_words = set(re.findall(r"[A-Za-z]+", content or ""))
+    result_words = set(re.findall(r"[A-Za-z]+", result or ""))
+    introduced_words = result_words - source_words
+    if introduced_words:
+        sample = "、".join(sorted(introduced_words)[:5])
+        raise RuntimeError(f"AI 润色引入英文词汇：{sample}")
+    return result
+
+
+def _build_weekly_report_pdf(
+    *,
+    title: str,
+    content: str,
+    include_table: bool,
+    tasks: list,
+) -> bytes:
+    """Build a weekly report PDF, preferring reportlab and falling back to Pillow."""
+    try:
+        from reportlab.lib import colors
+        from reportlab.lib.enums import TA_LEFT
+        from reportlab.lib.pagesizes import A4, landscape
+        from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+        from reportlab.lib.units import mm
+        from reportlab.pdfbase import pdfmetrics
+        from reportlab.pdfbase.cidfonts import UnicodeCIDFont
+        from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+    except ModuleNotFoundError:
+        return _build_weekly_report_pdf_with_pillow(
+            title=title,
+            content=content,
+            include_table=include_table,
+            tasks=tasks,
+        )
+
+    from io import BytesIO
+
+    pdfmetrics.registerFont(UnicodeCIDFont("STSong-Light"))
+    styles = getSampleStyleSheet()
+    base = ParagraphStyle(
+        "中文正文",
+        parent=styles["BodyText"],
+        fontName="STSong-Light",
+        fontSize=10.5,
+        leading=16,
+        alignment=TA_LEFT,
+        wordWrap="CJK",
+    )
+    heading = ParagraphStyle("中文标题", parent=base, fontSize=16, leading=22, spaceAfter=8)
+    subheading = ParagraphStyle("中文小标题", parent=base, fontSize=12.5, leading=18, spaceBefore=8, spaceAfter=4)
+    small = ParagraphStyle("中文表格", parent=base, fontSize=8.2, leading=11, wordWrap="CJK")
+
+    def inline_markdown(text: Any) -> str:
+        value = str(text or "")
+        value = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r"\1（\2）", value)
+        value = html_escape(value)
+        value = re.sub(r"\*\*([^*]+)\*\*", r"<b>\1</b>", value)
+        value = re.sub(r"__([^_]+)__", r"<b>\1</b>", value)
+        value = re.sub(r"`([^`]+)`", r"<font color='#5B6470'>\1</font>", value)
+        return value.replace("\n", "<br/>")
+
+    def para(text: Any, style: ParagraphStyle = base) -> Paragraph:
+        return Paragraph(inline_markdown(text), style)
+
+    buffer = BytesIO()
+    page_size = landscape(A4) if include_table and tasks else A4
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=page_size,
+        leftMargin=16 * mm,
+        rightMargin=16 * mm,
+        topMargin=16 * mm,
+        bottomMargin=16 * mm,
+        title=title or "周报",
+    )
+    story = []
+    content_lines = str(content or "").splitlines()
+    first_heading = ""
+    for raw in content_lines:
+        stripped = raw.strip()
+        if stripped:
+            if stripped.startswith("# "):
+                first_heading = stripped[2:].strip()
+            break
+    if first_heading != (title or "").strip():
+        story.append(para(title or "周报", heading))
+        story.append(Spacer(1, 4))
+
+    in_fence = False
+    for raw_line in content_lines:
+        line = raw_line.strip()
+        if line.startswith("```"):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            story.append(para(raw_line, base))
+            continue
+        if not line:
+            story.append(Spacer(1, 5))
+            continue
+        if line.startswith("# "):
+            story.append(para(line[2:].strip(), heading))
+        elif line.startswith("### "):
+            story.append(para(line[4:].strip(), subheading))
+        elif line.startswith("## "):
+            story.append(para(line[3:].strip(), subheading))
+        elif re.match(r"^\d+\.\s+", line):
+            story.append(para(line, base))
+        elif line.startswith("- "):
+            story.append(para("• " + line[2:].strip(), base))
+        elif line.startswith("  - "):
+            story.append(para("    • " + line[4:].strip(), base))
+        elif line.startswith(">"):
+            story.append(para("引用：" + line.lstrip(">").strip(), base))
+        elif re.match(r"^-{3,}$", line):
+            story.append(Spacer(1, 8))
+        else:
+            story.append(para(line, base))
+
+    if include_table and tasks:
+        story.append(Spacer(1, 10))
+        story.append(para("汇报表格", subheading))
+        table_data = [[
+            para("项目名称", small),
+            para("序号", small),
+            para("任务简述", small),
+            para("详细描述", small),
+            para("状态", small),
+            para("当前进展", small),
+            para("本周计划", small),
+        ]]
+        project_groups: list[tuple[int, int]] = []
+        current_project = None
+        current_start = 1
+        for item in tasks[:200]:
+            if not isinstance(item, dict):
+                continue
+            project_name = str(item.get("project_name") or "未命名项目")
+            project_phase = str(item.get("project_phase") or "").strip()
+            project_display = f"{project_name}\n（{project_phase}）" if project_phase else project_name
+            row_index = len(table_data)
+            if project_display != current_project:
+                if current_project is not None and row_index - 1 > current_start:
+                    project_groups.append((current_start, row_index - 1))
+                current_project = project_display
+                current_start = row_index
+            table_data.append([
+                para(project_display, small),
+                para(item.get("index") or "", small),
+                para(item.get("summary") or "", small),
+                para(item.get("description") or "", small),
+                para(item.get("status") or "", small),
+                para(item.get("current_progress") or "", small),
+                para(item.get("weekly_plan") or "", small),
+            ])
+        if current_project is not None and len(table_data) - 1 > current_start:
+            project_groups.append((current_start, len(table_data) - 1))
+        table = Table(
+            table_data,
+            colWidths=[32 * mm, 12 * mm, 38 * mm, 52 * mm, 20 * mm, 52 * mm, 58 * mm],
+            repeatRows=1,
+        )
+        table_style = [
+            ("FONTNAME", (0, 0), (-1, -1), "STSong-Light"),
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#D6F2EA")),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.HexColor("#0F433B")),
+            ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#B9C8C3")),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("VALIGN", (0, 1), (0, -1), "MIDDLE"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 5),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+            ("TOPPADDING", (0, 0), (-1, -1), 4),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ]
+        for start_row, end_row in project_groups:
+            table_style.append(("SPAN", (0, start_row), (0, end_row)))
+        table.setStyle(TableStyle(table_style))
+        story.append(table)
+
+    doc.build(story)
+    return buffer.getvalue()
+
+
+def _build_weekly_report_pdf_with_pillow(
+    *,
+    title: str,
+    content: str,
+    include_table: bool,
+    tasks: list,
+) -> bytes:
+    from io import BytesIO
+    from PIL import Image, ImageDraw, ImageFont
+
+    width, height = (1754, 1240) if include_table and tasks else (1240, 1754)
+    margin = 80
+    max_width = width - margin * 2
+    font_paths = [
+        r"C:\Windows\Fonts\msyh.ttc",
+        r"C:\Windows\Fonts\simsun.ttc",
+        r"C:\Windows\Fonts\simhei.ttf",
+    ]
+    bold_font_paths = [
+        r"C:\Windows\Fonts\msyhbd.ttc",
+        r"C:\Windows\Fonts\simhei.ttf",
+        r"C:\Windows\Fonts\msyh.ttc",
+    ]
+    code_font_paths = [
+        r"C:\Windows\Fonts\consola.ttf",
+        r"C:\Windows\Fonts\msyh.ttc",
+        r"C:\Windows\Fonts\simsun.ttc",
+    ]
+
+    def load_font(size: int, paths: Optional[list[str]] = None) -> ImageFont.ImageFont:
+        for path in paths or font_paths:
+            if os.path.exists(path):
+                return ImageFont.truetype(path, size=size)
+        return ImageFont.load_default()
+
+    title_font = load_font(34)
+    title_bold_font = load_font(34, bold_font_paths)
+    heading_font = load_font(26)
+    heading_bold_font = load_font(26, bold_font_paths)
+    body_font = load_font(22)
+    body_bold_font = load_font(22, bold_font_paths)
+    code_font = load_font(20, code_font_paths)
+    small_font = load_font(16 if include_table and tasks else 20)
+
+    pages = []
+    image = None
+    draw = None
+    y = margin
+
+    def new_page():
+        nonlocal image, draw, y
+        image = Image.new("RGB", (width, height), "white")
+        draw = ImageDraw.Draw(image)
+        pages.append(image)
+        y = margin
+
+    def text_width(text: str, font: ImageFont.ImageFont) -> int:
+        if not text:
+            return 0
+        bbox = draw.textbbox((0, 0), text, font=font)
+        return bbox[2] - bbox[0]
+
+    def markdown_plain(text: Any) -> str:
+        value = str(text or "")
+        value = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r"\1（\2）", value)
+        value = re.sub(r"\*\*([^*]+)\*\*", r"\1", value)
+        value = re.sub(r"__([^_]+)__", r"\1", value)
+        value = re.sub(r"`([^`]+)`", r"\1", value)
+        return value
+
+    def inline_segments(text: Any) -> list[tuple[str, str]]:
+        value = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r"\1（\2）", str(text or ""))
+        segments: list[tuple[str, str]] = []
+        pos = 0
+        pattern = re.compile(r"(`[^`]+`|\*\*[^*]+\*\*|__[^_]+__)")
+        for match in pattern.finditer(value):
+            if match.start() > pos:
+                segments.append((value[pos:match.start()], "normal"))
+            token = match.group(0)
+            if token.startswith("`") and token.endswith("`"):
+                segments.append((token[1:-1], "code"))
+            elif token.startswith("**") and token.endswith("**"):
+                segments.append((token[2:-2], "bold"))
+            elif token.startswith("__") and token.endswith("__"):
+                segments.append((token[2:-2], "bold"))
+            pos = match.end()
+        if pos < len(value):
+            segments.append((value[pos:], "normal"))
+        return [(text, style) for text, style in segments if text]
+
+    def font_for_style(base: ImageFont.ImageFont, style: str) -> ImageFont.ImageFont:
+        if style == "code":
+            return code_font
+        if style != "bold":
+            return base
+        if base is title_font:
+            return title_bold_font
+        if base is heading_font:
+            return heading_bold_font
+        return body_bold_font
+
+    def wrap_text(text: Any, font: ImageFont.ImageFont, limit: int) -> list[str]:
+        result = []
+        for raw in markdown_plain(text).splitlines() or [""]:
+            line = ""
+            for ch in raw:
+                if text_width(line + ch, font) <= limit:
+                    line += ch
+                else:
+                    if line:
+                        result.append(line)
+                    line = ch
+            result.append(line)
+        return result or [""]
+
+    def rich_line_width(segments: list[tuple[str, str]], base_font: ImageFont.ImageFont) -> int:
+        total = 0
+        for text, style in segments:
+            total += text_width(text, font_for_style(base_font, style))
+        return total
+
+    def wrap_rich_text(text: Any, base_font: ImageFont.ImageFont, limit: int) -> list[list[tuple[str, str]]]:
+        lines: list[list[tuple[str, str]]] = []
+        for raw_part in str(text or "").splitlines() or [""]:
+            current: list[tuple[str, str]] = []
+            for seg_text, style in inline_segments(raw_part):
+                for ch in seg_text:
+                    candidate = current + [(ch, style)]
+                    if current and rich_line_width(candidate, base_font) > limit:
+                        lines.append(current)
+                        current = [(ch, style)]
+                    else:
+                        current = candidate
+            lines.append(current or [("", "normal")])
+        return lines or [[("", "normal")]]
+
+    def ensure_space(required: int):
+        nonlocal y
+        if y + required > height - margin:
+            new_page()
+
+    def draw_lines(lines: list[str], font: ImageFont.ImageFont, line_height: int, *, indent: int = 0):
+        nonlocal y
+        for line in lines:
+            ensure_space(line_height)
+            draw.text((margin + indent, y), line, fill="#222222", font=font)
+            y += line_height
+
+    def draw_rich_lines(text: Any, font: ImageFont.ImageFont, line_height: int, *, indent: int = 0, color: str = "#222222"):
+        nonlocal y
+        for line_segments in wrap_rich_text(text, font, max_width - indent):
+            ensure_space(line_height)
+            x = margin + indent
+            for seg_text, style in line_segments:
+                seg_font = font_for_style(font, style)
+                seg_width = text_width(seg_text, seg_font)
+                if style == "code" and seg_text:
+                    draw.rectangle([x - 3, y + 2, x + seg_width + 3, y + line_height - 4], fill="#EEF2F5")
+                    draw.text((x, y), seg_text, fill="#3D4852", font=seg_font)
+                else:
+                    draw.text((x, y), seg_text, fill=color, font=seg_font)
+                x += seg_width
+            y += line_height
+
+    new_page()
+    content_lines = str(content or "").splitlines()
+    first_heading = ""
+    for raw in content_lines:
+        stripped = raw.strip()
+        if stripped:
+            if stripped.startswith("# "):
+                first_heading = stripped[2:].strip()
+            break
+    if first_heading != (title or "").strip():
+        draw_rich_lines(title or "周报", title_font, 44)
+        y += 12
+
+    in_fence = False
+    for raw_line in content_lines:
+        line = raw_line.strip()
+        if line.startswith("```"):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            draw_rich_lines(f"`{raw_line}`", body_font, 30)
+            continue
+        if not line:
+            y += 12
+            continue
+        if line.startswith("# "):
+            draw_rich_lines(line[2:].strip(), title_font, 44)
+            y += 6
+        elif line.startswith("### "):
+            y += 6
+            draw_rich_lines(line[4:].strip(), heading_font, 34)
+        elif line.startswith("## "):
+            y += 8
+            draw_rich_lines(line[3:].strip(), heading_font, 34)
+        elif re.match(r"^\d+\.\s+", line):
+            draw_rich_lines(line, body_font, 30)
+        elif line.startswith("- "):
+            draw_rich_lines("• " + line[2:].strip(), body_font, 30, indent=10)
+        elif line.startswith("  - "):
+            draw_rich_lines("• " + line[4:].strip(), body_font, 30, indent=40)
+        elif line.startswith(">"):
+            draw_rich_lines("引用：" + line.lstrip(">").strip(), body_font, 30, indent=10, color="#5B6470")
+        elif re.match(r"^-{3,}$", line):
+            ensure_space(20)
+            draw.line([margin, y + 8, width - margin, y + 8], fill="#B9C8C3", width=2)
+            y += 20
+        else:
+            draw_rich_lines(line, body_font, 30)
+
+    if include_table and tasks:
+        y += 20
+        draw_rich_lines("汇报表格", heading_font, 36)
+        col_widths = [220, 70, 230, 320, 110, 320, max_width - 1270]
+        headers = ["项目名称", "序号", "任务简述", "详细描述", "状态", "当前进展", "本周计划"]
+
+        def wrapped_cells(values: list[Any]) -> list[list[str]]:
+            return [
+                wrap_text(values[idx], small_font, max(40, col_widths[idx] - 16))
+                for idx in range(len(col_widths))
+            ]
+
+        def row_height_for(values: list[Any]) -> int:
+            wrapped = wrapped_cells(values)
+            return min(180, max(30, max(len(lines) for lines in wrapped) * 21 + 12))
+
+        def draw_cell(x: int, top: int, width_px: int, row_height: int, lines: list[str], *, is_header: bool = False, middle: bool = False):
+            fill = "#D6F2EA" if is_header else "white"
+            draw.rectangle([x, top, x + width_px, top + row_height], outline="#B9C8C3", fill=fill)
+            text_color = "#0F433B" if is_header else "#222222"
+            visible_lines = lines[: max(1, int((row_height - 12) / 21))]
+            text_y = top + 7
+            if middle:
+                text_block_height = len(visible_lines) * 21
+                text_y = top + max(7, int((row_height - text_block_height) / 2))
+            for line in visible_lines:
+                draw.text((x + 8, text_y), line, fill=text_color, font=small_font)
+                text_y += 21
+
+        def draw_row(values: list[Any], is_header: bool = False):
+            nonlocal y
+            wrapped = wrapped_cells(values)
+            row_height = row_height_for(values)
+            ensure_space(row_height)
+            x = margin
+            for idx, lines in enumerate(wrapped):
+                draw_cell(x, y, col_widths[idx], row_height, lines, is_header=is_header, middle=is_header)
+                x += col_widths[idx]
+            y += row_height
+
+        def ensure_table_space(required: int):
+            nonlocal y
+            if y + required > height - margin:
+                new_page()
+                draw_row(headers, is_header=True)
+
+        def draw_project_group(project_display: str, rows: list[list[Any]]):
+            nonlocal y
+            row_heights = [row_height_for(["", *row]) for row in rows]
+            pos = 0
+            while pos < len(rows):
+                ensure_table_space(30)
+                available = height - margin - y
+                group_height = 0
+                start_pos = pos
+                while pos < len(rows) and group_height + row_heights[pos] <= available:
+                    group_height += row_heights[pos]
+                    pos += 1
+                if pos == start_pos:
+                    new_page()
+                    draw_row(headers, is_header=True)
+                    available = height - margin - y
+                    group_height = min(row_heights[pos], available)
+                    pos += 1
+
+                group_top = y
+                project_lines = wrap_text(project_display, small_font, max(40, col_widths[0] - 16))
+                draw_cell(margin, group_top, col_widths[0], group_height, project_lines, middle=True)
+
+                row_y = group_top
+                for row_idx in range(start_pos, pos):
+                    values = rows[row_idx]
+                    wrapped = wrapped_cells(["", *values])
+                    row_height = row_heights[row_idx]
+                    x = margin + col_widths[0]
+                    for col_idx in range(1, len(col_widths)):
+                        draw_cell(x, row_y, col_widths[col_idx], row_height, wrapped[col_idx])
+                        x += col_widths[col_idx]
+                    row_y += row_height
+                y = group_top + group_height
+
+        draw_row(headers, is_header=True)
+        grouped_rows: list[tuple[str, list[list[Any]]]] = []
+        for item in tasks[:200]:
+            if not isinstance(item, dict):
+                continue
+            project_name = str(item.get("project_name") or "未命名项目")
+            project_phase = str(item.get("project_phase") or "").strip()
+            project_display = f"{project_name}\n（{project_phase}）" if project_phase else project_name
+            row_values = [
+                item.get("index") or "",
+                item.get("summary") or "",
+                item.get("description") or "",
+                item.get("status") or "",
+                item.get("current_progress") or "",
+                item.get("weekly_plan") or "",
+            ]
+            if grouped_rows and grouped_rows[-1][0] == project_display:
+                grouped_rows[-1][1].append(row_values)
+            else:
+                grouped_rows.append((project_display, [row_values]))
+
+        for project_display, rows in grouped_rows:
+            draw_project_group(project_display, rows)
+
+    output = BytesIO()
+    first, *rest = pages
+    first.save(output, format="PDF", resolution=150.0, save_all=True, append_images=rest)
+    return output.getvalue()
 
 
 # 检查用户是否已登录的函数
@@ -358,8 +901,8 @@ def get_data_path(relative_path=''):
         base_path = project_base_dir()
     data_dir = os.path.join(base_path, 'data')
     if relative_path:
-        return os.path.join(data_dir, relative_path)
-    return data_dir
+        return runtime_data_path(*relative_path.split('/'), create_parent=True)
+    return runtime_data_path()
 
 # 获取收藏文件路径
 def get_favorites_path():
@@ -1240,6 +1783,10 @@ def init_app(app):
         extended_manager = current_app.config['TODO_EXTENDED_MANAGER']
         payload = request.json or {}
         save = bool(payload.get('save', True))
+        include_unfinished_summary = _truthy(payload.get('include_unfinished_summary'), False)
+        enable_ai_polish = _truthy(payload.get('enable_ai_polish'), False)
+        show_progress_percent = _truthy(payload.get('show_progress_percent'), True)
+        warnings = []
 
         try:
             if report_type == 'daily':
@@ -1247,6 +1794,8 @@ def init_app(app):
                     manager,
                     extended_manager,
                     date_str=(payload.get('date') or '').strip() or None,
+                    include_unfinished_summary=include_unfinished_summary,
+                    show_progress_percent=show_progress_percent,
                 )
             elif report_type == 'weekly':
                 report = todo_report_builder.build_weekly_report(
@@ -1254,6 +1803,8 @@ def init_app(app):
                     extended_manager,
                     week_key=(payload.get('week_key') or '').strip() or None,
                     ref_date=(payload.get('date') or '').strip() or None,
+                    include_unfinished_summary=include_unfinished_summary,
+                    show_progress_percent=show_progress_percent,
                 )
             else:
                 return jsonify({'success': False, 'error': '不支持的 report_type'}), 400
@@ -1261,10 +1812,76 @@ def init_app(app):
             return jsonify({'success': False, 'error': str(exc)}), 400
 
         record = report.to_record()
+        record['generation_options'] = {
+            'include_unfinished_summary': include_unfinished_summary,
+            'enable_ai_polish': enable_ai_polish,
+            'show_progress_percent': show_progress_percent,
+        }
+        record['ai_polished'] = False
+        record['ai_polish_status'] = 'pending' if enable_ai_polish else 'disabled'
         if save:
             record = extended_manager.set_report(report_type, report.key, record)
+
+        if enable_ai_polish:
+            record['ai_polish_status'] = 'running'
+            if save:
+                record = extended_manager.set_report(report_type, report.key, record)
+            try:
+                polished = _polish_todo_report_content(report_type, record.get('content', ''), current_app.config)
+                if polished:
+                    record['content'] = polished
+                    record['ai_polished'] = True
+                    record['ai_polish_status'] = 'completed'
+            except Exception as exc:
+                _routes_logger.warning("Todo report AI polish failed: %s", exc)
+                record['ai_polish_status'] = 'failed'
+                record['ai_polish_error'] = str(exc)
+                warnings.append(f"AI 润色失败，已保留规则生成内容：{exc}")
+
+            if save:
+                record = extended_manager.set_report(report_type, report.key, record)
+
+        if save:
             _todo_kb_rebuild_all_async()
-        return jsonify({'success': True, 'report': record, 'saved': save})
+        return jsonify({'success': True, 'report': record, 'saved': save, 'warnings': warnings})
+
+    @app.route('/api/todo/v2/reports/weekly/export/pdf', methods=['POST'])
+    def todo_v2_weekly_report_export_pdf():
+        """导出周报为 PDF，可选附带任务表格。"""
+        if not has_todo_access():
+            return jsonify({'success': False, 'error': '未授权'}), 401
+
+        payload = request.json or {}
+        title = str(payload.get('title') or '周报').strip() or '周报'
+        content = str(payload.get('content') or '').strip()
+        include_table = _truthy(payload.get('include_table'), False)
+        tasks_payload = payload.get('report_table_tasks', payload.get('tasks'))
+        tasks = tasks_payload if isinstance(tasks_payload, list) else []
+        if not content:
+            return jsonify({'success': False, 'error': '周报内容为空'}), 400
+
+        try:
+            pdf_bytes = _build_weekly_report_pdf(
+                title=title,
+                content=content,
+                include_table=include_table,
+                tasks=tasks,
+            )
+        except ModuleNotFoundError:
+            return jsonify({'success': False, 'error': '缺少 PDF 导出依赖，请先安装 requirements.txt 中的依赖'}), 500
+        except Exception as exc:
+            _routes_logger.exception("Export weekly report PDF failed")
+            return jsonify({'success': False, 'error': str(exc)}), 500
+
+        from io import BytesIO
+        safe_date = datetime.now().strftime("%Y-%m-%d")
+        filename = f"{title}_{safe_date}.pdf"
+        return send_file(
+            BytesIO(pdf_bytes),
+            mimetype='application/pdf',
+            as_attachment=True,
+            download_name=filename,
+        )
 
     @app.route('/api/todo/v2/reports/<report_type>/<report_key>', methods=['GET', 'PUT', 'DELETE'])
     def todo_v2_report_detail(report_type, report_key):
@@ -3516,8 +4133,37 @@ def init_app(app):
     @app.route('/login', methods=['GET', 'POST'])
     def login():
         """登录页面"""
+        password_max_length = 25
+
+        def _login_response(*, ok: bool, error: Optional[str] = None):
+            wants_json = (
+                request.headers.get('X-Requested-With') == 'XMLHttpRequest'
+                or request.is_json
+                or request.accept_mimetypes['application/json'] >= request.accept_mimetypes['text/html']
+            )
+            if wants_json:
+                payload = {
+                    'ok': ok,
+                    'redirect': url_for('index') if ok else None,
+                    'error': error,
+                    'password_max_length': password_max_length,
+                }
+                status_code = 200 if ok else 401
+                return jsonify(payload), status_code
+            if ok:
+                return redirect(url_for('index'))
+            return render_template(
+                'login.html',
+                error=error,
+                password_max_length=password_max_length,
+            )
+
         if request.method == 'POST':
-            password = request.form.get('password')
+            password = request.form.get('password', '')
+
+            if len(password) > password_max_length:
+                _routes_logger.warning("登录失败: 密码长度超限 len=%s", len(password))
+                return _login_response(ok=False, error=f"密码最多允许 {password_max_length} 个字符")
             
             # 使用配置文件中的密码进行验证
             configured_password = current_app.config.get('PASSWORD')  # 修正：使用大写的键名
@@ -3538,12 +4184,11 @@ def init_app(app):
             if password == configured_password:
                 session['logged_in'] = True
                 _routes_logger.info("用户登录成功")
-                # 登录后重定向到选择页面
-                return redirect(url_for('index'))
+                return _login_response(ok=True)
             else:
                 _routes_logger.warning("登录失败: 密码不匹配")
-                return render_template('login.html', error="密码错误")
-        return render_template('login.html')
+                return _login_response(ok=False, error="密码错误")
+        return render_template('login.html', password_max_length=password_max_length)
     
 
     
@@ -3899,7 +4544,7 @@ def init_app(app):
             else:
                 base_dir = project_base_dir()
             
-            log_dir = os.path.join(base_dir, 'logs', 'serial_logs')
+            log_dir = get_logs_path('serial_logs')
             os.makedirs(log_dir, exist_ok=True)
             
             # 生成日志文件名（精确到毫秒）
@@ -3937,7 +4582,7 @@ def init_app(app):
             else:
                 base_dir = project_base_dir()
             
-            log_dir = os.path.join(base_dir, 'logs', 'serial_logs')
+            log_dir = get_logs_path('serial_logs')
             
             if not os.path.exists(log_dir):
                 return jsonify({'success': True, 'logs': []})
@@ -3977,7 +4622,7 @@ def init_app(app):
             else:
                 base_dir = project_base_dir()
             
-            log_dir = os.path.join(base_dir, 'logs', 'serial_logs')
+            log_dir = get_logs_path('serial_logs')
             filepath = os.path.join(log_dir, filename)
             
             # 安全检查
@@ -4019,7 +4664,7 @@ def init_app(app):
             else:
                 base_dir = project_base_dir()
             
-            config_dir = os.path.join(base_dir, 'logs')
+            config_dir = get_logs_path()
             os.makedirs(config_dir, exist_ok=True)
             
             filepath = os.path.join(config_dir, 'serial_commands.json')
@@ -4048,7 +4693,7 @@ def init_app(app):
             else:
                 base_dir = project_base_dir()
             
-            filepath = os.path.join(base_dir, 'logs', 'serial_commands.json')
+            filepath = get_logs_path('serial_commands.json', create_parent=True)
             
             if not os.path.exists(filepath):
                 return jsonify({'success': True, 'commands': []})

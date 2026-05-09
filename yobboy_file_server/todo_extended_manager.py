@@ -1,14 +1,13 @@
 import json
 import logging
 import os
-import sys
 import threading
 from copy import deepcopy
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
-from .paths import project_base_dir
+from .paths import get_data_path, project_base_dir
 
 _todo_ext_log = logging.getLogger('yobboy_file_server.todo_extended')
 _SUPPORTED_REPORT_TYPES = ("daily", "weekly")
@@ -25,9 +24,7 @@ def _get_base_dir() -> str:
 
 def _ensure_data_dir() -> str:
     """确保数据目录存在并返回路径"""
-    data_dir = os.path.join(_get_base_dir(), "data")
-    os.makedirs(data_dir, exist_ok=True)
-    return data_dir
+    return get_data_path()
 
 
 class TodoExtendedManager:

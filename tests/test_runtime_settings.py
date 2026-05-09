@@ -27,6 +27,8 @@ class RuntimeSettingsTests(unittest.TestCase):
             expected = {
                 "CONFIG_FILE": config_path,
                 "ROOT_DIR": tmpdir,
+                "DATA_DIR": os.path.join(tmpdir, "workspace_data"),
+                "LOG_DIR": os.path.join(tmpdir, "workspace_logs"),
                 "PASSWORD": "p@ss",
                 "ADMIN_PASSWORD": "admin@123",
                 "CLOSE_TO_TRAY": True,
@@ -39,6 +41,8 @@ class RuntimeSettingsTests(unittest.TestCase):
             save_runtime_settings(expected, config_file=config_path)
             actual = read_runtime_settings(create_if_missing=False, config_file=config_path)
             self.assertEqual(actual["ROOT_DIR"], expected["ROOT_DIR"])
+            self.assertEqual(actual["DATA_DIR"], expected["DATA_DIR"])
+            self.assertEqual(actual["LOG_DIR"], expected["LOG_DIR"])
             self.assertEqual(actual["PASSWORD"], expected["PASSWORD"])
             self.assertEqual(actual["ADMIN_PASSWORD"], expected["ADMIN_PASSWORD"])
             self.assertEqual(actual["CLOSE_TO_TRAY"], expected["CLOSE_TO_TRAY"])

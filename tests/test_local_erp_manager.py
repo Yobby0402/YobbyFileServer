@@ -206,6 +206,38 @@ class LocalERPManagerTests(unittest.TestCase):
         self.assertEqual(updated_item_a["custom_field_values"], {"版本": "V2", "负责人": "张三"})
         self.assertEqual(self.manager.get_item(item_b["id"])["custom_field_values"], {"颜色": "蓝色"})
 
+    def test_item_instance_level_custom_fields_are_inherited_by_instances(self):
+        warehouse_id = self.manager.list_warehouses()[0]["id"]
+        item = self.manager.create_item(
+            {
+                "item_code": "IMEI001",
+                "item_name": "带个体属性模板物料",
+                "default_warehouse_id": warehouse_id,
+                "track_individuals": True,
+                "individual_code_prefix": "IMEI001",
+                "initial_instance_count": 1,
+                "custom_field_definitions": {
+                    "IMEI": {"default_value": "", "instance_level": True},
+                    "卡号": {"default_value": "", "instance_level": True},
+                    "颜色": {"default_value": "黑色", "instance_level": False},
+                },
+            }
+        )
+        self.assertEqual(item["custom_field_values"]["颜色"], "黑色")
+        self.assertTrue(item["custom_field_definitions"]["IMEI"]["instance_level"])
+
+        instance = self.manager.list_item_instances(item_id=item["id"])[0]
+        self.assertEqual(instance["attribute_values"]["IMEI"], "")
+        self.assertEqual(instance["attribute_values"]["卡号"], "")
+        self.assertNotIn("颜色", instance["attribute_values"])
+
+        updated_instance = self.manager.update_item_instance(
+            instance["id"],
+            {"attribute_values": {"IMEI": "12345", "卡号": "89860"}},
+        )
+        self.assertEqual(updated_instance["attribute_values"]["IMEI"], "12345")
+        self.assertEqual(updated_instance["attribute_values"]["卡号"], "89860")
+
     def test_delete_unused_item_and_reject_delete_when_referenced(self):
         warehouse_id = self.manager.list_warehouses()[0]["id"]
         deletable_item = self.manager.create_item(
@@ -589,6 +621,88 @@ class LocalERPManagerTests(unittest.TestCase):
 
         with self.assertRaises(ValueError):
             self.manager.update_item(item["id"], {"track_individuals": False})
+
+    def test_bulk_update_delete_and_item_instance_filters(self):
+        main_warehouse_id = self.manager.list_warehouses()[0]["id"]
+        transfer_warehouse = self.manager.create_warehouse(
+            {
+                "warehouse_code": "INS-BULK",
+                "warehouse_name": "批量个体分仓",
+                "warehouse_type": "production",
+            }
+        )
+        item_a = self.manager.create_item(
+            {
+                "item_code": "BULK-A",
+                "item_name": "批量个体A",
+                "default_warehouse_id": main_warehouse_id,
+                "track_individuals": True,
+                "individual_code_prefix": "BULKA",
+                "initial_instance_count": 2,
+                "initial_instance_location_code": "A-01",
+            }
+        )
+        item_b = self.manager.create_item(
+            {
+                "item_code": "BULK-B",
+                "item_name": "批量个体B",
+                "default_warehouse_id": main_warehouse_id,
+                "track_individuals": True,
+                "individual_code_prefix": "BULKB",
+                "initial_instance_count": 1,
+                "initial_instance_location_code": "B-01",
+            }
+        )
+        instances_a = self.manager.list_item_instances(item_id=item_a["id"])
+        instance_b = self.manager.list_item_instances(item_id=item_b["id"])[0]
+
+        updated = self.manager.bulk_update_item_instances(
+            [instances_a[0]["id"], instances_a[1]["id"]],
+            {
+                "owner_name": "批量工位",
+                "location_code": "LINE-01",
+                "attribute_values": {"firmware": "V2", "color": "black"},
+                "remark": "批量更新",
+            },
+        )
+        self.assertEqual(updated["updated_count"], 2)
+        refreshed_instances = self.manager.list_item_instances(item_ids=[item_a["id"]])
+        self.assertTrue(all(entry["owner_name"] == "批量工位" for entry in refreshed_instances))
+        self.assertTrue(all(entry["attribute_values"]["firmware"] == "V2" for entry in refreshed_instances))
+
+        transferred = self.manager.bulk_item_instance_action(
+            [instances_a[0]["id"], instances_a[1]["id"]],
+            {
+                "action": "transfer",
+                "target_warehouse_id": transfer_warehouse["id"],
+                "target_location_code": "T-01",
+                "owner_name": "线边仓",
+                "remark": "批量调拨",
+            },
+        )
+        self.assertEqual(transferred["processed_count"], 2)
+        self.assertTrue(all(result["instance"]["warehouse_id"] == transfer_warehouse["id"] for result in transferred["results"]))
+
+        filtered_instances = self.manager.list_item_instances(item_ids=[item_a["id"], item_b["id"]])
+        self.assertEqual(len(filtered_instances), 3)
+        filtered_logs = self.manager.list_item_instance_logs(item_ids=[item_a["id"]], limit=20)
+        self.assertTrue(filtered_logs)
+        self.assertTrue(all(log["item_code"] == item_a["item_code"] for log in filtered_logs))
+
+        deleted = self.manager.bulk_item_instance_action(
+            [instances_a[0]["id"]],
+            {
+                "action": "delete",
+                "remark": "删除单个个体",
+            },
+        )
+        self.assertEqual(deleted["processed_count"], 1)
+        remaining_instances = self.manager.list_item_instances(item_ids=[item_a["id"]])
+        self.assertEqual(len(remaining_instances), 1)
+        balances = self.manager.list_inventory_balances(keyword="BULK-A")
+        item_a_balances = [entry for entry in balances if entry["item_code"] == "BULK-A" and entry["qty_on_hand"] > 0]
+        self.assertEqual(sum(entry["qty_on_hand"] for entry in item_a_balances), 1.0)
+        self.assertEqual(instance_b["item_id"], item_b["id"])
 
     def test_schema_path_falls_back_to_exe_side_package_copy(self):
         with tempfile.TemporaryDirectory() as temp_dir:

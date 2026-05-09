@@ -1304,6 +1304,554 @@
         }
     </style>
     <!-- Load app_style but need to be careful with overrides. choice.html is custom. -->
+    <style>
+        body::before {
+            background:
+                radial-gradient(circle at 18% 20%, rgba(143, 191, 107, 0.08), transparent 24%),
+                radial-gradient(circle at 82% 18%, rgba(183, 217, 138, 0.12), transparent 22%),
+                linear-gradient(135deg, #F8F6F1 0%, #F4F6EF 44%, #EEF4E8 100%) !important;
+            background-size: cover !important;
+            animation: none !important;
+        }
+
+        .ambient-orb {
+            filter: blur(72px) !important;
+            opacity: 0.12 !important;
+            mix-blend-mode: normal !important;
+        }
+
+        .ambient-grid {
+            background-image:
+                linear-gradient(rgba(228, 232, 222, 0.8) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(228, 232, 222, 0.8) 1px, transparent 1px) !important;
+            background-size: 72px 72px !important;
+            opacity: 0.24 !important;
+        }
+
+        .ambient-noise {
+            opacity: 0.02 !important;
+        }
+
+        .choice-brand {
+            position: fixed;
+            top: 30px;
+            left: 34px;
+            z-index: 160;
+            display: flex;
+            align-items: flex-start;
+            gap: 16px;
+            max-width: 360px;
+            pointer-events: none;
+        }
+
+        .choice-brand-mark {
+            width: 46px;
+            height: 46px;
+            border-radius: 14px;
+            border: 1px solid var(--t-border);
+            background: rgba(252, 251, 248, 0.92);
+            color: var(--t-primary-hover);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+        }
+
+        .choice-brand-copy {
+            display: grid;
+            gap: 4px;
+        }
+
+        .choice-brand-eyebrow {
+            margin: 0;
+            font-size: 12px;
+            letter-spacing: 0.18em;
+            text-transform: uppercase;
+            color: var(--t-text-muted);
+        }
+
+        .choice-brand-title {
+            margin: 0;
+            font-size: clamp(24px, 2vw, 30px);
+            line-height: 1.05;
+            color: var(--t-text-strong);
+            font-weight: 700;
+        }
+
+        .choice-brand-note {
+            margin: 0;
+            font-size: 14px;
+            line-height: 1.6;
+            color: var(--t-text-muted);
+            max-width: 24ch;
+        }
+
+        .top-right-bar {
+            top: 28px !important;
+            right: 32px !important;
+            gap: 10px !important;
+        }
+
+        .top-btn {
+            height: 42px !important;
+            padding: 0 16px !important;
+            border-radius: 999px !important;
+            border: 1px solid var(--t-border) !important;
+            background: rgba(252, 251, 248, 0.92) !important;
+            color: var(--t-text-main) !important;
+            box-shadow: none !important;
+            backdrop-filter: blur(10px) !important;
+            -webkit-backdrop-filter: blur(10px) !important;
+        }
+
+        .top-btn:hover {
+            background: rgba(241, 245, 238, 0.96) !important;
+            color: var(--t-text-strong) !important;
+            transform: translateY(-1px) !important;
+            box-shadow: none !important;
+        }
+
+        .theme-dropdown-menu {
+            min-width: 196px !important;
+            border: 1px solid var(--t-border) !important;
+            background: rgba(252, 251, 248, 0.96) !important;
+            box-shadow: var(--t-shadow-lg) !important;
+        }
+
+        .theme-item {
+            color: var(--t-text-main) !important;
+        }
+
+        .theme-item:hover,
+        .theme-item.is-active {
+            background: rgba(241, 245, 238, 0.9) !important;
+            color: var(--t-text-strong) !important;
+        }
+
+        html[data-morph="flat"] .choice-brand-mark,
+        html[data-morph="flat"] .top-btn,
+        html[data-morph="flat"] .theme-dropdown-menu,
+        html[data-morph="flat"] .tool-main,
+        html[data-morph="flat"] .tool-meta,
+        html[data-morph="flat"] .quick-switch,
+        html[data-morph="flat"] .switch-item.is-active,
+        html[data-morph="flat"] .tool-stat,
+        html[data-morph="flat"] .tool-meta-visual {
+            box-shadow: none !important;
+            backdrop-filter: none !important;
+            -webkit-backdrop-filter: none !important;
+        }
+
+        html[data-morph="flat"] .tool-main,
+        html[data-morph="flat"] .tool-meta,
+        html[data-morph="flat"] .quick-switch,
+        html[data-morph="flat"] .switch-item,
+        html[data-morph="flat"] .tool-stat,
+        html[data-morph="flat"] .tool-meta-visual,
+        html[data-morph="flat"] .top-btn,
+        html[data-morph="flat"] .theme-dropdown-menu {
+            background: rgba(252, 251, 248, 0.92) !important;
+            border-color: var(--t-border) !important;
+            box-shadow: none !important;
+        }
+
+        html[data-morph="glassmorphism"] .choice-brand-mark,
+        html[data-morph="glassmorphism"] .top-btn,
+        html[data-morph="glassmorphism"] .theme-dropdown-menu,
+        html[data-morph="glassmorphism"] .tool-main,
+        html[data-morph="glassmorphism"] .tool-meta,
+        html[data-morph="glassmorphism"] .quick-switch,
+        html[data-morph="glassmorphism"] .switch-item,
+        html[data-morph="glassmorphism"] .tool-stat,
+        html[data-morph="glassmorphism"] .tool-meta-visual {
+            background:
+                linear-gradient(180deg, rgba(255, 255, 255, 0.42), rgba(255, 255, 255, 0.18)),
+                rgba(255, 255, 255, 0.42) !important;
+            border-color: rgba(255, 255, 255, 0.55) !important;
+            box-shadow: 0 8px 32px rgba(120, 140, 90, 0.12) !important;
+            backdrop-filter: blur(24px) saturate(126%) !important;
+            -webkit-backdrop-filter: blur(24px) saturate(126%) !important;
+        }
+
+        html[data-morph="glassmorphism"] .switch-item.is-active {
+            background:
+                linear-gradient(180deg, rgba(255, 255, 255, 0.42), rgba(255, 255, 255, 0.22)),
+                color-mix(in srgb, var(--t-primary-faint) 62%, transparent) !important;
+            box-shadow:
+                inset 0 1px 0 rgba(255, 255, 255, 0.84),
+                0 12px 24px rgba(75, 75, 69, 0.08) !important;
+        }
+
+        html[data-morph="claymorphism"] .choice-brand-mark,
+        html[data-morph="claymorphism"] .top-btn,
+        html[data-morph="claymorphism"] .theme-dropdown-menu,
+        html[data-morph="claymorphism"] .tool-main,
+        html[data-morph="claymorphism"] .tool-meta,
+        html[data-morph="claymorphism"] .quick-switch,
+        html[data-morph="claymorphism"] .switch-item,
+        html[data-morph="claymorphism"] .tool-stat,
+        html[data-morph="claymorphism"] .tool-meta-visual {
+            background: #F6F3ED !important;
+            border-color: color-mix(in srgb, white 48%, var(--t-border)) !important;
+            box-shadow:
+                8px 8px 18px rgba(210, 215, 200, 0.35),
+                -8px -8px 18px rgba(255, 255, 255, 0.9) !important;
+            backdrop-filter: none !important;
+            -webkit-backdrop-filter: none !important;
+        }
+
+        html[data-morph="claymorphism"] .switch-item.is-active {
+            background:
+                linear-gradient(145deg, rgba(255, 255, 255, 0.96), color-mix(in srgb, var(--t-primary-faint) 74%, white)) !important;
+            box-shadow:
+                inset -2px -2px 5px rgba(255, 255, 255, 0.94),
+                inset 2px 2px 7px rgba(75, 75, 69, 0.1),
+                8px 10px 18px rgba(75, 75, 69, 0.08) !important;
+        }
+
+        .tool-screen {
+            padding: 110px 42px 112px !important;
+        }
+
+        .tool-screen::before {
+            background: none !important;
+        }
+
+        .tool-content {
+            max-width: 1360px !important;
+            width: 100% !important;
+            display: block !important;
+            opacity: 0.26;
+            transform: translateY(18px) scale(0.988);
+        }
+
+        .tool-screen.is-active-screen .tool-content {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+        }
+
+        .tool-shell {
+            display: grid;
+            grid-template-columns: minmax(0, 1.25fr) minmax(320px, 0.72fr);
+            gap: clamp(22px, 2.8vw, 36px);
+            align-items: stretch;
+            min-height: min(70vh, 760px);
+        }
+
+        .tool-main,
+        .tool-meta {
+            border: 1px solid var(--t-border) !important;
+            border-radius: 32px !important;
+            background: rgba(252, 251, 248, 0.88) !important;
+            box-shadow: var(--t-shadow-sm) !important;
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+        }
+
+        .tool-main {
+            --tool-copy-width: 100% !important;
+            min-width: 0;
+            padding: clamp(34px, 4vw, 56px) !important;
+            justify-content: space-between;
+        }
+
+        .tool-screen.layout-right .tool-main {
+            order: 1 !important;
+            padding-right: clamp(34px, 4vw, 56px) !important;
+        }
+
+        .tool-main-top {
+            display: grid;
+            gap: 14px;
+            align-content: start;
+        }
+
+        .tool-kicker {
+            width: auto !important;
+            margin: 0 !important;
+            letter-spacing: 0.18em !important;
+            color: var(--t-text-muted) !important;
+        }
+
+        .tool-title {
+            width: auto !important;
+            margin: 0 !important;
+            max-width: 10ch !important;
+            white-space: normal !important;
+            font-size: clamp(42px, 5.8vw, 86px) !important;
+            line-height: 0.96 !important;
+            color: var(--t-text-strong) !important;
+            text-shadow: none !important;
+        }
+
+        .tool-screen.is-active-screen .tool-title {
+            text-shadow: none !important;
+            letter-spacing: -0.02em !important;
+        }
+
+        .tool-desc {
+            width: auto !important;
+            max-width: 28ch !important;
+            margin: 0 !important;
+            white-space: normal !important;
+            font-size: clamp(16px, 1.2vw, 19px) !important;
+            line-height: 1.75 !important;
+            color: var(--t-text-main) !important;
+        }
+
+        .tool-enter-tip,
+        .tool-meta-title {
+            display: none !important;
+        }
+
+        .tool-stat-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 8px;
+        }
+
+        .tool-stat {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            min-height: 38px;
+            padding: 0 14px;
+            border-radius: 999px;
+            border: 1px solid var(--t-border);
+            background: rgba(241, 245, 238, 0.8);
+            color: var(--t-text-main);
+            font-size: 13px;
+            letter-spacing: 0.02em;
+        }
+
+        .tool-stat i {
+            color: var(--t-primary-hover);
+        }
+
+        .tool-meta {
+            width: 100% !important;
+            padding: clamp(28px, 3vw, 38px) !important;
+            display: grid !important;
+            gap: 22px;
+            align-content: space-between;
+        }
+
+        .tool-screen.layout-right .tool-meta {
+            order: 2 !important;
+            justify-self: stretch !important;
+        }
+
+        .tool-meta-visual {
+            width: 88px;
+            height: 88px;
+            border-radius: 26px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            background: linear-gradient(180deg, rgba(255, 255, 255, 0.88), rgba(241, 245, 238, 0.96));
+            border: 1px solid var(--t-border);
+            color: var(--t-primary-hover);
+            font-size: 34px;
+        }
+
+        .tool-meta-label {
+            margin: 0 0 8px;
+            font-size: 12px;
+            letter-spacing: 0.18em;
+            text-transform: uppercase;
+            color: var(--t-text-muted);
+        }
+
+        .tool-meta-heading {
+            margin: 0;
+            font-size: 24px;
+            line-height: 1.1;
+            color: var(--t-text-strong);
+        }
+
+        .tool-points {
+            gap: 12px !important;
+        }
+
+        .tool-points li {
+            gap: 12px !important;
+            font-size: 14px !important;
+            line-height: 1.65 !important;
+            color: var(--t-text-main) !important;
+        }
+
+        .tool-points li::before {
+            content: "" !important;
+            width: 6px !important;
+            height: 6px !important;
+            margin-top: 9px !important;
+            border-radius: 999px !important;
+            background: var(--t-primary) !important;
+            flex: 0 0 auto !important;
+        }
+
+        .tool-chips {
+            margin-top: 2px !important;
+            gap: 8px !important;
+        }
+
+        .tool-chip {
+            padding: 6px 10px !important;
+            border: 1px solid var(--t-border) !important;
+            border-radius: 999px !important;
+            background: rgba(248, 246, 241, 0.95) !important;
+            color: var(--t-text-muted) !important;
+        }
+
+        .side-nav-btn {
+            width: 44px !important;
+            height: 44px !important;
+            border: 1px solid var(--t-border) !important;
+            background: rgba(252, 251, 248, 0.88) !important;
+            box-shadow: none !important;
+        }
+
+        .side-nav-btn:hover {
+            background: rgba(241, 245, 238, 0.96) !important;
+            box-shadow: none !important;
+        }
+
+        .quick-dock {
+            padding: 14px 20px 18px !important;
+            background: linear-gradient(180deg, rgba(248, 246, 241, 0.08), rgba(248, 246, 241, 0.82)) !important;
+            border-top: 1px solid rgba(228, 232, 222, 0.8) !important;
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+        }
+
+        .quick-switch {
+            width: fit-content;
+            margin: 0 auto;
+            padding: 8px;
+            border-radius: 999px;
+            border: 1px solid var(--t-border);
+            background: rgba(252, 251, 248, 0.84);
+        }
+
+        .switch-item {
+            width: 44px !important;
+            height: 44px !important;
+            border: 1px solid transparent !important;
+            background: transparent !important;
+            color: var(--t-text-muted) !important;
+            box-shadow: none !important;
+        }
+
+        .switch-item:hover {
+            background: rgba(241, 245, 238, 0.88) !important;
+            color: var(--t-text-main) !important;
+            transform: translateY(-1px) !important;
+        }
+
+        .switch-item.is-active {
+            background: rgba(241, 245, 238, 0.96) !important;
+            border-color: var(--t-border) !important;
+            color: var(--t-primary-hover) !important;
+            transform: translateY(-1px) !important;
+        }
+
+        .footer {
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            min-height: 48px !important;
+            padding: 0 16px !important;
+            background: transparent !important;
+            color: var(--t-text-muted) !important;
+            z-index: 260 !important;
+            bottom: 92px !important;
+        }
+
+        .footer a {
+            color: var(--t-text-muted) !important;
+            font-size: 13px !important;
+            letter-spacing: 0.04em !important;
+        }
+
+        @media (max-width: 1100px) {
+            .choice-brand {
+                left: 24px;
+                top: 22px;
+                max-width: 280px;
+            }
+
+            .tool-screen {
+                padding: 104px 24px 108px !important;
+            }
+
+            .tool-shell {
+                grid-template-columns: 1fr;
+                min-height: auto;
+            }
+
+            .tool-title,
+            .tool-desc {
+                max-width: none !important;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .choice-brand {
+                position: static;
+                padding: 18px 18px 0;
+                max-width: none;
+                pointer-events: auto;
+            }
+
+            .choice-brand-note {
+                max-width: none;
+            }
+
+            .top-right-bar {
+                top: 18px !important;
+                right: 18px !important;
+            }
+
+            .tool-screen {
+                padding: 26px 18px 104px !important;
+                align-items: flex-start !important;
+            }
+
+            .tool-content {
+                opacity: 1 !important;
+                transform: none !important;
+            }
+
+            .tool-main,
+            .tool-meta {
+                border-radius: 26px !important;
+            }
+
+            .tool-main {
+                padding: 28px 22px !important;
+            }
+
+            .tool-meta {
+                padding: 22px !important;
+            }
+
+            .tool-title {
+                font-size: clamp(34px, 10vw, 52px) !important;
+            }
+
+            .tool-desc {
+                font-size: 15px !important;
+                line-height: 1.7 !important;
+            }
+
+            .side-nav-btn {
+                display: none !important;
+            }
+        }
+    </style>
 </head>
 
 <body>
@@ -1314,6 +1862,15 @@
         <div class="ambient-noise"></div>
     </div>
 
+    <header class="choice-brand" aria-hidden="true">
+        <div class="choice-brand-mark">Y</div>
+        <div class="choice-brand-copy">
+            <p class="choice-brand-eyebrow">Yobboy Server</p>
+            <h1 class="choice-brand-title">Workspace Entry</h1>
+            <p class="choice-brand-note">选择一个入口，继续当前工作流。</p>
+        </div>
+    </header>
+
     <div class="top-right-bar">
         <!-- Theme Selection -->
         <div class="theme-wrapper">
@@ -1322,12 +1879,12 @@
             </button>
             <div class="theme-dropdown-menu">
                 <div class="theme-group-title">颜色主题</div>
-                <div class="theme-item" data-theme-color="jasmine" onclick="setThemeColor('jasmine')">茉莉绿</div>
+                <div class="theme-item" data-theme-color="jasmine" onclick="setThemeColor('jasmine')">茉莉奶白</div>
                 <div class="theme-item" data-theme-color="ocean" onclick="setThemeColor('ocean')">海洋蓝</div>
-                <div class="theme-item" data-theme-color="forest" onclick="setThemeColor('forest')">森林绿</div>
-                <div class="theme-item" data-theme-color="sunset" onclick="setThemeColor('sunset')">落日橙</div>
-                <div class="theme-item" data-theme-color="lavender" onclick="setThemeColor('lavender')">薰衣草紫</div>
-                <div class="theme-item" data-theme-color="graphite" onclick="setThemeColor('graphite')">石墨深灰</div>
+                <div class="theme-item" data-theme-color="forest" onclick="setThemeColor('forest')">雾林灰绿</div>
+                <div class="theme-item" data-theme-color="sunset" onclick="setThemeColor('sunset')">暖砂橙</div>
+                <div class="theme-item" data-theme-color="lavender" onclick="setThemeColor('lavender')">雾紫灰</div>
+                <div class="theme-item" data-theme-color="graphite" onclick="setThemeColor('graphite')">石墨银灰</div>
                 <hr class="theme-divider">
                 <div class="theme-group-title">拟态效果</div>
                 <div class="theme-item" data-morph="flat" onclick="setMorph('flat')">纯色模式（无拟态）</div>
@@ -1353,145 +1910,217 @@
         <div class="tool-track" id="toolTrack">
             <section class="tool-screen" data-tool="file_browser" data-url="/file_browser" onclick="enterToolByIndex(0)">
                 <div class="tool-content">
-                    <div class="tool-main">
-                        <div class="tool-kicker">01 / 06 · File Hub</div>
-                        <h2 class="tool-title">文件浏览器</h2>
-                        <p class="tool-desc">查看、检索和共享本地文件与资料。</p>
-                        <p class="tool-enter-tip"><i class="fas fa-mouse-pointer"></i>点击此页面任意位置进入</p>
-                    </div>
-                    <aside class="tool-meta">
-                        <div class="tool-meta-title">核心能力</div>
-                        <ul class="tool-points">
-                            <li>多格式预览与下载一体化</li>
-                            <li>收藏分组快速回访常用目录</li>
-                            <li>支持局域网内高效共享</li>
-                        </ul>
-                        <div class="tool-chips">
-                            <span class="tool-chip">文件检索</span>
-                            <span class="tool-chip">预览</span>
-                            <span class="tool-chip">共享</span>
+                    <div class="tool-shell">
+                        <div class="tool-main">
+                            <div class="tool-main-top">
+                                <div class="tool-kicker">01 / 06 · File Hub</div>
+                                <h2 class="tool-title">文件浏览器</h2>
+                                <p class="tool-desc">浏览、检索与共享本地文件。</p>
+                            </div>
+                            <div class="tool-stat-row">
+                                <span class="tool-stat"><i class="fas fa-search"></i>快速检索</span>
+                                <span class="tool-stat"><i class="fas fa-eye"></i>即开即看</span>
+                                <span class="tool-stat"><i class="fas fa-share-alt"></i>局域网共享</span>
+                            </div>
                         </div>
-                    </aside>
+                        <aside class="tool-meta">
+                            <div class="tool-meta-visual"><i class="fas fa-folder-open"></i></div>
+                            <div>
+                                <p class="tool-meta-label">Module</p>
+                                <h3 class="tool-meta-heading">File Browser</h3>
+                            </div>
+                            <ul class="tool-points">
+                                <li>统一打开、预览、下载和整理本地资料。</li>
+                                <li>收藏目录与常用入口可以直接回到工作现场。</li>
+                                <li>共享链路保持轻量，适合内部协作与分发。</li>
+                            </ul>
+                            <div class="tool-chips">
+                                <span class="tool-chip">文件检索</span>
+                                <span class="tool-chip">预览</span>
+                                <span class="tool-chip">共享</span>
+                            </div>
+                        </aside>
+                    </div>
                 </div>
             </section>
 
             <section class="tool-screen layout-right" data-tool="todo_v2" data-url="/todo/v2" onclick="enterToolByIndex(1)">
                 <div class="tool-content">
-                    <div class="tool-main">
-                        <div class="tool-kicker">02 / 06 · Task Studio</div>
-                        <h2 class="tool-title">ToDo 任务管理</h2>
-                        <p class="tool-desc">管理项目任务、周计划和汇报进度。</p>
-                        <p class="tool-enter-tip"><i class="fas fa-mouse-pointer"></i>点击此页面任意位置进入</p>
-                    </div>
-                    <aside class="tool-meta">
-                        <div class="tool-meta-title">效率亮点</div>
-                        <ul class="tool-points">
-                            <li>表格与汇报双视图一键切换</li>
-                            <li>优先级与进度可视化管理</li>
-                            <li>历史记录支持追溯与复盘</li>
-                        </ul>
-                        <div class="tool-chips">
-                            <span class="tool-chip">项目协同</span>
-                            <span class="tool-chip">周报</span>
-                            <span class="tool-chip">追踪</span>
+                    <div class="tool-shell">
+                        <div class="tool-main">
+                            <div class="tool-main-top">
+                                <div class="tool-kicker">02 / 06 · Task Studio</div>
+                                <h2 class="tool-title">ToDo 任务管理</h2>
+                                <p class="tool-desc">跟踪任务、计划与汇报节奏。</p>
+                            </div>
+                            <div class="tool-stat-row">
+                                <span class="tool-stat"><i class="fas fa-tasks"></i>任务清单</span>
+                                <span class="tool-stat"><i class="fas fa-calendar"></i>周计划</span>
+                                <span class="tool-stat"><i class="fas fa-history"></i>过程留痕</span>
+                            </div>
                         </div>
-                    </aside>
+                        <aside class="tool-meta">
+                            <div class="tool-meta-visual"><i class="fas fa-tasks"></i></div>
+                            <div>
+                                <p class="tool-meta-label">Module</p>
+                                <h3 class="tool-meta-heading">Task Studio</h3>
+                            </div>
+                            <ul class="tool-points">
+                                <li>把任务拆解、优先级和状态放在同一工作面里。</li>
+                                <li>周计划与汇报共用同一套数据，减少重复整理。</li>
+                                <li>历史记录连续保留，适合追踪进度和复盘节点。</li>
+                            </ul>
+                            <div class="tool-chips">
+                                <span class="tool-chip">项目协同</span>
+                                <span class="tool-chip">周报</span>
+                                <span class="tool-chip">追踪</span>
+                            </div>
+                        </aside>
+                    </div>
                 </div>
             </section>
 
             <section class="tool-screen" data-tool="product_compare" data-url="/product_compare" onclick="enterToolByIndex(2)">
                 <div class="tool-content">
-                    <div class="tool-main">
-                        <div class="tool-kicker">03 / 06 · Compare Lab</div>
-                        <h2 class="tool-title">产品对比</h2>
-                        <p class="tool-desc">对比参数差异，快速完成选型决策。</p>
-                        <p class="tool-enter-tip"><i class="fas fa-mouse-pointer"></i>点击此页面任意位置进入</p>
-                    </div>
-                    <aside class="tool-meta">
-                        <div class="tool-meta-title">决策支持</div>
-                        <ul class="tool-points">
-                            <li>同屏比对核心参数差异</li>
-                            <li>雷达图快速观察优势短板</li>
-                            <li>对比结果便于复用与沉淀</li>
-                        </ul>
-                        <div class="tool-chips">
-                            <span class="tool-chip">选型</span>
-                            <span class="tool-chip">竞品</span>
-                            <span class="tool-chip">可视化</span>
+                    <div class="tool-shell">
+                        <div class="tool-main">
+                            <div class="tool-main-top">
+                                <div class="tool-kicker">03 / 06 · Compare Lab</div>
+                                <h2 class="tool-title">产品对比</h2>
+                                <p class="tool-desc">对比参数差异，快速完成选型。</p>
+                            </div>
+                            <div class="tool-stat-row">
+                                <span class="tool-stat"><i class="fas fa-columns"></i>同屏比较</span>
+                                <span class="tool-stat"><i class="fas fa-chart-bar"></i>差异可视化</span>
+                                <span class="tool-stat"><i class="fas fa-bookmark"></i>结果复用</span>
+                            </div>
                         </div>
-                    </aside>
+                        <aside class="tool-meta">
+                            <div class="tool-meta-visual"><i class="fas fa-balance-scale"></i></div>
+                            <div>
+                                <p class="tool-meta-label">Module</p>
+                                <h3 class="tool-meta-heading">Compare Lab</h3>
+                            </div>
+                            <ul class="tool-points">
+                                <li>关键参数放在同一视图中，减少来回切换成本。</li>
+                                <li>优势、短板和差距会更直观地暴露出来。</li>
+                                <li>对比结果可持续沉淀，适合后续选型复用。</li>
+                            </ul>
+                            <div class="tool-chips">
+                                <span class="tool-chip">选型</span>
+                                <span class="tool-chip">竞品</span>
+                                <span class="tool-chip">可视化</span>
+                            </div>
+                        </aside>
+                    </div>
                 </div>
             </section>
 
             <section class="tool-screen layout-right" data-tool="local_erp" data-url="/erp" onclick="enterToolByIndex(3)">
                 <div class="tool-content">
-                    <div class="tool-main">
-                        <div class="tool-kicker">04 / 06 · ERP Core</div>
-                        <h2 class="tool-title">本地离线 ERP</h2>
-                        <p class="tool-desc">管理物料、库存、BOM、工单与追溯，统一沉淀本地业务数据。</p>
-                        <p class="tool-enter-tip"><i class="fas fa-mouse-pointer"></i>点击此页面任意位置进入</p>
-                    </div>
-                    <aside class="tool-meta">
-                        <div class="tool-meta-title">业务闭环</div>
-                        <ul class="tool-points">
-                            <li>物料主数据、仓库与自定义字段集中维护</li>
-                            <li>入库出库、库存台账、预警与单据流转联动</li>
-                            <li>BOM、工单、追溯与 AI 查询共用本地数据库</li>
-                        </ul>
-                        <div class="tool-chips">
-                            <span class="tool-chip">库存</span>
-                            <span class="tool-chip">BOM</span>
-                            <span class="tool-chip">工单</span>
+                    <div class="tool-shell">
+                        <div class="tool-main">
+                            <div class="tool-main-top">
+                                <div class="tool-kicker">04 / 06 · ERP Core</div>
+                                <h2 class="tool-title">本地离线 ERP</h2>
+                                <p class="tool-desc">沉淀本地业务数据，覆盖库存到工单。</p>
+                            </div>
+                            <div class="tool-stat-row">
+                                <span class="tool-stat"><i class="fas fa-cubes"></i>库存台账</span>
+                                <span class="tool-stat"><i class="fas fa-sitemap"></i>BOM 结构</span>
+                                <span class="tool-stat"><i class="fas fa-industry"></i>工单追溯</span>
+                            </div>
                         </div>
-                    </aside>
+                        <aside class="tool-meta">
+                            <div class="tool-meta-visual"><i class="fas fa-industry"></i></div>
+                            <div>
+                                <p class="tool-meta-label">Module</p>
+                                <h3 class="tool-meta-heading">ERP Core</h3>
+                            </div>
+                            <ul class="tool-points">
+                                <li>物料、仓库和字段规则统一维护，减少业务断点。</li>
+                                <li>入出库、预警和单据流转保持连贯，可直接追踪状态。</li>
+                                <li>BOM、工单与追溯都落在本地数据层，适合离线环境。</li>
+                            </ul>
+                            <div class="tool-chips">
+                                <span class="tool-chip">库存</span>
+                                <span class="tool-chip">BOM</span>
+                                <span class="tool-chip">工单</span>
+                            </div>
+                        </aside>
+                    </div>
                 </div>
             </section>
 
             <section class="tool-screen layout-right" data-tool="drawio_main" data-url="/drawio_main" onclick="enterToolByIndex(4)">
                 <div class="tool-content">
-                    <div class="tool-main">
-                        <div class="tool-kicker">05 / 06 · Diagram Space</div>
-                        <h2 class="tool-title">Draw.io 编辑器</h2>
-                        <p class="tool-desc">绘制流程图、架构图并本地保存。</p>
-                        <p class="tool-enter-tip"><i class="fas fa-mouse-pointer"></i>点击此页面任意位置进入</p>
-                    </div>
-                    <aside class="tool-meta">
-                        <div class="tool-meta-title">图表能力</div>
-                        <ul class="tool-points">
-                            <li>流程图与架构图统一编辑</li>
-                            <li>本地保存保障数据可控</li>
-                            <li>适合评审演示与归档</li>
-                        </ul>
-                        <div class="tool-chips">
-                            <span class="tool-chip">流程图</span>
-                            <span class="tool-chip">架构图</span>
-                            <span class="tool-chip">本地化</span>
+                    <div class="tool-shell">
+                        <div class="tool-main">
+                            <div class="tool-main-top">
+                                <div class="tool-kicker">05 / 06 · Diagram Space</div>
+                                <h2 class="tool-title">Draw.io 编辑器</h2>
+                                <p class="tool-desc">绘制流程图、架构图，并本地保存。</p>
+                            </div>
+                            <div class="tool-stat-row">
+                                <span class="tool-stat"><i class="fas fa-project-diagram"></i>流程梳理</span>
+                                <span class="tool-stat"><i class="fas fa-network-wired"></i>架构表达</span>
+                                <span class="tool-stat"><i class="fas fa-save"></i>本地保存</span>
+                            </div>
                         </div>
-                    </aside>
+                        <aside class="tool-meta">
+                            <div class="tool-meta-visual"><i class="fas fa-project-diagram"></i></div>
+                            <div>
+                                <p class="tool-meta-label">Module</p>
+                                <h3 class="tool-meta-heading">Diagram Space</h3>
+                            </div>
+                            <ul class="tool-points">
+                                <li>把流程、结构和节点关系放到统一画布里管理。</li>
+                                <li>本地保存链路更稳，适合内部设计与评审交付。</li>
+                                <li>对归档和后续复用更友好，不依赖外部云端。</li>
+                            </ul>
+                            <div class="tool-chips">
+                                <span class="tool-chip">流程图</span>
+                                <span class="tool-chip">架构图</span>
+                                <span class="tool-chip">本地化</span>
+                            </div>
+                        </aside>
+                    </div>
                 </div>
             </section>
 
             <section class="tool-screen" data-tool="serial_tool" data-url="/serial_tool" onclick="enterToolByIndex(5)">
                 <div class="tool-content">
-                    <div class="tool-main">
-                        <div class="tool-kicker">06 / 06 · Serial Console</div>
-                        <h2 class="tool-title">串口调试助手</h2>
-                        <p class="tool-desc">连接串口设备，实时收发与排查问题。</p>
-                        <p class="tool-enter-tip"><i class="fas fa-mouse-pointer"></i>点击此页面任意位置进入</p>
-                    </div>
-                    <aside class="tool-meta">
-                        <div class="tool-meta-title">调试能力</div>
-                        <ul class="tool-points">
-                            <li>实时收发与链路状态观察</li>
-                            <li>日志记录辅助故障定位</li>
-                            <li>覆盖本地与远程设备场景</li>
-                        </ul>
-                        <div class="tool-chips">
-                            <span class="tool-chip">串口通信</span>
-                            <span class="tool-chip">监控</span>
-                            <span class="tool-chip">诊断</span>
+                    <div class="tool-shell">
+                        <div class="tool-main">
+                            <div class="tool-main-top">
+                                <div class="tool-kicker">06 / 06 · Serial Console</div>
+                                <h2 class="tool-title">串口调试助手</h2>
+                                <p class="tool-desc">连接设备，实时收发并定位问题。</p>
+                            </div>
+                            <div class="tool-stat-row">
+                                <span class="tool-stat"><i class="fas fa-plug"></i>设备连接</span>
+                                <span class="tool-stat"><i class="fas fa-wave-square"></i>实时收发</span>
+                                <span class="tool-stat"><i class="fas fa-stethoscope"></i>问题诊断</span>
+                            </div>
                         </div>
-                    </aside>
+                        <aside class="tool-meta">
+                            <div class="tool-meta-visual"><i class="fas fa-plug"></i></div>
+                            <div>
+                                <p class="tool-meta-label">Module</p>
+                                <h3 class="tool-meta-heading">Serial Console</h3>
+                            </div>
+                            <ul class="tool-points">
+                                <li>实时查看设备收发链路，便于判断连接与状态。</li>
+                                <li>日志与数据流保留在同一界面，排查过程更顺手。</li>
+                                <li>适合本地硬件调试，也兼顾远程联调场景。</li>
+                            </ul>
+                            <div class="tool-chips">
+                                <span class="tool-chip">串口通信</span>
+                                <span class="tool-chip">监控</span>
+                                <span class="tool-chip">诊断</span>
+                            </div>
+                        </aside>
+                    </div>
                 </div>
             </section>
 
@@ -1510,9 +2139,7 @@
     </div>
 
     <div class="footer" onclick="event.stopPropagation();">
-        © 2025 Yobboy文件服务器 - 本地化文件管理与图表编辑解决方案
-        <br>
-        <a href="/help" onclick="event.stopPropagation();" style="color: #4facfe; text-decoration: none; margin-top: 10px; display: inline-block;">
+        <a href="/help" onclick="event.stopPropagation();" style="color: inherit; text-decoration: none; display: inline-flex; align-items: center; gap: 8px;">
             <i class="fas fa-question-circle"></i> 使用帮助
         </a>
     </div>

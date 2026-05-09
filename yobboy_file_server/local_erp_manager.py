@@ -8,7 +8,7 @@ import threading
 from datetime import datetime
 from typing import Any, Dict, Iterable, List, Optional
 
-from .paths import package_dir, project_base_dir
+from .paths import get_data_path, package_dir, project_base_dir
 
 
 DOC_PREFIXES = {
@@ -63,10 +63,108 @@ def _normalize_json_text(value: Any) -> str:
         return str(value)
 
 
+def _parse_json_object(value: Any) -> Dict[str, Any]:
+    if value is None:
+        return {}
+    if isinstance(value, dict):
+        return dict(value)
+    if isinstance(value, str):
+        raw = value.strip()
+        if not raw:
+            return {}
+        try:
+            parsed = json.loads(raw)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return {}
+        return dict(parsed) if isinstance(parsed, dict) else {}
+    return {}
+
+
+def _parse_json_value(value: Any) -> Any:
+    if not isinstance(value, str):
+        return value
+    raw = value.strip()
+    if not raw or raw[0] not in "{[":
+        return value
+    try:
+        return json.loads(raw)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return value
+
+
+def _normalize_item_custom_field_definitions(raw_values: Optional[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+    definitions: Dict[str, Dict[str, Any]] = {}
+    for raw_name, raw_value in (raw_values or {}).items():
+        field_name = str(raw_name or "").strip()
+        if not field_name:
+            continue
+        parsed_value = _parse_json_value(raw_value)
+        if isinstance(parsed_value, dict):
+            default_value = parsed_value.get("default_value")
+            if default_value is None:
+                default_value = parsed_value.get("value")
+            if default_value is None:
+                default_value = parsed_value.get("field_value")
+            definitions[field_name] = {
+                "default_value": "" if default_value is None else str(default_value),
+                "instance_level": bool(
+                    parsed_value.get("instance_level")
+                    or parsed_value.get("is_instance_level")
+                    or parsed_value.get("per_instance")
+                ),
+            }
+            continue
+        definitions[field_name] = {
+            "default_value": "" if parsed_value is None else str(parsed_value),
+            "instance_level": False,
+        }
+    return definitions
+
+
+def _serialize_item_custom_field_definitions(definitions: Optional[Dict[str, Any]]) -> Dict[str, str]:
+    normalized = _normalize_item_custom_field_definitions(definitions if isinstance(definitions, dict) else {})
+    return {
+        field_name: json.dumps(
+            {
+                "default_value": field_meta.get("default_value", ""),
+                "instance_level": bool(field_meta.get("instance_level")),
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+        for field_name, field_meta in normalized.items()
+    }
+
+
+def _item_custom_field_values_from_definitions(definitions: Optional[Dict[str, Dict[str, Any]]]) -> Dict[str, str]:
+    return {
+        field_name: str((field_meta or {}).get("default_value") or "")
+        for field_name, field_meta in (definitions or {}).items()
+    }
+
+
+def _build_instance_attribute_template(
+    field_definitions: Optional[Dict[str, Dict[str, Any]]],
+    current_values: Optional[Dict[str, Any]] = None,
+) -> Dict[str, str]:
+    template_values: Dict[str, str] = {}
+    current_map = _parse_json_object(current_values)
+    for field_name, field_meta in (field_definitions or {}).items():
+        if not bool((field_meta or {}).get("instance_level")):
+            continue
+        current_value = current_map.get(field_name)
+        if current_value is None:
+            current_value = (field_meta or {}).get("default_value", "")
+        template_values[field_name] = "" if current_value is None else str(current_value)
+    for field_name, field_value in current_map.items():
+        if field_name not in template_values:
+            template_values[field_name] = "" if field_value is None else str(field_value)
+    return template_values
+
+
 class LocalERPManager:
     def __init__(self, db_path: Optional[str] = None) -> None:
-        data_dir = os.path.join(project_base_dir(), "data", "local_erp")
-        os.makedirs(data_dir, exist_ok=True)
+        data_dir = get_data_path("local_erp")
         self.db_path = db_path or os.path.join(data_dir, "erp.sqlite3")
         self._lock = threading.RLock()
         self._schema_path = self._resolve_schema_path()
@@ -340,7 +438,9 @@ class LocalERPManager:
                 conn=conn,
             )
         for item in items:
-            item["custom_field_values"] = custom_field_map.get(item["id"], {})
+            field_definitions = _normalize_item_custom_field_definitions(custom_field_map.get(item["id"], {}))
+            item["custom_field_definitions"] = field_definitions
+            item["custom_field_values"] = _item_custom_field_values_from_definitions(field_definitions)
             summary = instance_summary_map.get(item["id"], {})
             item["instance_count"] = summary.get("instance_count", 0)
             item["in_stock_instance_count"] = summary.get("in_stock_instance_count", 0)
@@ -587,7 +687,9 @@ class LocalERPManager:
             raise ValueError("物料不存在")
             return {}
         item = dict(row)
-        item["custom_field_values"] = self.get_custom_field_values("items", item_id)
+        field_definitions = _normalize_item_custom_field_definitions(self.get_custom_field_values("items", item_id))
+        item["custom_field_definitions"] = field_definitions
+        item["custom_field_values"] = _item_custom_field_values_from_definitions(field_definitions)
         return item
 
     def create_item(self, payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -633,7 +735,10 @@ class LocalERPManager:
                 ),
             )
             item_id = cursor.lastrowid
-            self.save_custom_field_values("items", item_id, payload.get("custom_field_values") or {}, conn=conn)
+            item_field_values = payload.get("custom_field_definitions")
+            if item_field_values is None and "custom_field_values" in payload:
+                item_field_values = payload.get("custom_field_values") or {}
+            self.save_custom_field_values("items", item_id, _serialize_item_custom_field_definitions(item_field_values), conn=conn)
             self._log_operation(conn, "erp_items", "create", "item", item_id, payload)
             conn.commit()
         initial_instance_count = _normalize_int(payload.get("initial_instance_count"))
@@ -687,8 +792,11 @@ class LocalERPManager:
                     item_id,
                 ),
             )
-            if "custom_field_values" in payload:
-                self.save_custom_field_values("items", item_id, payload.get("custom_field_values") or {}, conn=conn)
+            if "custom_field_definitions" in payload or "custom_field_values" in payload:
+                item_field_values = payload.get("custom_field_definitions")
+                if item_field_values is None:
+                    item_field_values = payload.get("custom_field_values") or {}
+                self.save_custom_field_values("items", item_id, _serialize_item_custom_field_definitions(item_field_values), conn=conn)
             self._log_operation(conn, "erp_items", "update", "item", item_id, payload)
             conn.commit()
         return self.get_item(item_id)
@@ -739,7 +847,9 @@ class LocalERPManager:
         if row is None:
             raise ValueError("物料不存在")
         item = dict(row)
-        item["custom_field_values"] = self.get_custom_field_values("items", item_id)
+        field_definitions = _normalize_item_custom_field_definitions(self.get_custom_field_values("items", item_id))
+        item["custom_field_definitions"] = field_definitions
+        item["custom_field_values"] = _item_custom_field_values_from_definitions(field_definitions)
         summary = self._get_item_instance_summary_map([item_id]).get(item_id, {})
         item["instance_count"] = summary.get("instance_count", 0)
         item["in_stock_instance_count"] = summary.get("in_stock_instance_count", 0)
@@ -748,6 +858,7 @@ class LocalERPManager:
     def list_item_instances(
         self,
         item_id: Optional[int] = None,
+        item_ids: Optional[Iterable[int]] = None,
         keyword: str = "",
         status: str = "",
         warehouse_id: Optional[int] = None,
@@ -759,6 +870,17 @@ class LocalERPManager:
         if normalized_item_id > 0:
             conditions.append("ii.item_id = ?")
             params.append(normalized_item_id)
+        normalized_item_ids = sorted(
+            {
+                normalized_id
+                for normalized_id in (_normalize_int(raw_id) for raw_id in (item_ids or []))
+                if normalized_id > 0
+            }
+        )
+        if normalized_item_ids:
+            placeholders = ",".join("?" for _ in normalized_item_ids)
+            conditions.append(f"ii.item_id IN ({placeholders})")
+            params.extend(normalized_item_ids)
         keyword = (keyword or "").strip()
         if keyword:
             conditions.append(
@@ -797,11 +919,29 @@ class LocalERPManager:
                 """,
                 params,
             ).fetchall()
-        return [dict(row) for row in rows]
+            instances = [dict(row) for row in rows]
+            custom_field_map = self._get_custom_field_values_map("item_instances", [row["id"] for row in rows], conn=conn)
+            item_field_definition_map = {
+                item_id: _normalize_item_custom_field_definitions(field_values)
+                for item_id, field_values in self._get_custom_field_values_map(
+                    "items",
+                    [row["item_id"] for row in rows],
+                    conn=conn,
+                ).items()
+            }
+        for instance in instances:
+            instance["item_custom_field_definitions"] = item_field_definition_map.get(instance["item_id"], {})
+            instance["attribute_values"] = _build_instance_attribute_template(
+                instance["item_custom_field_definitions"],
+                instance.get("attributes_json"),
+            )
+            instance["custom_field_values"] = custom_field_map.get(instance["id"], {})
+        return instances
 
     def list_item_instance_logs(
         self,
         item_id: Optional[int] = None,
+        item_ids: Optional[Iterable[int]] = None,
         instance_id: Optional[int] = None,
         limit: int = 100,
     ) -> List[Dict[str, Any]]:
@@ -815,6 +955,17 @@ class LocalERPManager:
         if normalized_item_id > 0:
             conditions.append("ii.item_id = ?")
             params.append(normalized_item_id)
+        normalized_item_ids = sorted(
+            {
+                normalized_id
+                for normalized_id in (_normalize_int(raw_id) for raw_id in (item_ids or []))
+                if normalized_id > 0
+            }
+        )
+        if normalized_item_ids:
+            placeholders = ",".join("?" for _ in normalized_item_ids)
+            conditions.append(f"ii.item_id IN ({placeholders})")
+            params.extend(normalized_item_ids)
         where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
         params.append(_normalize_int(limit, 100))
 
@@ -874,7 +1025,16 @@ class LocalERPManager:
 
     def get_item_instance(self, instance_id: int) -> Dict[str, Any]:
         with self._connect() as conn:
-            return dict(self._get_item_instance_row(conn, instance_id))
+            row = dict(self._get_item_instance_row(conn, instance_id))
+            row["item_custom_field_definitions"] = _normalize_item_custom_field_definitions(
+                self._get_custom_field_values_map("items", [row["item_id"]], conn=conn).get(row["item_id"], {})
+            )
+            row["attribute_values"] = _build_instance_attribute_template(
+                row["item_custom_field_definitions"],
+                row.get("attributes_json"),
+            )
+            row["custom_field_values"] = self._get_custom_field_values_map("item_instances", [instance_id], conn=conn).get(instance_id, {})
+            return row
 
     def update_item_instance(self, instance_id: int, payload: Dict[str, Any]) -> Dict[str, Any]:
         now = _now_text()
@@ -883,9 +1043,15 @@ class LocalERPManager:
             next_serial_no = (payload.get("serial_no") if "serial_no" in payload else current["serial_no"]) or ""
             next_location_code = (payload.get("location_code") if "location_code" in payload else current["location_code"]) or ""
             next_owner_name = (payload.get("owner_name") if "owner_name" in payload else current["owner_name"]) or ""
-            next_attributes_json = _normalize_json_text(
-                payload.get("attributes_json") if "attributes_json" in payload else current["attributes_json"]
+            item_field_definitions = _normalize_item_custom_field_definitions(
+                self._get_custom_field_values_map("items", [current["item_id"]], conn=conn).get(current["item_id"], {})
             )
+            next_attribute_values = _build_instance_attribute_template(item_field_definitions, current.get("attributes_json"))
+            if "attribute_values" in payload:
+                next_attribute_values = _build_instance_attribute_template(item_field_definitions, payload.get("attribute_values"))
+            elif "attributes_json" in payload:
+                next_attribute_values = _build_instance_attribute_template(item_field_definitions, payload.get("attributes_json"))
+            next_attributes_json = _normalize_json_text(next_attribute_values)
             next_remark = (payload.get("remark") if "remark" in payload else current["remark"]) or ""
             conn.execute(
                 """
@@ -905,6 +1071,13 @@ class LocalERPManager:
                     instance_id,
                 ),
             )
+            if "custom_field_values" in payload:
+                self.save_custom_field_values(
+                    "item_instances",
+                    instance_id,
+                    payload.get("custom_field_values") or {},
+                    conn=conn,
+                )
             self._insert_item_instance_log(
                 conn,
                 instance_id,
@@ -920,6 +1093,20 @@ class LocalERPManager:
             )
             conn.commit()
         return self.get_item_instance(instance_id)
+
+    def bulk_update_item_instances(self, instance_ids: Iterable[int], payload: Dict[str, Any]) -> Dict[str, Any]:
+        normalized_ids = [
+            normalized_id
+            for normalized_id in (_normalize_int(instance_id) for instance_id in (instance_ids or []))
+            if normalized_id > 0
+        ]
+        if not normalized_ids:
+            raise ValueError("请至少选择一个个体")
+        updated_instances = [self.update_item_instance(instance_id, payload) for instance_id in normalized_ids]
+        return {
+            "updated_count": len(updated_instances),
+            "instances": updated_instances,
+        }
 
     def create_item_instances(self, item_id: int, payload: Dict[str, Any]) -> Dict[str, Any]:
         normalized_item_id = _normalize_int(item_id)
@@ -1195,6 +1382,86 @@ class LocalERPManager:
             "instance": self.get_item_instance(instance_id),
             "document_id": document_meta["id"],
             "document_no": document_meta["doc_no"],
+        }
+
+    def delete_item_instance(self, instance_id: int, payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        payload = payload or {}
+        with self._lock, self._connect() as conn:
+            current = dict(self._get_item_instance_row(conn, instance_id))
+            current_warehouse_id = _normalize_int(current.get("warehouse_id"))
+            document_meta = None
+            if current_warehouse_id > 0:
+                document_meta = self._create_submitted_stock_document(
+                    conn,
+                    {
+                        "doc_type": "other_out",
+                        "biz_date": payload.get("biz_date") or _today_text(),
+                        "source_warehouse_id": current_warehouse_id,
+                        "remark": (payload.get("remark") or f"删除个体 {current['instance_code']}").strip(),
+                        "items": [
+                            {
+                                "item_id": current["item_id"],
+                                "qty": 1,
+                                "batch_no": current["instance_code"],
+                                "warehouse_id": current_warehouse_id,
+                                "location_code": current.get("location_code") or "",
+                                "remark": (payload.get("remark") or "删除个体").strip(),
+                            }
+                        ],
+                    },
+                )
+
+            conn.execute("DELETE FROM item_instance_logs WHERE instance_id = ?", (instance_id,))
+            conn.execute(
+                "DELETE FROM custom_field_values WHERE entity_name = 'item_instances' AND record_id = ?",
+                (instance_id,),
+            )
+            conn.execute("DELETE FROM item_instances WHERE id = ?", (instance_id,))
+            self._log_operation(
+                conn,
+                "erp_item_instances",
+                "delete",
+                "item_instance",
+                instance_id,
+                {
+                    "instance_code": current.get("instance_code"),
+                    "item_id": current.get("item_id"),
+                    "document_id": document_meta["id"] if document_meta else None,
+                },
+            )
+            conn.commit()
+        return {
+            "deleted_instance": current,
+            "document_id": document_meta["id"] if document_meta else None,
+            "document_no": document_meta["doc_no"] if document_meta else "",
+        }
+
+    def bulk_item_instance_action(self, instance_ids: Iterable[int], payload: Dict[str, Any]) -> Dict[str, Any]:
+        normalized_ids = [
+            normalized_id
+            for normalized_id in (_normalize_int(instance_id) for instance_id in (instance_ids or []))
+            if normalized_id > 0
+        ]
+        if not normalized_ids:
+            raise ValueError("请至少选择一个个体")
+        action = (payload.get("action") or "").strip().lower()
+        if not action:
+            raise ValueError("请选择批量操作")
+
+        results: List[Dict[str, Any]] = []
+        deleted_instances: List[Dict[str, Any]] = []
+        for instance_id in normalized_ids:
+            if action == "delete":
+                deleted = self.delete_item_instance(instance_id, payload)
+                deleted_instances.append(deleted["deleted_instance"])
+                results.append(deleted)
+            else:
+                results.append(self.perform_item_instance_action(instance_id, payload))
+        return {
+            "action": action,
+            "processed_count": len(results),
+            "results": results,
+            "deleted_instances": deleted_instances,
         }
 
     def _insert_item_instance_log(

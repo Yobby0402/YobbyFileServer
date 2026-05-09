@@ -15,6 +15,77 @@ def _style_map(style_text):
 
 
 class DrawioTextDslRoutingTests(unittest.TestCase):
+    def test_extracts_unlabeled_fenced_yobboy_flow(self):
+        raw = """
+Here is the diagram:
+```
+kind: yobboy-flow-v1
+node A "Start"
+node B "End"
+A -> B
+```
+"""
+        xml_text = drawio_text_dsl.convert_model_reply_to_mxfile(raw)
+        root = ET.fromstring(xml_text)
+        self.assertEqual("mxfile", root.tag)
+        self.assertEqual(2, len(root.findall(".//mxCell[@vertex='1']")))
+        self.assertEqual(1, len(root.findall(".//mxCell[@edge='1']")))
+
+    def test_extract_normalizes_unicode_arrow(self):
+        raw = """
+```mermaid
+node A "Start"
+node B "End"
+A → B
+```
+"""
+        xml_text = drawio_text_dsl.convert_model_reply_to_mxfile(raw)
+        root = ET.fromstring(xml_text)
+        self.assertEqual(1, len(root.findall(".//mxCell[@edge='1']")))
+
+    def test_extracts_dsl_lines_from_surrounding_text(self):
+        raw = """
+下面是图表内容：
+node A "Start"
+node B "End"
+A -> B
+这行不是 DSL，不应进入解析。
+"""
+        src = drawio_text_dsl.extract_yobboy_flow_source(raw)
+        self.assertNotIn("下面是", src)
+        self.assertNotIn("不应进入解析", src)
+        xml_text = drawio_text_dsl.convert_model_reply_to_mxfile(raw)
+        root = ET.fromstring(xml_text)
+        self.assertEqual(1, len(root.findall(".//mxCell[@edge='1']")))
+
+    def test_accepts_common_mermaid_flowchart(self):
+        raw = """
+```mermaid
+graph TD
+    A[Start] --> B{Approved?}
+    B -->|Yes| C[Ship]
+    B -- No --> D[Reject]
+```
+"""
+        xml_text = drawio_text_dsl.convert_model_reply_to_mxfile(raw)
+        root = ET.fromstring(xml_text)
+        labels = {cell.attrib.get("value", "") for cell in root.findall(".//mxCell[@vertex='1']")}
+        edge_labels = {cell.attrib.get("value", "") for cell in root.findall(".//mxCell[@edge='1']")}
+        self.assertIn("Start", labels)
+        self.assertIn("Approved?", labels)
+        self.assertIn("Ship", labels)
+        self.assertIn("Reject", labels)
+        self.assertIn("Yes", edge_labels)
+        self.assertIn("No", edge_labels)
+
+    def test_accepts_single_line_mermaid_with_semicolons(self):
+        raw = "flowchart LR; A([Start]) --> B[/Input/]; B --> C((Done));"
+        xml_text = drawio_text_dsl.convert_model_reply_to_mxfile(raw)
+        root = ET.fromstring(xml_text)
+        labels = {cell.attrib.get("value", "") for cell in root.findall(".//mxCell[@vertex='1']")}
+        self.assertEqual({"Start", "Input", "Done"}, labels)
+        self.assertEqual(2, len(root.findall(".//mxCell[@edge='1']")))
+
     def _vertex_geometry_by_label(self, body):
         xml_text = drawio_text_dsl.yobboy_flow_to_mxfile(body)
         root = ET.fromstring(xml_text)

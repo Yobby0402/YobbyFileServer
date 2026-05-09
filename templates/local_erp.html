@@ -90,6 +90,12 @@
             border: 1px solid var(--t-border-light, rgba(255,255,255,0.5));
             backdrop-filter: blur(12px);
         }
+        .subtle-panel {
+            background: color-mix(in srgb, var(--t-primary, #4f7cff) 5%, var(--t-bg-panel, #fff));
+            border: 1px solid color-mix(in srgb, var(--t-primary, #4f7cff) 10%, transparent);
+            border-radius: 18px;
+            padding: 16px;
+        }
         .metric-card {
             background: linear-gradient(
                 135deg,
@@ -315,6 +321,24 @@
             background: color-mix(in srgb, var(--t-primary, #4f7cff) 4%, var(--t-bg-panel, #fff));
             border: 1px solid color-mix(in srgb, var(--t-primary, #4f7cff) 10%, transparent);
             box-shadow: none;
+        }
+        .instance-item-entry {
+            cursor: pointer;
+            transition: background-color 0.18s ease, transform 0.18s ease;
+        }
+        .instance-item-entry:hover {
+            transform: translateX(2px);
+        }
+        .instance-item-entry.active {
+            background: color-mix(in srgb, var(--t-primary, #4f7cff) 14%, transparent);
+        }
+        .instance-attribute-row,
+        .instance-batch-card {
+            transition: opacity 0.22s ease, transform 0.22s ease;
+        }
+        .instance-batch-card.is-transitioning {
+            opacity: 0;
+            transform: translateX(var(--batch-shift, 18px));
         }
         .modal-content {
             background: var(--t-bg-panel-opaque, rgba(255,255,255,0.95));
@@ -562,28 +586,41 @@
         {% if active_page == 'instances' %}
         <section id="page-instances">
             <div class="row g-3">
-                <div class="col-xl-8">
-                    <div class="page-card">
+                <div class="col-xl-4 col-xxl-3">
+                    <div class="page-card h-100">
+                        <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
+                            <div>
+                                <h2 class="h5 mb-1">个体物料列表</h2>
+                                <div class="small-muted">左侧勾选物料，右侧只显示已选物料的个体。</div>
+                            </div>
+                            <div class="btn-group btn-group-sm">
+                                <button class="btn btn-outline-secondary" type="button" onclick="selectAllInstanceItems()">全选</button>
+                                <button class="btn btn-outline-secondary" type="button" onclick="clearAllInstanceItems()">全不选</button>
+                            </div>
+                        </div>
+                        <div class="small text-muted mb-2" id="instanceItemSelectionSummary">未选择物料</div>
+                        <div id="instanceItemList" class="list-group list-group-flush border rounded" style="max-height: 72vh; overflow:auto;"></div>
+                    </div>
+                </div>
+                <div class="col-xl-8 col-xxl-9">
+                    <div class="page-card mb-3">
                         <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
                             <div>
                                 <h2 class="h4 mb-1">物料个体管理</h2>
-                                <div class="small-muted">对已开启个体级管理的物料，逐件维护属性、仓位、去向与出入库。</div>
+                                <div class="small-muted">按物料查看个体，并支持批量属性编辑、调拨、出库、入库和删除。</div>
                             </div>
                             <div class="toolbar">
                                 <button class="btn btn-outline-secondary btn-sm" type="button" onclick="refreshInstancesPage()">刷新</button>
+                                <button class="btn btn-outline-primary btn-sm" type="button" onclick="openInstanceBatchEditor()">批量个体属性编辑</button>
                                 <button class="btn btn-primary btn-sm" type="button" onclick="openInstanceGenerateModal()">批量生成个体</button>
                             </div>
                         </div>
                         <div class="row g-2 mb-3">
-                            <div class="col-md-3">
-                                <label for="instanceItemFilter" class="form-label small mb-1">物料</label>
-                                <select id="instanceItemFilter" class="form-select form-select-sm"></select>
-                            </div>
-                            <div class="col-md-3">
+                            <div class="col-md-4">
                                 <label for="instanceKeyword" class="form-label small mb-1">搜索关键字</label>
                                 <input id="instanceKeyword" class="form-control form-control-sm" placeholder="物料编码 / 名称 / 个体编号 / 序列号">
                             </div>
-                            <div class="col-md-2">
+                            <div class="col-md-3">
                                 <label for="instanceStatusFilter" class="form-label small mb-1">个体状态</label>
                                 <select id="instanceStatusFilter" class="form-select form-select-sm">
                                     <option value="">全部状态</option>
@@ -594,7 +631,7 @@
                                     <option value="scrapped">已报废</option>
                                 </select>
                             </div>
-                            <div class="col-md-2">
+                            <div class="col-md-3">
                                 <label for="instanceWarehouseFilter" class="form-label small mb-1">所在仓库</label>
                                 <select id="instanceWarehouseFilter" class="form-select form-select-sm"></select>
                             </div>
@@ -602,45 +639,65 @@
                                 <button class="btn btn-outline-primary btn-sm w-100" type="button" onclick="refreshInstancesPage()">查询</button>
                             </div>
                         </div>
+                        <div class="subtle-panel mb-3">
+                            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+                                <div>
+                                    <div class="fw-semibold">个体差异列</div>
+                                    <div class="small-muted">可把 IMEI、卡号等个体差异属性直接显示在列表里，便于快速检查未填写项。</div>
+                                </div>
+                                <span class="badge-soft" id="instanceAttributeColumnSummary">未显示差异列</span>
+                            </div>
+                            <div class="form-check form-switch mb-2">
+                                <input class="form-check-input" type="checkbox" id="instanceMissingAttributeOnly" onchange="toggleInstanceMissingAttributeOnly(this.checked)">
+                                <label class="form-check-label small" for="instanceMissingAttributeOnly">仅看未填写</label>
+                            </div>
+                            <div id="instanceAttributeColumnPicker" class="d-flex flex-wrap gap-2"></div>
+                        </div>
+                        <div id="instanceBulkToolbar" class="alert alert-info py-2 px-3 d-none">
+                            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+                                <div class="small mb-0">已选 <strong id="instanceSelectedCount">0</strong> 个个体，搜索和筛选不会清空勾选状态。</div>
+                                <div class="btn-group btn-group-sm">
+                                    <button class="btn btn-outline-primary" type="button" onclick="openBulkInstanceActionModal('transfer')">批量调拨</button>
+                                    <button class="btn btn-outline-warning" type="button" onclick="openBulkInstanceActionModal('checkout')">批量出库</button>
+                                    <button class="btn btn-outline-success" type="button" onclick="openBulkInstanceActionModal('checkin')">批量入库</button>
+                                    <button class="btn btn-outline-danger" type="button" onclick="openBulkInstanceActionModal('delete')">批量删除</button>
+                                    <button class="btn btn-outline-secondary" type="button" onclick="clearSelectedInstances()">清空勾选</button>
+                                </div>
+                            </div>
+                        </div>
                         <div class="table-wrap">
                             <table class="table table-striped table-sm align-middle">
-                                <thead>
-                                <tr>
-                                    <th>个体编号</th>
-                                    <th>物料</th>
-                                    <th>序列号</th>
-                                    <th>状态</th>
-                                    <th>仓库/位置</th>
-                                    <th>持有人/去向</th>
-                                    <th>更新时间</th>
-                                    <th>操作</th>
-                                </tr>
-                                </thead>
+                                <thead id="instanceTableHead"></thead>
                                 <tbody id="instanceTable"></tbody>
                             </table>
                         </div>
                     </div>
-                </div>
-                <div class="col-xl-4">
-                    <div class="page-card mb-3">
-                        <div class="d-flex justify-content-between align-items-center mb-2">
-                            <h3 class="h6 mb-0">个体日志</h3>
-                            <button class="btn btn-outline-secondary btn-sm" type="button" onclick="loadInstanceLogs()">刷新</button>
+                    <div class="row g-3">
+                        <div class="col-lg-7">
+                            <div class="page-card h-100">
+                                <div class="d-flex justify-content-between align-items-center mb-2">
+                                    <h3 class="h6 mb-0">个体日志</h3>
+                                    <button class="btn btn-outline-secondary btn-sm" type="button" onclick="loadInstanceLogs()">刷新</button>
+                                </div>
+                                <div class="small-muted mb-2">默认显示最近 50 条个体操作日志。</div>
+                                <div class="table-wrap">
+                                    <table class="table table-striped table-sm align-middle">
+                                        <thead><tr><th>个体</th><th>动作</th><th>状态变化</th><th>时间</th></tr></thead>
+                                        <tbody id="instanceLogTable"></tbody>
+                                    </table>
+                                </div>
+                            </div>
                         </div>
-                        <div class="small-muted mb-2">默认显示最近 50 条个体操作日志。</div>
-                        <div class="table-wrap">
-                            <table class="table table-striped table-sm align-middle">
-                                <thead><tr><th>个体</th><th>动作</th><th>状态变化</th><th>时间</th></tr></thead>
-                                <tbody id="instanceLogTable"></tbody>
-                            </table>
-                        </div>
-                    </div>
-                    <div class="page-card">
-                        <h3 class="h6 mb-2">操作说明</h3>
-                        <div class="small-muted">
-                            <div>1. 先在物料主档开启“个体级管理”。</div>
-                            <div>2. 再在此页面批量生成个体编号。</div>
-                            <div>3. 后续通过“调拨 / 出库 / 入库”逐件记录去向。</div>
+                        <div class="col-lg-5">
+                            <div class="page-card h-100">
+                                <h3 class="h6 mb-2">操作说明</h3>
+                                <div class="small-muted">
+                                    <div>1. 先在物料主档开启“个体级管理”。</div>
+                                    <div>2. 左侧勾选要管理的物料，右侧只显示对应个体。</div>
+                                    <div>3. 可直接编辑单个个体属性，或进入批量属性编辑窗口逐个快速维护。</div>
+                                    <div>4. 勾选多个个体后，可执行批量调拨、出库、入库和删除。</div>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -1049,7 +1106,7 @@
                                 <textarea id="itemRemark" class="form-control form-control-sm" rows="3" placeholder="备注"></textarea>
                             </div>
                             <div class="col-12">
-                                <div class="page-card">
+                                <div class="subtle-panel">
                                     <div class="d-flex justify-content-between align-items-center mb-2">
                                         <h4 class="h6 mb-0">自定义属性</h4>
                                         <div class="toolbar">
@@ -1057,7 +1114,7 @@
                                             <button class="btn btn-outline-primary btn-sm" type="button" onclick="addItemCustomFieldRow()">新增属性</button>
                                         </div>
                                     </div>
-                                    <div class="small-muted mb-2">每个物料的属性名和属性值独立保存，不与其他物料共享。</div>
+                                    <div class="small-muted mb-2">这里维护该物料的属性模板。开启“个体差异”后，每个个体都会带上这个属性词条并单独填写。</div>
                                     <div class="row g-2" id="itemCustomFieldContainer"></div>
                                 </div>
                             </div>
@@ -1381,8 +1438,11 @@
                                 <input id="instanceLocation" class="form-control form-control-sm" placeholder="例如 A-01-02 / 线边区 / 客户现场">
                             </div>
                             <div class="col-12">
-                                <label for="instanceAttributes" class="form-label small mb-1">差异属性 JSON</label>
-                                <textarea id="instanceAttributes" class="form-control form-control-sm code-box" rows="5" placeholder='例如 {"color":"blue","firmware":"V1.0.3"}'></textarea>
+                                <div class="d-flex justify-content-between align-items-center mb-1">
+                                    <label class="form-label small mb-0" for="instanceAttributesEditor">差异属性</label>
+                                    <button class="btn btn-outline-secondary btn-sm" type="button" onclick="addInstanceAttributeRow()">新增属性</button>
+                                </div>
+                                <div id="instanceAttributesEditor" class="row g-2"></div>
                             </div>
                             <div class="col-12">
                                 <label for="instanceRemark" class="form-label small mb-1">备注</label>
@@ -1393,6 +1453,73 @@
                     <div class="modal-footer">
                         <button class="btn btn-outline-secondary btn-sm" type="button" onclick="resetInstanceForm()">重置</button>
                         <button class="btn btn-primary btn-sm" type="button" onclick="saveInstance()">保存个体</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="modal fade" id="instanceBatchEditorModal" tabindex="-1" aria-hidden="true">
+            <div class="modal-dialog modal-xl modal-dialog-scrollable">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <div>
+                            <h5 class="modal-title" id="instanceBatchEditorTitle">批量个体属性编辑</h5>
+                            <div class="small-muted" id="instanceBatchEditorProgress">0 / 0</div>
+                        </div>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        <input id="instanceBatchEditorId" type="hidden">
+                        <div id="instanceBatchEditorCard" class="instance-batch-card">
+                            <div class="row g-3">
+                                <div class="col-lg-4">
+                                    <div class="subtle-panel h-100">
+                                        <div class="small-muted mb-2">当前个体</div>
+                                        <div class="fw-semibold mb-2" id="instanceBatchEditorCode">-</div>
+                                        <div class="small-muted mb-1" id="instanceBatchEditorItem">-</div>
+                                        <div class="small-muted mb-1" id="instanceBatchEditorStatus">-</div>
+                                        <div class="small-muted" id="instanceBatchEditorWarehouse">-</div>
+                                    </div>
+                                </div>
+                                <div class="col-lg-8">
+                                    <div class="row g-2">
+                                        <div class="col-md-6">
+                                            <label for="instanceBatchSerialNo" class="form-label small mb-1">序列号</label>
+                                            <input id="instanceBatchSerialNo" class="form-control form-control-sm">
+                                        </div>
+                                        <div class="col-md-6">
+                                            <label for="instanceBatchOwnerName" class="form-label small mb-1">持有人 / 去向</label>
+                                            <input id="instanceBatchOwnerName" class="form-control form-control-sm">
+                                        </div>
+                                        <div class="col-12">
+                                            <label for="instanceBatchLocation" class="form-label small mb-1">位置</label>
+                                            <input id="instanceBatchLocation" class="form-control form-control-sm">
+                                        </div>
+                                        <div class="col-12">
+                                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                                <label class="form-label small mb-0" for="instanceBatchAttributesEditor">个体属性</label>
+                                                <button class="btn btn-outline-secondary btn-sm" type="button" onclick="addBatchInstanceAttributeRow()">新增属性</button>
+                                            </div>
+                                            <div id="instanceBatchAttributesEditor" class="row g-2"></div>
+                                        </div>
+                                        <div class="col-12">
+                                            <label for="instanceBatchRemark" class="form-label small mb-1">备注</label>
+                                            <textarea id="instanceBatchRemark" class="form-control form-control-sm" rows="2"></textarea>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer justify-content-between">
+                        <div class="btn-group btn-group-sm">
+                            <button class="btn btn-outline-secondary" type="button" onclick="navigateInstanceBatchEditor(-1)">← 上一个</button>
+                            <button class="btn btn-outline-secondary" type="button" onclick="navigateInstanceBatchEditor(1)">下一个 →</button>
+                        </div>
+                        <div class="btn-group btn-group-sm">
+                            <button class="btn btn-outline-primary" type="button" onclick="saveCurrentBatchEditorInstance(false)">保存当前</button>
+                            <button class="btn btn-primary" type="button" onclick="saveCurrentBatchEditorInstance(true)">保存并下一个</button>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -1456,6 +1583,52 @@
                 </div>
             </div>
         </div>
+
+        <div class="modal fade" id="instanceBulkActionModal" tabindex="-1" aria-hidden="true">
+            <div class="modal-dialog modal-lg modal-dialog-scrollable">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="instanceBulkActionModalTitle">批量个体操作</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        <input id="instanceBulkActionType" type="hidden">
+                        <div class="small-muted mb-3" id="instanceBulkActionSummary">已选 0 个个体</div>
+                        <div class="row g-2">
+                            <div class="col-md-6" id="instanceBulkActionNextStatusWrap">
+                                <label for="instanceBulkActionNextStatus" class="form-label small mb-1">出库后状态</label>
+                                <select id="instanceBulkActionNextStatus" class="form-select form-select-sm">
+                                    <option value="outbound">已出库</option>
+                                    <option value="in_use">使用中</option>
+                                    <option value="maintenance">维护中</option>
+                                    <option value="scrapped">已报废</option>
+                                </select>
+                            </div>
+                            <div class="col-md-6" id="instanceBulkActionTargetWarehouseWrap">
+                                <label for="instanceBulkActionTargetWarehouse" class="form-label small mb-1">目标仓库</label>
+                                <select id="instanceBulkActionTargetWarehouse" class="form-select form-select-sm"></select>
+                            </div>
+                            <div class="col-md-6" id="instanceBulkActionTargetLocationWrap">
+                                <label for="instanceBulkActionTargetLocation" class="form-label small mb-1">目标位置</label>
+                                <input id="instanceBulkActionTargetLocation" class="form-control form-control-sm">
+                            </div>
+                            <div class="col-md-6" id="instanceBulkActionOwnerWrap">
+                                <label for="instanceBulkActionOwnerName" class="form-label small mb-1">持有人 / 去向</label>
+                                <input id="instanceBulkActionOwnerName" class="form-control form-control-sm">
+                            </div>
+                            <div class="col-12">
+                                <label for="instanceBulkActionRemark" class="form-label small mb-1">备注</label>
+                                <textarea id="instanceBulkActionRemark" class="form-control form-control-sm" rows="2"></textarea>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button class="btn btn-outline-secondary btn-sm" type="button" onclick="hideModal('instanceBulkActionModal')">关闭</button>
+                        <button class="btn btn-primary btn-sm" type="button" onclick="submitBulkInstanceAction()">确认批量操作</button>
+                    </div>
+                </div>
+            </div>
+        </div>
         {% endif %}
     </main>
 </div>
@@ -1486,6 +1659,12 @@
     let cachedItems = [];
     let cachedInstances = [];
     let cachedInstanceLogs = [];
+    let selectedInstanceItemIds = new Set();
+    let selectedInstanceIds = new Set();
+    let instanceBatchEditorIds = [];
+    let instanceBatchEditorIndex = -1;
+    let visibleInstanceAttributeColumns = new Set();
+    let onlyShowInstancesWithMissingAttributes = false;
     let cachedWarehouses = [];
     let cachedBoms = [];
     let cachedWorkOrders = [];
@@ -2422,38 +2601,303 @@
         return cachedItems.filter(item => Number(item.track_individuals || 0) === 1);
     }
 
+    function safeParseAttributeValues(rawValue) {
+        if (!rawValue) return {};
+        if (typeof rawValue === 'object' && !Array.isArray(rawValue)) return { ...rawValue };
+        if (typeof rawValue !== 'string') return {};
+        try {
+            const parsed = JSON.parse(rawValue);
+            return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+        } catch (error) {
+            return {};
+        }
+    }
+
+    function createInstanceAttributeRow(fieldName = '', fieldValue = '', mode = 'single') {
+        const wrapper = document.createElement('div');
+        wrapper.className = 'col-12 instance-attribute-row';
+        wrapper.dataset.role = 'instance-attribute-row';
+        wrapper.innerHTML = `
+            <div class="row g-2 align-items-center">
+                <div class="col-md-5">
+                    <input class="form-control form-control-sm" data-role="attribute-name" value="${escapeHtml(fieldName)}" placeholder="属性名">
+                </div>
+                <div class="col-md-6">
+                    <input class="form-control form-control-sm" data-role="attribute-value" value="${escapeHtml(fieldValue)}" placeholder="属性值">
+                </div>
+                <div class="col-md-1 d-flex align-items-end">
+                    <button class="btn btn-outline-danger btn-sm w-100" type="button" onclick="${mode === 'batch' ? 'removeBatchInstanceAttributeRow(this)' : 'removeInstanceAttributeRow(this)'}">删</button>
+                </div>
+            </div>
+        `;
+        return wrapper;
+    }
+
+    function updateInstanceAttributeEmptyState(containerId) {
+        const container = document.getElementById(containerId);
+        if (!container) return;
+        const rows = Array.from(container.querySelectorAll('[data-role="instance-attribute-row"]'));
+        if (rows.length) {
+            container.querySelector('[data-role="instance-attribute-empty"]')?.remove();
+            return;
+        }
+        container.innerHTML = '<div class="col-12 text-muted small" data-role="instance-attribute-empty">当前还没有个体属性，点击“新增属性”即可添加。</div>';
+    }
+
+    function renderInstanceAttributeRows(containerId, values = {}, mode = 'single') {
+        const container = document.getElementById(containerId);
+        if (!container) return;
+        container.innerHTML = '';
+        Object.entries(values || {}).forEach(([fieldName, fieldValue]) => {
+            container.appendChild(createInstanceAttributeRow(fieldName, fieldValue, mode));
+        });
+        updateInstanceAttributeEmptyState(containerId);
+    }
+
+    function collectInstanceAttributeRows(containerId, strict = false) {
+        const result = {};
+        const rows = Array.from(document.querySelectorAll(`#${containerId} [data-role="instance-attribute-row"]`));
+        rows.forEach(row => {
+            const fieldName = (row.querySelector('[data-role="attribute-name"]')?.value || '').trim();
+            const fieldValue = (row.querySelector('[data-role="attribute-value"]')?.value || '').trim();
+            if (!fieldName) {
+                if (strict && fieldValue) throw new Error('请先填写属性名');
+                return;
+            }
+            if (strict && Object.prototype.hasOwnProperty.call(result, fieldName)) {
+                throw new Error(`属性“${fieldName}”重复，请保留一项`);
+            }
+            result[fieldName] = fieldValue;
+        });
+        return result;
+    }
+
+    function addInstanceAttributeRow(fieldName = '', fieldValue = '') {
+        const container = document.getElementById('instanceAttributesEditor');
+        if (!container) return;
+        container.querySelector('[data-role="instance-attribute-empty"]')?.remove();
+        container.appendChild(createInstanceAttributeRow(fieldName, fieldValue, 'single'));
+    }
+
+    function removeInstanceAttributeRow(trigger) {
+        trigger?.closest('[data-role="instance-attribute-row"]')?.remove();
+        updateInstanceAttributeEmptyState('instanceAttributesEditor');
+    }
+
+    function renderInstanceAttributeEditor(values = {}) {
+        renderInstanceAttributeRows('instanceAttributesEditor', values, 'single');
+    }
+
+    function collectInstanceAttributeValues(strict = false) {
+        return collectInstanceAttributeRows('instanceAttributesEditor', strict);
+    }
+
+    function addBatchInstanceAttributeRow(fieldName = '', fieldValue = '') {
+        const container = document.getElementById('instanceBatchAttributesEditor');
+        if (!container) return;
+        container.querySelector('[data-role="instance-attribute-empty"]')?.remove();
+        container.appendChild(createInstanceAttributeRow(fieldName, fieldValue, 'batch'));
+    }
+
+    function removeBatchInstanceAttributeRow(trigger) {
+        trigger?.closest('[data-role="instance-attribute-row"]')?.remove();
+        updateInstanceAttributeEmptyState('instanceBatchAttributesEditor');
+    }
+
+    function renderBatchInstanceAttributeEditor(values = {}) {
+        renderInstanceAttributeRows('instanceBatchAttributesEditor', values, 'batch');
+    }
+
+    function collectBatchInstanceAttributeValues(strict = false) {
+        return collectInstanceAttributeRows('instanceBatchAttributesEditor', strict);
+    }
+
+    function getSelectedInstanceItemIds() {
+        return Array.from(selectedInstanceItemIds).map(value => Number(value)).filter(value => Number.isInteger(value) && value > 0);
+    }
+
+    function getAvailableInstanceAttributeColumns() {
+        const selectedItemIds = new Set(getSelectedInstanceItemIds());
+        const selectedItems = getTrackedItems().filter(item => selectedItemIds.has(Number(item.id)));
+        const definitions = new Map();
+        selectedItems.forEach(item => {
+            Object.entries(item.custom_field_definitions || {}).forEach(([fieldName, fieldMeta]) => {
+                if (!fieldMeta?.instance_level) return;
+                definitions.set(fieldName, {
+                    field_name: fieldName,
+                    label: fieldName,
+                    item_count: (definitions.get(fieldName)?.item_count || 0) + 1
+                });
+            });
+        });
+        return Array.from(definitions.values()).sort((left, right) => left.field_name.localeCompare(right.field_name, 'zh-CN'));
+    }
+
+    function syncVisibleInstanceAttributeColumns() {
+        const availableColumns = getAvailableInstanceAttributeColumns();
+        const availableNames = new Set(availableColumns.map(column => column.field_name));
+        visibleInstanceAttributeColumns = new Set(
+            Array.from(visibleInstanceAttributeColumns).filter(fieldName => availableNames.has(fieldName))
+        );
+    }
+
+    function updateInstanceAttributeColumnSummary() {
+        const badge = document.getElementById('instanceAttributeColumnSummary');
+        if (!badge) return;
+        if (!visibleInstanceAttributeColumns.size) {
+            badge.textContent = onlyShowInstancesWithMissingAttributes ? '仅看未填写已开启' : '未显示差异列';
+            return;
+        }
+        badge.textContent = `已显示 ${visibleInstanceAttributeColumns.size} 个差异列${onlyShowInstancesWithMissingAttributes ? ' · 仅看未填写' : ''}`;
+    }
+
+    function renderInstanceAttributeColumnPicker() {
+        syncVisibleInstanceAttributeColumns();
+        const container = document.getElementById('instanceAttributeColumnPicker');
+        if (!container) return;
+        const availableColumns = getAvailableInstanceAttributeColumns();
+        const filterToggle = document.getElementById('instanceMissingAttributeOnly');
+        if (filterToggle) {
+            filterToggle.checked = onlyShowInstancesWithMissingAttributes;
+            filterToggle.disabled = !availableColumns.length;
+        }
+        if (!availableColumns.length) {
+            container.innerHTML = '<div class="small text-muted">当前已选物料没有开启“个体差异”的属性。</div>';
+            updateInstanceAttributeColumnSummary();
+            return;
+        }
+        container.innerHTML = availableColumns.map(column => `
+            <label class="btn btn-outline-secondary btn-sm ${visibleInstanceAttributeColumns.has(column.field_name) ? 'active' : ''}">
+                <input class="form-check-input me-1" type="checkbox" ${visibleInstanceAttributeColumns.has(column.field_name) ? 'checked' : ''} onchange='toggleInstanceAttributeColumn(${JSON.stringify(column.field_name)}, this.checked)'>
+                ${escapeHtml(column.label)}
+            </label>
+        `).join('');
+        updateInstanceAttributeColumnSummary();
+    }
+
+    function toggleInstanceAttributeColumn(fieldName, checked) {
+        if (checked) visibleInstanceAttributeColumns.add(fieldName);
+        else visibleInstanceAttributeColumns.delete(fieldName);
+        renderInstanceAttributeColumnPicker();
+        loadInstances();
+    }
+
+    function toggleInstanceMissingAttributeOnly(checked) {
+        onlyShowInstancesWithMissingAttributes = Boolean(checked);
+        updateInstanceAttributeColumnSummary();
+        loadInstances();
+    }
+
+    function updateInstanceItemSelectionSummary() {
+        const summary = document.getElementById('instanceItemSelectionSummary');
+        if (!summary) return;
+        const selectedItems = getTrackedItems().filter(item => selectedInstanceItemIds.has(Number(item.id)));
+        if (!selectedItems.length) {
+            summary.textContent = '未选择物料';
+            return;
+        }
+        const names = selectedItems.slice(0, 3).map(item => `${item.item_code} / ${item.item_name}`);
+        const extra = selectedItems.length > 3 ? ` 等 ${selectedItems.length} 个物料` : '';
+        summary.textContent = `已选 ${selectedItems.length} 个物料：${names.join('；')}${extra}`;
+    }
+
+    function renderInstanceItemList() {
+        const container = document.getElementById('instanceItemList');
+        if (!container) return;
+        const trackedItems = getTrackedItems();
+        if (!trackedItems.length) {
+            container.innerHTML = '<div class="list-group-item text-muted small">暂无开启个体管理的物料。</div>';
+            renderInstanceAttributeColumnPicker();
+            updateInstanceItemSelectionSummary();
+            return;
+        }
+        container.innerHTML = trackedItems.map(item => {
+            const itemId = Number(item.id);
+            const checked = selectedInstanceItemIds.has(itemId);
+            return `
+                <label class="list-group-item list-group-item-action instance-item-entry ${checked ? 'active' : ''}" onclick="toggleInstanceItemSelection(${itemId}, true, true)">
+                    <div class="d-flex align-items-start gap-2">
+                        <input class="form-check-input mt-1" type="checkbox" ${checked ? 'checked' : ''} onclick="event.stopPropagation()" onchange="toggleInstanceItemSelection(${itemId}, this.checked)">
+                        <div class="flex-grow-1">
+                            <div class="fw-semibold">${escapeHtml(item.item_code)}</div>
+                            <div class="small">${escapeHtml(item.item_name || '-')}</div>
+                            <div class="small text-muted">在库 ${Number(item.in_stock_instance_count || 0)} / 总数 ${Number(item.instance_count || 0)}</div>
+                        </div>
+                    </div>
+                </label>
+            `;
+        }).join('');
+        renderInstanceAttributeColumnPicker();
+        updateInstanceItemSelectionSummary();
+    }
+
+    function toggleInstanceItemSelection(itemId, checked, exclusive = false, silent = false) {
+        const normalizedId = Number(itemId);
+        if (!Number.isInteger(normalizedId) || normalizedId <= 0) return;
+        if (exclusive) {
+            selectedInstanceItemIds = new Set(checked ? [normalizedId] : []);
+        } else if (checked) {
+            selectedInstanceItemIds.add(normalizedId);
+        } else {
+            selectedInstanceItemIds.delete(normalizedId);
+        }
+        renderInstanceItemList();
+        if (!silent) refreshInstancesPage();
+    }
+
+    function selectAllInstanceItems() {
+        selectedInstanceItemIds = new Set(getTrackedItems().map(item => Number(item.id)));
+        renderInstanceItemList();
+        refreshInstancesPage();
+    }
+
+    function clearAllInstanceItems() {
+        selectedInstanceItemIds = new Set();
+        renderInstanceItemList();
+        refreshInstancesPage();
+    }
+
     function refreshInstanceItemSelectors() {
         const trackedItems = getTrackedItems();
-        const filter = document.getElementById('instanceItemFilter');
+        const validIds = new Set(trackedItems.map(item => Number(item.id)));
+        selectedInstanceItemIds = new Set(Array.from(selectedInstanceItemIds).filter(itemId => validIds.has(Number(itemId))));
+        if (activePage === 'instances' && !selectedInstanceItemIds.size && trackedItems.length) {
+            selectedInstanceItemIds = new Set([Number(trackedItems[0].id)]);
+        }
         const generateSelect = document.getElementById('instanceGenerateItemId');
-        const filterValue = filter?.value || '';
-        const generateValue = generateSelect?.value || '';
-        const options = trackedItems.map(item => {
-            const summary = Number(item.instance_count || 0);
-            return `<option value="${item.id}">${escapeHtml(item.item_code)} / ${escapeHtml(item.item_name)} (${summary})</option>`;
-        }).join('');
-        if (filter) {
-            filter.innerHTML = `<option value="">全部已启用个体管理的物料</option>${options}`;
-            if (trackedItems.some(item => String(item.id) === String(filterValue))) {
-                filter.value = String(filterValue);
-            }
-        }
         if (generateSelect) {
+            const currentValue = generateSelect.value || '';
+            const options = trackedItems.map(item => `<option value="${item.id}">${escapeHtml(item.item_code)} / ${escapeHtml(item.item_name)} (${Number(item.instance_count || 0)})</option>`).join('');
             generateSelect.innerHTML = `<option value="">请选择物料</option>${options}`;
-            if (trackedItems.some(item => String(item.id) === String(generateValue))) {
-                generateSelect.value = String(generateValue);
+            if (trackedItems.some(item => String(item.id) === String(currentValue))) {
+                generateSelect.value = currentValue;
             }
         }
+        renderInstanceItemList();
     }
 
     function applyInstancePageQueryFilters() {
         if (activePage !== 'instances') return;
-        const filter = document.getElementById('instanceItemFilter');
-        if (!filter) return;
-        const itemId = new URLSearchParams(window.location.search).get('item_id') || '';
-        if (itemId && Array.from(filter.options).some(option => option.value === itemId)) {
-            filter.value = itemId;
+        const trackedItems = getTrackedItems();
+        if (!trackedItems.length) {
+            selectedInstanceItemIds = new Set();
+            renderInstanceItemList();
+            return;
         }
+        const query = new URLSearchParams(window.location.search);
+        const itemIds = (query.get('item_ids') || '')
+            .split(',')
+            .map(value => Number(value))
+            .filter(value => Number.isInteger(value) && value > 0 && trackedItems.some(item => Number(item.id) === value));
+        const singleItemId = Number(query.get('item_id') || 0);
+        if (itemIds.length) {
+            selectedInstanceItemIds = new Set(itemIds);
+        } else if (singleItemId > 0 && trackedItems.some(item => Number(item.id) === singleItemId)) {
+            selectedInstanceItemIds = new Set([singleItemId]);
+        } else if (!selectedInstanceItemIds.size) {
+            selectedInstanceItemIds = new Set([Number(trackedItems[0].id)]);
+        }
+        renderInstanceItemList();
     }
 
     function resetInstanceGenerateForm() {
@@ -2469,13 +2913,9 @@
             const element = document.getElementById(id);
             if (element) element.value = value;
         });
+        const preferredItemId = getSelectedInstanceItemIds()[0] || Number(getTrackedItems()[0]?.id || 0);
         const select = document.getElementById('instanceGenerateItemId');
-        const filter = document.getElementById('instanceItemFilter');
-        if (select) {
-            const trackedItems = getTrackedItems();
-            const preferred = filter?.value || (trackedItems[0] ? String(trackedItems[0].id) : '');
-            select.value = preferred;
-        }
+        if (select) select.value = preferredItemId ? String(preferredItemId) : '';
         handleInstanceGenerateItemChange();
     }
 
@@ -2499,13 +2939,61 @@
             instanceSerialNo: '',
             instanceOwnerName: '',
             instanceLocation: '',
-            instanceAttributes: '',
             instanceRemark: ''
         };
         Object.entries(mapping).forEach(([id, value]) => {
             const element = document.getElementById(id);
             if (element) element.value = value;
         });
+        renderInstanceAttributeEditor({});
+    }
+
+    function resetInstanceBatchEditorForm() {
+        const mapping = {
+            instanceBatchEditorId: '',
+            instanceBatchSerialNo: '',
+            instanceBatchOwnerName: '',
+            instanceBatchLocation: '',
+            instanceBatchRemark: ''
+        };
+        Object.entries(mapping).forEach(([id, value]) => {
+            const element = document.getElementById(id);
+            if (element) element.value = value;
+        });
+        const textMapping = {
+            instanceBatchEditorCode: '-',
+            instanceBatchEditorItem: '-',
+            instanceBatchEditorStatus: '-',
+            instanceBatchEditorWarehouse: '-',
+            instanceBatchEditorProgress: '0 / 0',
+            instanceBatchEditorTitle: '批量个体属性编辑'
+        };
+        Object.entries(textMapping).forEach(([id, value]) => {
+            const element = document.getElementById(id);
+            if (element) element.textContent = value;
+        });
+        renderBatchInstanceAttributeEditor({});
+    }
+
+    function resetInstanceBulkActionForm() {
+        const mapping = {
+            instanceBulkActionType: '',
+            instanceBulkActionTargetLocation: '',
+            instanceBulkActionOwnerName: '',
+            instanceBulkActionRemark: ''
+        };
+        Object.entries(mapping).forEach(([id, value]) => {
+            const element = document.getElementById(id);
+            if (element) element.value = value;
+        });
+        const summary = document.getElementById('instanceBulkActionSummary');
+        if (summary) summary.textContent = '已选 0 个个体';
+        const title = document.getElementById('instanceBulkActionModalTitle');
+        if (title) title.textContent = '批量个体操作';
+        const nextStatus = document.getElementById('instanceBulkActionNextStatus');
+        if (nextStatus) nextStatus.value = 'outbound';
+        const warehouse = document.getElementById('instanceBulkActionTargetWarehouse');
+        if (warehouse) warehouse.value = '';
     }
 
     function resetInstanceActionForm() {
@@ -2598,7 +3086,7 @@
         document.getElementById('itemRemark').value = item.remark || '';
         const title = document.getElementById('itemFormTitle');
         if (title) title.textContent = `编辑物料：${item.item_code}`;
-        renderItemCustomFields(item.custom_field_values || {});
+        renderItemCustomFields(item.custom_field_definitions || item.custom_field_values || {});
         showModal('itemModal');
     }
 
@@ -2658,7 +3146,7 @@
         const title = document.getElementById('itemFormTitle');
         if (title) title.textContent = `编辑物料：${item.item_code}`;
         toggleItemTrackingInputs();
-        renderItemCustomFields(item.custom_field_values || {});
+        renderItemCustomFields(item.custom_field_definitions || item.custom_field_values || {});
         showModal('itemModal');
     }
 
@@ -2678,34 +3166,64 @@
         if (empty) empty.remove();
     }
 
-    function createItemCustomFieldRow(fieldName = '', fieldValue = '') {
+    function normalizeItemCustomFieldDefinitions(values = {}) {
+        const result = {};
+        Object.entries(values || {}).forEach(([fieldName, fieldValue]) => {
+            if (fieldValue && typeof fieldValue === 'object' && !Array.isArray(fieldValue)) {
+                result[fieldName] = {
+                    default_value: fieldValue.default_value ?? fieldValue.value ?? '',
+                    instance_level: Boolean(fieldValue.instance_level || fieldValue.is_instance_level || fieldValue.per_instance)
+                };
+                return;
+            }
+            result[fieldName] = {
+                default_value: fieldValue ?? '',
+                instance_level: false
+            };
+        });
+        return result;
+    }
+
+    function createItemCustomFieldRow(fieldName = '', fieldMeta = {}) {
+        const normalizedMeta = fieldMeta && typeof fieldMeta === 'object' && !Array.isArray(fieldMeta)
+            ? fieldMeta
+            : { default_value: fieldMeta ?? '', instance_level: false };
         const wrapper = document.createElement('div');
         wrapper.className = 'col-12';
         wrapper.dataset.role = 'item-custom-field-row';
         wrapper.innerHTML = `
-            <div class="row g-2 align-items-center">
-                <div class="col-md-5">
-                    <label class="form-label small mb-1">属性名</label>
-                    <input class="form-control form-control-sm" data-role="custom-field-name" value="${escapeHtml(fieldName)}" placeholder="例如 颜色 / 版本 / 材质">
-                </div>
-                <div class="col-md-6">
-                    <label class="form-label small mb-1">属性值</label>
-                    <input class="form-control form-control-sm" data-role="custom-field-value" value="${escapeHtml(fieldValue)}" placeholder="例如 蓝色 / V1.0 / 铝合金">
-                </div>
-                <div class="col-md-1 d-flex align-items-end">
-                    <button class="btn btn-outline-danger btn-sm w-100" type="button" onclick="removeItemCustomFieldRow(this)">删</button>
+            <div class="subtle-panel">
+                <div class="row g-2 align-items-center">
+                    <div class="col-md-4">
+                        <label class="form-label small mb-1">属性名</label>
+                        <input class="form-control form-control-sm" data-role="custom-field-name" value="${escapeHtml(fieldName)}" placeholder="例如 IMEI / 卡号 / 颜色">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label small mb-1">默认值</label>
+                        <input class="form-control form-control-sm" data-role="custom-field-value" value="${escapeHtml(normalizedMeta.default_value ?? '')}" placeholder="可留空；若为个体差异属性通常留空">
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label small mb-1">个体差异</label>
+                        <select class="form-select form-select-sm" data-role="custom-field-instance-level">
+                            <option value="0" ${normalizedMeta.instance_level ? '' : 'selected'}>否</option>
+                            <option value="1" ${normalizedMeta.instance_level ? 'selected' : ''}>是</option>
+                        </select>
+                    </div>
+                    <div class="col-md-1 d-flex align-items-end">
+                        <button class="btn btn-outline-danger btn-sm w-100" type="button" onclick="removeItemCustomFieldRow(this)">删</button>
+                    </div>
                 </div>
             </div>
         `;
         return wrapper;
     }
 
-    function addItemCustomFieldRow(fieldName = '', fieldValue = '') {
+    function addItemCustomFieldRow(fieldName = '', fieldMeta = {}) {
         const container = document.getElementById('itemCustomFieldContainer');
         if (!container) return;
         const empty = container.querySelector('[data-role="item-custom-field-empty"]');
         if (empty) empty.remove();
-        container.appendChild(createItemCustomFieldRow(fieldName, fieldValue));
+        container.appendChild(createItemCustomFieldRow(fieldName, fieldMeta));
         updateItemCustomFieldSummary();
     }
 
@@ -2719,8 +3237,9 @@
         const container = document.getElementById('itemCustomFieldContainer');
         if (!container) return;
         container.innerHTML = '';
-        Object.entries(values || {}).forEach(([fieldName, fieldValue]) => {
-            container.appendChild(createItemCustomFieldRow(fieldName, fieldValue));
+        const definitions = normalizeItemCustomFieldDefinitions(values);
+        Object.entries(definitions).forEach(([fieldName, fieldMeta]) => {
+            container.appendChild(createItemCustomFieldRow(fieldName, fieldMeta));
         });
         updateItemCustomFieldSummary();
     }
@@ -2731,6 +3250,7 @@
         rows.forEach(row => {
             const fieldName = (row.querySelector('[data-role="custom-field-name"]')?.value || '').trim();
             const fieldValue = (row.querySelector('[data-role="custom-field-value"]')?.value || '').trim();
+            const instanceLevel = row.querySelector('[data-role="custom-field-instance-level"]')?.value === '1';
             if (!fieldName) {
                 if (strict && fieldValue) {
                     throw new Error('请先填写自定义属性名称');
@@ -2740,7 +3260,10 @@
             if (strict && Object.prototype.hasOwnProperty.call(result, fieldName)) {
                 throw new Error(`自定义属性“${fieldName}”重复，请保留一个`);
             }
-            result[fieldName] = fieldValue;
+            result[fieldName] = {
+                default_value: fieldValue,
+                instance_level: instanceLevel
+            };
         });
         return result;
     }
@@ -2786,7 +3309,7 @@
         if (!result.success) return;
         cachedWarehouses = result.warehouses || [];
         const options = cachedWarehouses.map(item => `<option value="${item.id}">${item.warehouse_code} / ${item.warehouse_name}</option>`).join('');
-        setSelectOptions(['itemWarehouse', 'docSourceWarehouse', 'docTargetWarehouse', 'woWarehouse', 'instanceGenerateWarehouse', 'instanceActionTargetWarehouse'], '请选择仓库', options);
+        setSelectOptions(['itemWarehouse', 'docSourceWarehouse', 'docTargetWarehouse', 'woWarehouse', 'instanceGenerateWarehouse', 'instanceActionTargetWarehouse', 'instanceBulkActionTargetWarehouse'], '请选择仓库', options);
         setSelectOptions(['instanceWarehouseFilter'], '全部仓库', options);
 
         const table = document.getElementById('warehousesTable');
@@ -2911,7 +3434,7 @@
             track_individuals: trackIndividuals,
             individual_code_prefix: document.getElementById('itemIndividualCodePrefix').value,
             remark: document.getElementById('itemRemark').value,
-            custom_field_values: customFieldValues
+            custom_field_definitions: customFieldValues
         };
         if (!itemId && trackIndividuals) {
             payload.initial_instance_count = document.getElementById('itemInitialInstanceCount').value;
@@ -2963,23 +3486,92 @@
         await Promise.all([loadItems(), refreshInstancesPage(), loadDashboardIfVisible()]);
     }
 
+    function toggleInstanceSelection(instanceId, checked) {
+        const normalizedId = Number(instanceId);
+        if (!Number.isInteger(normalizedId) || normalizedId <= 0) return;
+        if (checked) selectedInstanceIds.add(normalizedId);
+        else selectedInstanceIds.delete(normalizedId);
+        updateInstanceBulkToolbar();
+    }
+
+    function getVisibleInstanceIds() {
+        return cachedInstances.map(instance => Number(instance.id)).filter(value => Number.isInteger(value) && value > 0);
+    }
+
+    function updateInstanceBulkToolbar() {
+        const toolbar = document.getElementById('instanceBulkToolbar');
+        const selectedCount = document.getElementById('instanceSelectedCount');
+        const visibleToggle = document.getElementById('instanceSelectVisible');
+        const visibleIds = getVisibleInstanceIds();
+        const visibleSelectedCount = visibleIds.filter(instanceId => selectedInstanceIds.has(instanceId)).length;
+        if (selectedCount) selectedCount.textContent = String(selectedInstanceIds.size);
+        if (toolbar) toolbar.classList.toggle('d-none', selectedInstanceIds.size === 0);
+        if (visibleToggle) {
+            visibleToggle.checked = visibleIds.length > 0 && visibleSelectedCount === visibleIds.length;
+            visibleToggle.indeterminate = visibleSelectedCount > 0 && visibleSelectedCount < visibleIds.length;
+        }
+    }
+
+    function toggleVisibleInstances(checked) {
+        getVisibleInstanceIds().forEach(instanceId => {
+            if (checked) selectedInstanceIds.add(instanceId);
+            else selectedInstanceIds.delete(instanceId);
+        });
+        loadInstances();
+    }
+
+    function clearSelectedInstances() {
+        selectedInstanceIds = new Set();
+        updateInstanceBulkToolbar();
+        loadInstances();
+    }
+
     async function loadInstances() {
-        const itemId = document.getElementById('instanceItemFilter')?.value || '';
+        const itemIds = getSelectedInstanceItemIds();
         const keyword = document.getElementById('instanceKeyword')?.value || '';
         const status = document.getElementById('instanceStatusFilter')?.value || '';
         const warehouseId = document.getElementById('instanceWarehouseFilter')?.value || '';
+        const table = document.getElementById('instanceTable');
+        const tableHead = document.getElementById('instanceTableHead');
+        const visibleAttributeColumns = Array.from(visibleInstanceAttributeColumns);
+        if (tableHead) {
+            tableHead.innerHTML = `
+                <tr>
+                    <th style="width:36px;"><input id="instanceSelectVisible" type="checkbox" onchange="toggleVisibleInstances(this.checked)"></th>
+                    <th>个体编号</th>
+                    <th>物料</th>
+                    <th>序列号</th>
+                    ${visibleAttributeColumns.map(fieldName => `<th>${escapeHtml(fieldName)}</th>`).join('')}
+                    <th>状态</th>
+                    <th>仓库/位置</th>
+                    <th>持有人/去向</th>
+                    <th>更新时间</th>
+                    <th>操作</th>
+                </tr>
+            `;
+        }
+        if (!itemIds.length) {
+            cachedInstances = [];
+            if (table) table.innerHTML = `<tr><td colspan="${9 + visibleAttributeColumns.length}" class="text-center text-muted">请先在左侧选择物料。</td></tr>`;
+            updateInstanceBulkToolbar();
+            return cachedInstances;
+        }
         const result = await apiGet(
-            `/api/erp/item-instances?item_id=${encodeURIComponent(itemId)}&keyword=${encodeURIComponent(keyword)}&status=${encodeURIComponent(status)}&warehouse_id=${encodeURIComponent(warehouseId)}`
+            `/api/erp/item-instances?item_ids=${encodeURIComponent(itemIds.join(','))}&keyword=${encodeURIComponent(keyword)}&status=${encodeURIComponent(status)}&warehouse_id=${encodeURIComponent(warehouseId)}`
         );
         if (!result.success) return showError(result.error);
-        cachedInstances = result.instances || [];
-        const table = document.getElementById('instanceTable');
+        const allInstances = result.instances || [];
+        cachedInstances = onlyShowInstancesWithMissingAttributes && visibleAttributeColumns.length
+            ? allInstances.filter(instance => visibleAttributeColumns.some(fieldName => {
+                const rawValue = instance.attribute_values?.[fieldName];
+                return rawValue === undefined || rawValue === null || String(rawValue).trim() === '';
+            }))
+            : allInstances;
         if (table) {
             table.innerHTML = cachedInstances.map(instance => {
-                const warehouseLabel = instance.warehouse_code
-                    ? `${instance.warehouse_code} / ${instance.warehouse_name || ''}`
-                    : '-';
+                const warehouseLabel = instance.warehouse_code ? `${instance.warehouse_code} / ${instance.warehouse_name || ''}` : '-';
                 const locationLabel = instance.location_code ? ` / ${instance.location_code}` : '';
+                const checked = selectedInstanceIds.has(Number(instance.id));
                 const actionButtons = [
                     `<button class="btn btn-outline-primary btn-sm" type="button" onclick="openEditInstanceModal(${instance.id})">编辑</button>`
                 ];
@@ -2991,9 +3583,17 @@
                 }
                 return `
                     <tr>
+                        <td><input class="form-check-input" type="checkbox" ${checked ? 'checked' : ''} onchange="toggleInstanceSelection(${instance.id}, this.checked)"></td>
                         <td>${escapeHtml(instance.instance_code)}</td>
                         <td>${escapeHtml(instance.item_code)} / ${escapeHtml(instance.item_name)}</td>
                         <td>${escapeHtml(instance.serial_no || '-')}</td>
+                        ${visibleAttributeColumns.map(fieldName => {
+                            const rawValue = instance.attribute_values?.[fieldName];
+                            const displayValue = rawValue === undefined || rawValue === null || String(rawValue).trim() === ''
+                                ? '<span class="text-warning">未填写</span>'
+                                : escapeHtml(String(rawValue));
+                            return `<td>${displayValue}</td>`;
+                        }).join('')}
                         <td>${escapeHtml(formatInstanceStatus(instance.status))}</td>
                         <td>${escapeHtml(warehouseLabel)}${escapeHtml(locationLabel)}</td>
                         <td>${escapeHtml(instance.owner_name || '-')}</td>
@@ -3001,19 +3601,25 @@
                         <td><div class="d-flex gap-1 flex-wrap">${actionButtons.join('')}</div></td>
                     </tr>
                 `;
-            }).join('') || '<tr><td colspan="8" class="text-center text-muted">暂无个体记录</td></tr>';
+            }).join('') || `<tr><td colspan="${9 + visibleAttributeColumns.length}" class="text-center text-muted">暂无个体记录</td></tr>`;
         }
+        updateInstanceBulkToolbar();
         return cachedInstances;
     }
 
     async function loadInstanceLogs(instanceId = '') {
-        const itemId = document.getElementById('instanceItemFilter')?.value || '';
+        const itemIds = getSelectedInstanceItemIds();
+        const table = document.getElementById('instanceLogTable');
+        if (!itemIds.length) {
+            cachedInstanceLogs = [];
+            if (table) table.innerHTML = '<tr><td colspan="4" class="text-center text-muted">请先在左侧选择物料。</td></tr>';
+            return cachedInstanceLogs;
+        }
         const result = await apiGet(
-            `/api/erp/item-instances/logs?item_id=${encodeURIComponent(itemId)}&instance_id=${encodeURIComponent(instanceId)}&limit=50`
+            `/api/erp/item-instances/logs?item_ids=${encodeURIComponent(itemIds.join(','))}&instance_id=${encodeURIComponent(instanceId)}&limit=50`
         );
         if (!result.success) return showError(result.error);
         cachedInstanceLogs = result.logs || [];
-        const table = document.getElementById('instanceLogTable');
         if (table) {
             table.innerHTML = cachedInstanceLogs.map(log => {
                 const fromStatus = formatInstanceStatus(log.from_status);
@@ -3051,18 +3657,24 @@
         document.getElementById('instanceSerialNo').value = instance.serial_no || '';
         document.getElementById('instanceOwnerName').value = instance.owner_name || '';
         document.getElementById('instanceLocation').value = instance.location_code || '';
-        document.getElementById('instanceAttributes').value = instance.attributes_json || '';
         document.getElementById('instanceRemark').value = instance.remark || '';
+        renderInstanceAttributeEditor(instance.attribute_values || safeParseAttributeValues(instance.attributes_json));
         showModal('instanceModal');
     }
 
     async function saveInstance() {
         const instanceId = document.getElementById('instanceId').value;
+        let attributeValues;
+        try {
+            attributeValues = collectInstanceAttributeValues(true);
+        } catch (error) {
+            return showError(error.message);
+        }
         const payload = {
             serial_no: document.getElementById('instanceSerialNo').value,
             owner_name: document.getElementById('instanceOwnerName').value,
             location_code: document.getElementById('instanceLocation').value,
-            attributes_json: document.getElementById('instanceAttributes').value,
+            attribute_values: attributeValues,
             remark: document.getElementById('instanceRemark').value
         };
         const result = await apiPut(`/api/erp/item-instances/${instanceId}`, payload);
@@ -3070,6 +3682,103 @@
         hideModal('instanceModal');
         resetInstanceForm();
         await Promise.all([loadInstances(), loadInstanceLogs(instanceId)]);
+    }
+
+    async function openInstanceBatchEditor() {
+        instanceBatchEditorIds = Array.from(selectedInstanceIds);
+        if (!instanceBatchEditorIds.length) {
+            instanceBatchEditorIds = getVisibleInstanceIds();
+        }
+        if (!instanceBatchEditorIds.length) {
+            showError('请先选择至少一个个体');
+            return;
+        }
+        instanceBatchEditorIndex = 0;
+        resetInstanceBatchEditorForm();
+        showModal('instanceBatchEditorModal');
+        await loadBatchEditorInstanceByIndex(0, 1);
+    }
+
+    async function loadBatchEditorInstanceByIndex(index, direction = 0) {
+        if (index < 0 || index >= instanceBatchEditorIds.length) return;
+        const card = document.getElementById('instanceBatchEditorCard');
+        if (card && direction) {
+            card.style.setProperty('--batch-shift', direction > 0 ? '18px' : '-18px');
+            card.classList.add('is-transitioning');
+            await new Promise(resolve => window.setTimeout(resolve, 120));
+        }
+        const instanceId = instanceBatchEditorIds[index];
+        const result = await apiGet(`/api/erp/item-instances/${encodeURIComponent(instanceId)}`);
+        if (!result.success) {
+            card?.classList.remove('is-transitioning');
+            return showError(result.error);
+        }
+        const instance = result.instance;
+        instanceBatchEditorIndex = index;
+        document.getElementById('instanceBatchEditorId').value = instance.id;
+        document.getElementById('instanceBatchEditorCode').textContent = instance.instance_code || '-';
+        document.getElementById('instanceBatchEditorItem').textContent = `${instance.item_code} / ${instance.item_name}`;
+        document.getElementById('instanceBatchEditorStatus').textContent = formatInstanceStatus(instance.status);
+        document.getElementById('instanceBatchEditorWarehouse').textContent = instance.warehouse_code
+            ? `${instance.warehouse_code} / ${instance.warehouse_name || ''}${instance.location_code ? ` / ${instance.location_code}` : ''}`
+            : (instance.location_code || '-');
+        document.getElementById('instanceBatchSerialNo').value = instance.serial_no || '';
+        document.getElementById('instanceBatchOwnerName').value = instance.owner_name || '';
+        document.getElementById('instanceBatchLocation').value = instance.location_code || '';
+        document.getElementById('instanceBatchRemark').value = instance.remark || '';
+        renderBatchInstanceAttributeEditor(instance.attribute_values || safeParseAttributeValues(instance.attributes_json));
+        document.getElementById('instanceBatchEditorProgress').textContent = `${index + 1} / ${instanceBatchEditorIds.length}`;
+        document.getElementById('instanceBatchEditorTitle').textContent = `批量个体属性编辑 · ${instance.instance_code || ''}`;
+        card?.classList.remove('is-transitioning');
+    }
+
+    async function navigateInstanceBatchEditor(offset) {
+        const nextIndex = instanceBatchEditorIndex + Number(offset || 0);
+        if (nextIndex < 0 || nextIndex >= instanceBatchEditorIds.length) return;
+        await loadBatchEditorInstanceByIndex(nextIndex, offset);
+    }
+
+    async function saveCurrentBatchEditorInstance(moveNext) {
+        const instanceId = document.getElementById('instanceBatchEditorId').value;
+        let attributeValues;
+        try {
+            attributeValues = collectBatchInstanceAttributeValues(true);
+        } catch (error) {
+            return showError(error.message);
+        }
+        const payload = {
+            serial_no: document.getElementById('instanceBatchSerialNo').value,
+            owner_name: document.getElementById('instanceBatchOwnerName').value,
+            location_code: document.getElementById('instanceBatchLocation').value,
+            attribute_values: attributeValues,
+            remark: document.getElementById('instanceBatchRemark').value
+        };
+        const result = await apiPut(`/api/erp/item-instances/${encodeURIComponent(instanceId)}`, payload);
+        if (!result.success) return showError(result.error);
+        await Promise.all([loadInstances(), loadInstanceLogs(instanceId)]);
+        if (moveNext && instanceBatchEditorIndex < instanceBatchEditorIds.length - 1) {
+            await navigateInstanceBatchEditor(1);
+            return;
+        }
+        if (!moveNext) {
+            await loadBatchEditorInstanceByIndex(instanceBatchEditorIndex, 0);
+        }
+    }
+
+    function bindInstanceBatchEditorKeyboard() {
+        document.addEventListener('keydown', event => {
+            const modal = document.getElementById('instanceBatchEditorModal');
+            if (!modal || !modal.classList.contains('show')) return;
+            const tagName = String(event.target?.tagName || '').toUpperCase();
+            if (tagName === 'INPUT' || tagName === 'TEXTAREA' || tagName === 'SELECT') return;
+            if (event.key === 'ArrowLeft') {
+                event.preventDefault();
+                navigateInstanceBatchEditor(-1);
+            } else if (event.key === 'ArrowRight') {
+                event.preventDefault();
+                navigateInstanceBatchEditor(1);
+            }
+        });
     }
 
     async function openInstanceActionModal(instanceId, action) {
@@ -3102,13 +3811,7 @@
         if (targetWarehouseWrap) targetWarehouseWrap.style.display = action === 'transfer' || action === 'checkin' ? '' : 'none';
         if (targetLocationWrap) targetLocationWrap.style.display = action ? '' : 'none';
         const targetWarehouse = document.getElementById('instanceActionTargetWarehouse');
-        if (targetWarehouse) {
-            if (action === 'checkin') {
-                targetWarehouse.value = String(instance.default_warehouse_id || '');
-            } else {
-                targetWarehouse.value = '';
-            }
-        }
+        if (targetWarehouse) targetWarehouse.value = action === 'checkin' ? String(instance.default_warehouse_id || '') : '';
         showModal('instanceActionModal');
     }
 
@@ -3132,6 +3835,55 @@
         hideModal('instanceActionModal');
         resetInstanceActionForm();
         await Promise.all([loadItems(), loadInstances(), loadInstanceLogs(instanceId), loadDashboardIfVisible()]);
+    }
+
+    function openBulkInstanceActionModal(action) {
+        if (!selectedInstanceIds.size) {
+            showError('请先选择至少一个个体');
+            return;
+        }
+        resetInstanceBulkActionForm();
+        const count = selectedInstanceIds.size;
+        const actionMap = {
+            transfer: { title: '批量调拨', summary: `将对 ${count} 个已选个体执行调拨。` },
+            checkout: { title: '批量出库', summary: `将对 ${count} 个已选个体执行出库。` },
+            checkin: { title: '批量入库', summary: `将对 ${count} 个已选个体执行入库。` },
+            delete: { title: '批量删除', summary: `将删除 ${count} 个已选个体，仍在仓的个体会先自动生成其他出库单。` }
+        };
+        document.getElementById('instanceBulkActionType').value = action;
+        document.getElementById('instanceBulkActionModalTitle').textContent = actionMap[action]?.title || '批量个体操作';
+        document.getElementById('instanceBulkActionSummary').textContent = actionMap[action]?.summary || `已选 ${count} 个个体`;
+        document.getElementById('instanceBulkActionNextStatusWrap').style.display = action === 'checkout' ? '' : 'none';
+        document.getElementById('instanceBulkActionTargetWarehouseWrap').style.display = action === 'transfer' || action === 'checkin' ? '' : 'none';
+        document.getElementById('instanceBulkActionTargetLocationWrap').style.display = action === 'delete' ? 'none' : '';
+        document.getElementById('instanceBulkActionOwnerWrap').style.display = action === 'delete' ? 'none' : '';
+        showModal('instanceBulkActionModal');
+    }
+
+    async function submitBulkInstanceAction() {
+        const action = document.getElementById('instanceBulkActionType').value;
+        const instanceIds = Array.from(selectedInstanceIds);
+        if (!instanceIds.length) return showError('请先选择至少一个个体');
+        if (action === 'delete' && !window.confirm(`确认删除这 ${instanceIds.length} 个个体吗？`)) return;
+        const payload = {
+            action,
+            instance_ids: instanceIds,
+            owner_name: document.getElementById('instanceBulkActionOwnerName').value,
+            remark: document.getElementById('instanceBulkActionRemark').value,
+            target_location_code: document.getElementById('instanceBulkActionTargetLocation').value
+        };
+        if (action === 'checkout') {
+            payload.next_status = document.getElementById('instanceBulkActionNextStatus').value;
+        }
+        if (action === 'transfer' || action === 'checkin') {
+            payload.target_warehouse_id = document.getElementById('instanceBulkActionTargetWarehouse').value;
+        }
+        const result = await apiPost('/api/erp/item-instances/bulk-action', payload);
+        if (!result.success) return showError(result.error);
+        hideModal('instanceBulkActionModal');
+        resetInstanceBulkActionForm();
+        selectedInstanceIds = new Set();
+        await Promise.all([loadItems(), refreshInstancesPage(), loadDashboardIfVisible()]);
     }
 
     async function loadDashboard() {
@@ -3707,11 +4459,14 @@
         if (woStartDate) woStartDate.value = today;
 
         bindModalDismissHandlers();
+        bindInstanceBatchEditorKeyboard();
         setupFloatingToolbar();
         await Promise.all([loadWarehouses(), loadItems(), loadBoms()]);
         resetItemForm();
         resetInstanceGenerateForm();
         resetInstanceForm();
+        resetInstanceBatchEditorForm();
+        resetInstanceBulkActionForm();
         resetInstanceActionForm();
         resetWarehouseForm();
         resetCustomFieldForm();

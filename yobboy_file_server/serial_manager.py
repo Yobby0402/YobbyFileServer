@@ -12,7 +12,7 @@ from collections import defaultdict, deque
 from datetime import datetime
 from typing import Callable, Dict, List, Optional
 
-from .paths import project_base_dir
+from .paths import get_logs_path, project_base_dir
 
 # 导入 pyserial，确保使用正确的包
 # 当 serial 包缺少 __init__.py 或被其它包覆盖时，从平台子模块直接导入 Serial
@@ -82,7 +82,7 @@ class SerialPortManager:
         self._lock = threading.RLock()
 
         base_dir = self._get_base_dir()
-        self.log_root = os.path.join(base_dir, "logs", "serial_capture")
+        self.log_root = get_logs_path("serial_capture")
         os.makedirs(self.log_root, exist_ok=True)
 
     # ------------------------------------------------------------------ #

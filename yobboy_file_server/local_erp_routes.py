@@ -9,6 +9,20 @@ def register_local_erp_routes(app, manager: LocalERPManager | None = None) -> No
     erp_manager = manager or LocalERPManager()
     app.config["LOCAL_ERP_MANAGER"] = erp_manager
 
+    def _parse_int_list(raw_value: str | None) -> list[int]:
+        values: list[int] = []
+        for part in str(raw_value or "").split(","):
+            part = part.strip()
+            if not part:
+                continue
+            try:
+                number = int(part)
+            except ValueError:
+                continue
+            if number > 0:
+                values.append(number)
+        return values
+
     def _require_login():
         if "logged_in" not in session:
             return redirect(url_for("login"))
@@ -153,6 +167,7 @@ def register_local_erp_routes(app, manager: LocalERPManager | None = None) -> No
                 "success": True,
                 "instances": erp_manager.list_item_instances(
                     item_id=request.args.get("item_id", type=int),
+                    item_ids=_parse_int_list(request.args.get("item_ids")),
                     keyword=request.args.get("keyword", ""),
                     status=request.args.get("status", ""),
                     warehouse_id=request.args.get("warehouse_id", type=int),
@@ -171,11 +186,36 @@ def register_local_erp_routes(app, manager: LocalERPManager | None = None) -> No
                 "success": True,
                 "logs": erp_manager.list_item_instance_logs(
                     item_id=request.args.get("item_id", type=int),
+                    item_ids=_parse_int_list(request.args.get("item_ids")),
                     instance_id=request.args.get("instance_id", type=int),
                     limit=request.args.get("limit", 100, type=int),
                 ),
             }
         )
+
+    @app.route("/api/erp/item-instances/bulk-update", methods=["POST"])
+    def erp_item_instances_bulk_update():
+        login_redirect = _require_login()
+        if login_redirect is not None:
+            return login_redirect
+        payload = request.get_json(silent=True) or {}
+        try:
+            result = erp_manager.bulk_update_item_instances(payload.get("instance_ids") or [], payload)
+            return jsonify({"success": True, "result": result})
+        except ValueError as exc:
+            return jsonify({"success": False, "error": str(exc)}), 400
+
+    @app.route("/api/erp/item-instances/bulk-action", methods=["POST"])
+    def erp_item_instances_bulk_action():
+        login_redirect = _require_login()
+        if login_redirect is not None:
+            return login_redirect
+        payload = request.get_json(silent=True) or {}
+        try:
+            result = erp_manager.bulk_item_instance_action(payload.get("instance_ids") or [], payload)
+            return jsonify({"success": True, "result": result})
+        except ValueError as exc:
+            return jsonify({"success": False, "error": str(exc)}), 400
 
     @app.route("/api/erp/item-instances/bulk-create", methods=["POST"])
     def erp_item_instances_bulk_create():

@@ -6,8 +6,10 @@ from __future__ import annotations
 import configparser
 import copy
 import hashlib
+import html
 import json
 import os
+import re
 import time
 import uuid
 from typing import Any, Dict, Generator, List, Optional
@@ -131,6 +133,35 @@ def _append_drawio_context_to_last_user(
             base = c if isinstance(c, str) else str(c or "")
             msgs[idx]["content"] = base + suffix
         break
+
+
+def _extract_drawio_xml_candidate(raw: str) -> str:
+    """Best-effort extraction when a text_dsl model ignores instructions and emits XML."""
+    text = str(raw or "").strip()
+    if not text:
+        return ""
+    low = text.lower()
+    if "&lt;mxfile" in low or "&lt;diagram" in low or "&lt;mxgraphmodel" in low:
+        text = html.unescape(text)
+        low = text.lower()
+    m = re.search(r"<mxfile\b", text, flags=re.IGNORECASE)
+    if m:
+        sub = text[m.start() :]
+        end_ix = sub.lower().find("</mxfile>")
+        if end_ix >= 0:
+            return sub[: end_ix + len("</mxfile>")].strip()
+        return sub.strip()
+    dm = re.search(r"<diagram\b[\s\S]*?</diagram>", text, flags=re.IGNORECASE)
+    if dm:
+        return ("<mxfile>" + dm.group(0) + "</mxfile>").strip()
+    gm = re.search(r"<mxGraphModel\b[\s\S]*?</mxGraphModel>", text, flags=re.IGNORECASE)
+    if gm:
+        return (
+            '<mxfile><diagram id="ai-page" name="Page-1">'
+            + gm.group(0)
+            + "</diagram></mxfile>"
+        ).strip()
+    return ""
 
 
 def _drawio_progress_payload(
@@ -712,43 +743,52 @@ def register_local_ai_routes(app) -> None:
                             final_out = drawio_text_dsl.convert_model_reply_to_mxfile(model_raw)
                         except drawio_text_dsl.DrawioTextDslError as e:
                             final_issues = [{"code": "TEXT_DSL_ERROR", "message": str(e)}]
-                            if attempt >= max_attempts:
-                                yield _sse(
-                                    "error",
-                                    {
-                                        "message": "yobboy-flow 解析失败，请重试或检查模型输出格式。",
-                                        "details": {"issues": final_issues},
-                                    },
+                            xml_fallback = _extract_drawio_xml_candidate(model_raw)
+                            if xml_fallback:
+                                final_display_meta = {
+                                    "output": drawio_out_meta,
+                                    "family": "unknown",
+                                    "direction": "unknown",
+                                    "routing": "mxfile_fallback",
+                                    "fallback": "model_returned_xml",
+                                }
+                                yield _sse("drawio_generation_meta", final_display_meta)
+                                final_out = xml_fallback
+                            else:
+                                if attempt >= max_attempts:
+                                    yield _sse(
+                                        "error",
+                                        {
+                                            "message": "yobboy-flow 解析失败，请重试或检查模型输出格式。",
+                                            "details": {"issues": final_issues},
+                                        },
+                                    )
+                                    yield _sse("done", {})
+                                    return
+                                retry_user_msg = (
+                                    "你上一次输出的 yobboy-flow 无法解析。请按语法修正，只输出 ```yobboy-flow 围栏内文本，"
+                                    "**不要**输出 <mxfile> XML 或 ```xml。\n\n解析错误：\n"
+                                    + str(e)
+                                    + "\n\n以下失败输出仅供定位错误，不要模仿其格式：\n"
+                                    + model_raw[:8000]
                                 )
-                                yield _sse("done", {})
-                                return
-                            retry_user_msg = (
-                                "你上一次输出的 yobboy-flow 无法解析。请按语法修正，只输出 ```yobboy-flow 围栏内文本，"
-                                "**不要**输出 <mxfile> XML 或 ```xml。\n\n解析错误：\n"
-                                + str(e)
-                                + "\n\n上一次输出：\n"
-                                + model_raw[:8000]
-                            )
-                            prev_clip = model_raw[:8000]
-                            msgs_loop = (
-                                copy.deepcopy(retry_base_msgs)
-                                + [{"role": "assistant", "content": prev_clip}]
-                                + [{"role": "user", "content": retry_user_msg}]
-                            )
-                            yield _sse(
-                                "drawio_retry",
-                                {"attempt": attempt + 1, "reason": "text_dsl_parse_failed"},
-                            )
-                            yield _sse(
-                                "drawio_progress",
-                                _drawio_progress_payload(
-                                    attempt + 1,
-                                    "retrying",
-                                    len(model_raw),
-                                    message="解析失败，正在准备带错误反馈的自动重试",
-                                ),
-                            )
-                            continue
+                                msgs_loop = copy.deepcopy(retry_base_msgs) + [
+                                    {"role": "user", "content": retry_user_msg}
+                                ]
+                                yield _sse(
+                                    "drawio_retry",
+                                    {"attempt": attempt + 1, "reason": "text_dsl_parse_failed"},
+                                )
+                                yield _sse(
+                                    "drawio_progress",
+                                    _drawio_progress_payload(
+                                        attempt + 1,
+                                        "retrying",
+                                        len(model_raw),
+                                        message="解析失败，正在准备带错误反馈的自动重试",
+                                    ),
+                                )
+                                continue
                     else:
                         final_display_meta = {
                             "output": drawio_out_meta,
@@ -842,7 +882,6 @@ def register_local_ai_routes(app) -> None:
                             + "\n\n上一次 yobboy-flow 原文：\n"
                             + model_raw[:8000]
                         )
-                        prev_clip = model_raw[:8000]
                     else:
                         retry_user_msg = (
                             "你上一次输出的 draw.io XML 未通过校验，请根据以下错误修复并重新输出。"
@@ -852,12 +891,9 @@ def register_local_ai_routes(app) -> None:
                             + "\n\n上一次输出：\n"
                             + final_out[:8000]
                         )
-                        prev_clip = final_out[:8000]
-                    msgs_loop = (
-                        copy.deepcopy(retry_base_msgs)
-                        + [{"role": "assistant", "content": prev_clip}]
-                        + [{"role": "user", "content": retry_user_msg}]
-                    )
+                    msgs_loop = copy.deepcopy(retry_base_msgs) + [
+                        {"role": "user", "content": retry_user_msg}
+                    ]
                     yield _sse("drawio_retry", {"attempt": attempt + 1, "reason": "validation_failed"})
                     yield _sse(
                         "drawio_progress",

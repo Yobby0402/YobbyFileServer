@@ -1,11 +1,11 @@
 ﻿(function () {
     const COLOR_THEMES = [
-        { id: "jasmine", label: "茉莉绿" },
+        { id: "jasmine", label: "茉莉奶白" },
         { id: "ocean", label: "海洋蓝" },
-        { id: "forest", label: "森林绿" },
-        { id: "sunset", label: "落日橙" },
-        { id: "lavender", label: "薰衣草紫" },
-        { id: "graphite", label: "石墨深灰" }
+        { id: "forest", label: "雾林灰绿" },
+        { id: "sunset", label: "暖砂橙" },
+        { id: "lavender", label: "雾紫灰" },
+        { id: "graphite", label: "石墨银灰" }
     ];
 
     const MORPH_STYLES = [
@@ -162,20 +162,23 @@
             width: 50px;
             height: 50px;
             border-radius: 50%;
-            background: linear-gradient(135deg, var(--t-primary), var(--t-primary-light));
-            color: #fff;
-            border: none;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+            background: color-mix(in srgb, var(--t-bg-panel-opaque) 88%, white);
+            color: var(--t-text-main);
+            border: 1px solid var(--t-border);
+            box-shadow: 0 10px 24px rgba(75, 75, 69, 0.08);
             cursor: pointer;
-            font-size: 20px;
+            font-size: 18px;
             transition: all 0.3s ease;
             display: flex;
             align-items: center;
             justify-content: center;
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
         }
         .theme-btn:hover {
-            transform: scale(1.1);
-            box-shadow: 0 6px 16px rgba(0,0,0,0.3);
+            transform: translateY(-1px);
+            background: color-mix(in srgb, var(--t-primary-faint) 76%, white);
+            box-shadow: 0 14px 28px rgba(75, 75, 69, 0.1);
         }
         .theme-menu {
             background: var(--t-bg-panel-opaque);
@@ -269,8 +272,11 @@
 
     const themeBtn = document.createElement("button");
     themeBtn.className = "toolbar-btn";
-    themeBtn.style.background = "linear-gradient(135deg, #FF9800, #F44336)";
-    themeBtn.innerHTML = "🎨";
+    themeBtn.style.background = "color-mix(in srgb, var(--t-bg-panel-opaque) 88%, white)";
+    themeBtn.style.color = "var(--t-text-main)";
+    themeBtn.style.border = "1px solid var(--t-border)";
+    themeBtn.style.boxShadow = "0 10px 24px rgba(75, 75, 69, 0.08)";
+    themeBtn.innerHTML = '<i class="fa fa-paint-brush" aria-hidden="true"></i>';
     themeBtn.title = "切换主题";
     themeBtn.onclick = (e) => {
         e.stopPropagation();

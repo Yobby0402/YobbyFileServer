@@ -244,6 +244,43 @@ _FENCE_RES = (
     re.compile(r"```flow\s*([\s\S]*?)```", re.IGNORECASE),
     re.compile(r"```diagram\s*([\s\S]*?)```", re.IGNORECASE),
 )
+_ANY_FENCE_RE = re.compile(r"```[^\n\r`]*\s*([\s\S]*?)```", re.IGNORECASE)
+_DSL_LINE_RE = re.compile(
+    r"(?m)^\s*(kind\s*:|graph\s+\S+|flowchart\s+\S+|node\s+\S|edge\s+\S|"
+    r"[\w.-]+\s*(?:\[|\{|\(\[|\(\(|\()|"
+    r"\S+\s*(?:--\s+.*?\s+-->|-->|---|==>|-\.->|->)\s*\S+)"
+)
+
+
+def _normalize_yobboy_flow_source(text: str) -> str:
+    return (
+        str(text or "")
+        .replace("\ufeff", "")
+        .replace("→", "->")
+        .replace("－>", "->")
+        .strip()
+    )
+
+
+def _extract_loose_yobboy_flow_lines(text: str) -> str:
+    lines = _normalize_yobboy_flow_source(text).splitlines()
+    out: List[str] = []
+    started = False
+    meaningful = 0
+    for line in lines:
+        s = line.strip()
+        is_dsl = bool(_DSL_LINE_RE.match(line))
+        is_allowed = not s or s.startswith("#") or is_dsl
+        if not started:
+            if not is_dsl:
+                continue
+            started = True
+        elif not is_allowed:
+            break
+        out.append(line)
+        if is_dsl:
+            meaningful += 1
+    return "\n".join(out).strip() if meaningful else ""
 
 
 def extract_yobboy_flow_source(raw: str) -> str:
@@ -254,9 +291,16 @@ def extract_yobboy_flow_source(raw: str) -> str:
     for cre in _FENCE_RES:
         m = cre.search(text)
         if m:
-            return m.group(1).strip()
-    if re.search(r"(?m)^\s*(node\s+\S|edge\s+\S|\S+\s*->\s*\S+)", text):
-        return text.strip()
+            body = _normalize_yobboy_flow_source(m.group(1))
+            return _extract_loose_yobboy_flow_lines(body) or body
+    for m in _ANY_FENCE_RE.finditer(text):
+        body = _normalize_yobboy_flow_source(m.group(1))
+        loose = _extract_loose_yobboy_flow_lines(body)
+        if loose:
+            return loose
+    loose = _extract_loose_yobboy_flow_lines(text)
+    if loose:
+        return loose
     return ""
 
 
@@ -311,17 +355,98 @@ def _parse_edge_line(line: str, lineno: int) -> EdgeSpec:
     return EdgeSpec(src=src, tgt=tgt, label=elabel)
 
 
-_MERMAID_EDGE = re.compile(r"^(\S+)\s*->\s*(\S+)(?:\s+(.*))?$")
+_MERMAID_DIRECTIVE_RE = re.compile(r"^(?:graph|flowchart)\s+(?:TB|TD|BT|LR|RL)\s*$", re.IGNORECASE)
+_MERMAID_NODE_DECL_RE = re.compile(r"^[A-Za-z0-9_.-]+\s*(?:\[|\{|\(\[|\(\(|\()")
+_MERMAID_EDGE_RE = re.compile(
+    r"^\s*(?P<src>.+?)\s*"
+    r"(?:(?P<op>-->|---|==>|-\.->|->)\s*(?:\|(?P<label1>[^|]*)\|)?|"
+    r"--\s*(?P<label2>.*?)\s*-->)"
+    r"\s*(?P<tgt>.+?)\s*$"
+)
 
 
-def _parse_mermaid_edge_line(line: str, lineno: int) -> EdgeSpec:
-    m = _MERMAID_EDGE.match(line.strip())
+def _iter_statement_lines(body: str) -> List[Tuple[int, str]]:
+    out: List[Tuple[int, str]] = []
+    for lineno, line in enumerate(str(body or "").splitlines(), 1):
+        for part in line.split(";"):
+            out.append((lineno, part))
+    return out
+
+
+def _clean_mermaid_line(line: str) -> str:
+    s = str(line or "").strip()
+    if not s or s.startswith("%%"):
+        return ""
+    return s
+
+
+def _clean_mermaid_label(label: str) -> str:
+    s = str(label or "").strip()
+    if len(s) >= 2 and s[0] == s[-1] and s[0] in ("'", '"'):
+        s = s[1:-1].strip()
+    if len(s) >= 2 and s[0] in ("/", "\\") and s[-1] in ("/", "\\"):
+        s = s[1:-1].strip()
+    return s
+
+
+def _strip_mermaid_class_suffix(text: str) -> str:
+    return re.sub(r"\s*:::[A-Za-z0-9_.-]+\s*$", "", str(text or "").strip())
+
+
+def _parse_mermaid_node_ref(text: str, lineno: int) -> NodeSpec:
+    raw = _strip_mermaid_class_suffix(text)
+    patterns = (
+        (re.compile(r"^([A-Za-z0-9_.-]+)\s*\(\[\s*([\s\S]*?)\s*\]\)$"), "rounded"),
+        (re.compile(r"^([A-Za-z0-9_.-]+)\s*\(\(\s*([\s\S]*?)\s*\)\)$"), "ellipse"),
+        (re.compile(r"^([A-Za-z0-9_.-]+)\s*\{\{\s*([\s\S]*?)\s*\}\}$"), "diamond"),
+        (re.compile(r"^([A-Za-z0-9_.-]+)\s*\{\s*([\s\S]*?)\s*\}$"), "diamond"),
+        (re.compile(r"^([A-Za-z0-9_.-]+)\s*\[\s*([\s\S]*?)\s*\]$"), "rect"),
+        (re.compile(r"^([A-Za-z0-9_.-]+)\s*\(\s*([\s\S]*?)\s*\)$"), "rounded"),
+    )
+    for cre, shape in patterns:
+        m = cre.match(raw)
+        if not m:
+            continue
+        nid = m.group(1)
+        raw_label = m.group(2)
+        label = _clean_mermaid_label(raw_label) or nid
+        node_shape = "parallelogram" if shape == "rect" and raw_label.strip().startswith(("/", "\\")) else shape
+        return NodeSpec(nid=nid, label=label, shape=node_shape)
+    if not raw:
+        raise DrawioTextDslError("Mermaid 节点为空", lineno)
+    nid = raw.split(None, 1)[0].strip()
+    if not nid:
+        raise DrawioTextDslError("Mermaid 节点为空", lineno)
+    return NodeSpec(nid=nid, label=nid, shape="rounded")
+
+
+def _parse_mermaid_node_decl_line(line: str, lineno: int) -> Optional[NodeSpec]:
+    s = _clean_mermaid_line(line)
+    if not s or not _MERMAID_NODE_DECL_RE.match(s):
+        return None
+    try:
+        spec = _parse_mermaid_node_ref(s, lineno)
+    except DrawioTextDslError:
+        return None
+    return spec if spec.label != spec.nid or spec.shape != "rounded" else None
+
+
+def _parse_mermaid_edge_line(line: str, lineno: int) -> Tuple[EdgeSpec, List[NodeSpec]]:
+    m = _MERMAID_EDGE_RE.match(_clean_mermaid_line(line))
     if not m:
         raise DrawioTextDslError(f"无法解析的连线行: {line[:80]}", lineno)
-    src, tgt, rest = m.group(1), m.group(2), (m.group(3) or "").strip()
-    if src == "node" or tgt == "node":
+    src_text = (m.group("src") or "").strip()
+    tgt_text = (m.group("tgt") or "").strip()
+    label = (m.group("label1") or m.group("label2") or "").strip()
+    if not label and m.group("op") == "->" and not re.search(r"[\[\]\{\}\(\)]", tgt_text):
+        parts = tgt_text.split(None, 1)
+        if len(parts) == 2:
+            tgt_text, label = parts[0], parts[1].strip()
+    src_spec = _parse_mermaid_node_ref(src_text, lineno)
+    tgt_spec = _parse_mermaid_node_ref(tgt_text, lineno)
+    if src_spec.nid == "node" or tgt_spec.nid == "node":
         raise DrawioTextDslError("请使用关键字 node / edge 声明，勿混写", lineno)
-    return EdgeSpec(src=src, tgt=tgt, label=rest)
+    return EdgeSpec(src=src_spec.nid, tgt=tgt_spec.nid, label=_clean_mermaid_label(label)), [src_spec, tgt_spec]
 
 
 def parse_yobboy_flow(body: str) -> Tuple[List[NodeSpec], List[EdgeSpec]]:
@@ -331,7 +456,19 @@ def parse_yobboy_flow(body: str) -> Tuple[List[NodeSpec], List[EdgeSpec]]:
     nodes_order: List[NodeSpec] = []
     node_map: Dict[str, NodeSpec] = {}
     edges: List[EdgeSpec] = []
-    for lineno, line in enumerate(body.splitlines(), 1):
+
+    def upsert_inferred_node(spec: NodeSpec) -> None:
+        existing = node_map.get(spec.nid)
+        if existing is None:
+            node_map[spec.nid] = spec
+            nodes_order.append(spec)
+            return
+        if existing.label == existing.nid and spec.label != spec.nid:
+            existing.label = spec.label
+        if existing.shape == "rounded" and spec.shape != "rounded":
+            existing.shape = spec.shape
+
+    for lineno, line in _iter_statement_lines(body):
         s = line.strip()
         if not s or s.startswith("#"):
             continue
@@ -351,8 +488,17 @@ def parse_yobboy_flow(body: str) -> Tuple[List[NodeSpec], List[EdgeSpec]]:
         if low.startswith("edge "):
             edges.append(_parse_edge_line(s, lineno))
             continue
-        if "->" in s and not low.startswith("node"):
-            edges.append(_parse_mermaid_edge_line(s, lineno))
+        if _MERMAID_DIRECTIVE_RE.match(s):
+            continue
+        if _MERMAID_EDGE_RE.match(s) and not low.startswith("node"):
+            edge, inferred_nodes = _parse_mermaid_edge_line(s, lineno)
+            for spec in inferred_nodes:
+                upsert_inferred_node(spec)
+            edges.append(edge)
+            continue
+        mermaid_node = _parse_mermaid_node_decl_line(s, lineno)
+        if mermaid_node is not None:
+            upsert_inferred_node(mermaid_node)
             continue
         raise DrawioTextDslError(f"无法识别的行: {s[:100]}", lineno)
 

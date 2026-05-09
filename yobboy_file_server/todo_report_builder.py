@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, List, Optional
 
 
 def _parse_iso_datetime(value: Any) -> Optional[datetime]:
@@ -78,6 +78,41 @@ def _progress(task: Dict[str, Any]) -> int:
     return max(0, min(100, value))
 
 
+def _field_label(field: Any) -> str:
+    labels = {
+        "summary": "任务简述",
+        "description": "详细描述",
+        "priority": "优先级",
+        "progress": "进度",
+        "due_date": "预计完成时间",
+        "weekly_plan": "本周计划",
+        "conclusion": "结论",
+        "comments": "评论",
+        "show_in_report": "是否展示在汇报页",
+        "status": "状态",
+        "task_type": "任务类型",
+    }
+    raw = str(field or "").strip()
+    if raw in labels:
+        return labels[raw]
+    if any(("A" <= ch <= "Z") or ("a" <= ch <= "z") for ch in raw):
+        return "任务内容"
+    return raw or "任务内容"
+
+
+def _display_value(value: Any) -> str:
+    if isinstance(value, bool):
+        return "是" if value else "否"
+    text = str(value or "").strip()
+    if not text:
+        return "清空"
+    return text
+
+
+def _task_summary(task: Dict[str, Any]) -> str:
+    return str(task.get("summary") or "未命名任务").strip() or "未命名任务"
+
+
 def _ensure_list(value: Any) -> List[Any]:
     return value if isinstance(value, list) else []
 
@@ -117,6 +152,10 @@ def _task_touched_in_range(task: Dict[str, Any], start: date, end: date) -> bool
 
 def _collect_task_updates(task: Dict[str, Any], start: date, end: date) -> List[str]:
     lines: List[str] = []
+    created_date = _parse_date(task.get("created_at"))
+    if created_date and start <= created_date <= end:
+        lines.append(f"新建任务：{_task_summary(task)}")
+
     for record in _ensure_list(task.get("update_history")):
         if not isinstance(record, dict):
             continue
@@ -124,9 +163,11 @@ def _collect_task_updates(task: Dict[str, Any], start: date, end: date) -> List[
         if not parsed or not (start <= parsed <= end):
             continue
         field = str(record.get("field") or "").strip()
-        new_value = str(record.get("new_value") or "").strip()
-        if field and new_value:
-            lines.append(f"{field}: {new_value}")
+        if field in ("create", "created", "comment", "comments"):
+            continue
+        new_value = _display_value(record.get("new_value"))
+        if field:
+            lines.append(f"{_field_label(field)}：{new_value}")
     for comment in _ensure_list(task.get("comments"))[-10:]:
         if not isinstance(comment, dict):
             continue
@@ -135,12 +176,53 @@ def _collect_task_updates(task: Dict[str, Any], start: date, end: date) -> List[
             continue
         content = str(comment.get("content") or comment.get("text") or "").strip()
         if content:
-            lines.append(f"评论: {content}")
+            lines.append(f"评论：{content}")
     deduped: List[str] = []
     for line in lines:
         if line not in deduped:
             deduped.append(line)
     return deduped[:6]
+
+
+def _collect_unfinished_lines(
+    task_sources: List[Dict[str, Any]],
+    *,
+    max_items: int = 10,
+    show_progress_percent: bool = True,
+) -> List[str]:
+    lines: List[str] = []
+    for task in task_sources:
+        progress = _progress(task)
+        if progress >= 100:
+            continue
+        project_name = str(task.get("project_name") or "未命名项目")
+        summary = str(task.get("summary") or "未命名任务")
+        weekly_plan = str(task.get("weekly_plan") or "").strip()
+        line = f"- {project_name} / {summary}"
+        if show_progress_percent:
+            line += f"：进度 {_progress(task)}%"
+        if weekly_plan:
+            line += f"；后续计划：{weekly_plan}"
+        if line not in lines:
+            lines.append(line)
+    return lines[:max_items]
+
+
+def _status_text(task: Dict[str, Any], *, show_progress_percent: bool = True, weekly_tone: bool = False) -> str:
+    progress = _progress(task)
+    if weekly_tone:
+        if progress >= 100:
+            return "这周已完成"
+        if progress <= 0:
+            return "这周已开始处理"
+        if show_progress_percent:
+            return f"这周继续推进，当前约 {progress}%"
+        return "这周继续推进"
+    if progress >= 100:
+        return "已完成"
+    if show_progress_percent:
+        return f"进行中，进度 {progress}%"
+    return "进行中"
 
 
 @dataclass
@@ -170,7 +252,14 @@ class ReportPayload:
         }
 
 
-def build_daily_report(todo_manager: Any, extended_manager: Any, *, date_str: Optional[str] = None) -> ReportPayload:
+def build_daily_report(
+    todo_manager: Any,
+    extended_manager: Any,
+    *,
+    date_str: Optional[str] = None,
+    include_unfinished_summary: bool = False,
+    show_progress_percent: bool = True,
+) -> ReportPayload:
     target = _coerce_report_date(date_str)
     target_date = date.fromisoformat(target)
     data = todo_manager.list_all() if todo_manager is not None else {}
@@ -178,7 +267,6 @@ def build_daily_report(todo_manager: Any, extended_manager: Any, *, date_str: Op
     task_sources: List[Dict[str, Any]] = []
     progress_lines: List[str] = []
     completed_lines: List[str] = []
-    next_lines: List[str] = []
 
     for project in data.get("projects") or []:
         if not isinstance(project, dict):
@@ -189,19 +277,15 @@ def build_daily_report(todo_manager: Any, extended_manager: Any, *, date_str: Op
                 continue
             if not _task_touched_in_range(task, target_date, target_date):
                 continue
-            task_sources.append(_task_source(project, task))
             updates = _collect_task_updates(task, target_date, target_date)
-            status = "已完成" if _progress(task) >= 100 else "进行中"
-            line = f"- {project_name} / {task.get('summary') or '未命名任务'}：{status}（{_progress(task)}%）"
-            if updates:
-                line += "；" + "；".join(updates)
+            if not updates:
+                continue
+            task_sources.append(_task_source(project, task))
+            status = _status_text(task, show_progress_percent=show_progress_percent)
+            line = f"- {project_name} / {_task_summary(task)}：{status}；" + "；".join(updates)
             progress_lines.append(line)
             if _progress(task) >= 100:
-                completed_lines.append(f"- {project_name} / {task.get('summary') or '未命名任务'}")
-            if str(task.get("weekly_plan") or "").strip():
-                next_lines.append(
-                    f"- {project_name} / {task.get('summary') or '未命名任务'}：{str(task.get('weekly_plan') or '').strip()}"
-                )
+                completed_lines.append(f"- {project_name} / {_task_summary(task)}")
 
     if completed_lines:
         sections.extend(["", "## 今日完成", *completed_lines])
@@ -214,12 +298,13 @@ def build_daily_report(todo_manager: Any, extended_manager: Any, *, date_str: Op
         source_notes.append({"date": target, "content": str(meeting_note or "")})
         sections.extend(["", "## 会议记录", str(meeting_note or "").strip()])
 
-    if next_lines:
-        deduped_next: List[str] = []
-        for line in next_lines:
-            if line not in deduped_next:
-                deduped_next.append(line)
-        sections.extend(["", "## 后续计划", *deduped_next[:8]])
+    if include_unfinished_summary:
+        unfinished_lines = _collect_unfinished_lines(
+            task_sources,
+            show_progress_percent=show_progress_percent,
+        )
+        if unfinished_lines:
+            sections.extend(["", "## 未完成事项", *unfinished_lines])
 
     if len(sections) == 1:
         sections.extend(["", "## 今日进展", "- 今日暂无待办更新记录"])
@@ -242,11 +327,14 @@ def build_weekly_report(
     *,
     week_key: Optional[str] = None,
     ref_date: Optional[str] = None,
+    include_unfinished_summary: bool = False,
+    show_progress_percent: bool = True,
 ) -> ReportPayload:
     resolved_week_key = _coerce_week_key(week_key, ref_date)
     start, end = _week_bounds(resolved_week_key)
     data = todo_manager.list_all() if todo_manager is not None else {}
-    sections: List[str] = [f"# 周报 {resolved_week_key}", f"周期：{start.isoformat()} ~ {end.isoformat()}"]
+    iso = start.isocalendar()
+    sections: List[str] = [f"# 周报 {iso.year}年第{iso.week}周", f"本周时间：{start.isoformat()} ~ {end.isoformat()}"]
     task_sources: List[Dict[str, Any]] = []
 
     for project in data.get("projects") or []:
@@ -261,24 +349,23 @@ def build_weekly_report(
                 continue
             if task.get("show_in_report", True) is False:
                 continue
-            touched = _task_touched_in_range(task, start, end)
-            has_week_plan = bool(str(task.get("weekly_plan") or "").strip())
-            if not touched and not has_week_plan:
+            if not _task_touched_in_range(task, start, end):
+                continue
+            updates = _collect_task_updates(task, start, end)
+            if not updates:
                 continue
             task_sources.append(_task_source(project, task))
-            updates = _collect_task_updates(task, start, end)
             summary = str(task.get("summary") or "未命名任务")
-            status = "已完成" if _progress(task) >= 100 else "进行中"
-            line = f"- {summary}：{status}（{_progress(task)}%）"
+            line = f"- {summary}：{_status_text(task, show_progress_percent=show_progress_percent, weekly_tone=True)}"
             if task.get("due_date"):
-                line += f"，截止 {task.get('due_date')}"
+                line += f"，截止时间 {task.get('due_date')}"
             project_lines.append(line)
-            if updates:
-                project_lines.append(f"  - 本周进展：{'；'.join(updates)}")
-            if str(task.get("weekly_plan") or "").strip():
-                project_lines.append(f"  - 下周计划：{str(task.get('weekly_plan') or '').strip()}")
+            project_lines.append(f"  - 这周处理了：{'；'.join(updates)}")
             if str(task.get("conclusion") or "").strip() and _progress(task) >= 100:
-                project_lines.append(f"  - 结果：{str(task.get('conclusion') or '').strip()}")
+                project_lines.append(f"  - 完成结果：{str(task.get('conclusion') or '').strip()}")
+            weekly_plan = str(task.get("weekly_plan") or "").strip()
+            if weekly_plan and _progress(task) < 100:
+                project_lines.append(f"  - 下周准备：{weekly_plan}")
         if project_lines:
             sections.extend(["", f"## {project_name}", *project_lines])
 
@@ -296,12 +383,20 @@ def build_weekly_report(
                 sections.append(f"- {item['date']}：{item['content']}")
 
     if len(sections) <= 2:
-        sections.extend(["", "## 本周概览", "- 本周暂无可汇总的待办动态"])
+        sections.extend(["", "## 本周概览", "- 这周暂时没有新的待办变更记录"])
+
+    if include_unfinished_summary:
+        unfinished_lines = _collect_unfinished_lines(
+            task_sources,
+            show_progress_percent=show_progress_percent,
+        )
+        if unfinished_lines:
+            sections.extend(["", "## 未完成事项", *unfinished_lines])
 
     return ReportPayload(
         report_type="weekly",
         key=resolved_week_key,
-        title=f"周报 {resolved_week_key}",
+        title=f"周报 {iso.year}年第{iso.week}周",
         content="\n".join(sections).strip(),
         period_start=start.isoformat(),
         period_end=end.isoformat(),

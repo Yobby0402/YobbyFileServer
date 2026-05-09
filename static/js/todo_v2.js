@@ -2636,56 +2636,45 @@
         });
     }
     
+    function buildReportExportFlatTasks() {
+        const projectBlocks = getReportProjectBlocks();
+        const flatTasks = [];
+        projectBlocks.forEach(({ project, tasks: reportTasks }) => {
+            reportTasks.forEach((task, index) => {
+                let currentProgress = '';
+                const isCompleted = (task.progress || 0) >= 100;
+                if (isCompleted) {
+                    if (task.conclusion) {
+                        currentProgress = task.conclusion;
+                    } else {
+                        const comments = task.comments || [];
+                        currentProgress = comments.length > 0 ? comments.map(c => c.content).join('\n') : '已完成';
+                    }
+                } else {
+                    const comments = task.comments || [];
+                    currentProgress = comments.length > 0 ? comments.map(c => c.content).join('\n') : '进行中';
+                }
+
+                flatTasks.push({
+                    ...task,
+                    project_id: project.id,
+                    project_name: project.name || '未命名项目',
+                    project_phase: project.phase || '',
+                    project_color: project.color || '#4facfe',
+                    index: index + 1,
+                    current_progress: currentProgress,
+                    weekly_plan: task.weekly_plan || '',
+                    status: isCompleted ? '已完成' : '未完成'
+                });
+            });
+        });
+        return flatTasks;
+    }
+
     function exportReportToExcel() {
         // 调用后端API导出汇报表格
         try {
-            const projectBlocks = getReportProjectBlocks();
-            if (projectBlocks.length === 0) {
-                showAlert('warning', '暂无汇报数据可导出');
-                return;
-            }
-            
-            // 构建扁平化的任务列表（用于导出）
-            const flatTasks = [];
-            projectBlocks.forEach(({ project, tasks: reportTasks }) => {
-                reportTasks.forEach((task, index) => {
-                    // 构建当前进展内容
-                    let currentProgress = '';
-                    const isCompleted = (task.progress || 0) >= 100;
-                    if (isCompleted) {
-                        if (task.conclusion) {
-                            currentProgress = task.conclusion;
-                        } else {
-                            const comments = task.comments || [];
-                            if (comments.length > 0) {
-                                currentProgress = comments.map(c => c.content).join('\n');
-                            } else {
-                                currentProgress = '已完成';
-                            }
-                        }
-                    } else {
-                        const comments = task.comments || [];
-                        if (comments.length > 0) {
-                            currentProgress = comments.map(c => c.content).join('\n');
-                        } else {
-                            currentProgress = '进行中';
-                        }
-                    }
-                    
-                    flatTasks.push({
-                        ...task,
-                        project_id: project.id,
-                        project_name: project.name || '未命名项目',
-                        project_phase: project.phase || '',
-                        project_color: project.color || '#4facfe',
-                        index: index + 1, // 序号
-                        current_progress: currentProgress,
-                        weekly_plan: task.weekly_plan || '',
-                        status: isCompleted ? '已完成' : '未完成'
-                    });
-                });
-            });
-            
+            const flatTasks = buildReportExportFlatTasks();
             if (flatTasks.length === 0) {
                 showAlert('warning', '暂无汇报数据可导出');
                 return;
@@ -3509,12 +3498,21 @@
     let currentTodoReportKey = null;
     let currentTodoReport = null;
     let todoReportEventsBound = false;
+    let todoReportGenerateTimer = null;
 
     function getTodoReportRefs() {
         return {
             modal: document.getElementById('todoReportModal'),
             typeSelect: document.getElementById('todoReportTypeSelect'),
             dateInput: document.getElementById('todoReportDateInput'),
+            includeUnfinishedInput: document.getElementById('todoReportIncludeUnfinished'),
+            enableAiPolishInput: document.getElementById('todoReportEnableAiPolish'),
+            showProgressPercentInput: document.getElementById('todoReportShowProgressPercent'),
+            pdfIncludeTableInput: document.getElementById('todoReportPdfIncludeTable'),
+            pdfTableOption: document.getElementById('todoReportPdfTableOption'),
+            generateStatus: document.getElementById('todoReportGenerateStatus'),
+            generateProgress: document.getElementById('todoReportGenerateProgress'),
+            generateStatusText: document.getElementById('todoReportGenerateStatusText'),
             generateBtn: document.getElementById('generateTodoReportBtn'),
             refreshBtn: document.getElementById('refreshTodoReportListBtn'),
             listContainer: document.getElementById('todoReportListContainer'),
@@ -3525,6 +3523,7 @@
             sourceSummary: document.getElementById('todoReportSourceSummary'),
             saveBtn: document.getElementById('saveTodoReportBtn'),
             deleteBtn: document.getElementById('deleteTodoReportBtn'),
+            exportPdfBtn: document.getElementById('exportTodoWeeklyPdfBtn'),
         };
     }
 
@@ -3537,6 +3536,78 @@
 
     function getTodoReportTypeLabel(reportType) {
         return reportType === 'weekly' ? '周报' : '日报';
+    }
+
+    function getTodoReportPolishStatusText(report) {
+        const status = report?.ai_polish_status || '';
+        if (status === 'running') return 'AI 润色中';
+        if (status === 'completed' || report?.ai_polished) return '已 AI 润色';
+        if (status === 'failed') return 'AI 润色失败';
+        if (status === 'pending') return '等待 AI 润色';
+        return '';
+    }
+
+    function setTodoReportGenerationStatus(text, percent = 0, show = true) {
+        const reportRefs = getTodoReportRefs();
+        if (reportRefs.generateStatus) {
+            reportRefs.generateStatus.style.display = show ? '' : 'none';
+        }
+        if (reportRefs.generateProgress) {
+            reportRefs.generateProgress.style.width = `${Math.max(0, Math.min(100, percent))}%`;
+        }
+        if (reportRefs.generateStatusText) {
+            reportRefs.generateStatusText.textContent = text || '';
+        }
+    }
+
+    function startTodoReportGenerationProgress(enableAiPolish) {
+        if (todoReportGenerateTimer) {
+            clearInterval(todoReportGenerateTimer);
+            todoReportGenerateTimer = null;
+        }
+        let percent = 12;
+        const reportRefs = getTodoReportRefs();
+        if (reportRefs.generateProgress) {
+            reportRefs.generateProgress.classList.remove('bg-danger', 'bg-success');
+            reportRefs.generateProgress.classList.add('progress-bar-animated');
+        }
+        setTodoReportGenerationStatus('正在生成基础报表...', percent, true);
+        todoReportGenerateTimer = setInterval(() => {
+            if (enableAiPolish) {
+                if (percent < 38) {
+                    percent += 6;
+                    setTodoReportGenerationStatus('正在生成并保存基础报表...', percent, true);
+                } else if (percent < 92) {
+                    percent += 3;
+                    setTodoReportGenerationStatus('基础报表已先保存，正在进行 AI 润色...', percent, true);
+                }
+            } else {
+                percent = Math.min(92, percent + 10);
+                setTodoReportGenerationStatus('正在生成并保存报表...', percent, true);
+            }
+        }, 900);
+    }
+
+    function finishTodoReportGenerationProgress(text, success = true) {
+        if (todoReportGenerateTimer) {
+            clearInterval(todoReportGenerateTimer);
+            todoReportGenerateTimer = null;
+        }
+        setTodoReportGenerationStatus(text, success ? 100 : 100, true);
+        const reportRefs = getTodoReportRefs();
+        if (reportRefs.generateProgress) {
+            reportRefs.generateProgress.classList.toggle('bg-danger', !success);
+            reportRefs.generateProgress.classList.toggle('bg-success', success);
+            reportRefs.generateProgress.classList.remove('progress-bar-animated');
+        }
+        setTimeout(() => {
+            const refsNow = getTodoReportRefs();
+            if (refsNow.generateProgress) {
+                refsNow.generateProgress.classList.remove('bg-danger', 'bg-success');
+                refsNow.generateProgress.classList.add('progress-bar-animated');
+            }
+            setTodoReportGenerationStatus('', 0, false);
+        }, 2500);
     }
 
     function formatTodoReportPeriod(report) {
@@ -3571,6 +3642,7 @@
         if (reportRefs.dateInput && !reportRefs.dateInput.value) {
             reportRefs.dateInput.value = getLocalDateValue();
         }
+        updateTodoReportPdfControls();
 
         let modal = bootstrap.Modal.getInstance(reportRefs.modal);
         if (!modal) {
@@ -3590,6 +3662,7 @@
                 currentTodoReportKey = null;
                 currentTodoReport = null;
                 resetTodoReportDetail();
+                updateTodoReportPdfControls();
                 loadTodoReportList(currentTodoReportType);
             });
         }
@@ -3612,6 +3685,10 @@
             reportRefs.deleteBtn.addEventListener('click', deleteTodoReport);
         }
 
+        if (reportRefs.exportPdfBtn) {
+            reportRefs.exportPdfBtn.addEventListener('click', exportTodoWeeklyReportPdf);
+        }
+
         if (reportRefs.contentInput) {
             reportRefs.contentInput.addEventListener('input', function() {
                 updateTodoReportPreview(this.value);
@@ -3628,6 +3705,22 @@
         if (reportRefs.contentInput) reportRefs.contentInput.value = '';
         if (reportRefs.sourceSummary) reportRefs.sourceSummary.textContent = '';
         updateTodoReportPreview('');
+        updateTodoReportPdfControls();
+        if (!todoReportGenerateTimer) {
+            setTodoReportGenerationStatus('', 0, false);
+        }
+    }
+
+    function updateTodoReportPdfControls() {
+        const reportRefs = getTodoReportRefs();
+        const isWeekly = (reportRefs.typeSelect?.value || currentTodoReportType) === 'weekly';
+        if (reportRefs.exportPdfBtn) {
+            reportRefs.exportPdfBtn.style.display = isWeekly ? '' : 'none';
+            reportRefs.exportPdfBtn.disabled = !isWeekly || !currentTodoReport;
+        }
+        if (reportRefs.pdfTableOption) {
+            reportRefs.pdfTableOption.style.display = isWeekly ? '' : 'none';
+        }
     }
 
     async function loadTodoReportList(reportType = currentTodoReportType) {
@@ -3663,13 +3756,14 @@
             const isActive = key && key === currentTodoReportKey;
             const period = formatTodoReportPeriod(report);
             const updatedAt = report.updated_at ? formatDateTime(report.updated_at) : '';
+            const polishStatus = getTodoReportPolishStatusText(report);
             html += `
                 <button type="button" class="list-group-item list-group-item-action ${isActive ? 'active' : ''}"
                         data-report-type="${escapeHtml(currentTodoReportType)}"
                         data-report-key="${escapeHtml(key)}">
                     <div class="d-flex justify-content-between align-items-start">
                         <strong>${escapeHtml(report.title || key || '未命名报表')}</strong>
-                        <small>${escapeHtml(getTodoReportTypeLabel(currentTodoReportType))}</small>
+                        <small>${escapeHtml(polishStatus || getTodoReportTypeLabel(currentTodoReportType))}</small>
                     </div>
                     <div class="small ${isActive ? '' : 'text-muted'}">${escapeHtml(period)}</div>
                     <div class="small ${isActive ? '' : 'text-muted'}">${escapeHtml(updatedAt)}</div>
@@ -3692,23 +3786,39 @@
         const reportRefs = getTodoReportRefs();
         const reportType = reportRefs.typeSelect?.value || currentTodoReportType || 'daily';
         const dateValue = reportRefs.dateInput?.value || getLocalDateValue();
+        const includeUnfinished = !!reportRefs.includeUnfinishedInput?.checked;
+        const enableAiPolish = !!reportRefs.enableAiPolishInput?.checked;
+        const showProgressPercent = reportRefs.showProgressPercentInput?.checked !== false;
 
         if (reportRefs.generateBtn) {
             reportRefs.generateBtn.disabled = true;
             reportRefs.generateBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 生成中...';
         }
+        startTodoReportGenerationProgress(enableAiPolish);
 
         try {
             const result = await fetchTodoReportJson(`/api/todo/v2/reports/${reportType}/generate`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ date: dateValue, save: true }),
+                body: JSON.stringify({
+                    date: dateValue,
+                    save: true,
+                    include_unfinished_summary: includeUnfinished,
+                    enable_ai_polish: enableAiPolish,
+                    show_progress_percent: showProgressPercent,
+                }),
             });
             currentTodoReportType = reportType;
             setCurrentTodoReport(result.report);
             await loadTodoReportList(reportType);
+            if (Array.isArray(result.warnings) && result.warnings.length > 0) {
+                showAlert('warning', result.warnings.join('；'));
+            }
+            const polishStatus = getTodoReportPolishStatusText(result.report);
+            finishTodoReportGenerationProgress(polishStatus || `${getTodoReportTypeLabel(reportType)}已保存`, true);
             showAlert('success', `${getTodoReportTypeLabel(reportType)}已生成`);
         } catch (error) {
+            finishTodoReportGenerationProgress(error.message || '生成报表失败', false);
             showAlert('danger', error.message || '生成报表失败');
         } finally {
             if (reportRefs.generateBtn) {
@@ -3755,9 +3865,12 @@
         if (reportRefs.sourceSummary) {
             const taskCount = Array.isArray(report?.source_tasks) ? report.source_tasks.length : 0;
             const noteCount = Array.isArray(report?.source_notes) ? report.source_notes.length : 0;
-            reportRefs.sourceSummary.textContent = `来源：${taskCount} 个任务，${noteCount} 条会议记录`;
+            const polishStatus = getTodoReportPolishStatusText(report);
+            const polishText = polishStatus ? `，${polishStatus}` : '';
+            reportRefs.sourceSummary.textContent = `来源：${taskCount} 个任务，${noteCount} 条会议记录${polishText}`;
         }
         updateTodoReportPreview(report?.content || '');
+        updateTodoReportPdfControls();
     }
 
     async function saveTodoReport() {
@@ -3809,6 +3922,70 @@
             showAlert('success', '报表已删除');
         } catch (error) {
             showAlert('danger', error.message || '删除报表失败');
+        }
+    }
+
+    async function exportTodoWeeklyReportPdf() {
+        const reportRefs = getTodoReportRefs();
+        if (currentTodoReportType !== 'weekly' || !currentTodoReport) {
+            showAlert('warning', '请先选择或生成周报');
+            return;
+        }
+
+        const content = reportRefs.contentInput?.value || currentTodoReport.content || '';
+        if (!content.trim()) {
+            showAlert('warning', '周报内容为空，无法导出 PDF');
+            return;
+        }
+
+        const includeTable = !!reportRefs.pdfIncludeTableInput?.checked;
+        const reportTableTasks = includeTable ? buildReportExportFlatTasks() : [];
+        if (includeTable && reportTableTasks.length === 0) {
+            showAlert('warning', '当前汇报视图没有表格数据可加入 PDF');
+            return;
+        }
+        const originalText = reportRefs.exportPdfBtn?.innerHTML || '';
+        if (reportRefs.exportPdfBtn) {
+            reportRefs.exportPdfBtn.disabled = true;
+            reportRefs.exportPdfBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 导出中...';
+        }
+
+        try {
+            const response = await fetch('/api/todo/v2/reports/weekly/export/pdf', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    title: currentTodoReport.title || `周报 ${currentTodoReport.key || ''}`.trim(),
+                    content,
+                    include_table: includeTable,
+                    report_table_tasks: reportTableTasks,
+                }),
+            });
+
+            if (!response.ok) {
+                const err = await response.json().catch(() => ({}));
+                throw new Error(err.error || '导出失败');
+            }
+
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            const safeTitle = (currentTodoReport.title || '周报').replace(/[\\/:*?"<>|]/g, '_');
+            a.href = url;
+            a.download = `${safeTitle}.pdf`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(url);
+            showAlert('success', '周报 PDF 已导出');
+        } catch (error) {
+            showAlert('danger', '导出 PDF 失败：' + (error.message || String(error)));
+        } finally {
+            if (reportRefs.exportPdfBtn) {
+                reportRefs.exportPdfBtn.disabled = false;
+                reportRefs.exportPdfBtn.innerHTML = originalText || '<i class="fas fa-file-pdf"></i> 导出 PDF';
+                updateTodoReportPdfControls();
+            }
         }
     }
 

@@ -685,10 +685,34 @@
                                 <input type="date" class="form-control form-control-sm" id="todoReportDateInput">
                                 <small class="text-muted">日报使用该日期；周报按该日期所在周生成</small>
                             </div>
+                            <div class="mb-2">
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" id="todoReportIncludeUnfinished">
+                                    <label class="form-check-label small" for="todoReportIncludeUnfinished">汇总未完成事项</label>
+                                </div>
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" id="todoReportEnableAiPolish">
+                                    <label class="form-check-label small" for="todoReportEnableAiPolish">启用 AI 润色</label>
+                                </div>
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" id="todoReportShowProgressPercent" checked>
+                                    <label class="form-check-label small" for="todoReportShowProgressPercent">显示进度百分比</label>
+                                </div>
+                                <div class="form-check form-switch" id="todoReportPdfTableOption">
+                                    <input class="form-check-input" type="checkbox" id="todoReportPdfIncludeTable">
+                                    <label class="form-check-label small" for="todoReportPdfIncludeTable">PDF 包含汇报表格</label>
+                                </div>
+                            </div>
                             <div class="d-grid gap-2 mb-3">
                                 <button type="button" class="btn btn-sm btn-primary" id="generateTodoReportBtn">
                                     <i class="fas fa-magic"></i> 生成并保存
                                 </button>
+                                <div id="todoReportGenerateStatus" class="small text-muted" style="display: none;">
+                                    <div class="progress" style="height: 6px;">
+                                        <div id="todoReportGenerateProgress" class="progress-bar progress-bar-striped progress-bar-animated" style="width: 0%;"></div>
+                                    </div>
+                                    <div id="todoReportGenerateStatusText" class="mt-1">准备生成</div>
+                                </div>
                                 <button type="button" class="btn btn-sm btn-outline-secondary" id="refreshTodoReportListBtn">
                                     <i class="fas fa-sync"></i> 刷新列表
                                 </button>
@@ -705,6 +729,9 @@
                                     <div class="small text-muted" id="todoReportCurrentMeta"></div>
                                 </div>
                                 <div class="btn-group btn-group-sm">
+                                    <button type="button" class="btn btn-outline-success" id="exportTodoWeeklyPdfBtn">
+                                        <i class="fas fa-file-pdf"></i> 导出 PDF
+                                    </button>
                                     <button type="button" class="btn btn-outline-primary" id="saveTodoReportBtn">
                                         <i class="fas fa-save"></i> 保存修改
                                     </button>

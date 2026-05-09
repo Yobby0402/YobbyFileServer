@@ -9,29 +9,21 @@ import re
 import shutil
 import stat
 import subprocess
-import sys
 import tempfile
 import json
 from datetime import datetime
 from typing import Dict, List, Optional
 
-from .paths import project_base_dir
+from .paths import get_data_path as runtime_data_path
 
 _git_cfg_logger = logging.getLogger('yobboy_file_server.git_config')
 
 
 def get_data_path(relative_path=''):
-    """获取data文件夹路径"""
-    if getattr(sys, 'frozen', False):
-        # 打包环境：exe 所在目录
-        base_path = project_base_dir()
-    else:
-        # 开发环境：.py 文件所在目录
-        base_path = project_base_dir()
-    data_dir = os.path.join(base_path, 'data')
+    """鑾峰彇data鏂囦欢澶硅矾寰?"""
     if relative_path:
-        return os.path.join(data_dir, relative_path)
-    return data_dir
+        return runtime_data_path(*relative_path.split('/'), create_parent=True)
+    return runtime_data_path()
 
 def get_git_configs_path():
     """获取Git配置文件路径"""

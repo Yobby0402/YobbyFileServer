@@ -4,7 +4,7 @@ import os
 import sys
 from logging.handlers import TimedRotatingFileHandler
 
-from .paths import project_base_dir
+from .paths import get_logs_dir as get_runtime_logs_dir
 
 try:
     import colorama  # noqa: F401
@@ -40,9 +40,7 @@ def parse_log_level(value, default=logging.INFO):
 
 def get_logs_dir():
     """日志目录：优先 exe/py 旁 logs，不可写则 ~/.yobboy_file_server/logs"""
-    base_dir = project_base_dir()
-
-    logs_dir = os.path.join(base_dir, "logs")
+    logs_dir = get_runtime_logs_dir(create=False)
     try:
         os.makedirs(logs_dir, exist_ok=True)
         test_file = os.path.join(logs_dir, ".test")
