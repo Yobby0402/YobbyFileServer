@@ -1776,6 +1776,37 @@
             letter-spacing: 0.04em !important;
         }
 
+        .hidden-game-entry {
+            position: fixed;
+            right: 22px;
+            bottom: 24px;
+            z-index: 280;
+            display: none;
+            align-items: center;
+            gap: 8px;
+            min-height: 42px;
+            padding: 0 14px;
+            border-radius: 999px;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            background: rgba(9, 9, 9, 0.78);
+            color: rgba(224, 224, 224, 0.92);
+            font-size: 12px;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            backdrop-filter: blur(10px);
+            box-shadow: 0 10px 26px rgba(0, 0, 0, 0.24);
+            cursor: pointer;
+        }
+
+        .hidden-game-entry.is-visible {
+            display: inline-flex;
+        }
+
+        .hidden-game-entry:hover {
+            background: rgba(18, 18, 18, 0.9);
+            color: #ffffff;
+        }
+
         @media (max-width: 1100px) {
             .choice-brand {
                 left: 24px;
@@ -2144,7 +2175,34 @@
         </a>
     </div>
 
+    <button type="button" class="hidden-game-entry" id="hiddenGameEntry" title="摸鱼小游戏入口">
+        <i class="fas fa-gamepad"></i>
+        <span>摸鱼入口</span>
+    </button>
+
     <script src="{{ url_for('static', filename='js/bootstrap.bundle.min.js') }}"></script>
+    <script>
+        (function () {
+            const flagKey = "yobboy_tetris_login_mode";
+            const entry = document.getElementById("hiddenGameEntry");
+            if (!entry) {
+                return;
+            }
+
+            try {
+                if (window.localStorage.getItem(flagKey) === "1") {
+                    entry.classList.add("is-visible");
+                }
+            } catch (error) {
+                void error;
+            }
+
+            entry.addEventListener("click", function (event) {
+                event.stopPropagation();
+                alert("摸鱼小游戏入口已预留，暂未开放。");
+            });
+        })();
+    </script>
 </body>
 
 </html>

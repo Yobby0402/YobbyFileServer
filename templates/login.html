@@ -1,124 +1,123 @@
 <!DOCTYPE html>
-<html>
+<html lang="zh-CN">
 <head>
     {% include '_theme_bootstrap.html' %}
-    <title>登录 - 文件服务器</title>
+    <title>登录 - Yobboy 文件服务器</title>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap.min.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/font-awesome.min.css') }}">
-    <!-- Theme System -->
     <link rel="stylesheet" href="{{ url_for('static', filename='css/themes.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/app_style.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/login.css') }}">
 </head>
-<body>
-    <div class="login-shell">
-        <section class="tetris-panel">
-            <div class="tetris-stage" id="tetrisStage">
-                <canvas id="tetrisCanvas" aria-hidden="true"></canvas>
+<body data-login-mode="lock">
+    <div class="login-app">
+        <section class="login-mode login-mode--lock is-active" id="lockMode">
+            <div class="lock-stage" id="lockStage" tabindex="0" aria-label="六位密码输入区域">
+                <div class="lock-panel">
+                    <div class="lock-hero">
+                        <span class="login-eyebrow">Yobboy Server</span>
+                        <h1>ACCESS GATE</h1>
+                        <p class="lock-subtitle">6 位口令输入后仅回显 Yobboy，真实密码不会被直接暴露。</p>
+                    </div>
+
+                    <form method="post" id="lockLoginForm" action="{{ url_for('login') }}" novalidate>
+                        <input
+                            type="password"
+                            id="lockPassword"
+                            name="password"
+                            maxlength="{{ password_length }}"
+                            autocomplete="current-password"
+                            inputmode="text"
+                            class="lock-hidden-input"
+                            aria-hidden="true"
+                        >
+                    </form>
+
+                    <div class="lock-grid" id="lockGrid" aria-hidden="true"></div>
+
+                    <div class="lock-meta">
+                        <div class="lock-hint" id="lockHint">INPUT SLOT 01</div>
+                        <button type="button" class="mode-link-button" id="lockSwitchToTetris">
+                            切换到俄罗斯方块登录
+                        </button>
+                    </div>
+
+                    <div class="alert alert-danger {% if not error %}d-none{% endif %}" id="lockError" role="alert">
+                        <i class="fa fa-exclamation-circle mr-2"></i><span id="lockErrorText">{{ error or '' }}</span>
+                    </div>
+                </div>
             </div>
         </section>
 
-        <section class="login-panel">
-            <div class="login-card">
-                <div class="login-hero">
-                    <span class="login-eyebrow">Yobboy Server</span>
-                    <h1>进入服务器</h1>
-                </div>
+        <section class="login-mode login-mode--tetris" id="tetrisMode" aria-hidden="true">
+            <div class="tetris-shell">
+                <section class="tetris-visual-panel">
+                    <div class="tetris-stage" id="tetrisStage">
+                        <canvas id="tetrisCanvas" aria-hidden="true"></canvas>
+                    </div>
+                </section>
 
-                <form method="post" id="loginForm" action="{{ url_for('login') }}" novalidate>
-                    <div class="form-group">
-                        <label for="password" class="form-label">访问密码</label>
-                        <input
-                            type="password"
-                            class="form-control"
-                            id="password"
-                            name="password"
-                            placeholder="输入密码"
-                            maxlength="{{ password_max_length or 25 }}"
-                            autocomplete="current-password"
-                            required
-                        >
-                    </div>
-                    <button type="submit" class="btn btn-primary" id="loginButton">
-                        <i class="fa fa-sign-in mr-2"></i>登录
-                    </button>
-                </form>
+                <section class="tetris-login-panel">
+                    <div class="tetris-login-card">
+                        <div class="login-hero">
+                            <span class="login-eyebrow">Yobboy Server</span>
+                            <h1>俄罗斯方块登录</h1>
+                            <p class="lock-subtitle">备用入口，密码规则同样固定为 6 位。</p>
+                        </div>
 
-                <div class="login-theme-panel" id="loginThemePanel">
-                    <div class="theme-panel-header">
-                        <span class="theme-panel-title">界面风格</span>
-                    </div>
-                    <div class="login-theme-row">
-                        <button type="button" class="theme-swatch" data-theme-color="jasmine" aria-label="茉莉奶白"></button>
-                        <button type="button" class="theme-swatch" data-theme-color="ocean" aria-label="海洋蓝"></button>
-                        <button type="button" class="theme-swatch" data-theme-color="forest" aria-label="雾林灰绿"></button>
-                        <button type="button" class="theme-swatch" data-theme-color="sunset" aria-label="落日橙"></button>
-                        <button type="button" class="theme-swatch" data-theme-color="lavender" aria-label="雾紫灰"></button>
-                        <button type="button" class="theme-swatch" data-theme-color="graphite" aria-label="石墨银灰"></button>
-                    </div>
-                    <div class="morph-switch" role="group" aria-label="拟态风格">
-                        <button type="button" class="morph-segment" data-morph="flat">纯色</button>
-                        <button type="button" class="morph-segment" data-morph="glassmorphism">玻璃</button>
-                        <button type="button" class="morph-segment" data-morph="claymorphism">粘土</button>
-                    </div>
-                </div>
+                        <form method="post" id="loginForm" action="{{ url_for('login') }}" novalidate>
+                            <div class="form-group">
+                                <label for="password" class="form-label">访问密码</label>
+                                <input
+                                    type="password"
+                                    class="form-control"
+                                    id="password"
+                                    name="password"
+                                    placeholder="输入 6 位密码"
+                                    maxlength="{{ password_length }}"
+                                    autocomplete="current-password"
+                                    required
+                                >
+                            </div>
+                            <button type="submit" class="btn btn-primary" id="loginButton">
+                                <i class="fa fa-sign-in mr-2"></i>登录
+                            </button>
+                        </form>
 
-                <div class="alert alert-danger {% if not error %}d-none{% endif %}" id="loginError" role="alert">
-                    <i class="fa fa-exclamation-circle mr-2"></i><span id="loginErrorText">{{ error or '' }}</span>
-                </div>
+                        <div class="tetris-mode-footer">
+                            <button type="button" class="mode-link-button" id="switchToLock">
+                                切换回六位锁界面
+                            </button>
+                        </div>
+
+                        <div class="alert alert-danger {% if not error %}d-none{% endif %}" id="loginError" role="alert">
+                            <i class="fa fa-exclamation-circle mr-2"></i><span id="loginErrorText">{{ error or '' }}</span>
+                        </div>
+                    </div>
+                </section>
             </div>
         </section>
     </div>
 
     <script>
+        window.loginUiConfig = {
+            loginUrl: "{{ url_for('login') }}",
+            redirectUrl: "{{ url_for('index') }}",
+            passwordLength: {{ password_length }},
+            tetrisFlagKey: "yobboy_tetris_login_mode"
+        };
         window.loginTetrisConfig = {
             loginUrl: "{{ url_for('login') }}",
             redirectUrl: "{{ url_for('index') }}",
-            passwordMaxLength: {{ password_max_length or 25 }}
+            passwordMaxLength: {{ password_length }}
         };
     </script>
     <script src="/static/js/jquery-3.6.0.min.js"></script>
     <script src="/static/js/bootstrap.bundle.min.js"></script>
-    <script src="{{ url_for('static', filename='js/theme_floater.js') }}"></script>
-    <script>
-        (function () {
-            function refreshThemePanel() {
-                const themeColor = document.documentElement.getAttribute("data-theme-color") || "jasmine";
-                const morph = document.documentElement.getAttribute("data-morph") || "flat";
-                document.querySelectorAll(".theme-swatch").forEach(function (button) {
-                    button.classList.toggle("is-active", button.getAttribute("data-theme-color") === themeColor);
-                });
-                document.querySelectorAll(".morph-segment").forEach(function (button) {
-                    button.classList.toggle("is-active", button.getAttribute("data-morph") === morph);
-                });
-            }
-
-            document.addEventListener("DOMContentLoaded", function () {
-                document.querySelectorAll(".theme-swatch").forEach(function (button) {
-                    button.addEventListener("click", function () {
-                        if (window.setThemeColor) {
-                            window.setThemeColor(button.getAttribute("data-theme-color"));
-                        }
-                    });
-                });
-                document.querySelectorAll(".morph-segment").forEach(function (button) {
-                    button.addEventListener("click", function () {
-                        if (window.setMorph) {
-                            window.setMorph(button.getAttribute("data-morph"));
-                        }
-                    });
-                });
-                refreshThemePanel();
-                window.addEventListener("themechanged", refreshThemePanel);
-            });
-        })();
-    </script>
     <script src="{{ url_for('static', filename='js/vendor/matter.min.js') }}"></script>
     <script src="{{ url_for('static', filename='js/login_tetris.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/login_lock.js') }}"></script>
 </body>
 </html>
-
-
-

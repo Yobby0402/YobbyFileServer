@@ -3026,12 +3026,12 @@ class SettingsDialog(QDialog):
             border-radius: 4px;
         """)
         form_layout.addRow("", data_dir_hint)
-
         # 登录密码设置
-        password_label = QLabel("登录密码：")
+        password_label = QLabel("登录密码（固定 6 位）：")
         self.password_edit = QLineEdit(self.current_password)
         self.password_edit.setEchoMode(QLineEdit.Password)
-        self.password_edit.setPlaceholderText("输入登录密码...")
+        self.password_edit.setMaxLength(6)
+        self.password_edit.setPlaceholderText("输入 6 位登录密码...")
         form_layout.addRow(password_label, self.password_edit)
 
         # 管理员密码设置
@@ -3806,10 +3806,14 @@ class SettingsDialog(QDialog):
         if not self.new_data_dir:
             QMessageBox.warning(self, "错误", "请选择有效的数据目录")
             return
-
         if not self.new_password:
             QMessageBox.warning(self, "错误", "登录密码不能为空")
             return
+
+        if len(self.new_password) != 6:
+            QMessageBox.warning(self, "错误", "登录密码必须正好为 6 位")
+            return
+
 
         if not self.new_admin_password:
             QMessageBox.warning(self, "错误", "管理员密码不能为空")

@@ -4133,7 +4133,7 @@ def init_app(app):
     @app.route('/login', methods=['GET', 'POST'])
     def login():
         """登录页面"""
-        password_max_length = 25
+        password_length = 6
 
         def _login_response(*, ok: bool, error: Optional[str] = None):
             wants_json = (
@@ -4146,7 +4146,7 @@ def init_app(app):
                     'ok': ok,
                     'redirect': url_for('index') if ok else None,
                     'error': error,
-                    'password_max_length': password_max_length,
+                    'password_length': password_length,
                 }
                 status_code = 200 if ok else 401
                 return jsonify(payload), status_code
@@ -4155,40 +4155,49 @@ def init_app(app):
             return render_template(
                 'login.html',
                 error=error,
-                password_max_length=password_max_length,
+                password_length=password_length,
             )
 
         if request.method == 'POST':
             password = request.form.get('password', '')
+            configured_password = current_app.config.get('PASSWORD')
 
-            if len(password) > password_max_length:
-                _routes_logger.warning("登录失败: 密码长度超限 len=%s", len(password))
-                return _login_response(ok=False, error=f"密码最多允许 {password_max_length} 个字符")
-            
-            # 使用配置文件中的密码进行验证
-            configured_password = current_app.config.get('PASSWORD')  # 修正：使用大写的键名
+            if not configured_password:
+                configured_password = 'ats123'
+                _routes_logger.warning('未找到配置密码，已使用内置默认值（请在设置中修改）')
+
+            if len(configured_password) != password_length:
+                _routes_logger.warning(
+                    '登录失败: 当前配置密码长度非法 configured_len=%s required=%s',
+                    len(configured_password),
+                    password_length,
+                )
+                return _login_response(
+                    ok=False,
+                    error=f'当前服务器登录密码不是 {password_length} 位，请先在桌面设置中修改后再登录',
+                )
+
+            if len(password) != password_length:
+                _routes_logger.warning('登录失败: 密码长度非法 len=%s', len(password))
+                return _login_response(ok=False, error=f'密码必须正好为 {password_length} 位')
 
             _routes_logger.debug(
-                "登录尝试（脱敏）: supplied_len=%s configured_len=%s config_file=%s match=%s",
+                '登录尝试（脱敏）: supplied_len=%s configured_len=%s config_file=%s match=%s',
                 len(password or ''),
                 len(configured_password or ''),
                 current_app.config.get('CONFIG_FILE'),
                 password == configured_password,
             )
 
-            if not configured_password:
-                # 如果没有配置密码，使用默认密码并记录警告
-                configured_password = 'ats123'
-                _routes_logger.warning("未找到配置密码，已使用内置默认值（请在设置中修改）")
-
             if password == configured_password:
                 session['logged_in'] = True
-                _routes_logger.info("用户登录成功")
+                _routes_logger.info('用户登录成功')
                 return _login_response(ok=True)
-            else:
-                _routes_logger.warning("登录失败: 密码不匹配")
-                return _login_response(ok=False, error="密码错误")
-        return render_template('login.html', password_max_length=password_max_length)
+
+            _routes_logger.warning('登录失败: 密码不匹配')
+            return _login_response(ok=False, error='密码错误')
+
+        return render_template('login.html', password_length=password_length)
     
 
     
