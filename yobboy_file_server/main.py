@@ -35,9 +35,11 @@ from .shared_serial_hub import (
 from .paths import project_base_dir
 from .paths import get_data_dir, get_logs_dir as get_runtime_logs_dir, resolve_path
 from .game_drawphone import init_drawphone_socketio
+from .game_gomoku import init_gomoku_socketio
 from .game_hub import GameHubStore
 
 DEFAULT_MAX_UPLOAD_SIZE_MB = 0
+DEFAULT_TOPDOWN_SCORE_SOFT_CAP = 100000
 
 
 def normalize_max_upload_size_mb(value, default=DEFAULT_MAX_UPLOAD_SIZE_MB):
@@ -55,6 +57,15 @@ def apply_upload_size_config(app, value=None):
     app.config['MAX_CONTENT_LENGTH'] = (
         max_upload_size_mb * 1024 * 1024 if max_upload_size_mb > 0 else None
     )
+
+
+def normalize_topdown_score_soft_cap(value, default=DEFAULT_TOPDOWN_SCORE_SOFT_CAP):
+    """Normalize the topdown score soft cap. Values below 0 fall back to default."""
+    try:
+        score_cap = int(value)
+    except (TypeError, ValueError):
+        score_cap = default
+    return max(score_cap, 0)
 
 
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
@@ -485,6 +496,10 @@ def create_app(debug=False):
                       ping_interval=25)
     init_serial_socketio(socketio)
     init_drawphone_socketio(
+        socketio,
+        profile_resolver=lambda req: routes.resolve_game_profile_payload(req),
+    )
+    init_gomoku_socketio(
         socketio,
         profile_resolver=lambda req: routes.resolve_game_profile_payload(req),
     )
@@ -1320,6 +1335,9 @@ def load_or_create_config(app):
             max_upload_size_mb = normalize_max_upload_size_mb(
                 settings.get('max_upload_size', DEFAULT_MAX_UPLOAD_SIZE_MB)
             )
+            topdown_score_soft_cap = normalize_topdown_score_soft_cap(
+                settings.get('topdown_score_soft_cap', DEFAULT_TOPDOWN_SCORE_SOFT_CAP)
+            )
             remote_serial_enabled = settings.get('remote_serial_enabled', 'false').lower() == 'true'
             remote_serial_https_mode = normalize_remote_serial_https_mode(
                 settings.get('remote_serial_https_mode', REMOTE_SERIAL_HTTPS_MODE_FULL)
@@ -1345,6 +1363,7 @@ def load_or_create_config(app):
             app.config['GIT_WORKDIR'] = os.path.normpath(git_workdir) if git_workdir else ''
             app.config['GIT_EXTERNAL_APP_PATH'] = git_external_app_path if git_external_app_path else ''
             apply_upload_size_config(app, max_upload_size_mb)
+            app.config['TOPDOWN_SCORE_SOFT_CAP'] = topdown_score_soft_cap
             app.config['REMOTE_SERIAL_ENABLED'] = remote_serial_enabled
             app.config['REMOTE_SERIAL_HTTPS_MODE'] = remote_serial_https_mode
             app.config['SERIAL_HTTPS_PORT'] = serial_https_port
@@ -1381,6 +1400,7 @@ def load_or_create_config(app):
             app.config['GIT_ENABLED'] = False
             app.config['GIT_WORKDIR'] = ''
             apply_upload_size_config(app)
+            app.config['TOPDOWN_SCORE_SOFT_CAP'] = DEFAULT_TOPDOWN_SCORE_SOFT_CAP
             app.config['REMOTE_SERIAL_ENABLED'] = False
             app.config['REMOTE_SERIAL_HTTPS_MODE'] = REMOTE_SERIAL_HTTPS_MODE_FULL
             app.config['SERIAL_HTTPS_PORT'] = default_serial_https_port(app.config['PORT'])
@@ -1403,6 +1423,7 @@ def load_or_create_config(app):
         app.config['GIT_ENABLED'] = False
         app.config['GIT_WORKDIR'] = ''
         apply_upload_size_config(app)
+        app.config['TOPDOWN_SCORE_SOFT_CAP'] = DEFAULT_TOPDOWN_SCORE_SOFT_CAP
         app.config['REMOTE_SERIAL_ENABLED'] = False
         app.config['REMOTE_SERIAL_HTTPS_MODE'] = REMOTE_SERIAL_HTTPS_MODE_FULL
         app.config['SERIAL_HTTPS_PORT'] = default_serial_https_port(app.config['PORT'])
@@ -1435,6 +1456,7 @@ def read_runtime_settings(create_if_missing=True, config_file=None):
         'GIT_WORKDIR': '',
         'GIT_EXTERNAL_APP_PATH': '',
         'MAX_UPLOAD_SIZE_MB': DEFAULT_MAX_UPLOAD_SIZE_MB,
+        'TOPDOWN_SCORE_SOFT_CAP': DEFAULT_TOPDOWN_SCORE_SOFT_CAP,
         'REMOTE_SERIAL_ENABLED': False,
         'REMOTE_SERIAL_HTTPS_MODE': REMOTE_SERIAL_HTTPS_MODE_FULL,
         'SERIAL_HTTPS_PORT': default_serial_https_port(5000),
@@ -1473,6 +1495,9 @@ def read_runtime_settings(create_if_missing=True, config_file=None):
             settings_data['GIT_EXTERNAL_APP_PATH'] = settings.get('git_external_app_path', '')
             settings_data['MAX_UPLOAD_SIZE_MB'] = normalize_max_upload_size_mb(
                 settings.get('max_upload_size', DEFAULT_MAX_UPLOAD_SIZE_MB)
+            )
+            settings_data['TOPDOWN_SCORE_SOFT_CAP'] = normalize_topdown_score_soft_cap(
+                settings.get('topdown_score_soft_cap', DEFAULT_TOPDOWN_SCORE_SOFT_CAP)
             )
             settings_data['REMOTE_SERIAL_ENABLED'] = settings.get('remote_serial_enabled', 'false').lower() == 'true'
             settings_data['REMOTE_SERIAL_HTTPS_MODE'] = normalize_remote_serial_https_mode(
@@ -1516,6 +1541,7 @@ def save_runtime_settings(settings_data, config_file=None):
     existing_https_key_file = ''
     existing_log_level = 'INFO'
     existing_max_upload_size_mb = DEFAULT_MAX_UPLOAD_SIZE_MB
+    existing_topdown_score_soft_cap = DEFAULT_TOPDOWN_SCORE_SOFT_CAP
     existing_data_dir = get_data_dir(config_file=config_file, create=False)
     existing_log_dir = get_runtime_logs_dir(config_file=config_file, create=False)
     if os.path.exists(config_file):
@@ -1526,6 +1552,9 @@ def save_runtime_settings(settings_data, config_file=None):
             existing_log_level = (existing_settings.get('log_level', 'INFO') or 'INFO').strip() or 'INFO'
             existing_max_upload_size_mb = normalize_max_upload_size_mb(
                 existing_settings.get('max_upload_size', DEFAULT_MAX_UPLOAD_SIZE_MB)
+            )
+            existing_topdown_score_soft_cap = normalize_topdown_score_soft_cap(
+                existing_settings.get('topdown_score_soft_cap', DEFAULT_TOPDOWN_SCORE_SOFT_CAP)
             )
             existing_remote_serial_enabled = existing_settings.get('remote_serial_enabled', 'false').lower() == 'true'
             existing_remote_serial_https_mode = normalize_remote_serial_https_mode(
@@ -1561,6 +1590,9 @@ def save_runtime_settings(settings_data, config_file=None):
     max_upload_size_mb = normalize_max_upload_size_mb(
         settings_data.get('MAX_UPLOAD_SIZE_MB', existing_max_upload_size_mb)
     )
+    topdown_score_soft_cap = normalize_topdown_score_soft_cap(
+        settings_data.get('TOPDOWN_SCORE_SOFT_CAP', existing_topdown_score_soft_cap)
+    )
 
     config = configparser.ConfigParser()
     if os.path.exists(config_file):
@@ -1577,6 +1609,7 @@ def save_runtime_settings(settings_data, config_file=None):
         'git_workdir': settings_data.get('GIT_WORKDIR', ''),
         'git_external_app_path': settings_data.get('GIT_EXTERNAL_APP_PATH', ''),
         'max_upload_size': str(max_upload_size_mb),
+        'topdown_score_soft_cap': str(topdown_score_soft_cap),
         'remote_serial_enabled': str(remote_serial_enabled).lower(),
         'remote_serial_https_mode': remote_serial_https_mode,
         'serial_https_port': str(serial_https_port),
@@ -1606,6 +1639,7 @@ def save_config(app):
         'GIT_WORKDIR': app.config.get('GIT_WORKDIR', ''),
         'GIT_EXTERNAL_APP_PATH': app.config.get('GIT_EXTERNAL_APP_PATH', ''),
         'MAX_UPLOAD_SIZE_MB': app.config.get('MAX_UPLOAD_SIZE_MB', DEFAULT_MAX_UPLOAD_SIZE_MB),
+        'TOPDOWN_SCORE_SOFT_CAP': app.config.get('TOPDOWN_SCORE_SOFT_CAP', DEFAULT_TOPDOWN_SCORE_SOFT_CAP),
         'REMOTE_SERIAL_ENABLED': app.config.get('REMOTE_SERIAL_ENABLED', False),
         'REMOTE_SERIAL_HTTPS_MODE': app.config.get('REMOTE_SERIAL_HTTPS_MODE', REMOTE_SERIAL_HTTPS_MODE_FULL),
         'SERIAL_HTTPS_PORT': app.config.get('SERIAL_HTTPS_PORT', default_serial_https_port(app.config.get('PORT', 5000))),

@@ -15,19 +15,19 @@ cryptography
 psutil>=5.9.0
 colorama>=0.4.6
 
-# --- æœ¬åœ° AIï¼ˆæŒ‰éœ€å®‰è£…ï¼›ä¸è¦ç›´æŽ¥æ•´æ®µå¤åˆ¶åˆ°ä¸‹é¢ä¸»åˆ—è¡¨ï¼‰---
-# Transformers + æœ¬åœ°/ Hub æƒé‡ï¼ˆæŽ¨èï¼šGemma æ”¾åœ¨ AI/models/ ï¼Œé… config.ini model_idï¼‰
+# --- ±¾µØ AI£¨°´Ðè°²×°£»²»ÒªÖ±½ÓÕû¶Î¸´ÖÆµ½ÏÂÃæÖ÷ÁÐ±í£©---
+# Transformers + ±¾µØ/ Hub È¨ÖØ£¨ÍÆ¼ö£ºGemma ·ÅÔÚ AI/models/ £¬Åä config.ini model_id£©
 #   pip install transformers torch accelerate
-# æ˜¾å­˜ä¿¡æ¯ï¼ˆå¯é€‰ï¼Œè£…å…¶ä¸€å³å¯ï¼‰
+# ÏÔ´æÐÅÏ¢£¨¿ÉÑ¡£¬×°ÆäÒ»¼´¿É£©
 #   pip install nvidia-ml-py
-# é»˜è®¤ Hub æ¨¡åž‹: google/gemma-4-E2B-itï¼›æœ¬åœ°ç›®å½•ç¤ºä¾‹: AI/models/gemma-4-E2B-itï¼ˆéœ€å« config.jsonï¼‰
+# Ä¬ÈÏ Hub Ä£ÐÍ: google/gemma-4-E2B-it£»±¾µØÄ¿Â¼Ê¾Àý: AI/models/gemma-4-E2B-it£¨Ðèº¬ config.json£©
 #
-# --- GGUF æ‰éœ€è¦ llama-cpp-pythonï¼ˆä¸Žä¸Šé¢äºŒé€‰ä¸€å³å¯ï¼‰---
-# ä¸è¦å†™è¿›æœ¬æ–‡ä»¶ä¸»åˆ—è¡¨ï¼Œé¿å…æ— é¢„ç¼–è¯‘è½®å­æ—¶èµ° CMake æºç ç¼–è¯‘å¤±è´¥ã€‚
-# Windows ä¼˜å…ˆç”¨é¢„ç¼–è¯‘è½®å­ï¼Œåœ¨ PowerShell ä¸­å•ç‹¬æ‰§è¡Œï¼š
+# --- GGUF ²ÅÐèÒª llama-cpp-python£¨ÓëÉÏÃæ¶þÑ¡Ò»¼´¿É£©---
+# ²»ÒªÐ´½ø±¾ÎÄ¼þÖ÷ÁÐ±í£¬±ÜÃâÎÞÔ¤±àÒëÂÖ×ÓÊ±×ß CMake Ô´Âë±àÒëÊ§°Ü¡£
+# Windows ÓÅÏÈÓÃÔ¤±àÒëÂÖ×Ó£¬ÔÚ PowerShell ÖÐµ¥¶ÀÖ´ÐÐ£º
 #   pip install llama-cpp-python --prefer-binary
-# è‹¥ä»å¤±è´¥ï¼šâ‘  ä»¥ç®¡ç†å‘˜æ¸…ç†ä¸´æ—¶ç›®å½•åŽé‡è¯• â‘¡ å®‰è£… â€œVisual Studio Build Toolsâ€ + CMake å† pip
-# â‘¢ åˆ° https://github.com/abetlen/llama-cpp-python/releases ä¸‹è½½ä¸Ž Python ç‰ˆæœ¬ã€CPU/GPU åŒ¹é…çš„ .whl åŽ pip install xxx.whl
+# ÈôÈÔÊ§°Ü£º¢Ù ÒÔ¹ÜÀíÔ±ÇåÀíÁÙÊ±Ä¿Â¼ºóÖØÊÔ ¢Ú °²×° ¡°Visual Studio Build Tools¡± + CMake ÔÙ pip
+# ¢Û µ½ https://github.com/abetlen/llama-cpp-python/releases ÏÂÔØÓë Python °æ±¾¡¢CPU/GPU Æ¥ÅäµÄ .whl ºó pip install xxx.whl
 
-# GitåŠŸèƒ½ï¼ˆå¯é€‰ï¼‰
-# å¦‚éœ€ä½¿ç”¨Gité›†æˆåŠŸèƒ½ï¼Œè¯·åœ¨è®¾ç½®ä¸­å¯ç”¨GitåŠŸèƒ½ï¼Œç„¶åŽç¡®ä¿å·²å®‰è£…ï¼šGitPython>=3.1.40
+# Git¹¦ÄÜ£¨¿ÉÑ¡£©
+# ÈçÐèÊ¹ÓÃGit¼¯³É¹¦ÄÜ£¬ÇëÔÚÉèÖÃÖÐÆôÓÃGit¹¦ÄÜ£¬È»ºóÈ·±£ÒÑ°²×°£ºGitPython>=3.1.40

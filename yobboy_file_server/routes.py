@@ -1260,6 +1260,7 @@ def init_app(app):
             'games.html',
             game_profile=profile,
             games_safe_file_url=url_for('file_browser'),
+            topdown_score_soft_cap=app.config.get('TOPDOWN_SCORE_SOFT_CAP', 100000),
         ))
         return _attach_games_identity(response, identity)
 

@@ -131,6 +131,9 @@
                         <div class="games-stage-title" id="gamesStageTitle">2048</div>
                         <div class="games-stage-meta" id="gamesStageMeta">支持自动续玩、用时记录、积分榜和老板键切换。</div>
                     </div>
+                    <div class="games-toolbar-actions">
+                        <button type="button" class="games-btn" id="gamesThemeToggleBtn">主题: 暗色</button>
+                    </div>
                 </div>
                 <div class="games-stage-body" id="gamesStageBody"></div>
                 <div class="games-stage-actions" id="gamesStageActions"></div>
@@ -225,7 +228,8 @@
             safeFileUrl: "{{ games_safe_file_url }}",
             fallbackAvatarText: "{{ (game_profile.display_name or 'I')[:1] }}",
             initialGameId: "{{ request.args.get('game', '') }}",
-            initialRoomCode: "{{ request.args.get('room', '') }}"
+            initialRoomCode: "{{ request.args.get('room', '') }}",
+            topdownScoreSoftCap: {{ topdown_score_soft_cap|int }}
         };
     </script>
     <script src="{{ url_for('static', filename='js/bootstrap.bundle.min.js') }}"></script>

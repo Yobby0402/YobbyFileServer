@@ -2,9 +2,12 @@
     "use strict";
 
     const config = window.gamesHubConfig || {};
+    const GAMES_THEME_SCHEME_KEY = "games_theme_scheme";
+    const TOPDOWN_SCORE_SOFT_CAP = Math.max(0, Number(config.topdownScoreSoftCap || 100000));
     const HEX_SYMBOLS = "0123456789ABCDEF".split("");
     const CLASSIC_SYMBOLS = "123456789".split("");
     const DRAWHONE_NAMESPACE = "/games-drawphone";
+    const GOMOKU_NAMESPACE = "/games-gomoku";
 
     const state = {
         manifest: { games: [] },
@@ -208,8 +211,46 @@
         weeklyTotalList: document.getElementById("gamesWeeklyTotalList"),
         weeklyGameList: document.getElementById("gamesWeeklyGameList"),
         weeklyGameTitle: document.getElementById("gamesWeeklyGameTitle"),
-        weekKey: document.getElementById("gamesWeekKey")
+        weekKey: document.getElementById("gamesWeekKey"),
+        themeToggleBtn: document.getElementById("gamesThemeToggleBtn")
     };
+
+    function normalizeGamesThemeScheme(value) {
+        return String(value || "").trim().toLowerCase() === "light" ? "light" : "dark";
+    }
+
+    function applyGamesThemeScheme(scheme) {
+        const nextScheme = normalizeGamesThemeScheme(scheme);
+        if (document.body) {
+            document.body.setAttribute("data-games-scheme", nextScheme);
+        }
+        if (els.themeToggleBtn) {
+            els.themeToggleBtn.textContent = "主题: " + (nextScheme === "light" ? "亮色" : "暗色");
+        }
+        return nextScheme;
+    }
+
+    function initGamesThemeScheme() {
+        let scheme = "dark";
+        try {
+            scheme = normalizeGamesThemeScheme(window.localStorage.getItem(GAMES_THEME_SCHEME_KEY) || "dark");
+        } catch (error) {
+            scheme = "dark";
+        }
+        applyGamesThemeScheme(scheme);
+        if (els.themeToggleBtn) {
+            els.themeToggleBtn.addEventListener("click", function () {
+                const current = normalizeGamesThemeScheme(document.body && document.body.getAttribute("data-games-scheme"));
+                const next = current === "light" ? "dark" : "light";
+                applyGamesThemeScheme(next);
+                try {
+                    window.localStorage.setItem(GAMES_THEME_SCHEME_KEY, next);
+                } catch (error) {
+                    // Ignore persistence failures and keep the runtime switch.
+                }
+            });
+        }
+    }
 
     function normalizeBossKeyValue(value) {
         const raw = String(value || "F9").trim().toUpperCase();
@@ -300,6 +341,9 @@
     }
 
     function createGameStartOverlay(host, options) {
+        if (host && host.__gameStartOverlayController && typeof host.__gameStartOverlayController.dismiss === "function") {
+            host.__gameStartOverlayController.dismiss();
+        }
         const config = Object.assign({
             eyebrow: "开始说明",
             title: "准备开始",
@@ -330,7 +374,7 @@
         let stageButton = null;
         const button = overlay.querySelector(".game-start-button");
 
-        function startNow() {
+        function closeOverlay(triggerStart) {
             if (!active) {
                 return;
             }
@@ -341,10 +385,17 @@
             overlay.classList.add("is-hidden");
             window.setTimeout(function () {
                 overlay.remove();
+                if (host && host.__gameStartOverlayController === controller) {
+                    host.__gameStartOverlayController = null;
+                }
             }, 220);
-            if (typeof config.onStart === "function") {
+            if (triggerStart && typeof config.onStart === "function") {
                 config.onStart();
             }
+        }
+
+        function startNow() {
+            closeOverlay(true);
         }
 
         if (config.useStageActionButton) {
@@ -353,16 +404,18 @@
         } else if (button) {
             button.addEventListener("click", startNow);
         }
-        return {
+        const controller = {
             isActive: function () {
                 return active;
             },
             dismiss: function () {
-                if (active) {
-                    startNow();
-                }
+                closeOverlay(false);
             }
         };
+        if (host) {
+            host.__gameStartOverlayController = controller;
+        }
+        return controller;
     }
 
     function renderStageLoadingState(game, detailText) {
@@ -976,7 +1029,7 @@
         clearStage();
         addGlobalStageButtons();
         renderStageLoadingState(game, "正在读取本地存档、恢复上次进度，并挂载游戏界面。");
-        syncPresence(gameId === "drawphone" ? "等待房间" : "游玩中", state.drawphoneRoomCode);
+        syncPresence(gameId === "drawphone" ? "等待房间" : (gameId === "gomoku" ? "等待对局" : "游玩中"), state.drawphoneRoomCode);
         postPresence();
 
         async function mountIfCurrent(factory) {
@@ -1013,6 +1066,10 @@
             await mountIfCurrent(function () { return mountDrawphone(); });
             return;
         }
+        if (gameId === "gomoku") {
+            await mountIfCurrent(function () { return mountGomoku(); });
+            return;
+        }
         if (gameId === "frontline") {
             const payloadFrontline = await loadGameState("frontline").catch(function () { return { state: {} }; });
             await mountIfCurrent(function () { return mountFrontline(payloadFrontline); });
@@ -1034,6 +1091,11 @@
         if (gameId === "space-rocks") {
             const payloadSpaceRocks = await loadGameState("space-rocks").catch(function () { return { state: {} }; });
             await mountIfCurrent(function () { return mountSpaceRocks(payloadSpaceRocks); });
+            return;
+        }
+        if (gameId === "angry-birds-lite") {
+            const payloadAngryBirds = await loadGameState("angry-birds-lite").catch(function () { return { state: {} }; });
+            await mountIfCurrent(function () { return mountAngryBirdsLite(payloadAngryBirds); });
             return;
         }
         if (launchToken === state.launchToken) {
@@ -1478,11 +1540,14 @@
 
     function frontlineTowerTypeMeta(towerType) {
         const table = {
-            core: { key: "core", label: "核心", shortLabel: "CORE", intervalMultiplier: 1, amountMultiplier: 1, capMultiplier: 1.05, defenseMultiplier: 1.05, priorityScore: 12 },
-            normal: { key: "normal", label: "前哨", shortLabel: "OUT", intervalMultiplier: 1, amountMultiplier: 1, capMultiplier: 1, defenseMultiplier: 1, priorityScore: 0 },
-            foundry: { key: "foundry", label: "工坊", shortLabel: "FND", intervalMultiplier: 0.8, amountMultiplier: 1, capMultiplier: 0.95, defenseMultiplier: 0.95, priorityScore: 34 },
-            bastion: { key: "bastion", label: "堡垒", shortLabel: "BST", intervalMultiplier: 1.08, amountMultiplier: 1, capMultiplier: 1.28, defenseMultiplier: 1.35, priorityScore: 28 },
-            surge: { key: "surge", label: "脉冲塔", shortLabel: "SRG", intervalMultiplier: 1.18, amountMultiplier: 1.55, capMultiplier: 1.08, defenseMultiplier: 1, priorityScore: 22 }
+            core: { key: "core", label: "核心", shortLabel: "CORE", intervalMultiplier: 1, amountMultiplier: 1, capMultiplier: 1.05, defenseMultiplier: 1.05, priorityScore: 12, travelMultiplier: 1, dispatchMultiplier: 1 },
+            normal: { key: "normal", label: "前哨", shortLabel: "OUT", intervalMultiplier: 1, amountMultiplier: 1, capMultiplier: 1, defenseMultiplier: 1, priorityScore: 0, travelMultiplier: 1, dispatchMultiplier: 1 },
+            foundry: { key: "foundry", label: "工坊", shortLabel: "FND", intervalMultiplier: 0.8, amountMultiplier: 1, capMultiplier: 0.95, defenseMultiplier: 0.95, priorityScore: 34, travelMultiplier: 1, dispatchMultiplier: 1 },
+            bastion: { key: "bastion", label: "堡垒", shortLabel: "BST", intervalMultiplier: 1.08, amountMultiplier: 1, capMultiplier: 1.28, defenseMultiplier: 1.35, priorityScore: 28, travelMultiplier: 1, dispatchMultiplier: 1 },
+            surge: { key: "surge", label: "脉冲塔", shortLabel: "SRG", intervalMultiplier: 1.18, amountMultiplier: 1.55, capMultiplier: 1.08, defenseMultiplier: 1, priorityScore: 22, travelMultiplier: 1, dispatchMultiplier: 1 },
+            relay: { key: "relay", label: "中继塔", shortLabel: "RLY", intervalMultiplier: 0.94, amountMultiplier: 0.92, capMultiplier: 0.92, defenseMultiplier: 0.96, priorityScore: 26, travelMultiplier: 0.72, dispatchMultiplier: 1 },
+            arsenal: { key: "arsenal", label: "军械塔", shortLabel: "ARS", intervalMultiplier: 1.12, amountMultiplier: 0.96, capMultiplier: 0.9, defenseMultiplier: 0.92, priorityScore: 31, travelMultiplier: 0.96, dispatchMultiplier: 1.18 },
+            vault: { key: "vault", label: "储备塔", shortLabel: "VLT", intervalMultiplier: 1.1, amountMultiplier: 1.08, capMultiplier: 1.42, defenseMultiplier: 1.18, priorityScore: 24, travelMultiplier: 1.08, dispatchMultiplier: 1 }
         };
         return table[towerType] || table.normal;
     }
@@ -1497,6 +1562,15 @@
         }
         if (meta.key === "surge") {
             return "脉冲塔：批次更大，爆发更强。";
+        }
+        if (meta.key === "relay") {
+            return "中继塔：行军更快，适合抢点接力。";
+        }
+        if (meta.key === "arsenal") {
+            return "军械塔：出兵会有额外增幅，擅长正面压制。";
+        }
+        if (meta.key === "vault") {
+            return "储备塔：容量更夸张，适合囤兵后再反扑。";
         }
         if (meta.key === "core") {
             return "核心塔：起始阵地，属性更稳。";
@@ -1532,6 +1606,58 @@
         const dy = nodeA.y - nodeB.y;
         const distance = Math.sqrt(dx * dx + dy * dy);
         return Math.round(1350 + distance * 4.4 + frontlineRandomInt(-90, 110));
+    }
+
+    function frontlineClampNodePosition(node, width, height, padding) {
+        node.x = clamp(Math.round(Number(node.x || 0)), padding, width - padding);
+        node.y = clamp(Math.round(Number(node.y || 0)), padding, height - padding);
+    }
+
+    function frontlineSeparateNodes(nodes, width, height, fixedIds) {
+        const padding = 76;
+        const minDistance = 116;
+        const locked = fixedIds || {};
+        for (let iteration = 0; iteration < 28; iteration += 1) {
+            let moved = false;
+            for (let index = 0; index < nodes.length; index += 1) {
+                const node = nodes[index];
+                for (let otherIndex = index + 1; otherIndex < nodes.length; otherIndex += 1) {
+                    const other = nodes[otherIndex];
+                    const dx = Number(other.x || 0) - Number(node.x || 0);
+                    const dy = Number(other.y || 0) - Number(node.y || 0);
+                    const distance = Math.sqrt(dx * dx + dy * dy) || 0.0001;
+                    if (distance >= minDistance) {
+                        continue;
+                    }
+                    const overlap = (minDistance - distance) / 2;
+                    const normalX = dx / distance;
+                    const normalY = dy / distance;
+                    const nodeLocked = Boolean(locked[node.id]);
+                    const otherLocked = Boolean(locked[other.id]);
+                    if (nodeLocked && otherLocked) {
+                        continue;
+                    }
+                    if (nodeLocked) {
+                        other.x += normalX * overlap * 2;
+                        other.y += normalY * overlap * 2;
+                    } else if (otherLocked) {
+                        node.x -= normalX * overlap * 2;
+                        node.y -= normalY * overlap * 2;
+                    } else {
+                        node.x -= normalX * overlap;
+                        node.y -= normalY * overlap;
+                        other.x += normalX * overlap;
+                        other.y += normalY * overlap;
+                    }
+                    frontlineClampNodePosition(node, width, height, padding);
+                    frontlineClampNodePosition(other, width, height, padding);
+                    moved = true;
+                }
+            }
+            if (!moved) {
+                break;
+            }
+        }
     }
 
     function createFrontlineMap(difficultyKey) {
@@ -1620,7 +1746,7 @@
             return node.owner === "neutral";
         });
         const specialPool = frontlineShuffle(neutralNodes);
-        const availableTypes = frontlineShuffle(["foundry", "bastion", "surge"]);
+        const availableTypes = frontlineShuffle(["foundry", "bastion", "surge", "relay", "arsenal", "vault"]);
         for (let index = 0; index < Math.min(config.specialCount, specialPool.length); index += 1) {
             specialPool[index].towerType = availableTypes[index % availableTypes.length];
         }
@@ -1634,8 +1760,19 @@
                 guard += 2;
             } else if (node.towerType === "foundry") {
                 guard += 1;
+            } else if (node.towerType === "vault") {
+                guard += 5;
+            } else if (node.towerType === "arsenal") {
+                guard += 3;
+            } else if (node.towerType === "relay") {
+                guard += 1;
             }
             node.unitCount = Math.max(6, guard);
+        });
+
+        frontlineSeparateNodes(nodes, width, height, {
+            [mainNodes[0] ? mainNodes[0].id : ""]: true,
+            [mainNodes[mainNodes.length - 1] ? mainNodes[mainNodes.length - 1].id : ""]: true
         });
 
         return {
@@ -1662,6 +1799,8 @@
             productionAmount: Math.max(1, Math.round(base.productionAmount * meta.amountMultiplier)),
             upgradeCost: level >= 3 ? 0 : Math.max(8, Math.round(base.upgradeCost)),
             defenseMultiplier: meta.defenseMultiplier,
+            travelMultiplier: meta.travelMultiplier,
+            dispatchMultiplier: meta.dispatchMultiplier,
             priorityScore: meta.priorityScore,
             label: meta.label,
             shortLabel: meta.shortLabel
@@ -1760,7 +1899,7 @@
                     id: node.id,
                     owner: source.owner === "player" || source.owner === "ai" || source.owner === "neutral" ? source.owner : node.owner,
                     level: clamp(Number(source.level || node.level), 1, 3),
-                    unitCount: Math.max(0, Number(source.unitCount != null ? source.unitCount : node.unitCount)),
+                    unitCount: Math.max(0, Math.round(Number(source.unitCount != null ? source.unitCount : node.unitCount))),
                     prodProgressMs: Math.max(0, Number(source.prodProgressMs || 0))
                 };
             }),
@@ -1774,7 +1913,7 @@
                     owner: squad.owner === "player" || squad.owner === "ai" ? squad.owner : "neutral",
                     fromId: edge.a === squad.fromId ? edge.a : squad.fromId,
                     toId: edge.a === squad.fromId ? edge.b : squad.toId,
-                    count: Math.max(0, Number(squad.count || 0)),
+                    count: Math.max(0, Math.round(Number(squad.count || 0))),
                     progress: clamp(Number(squad.progress || 0), 0, 1),
                     travelMs: Math.max(800, Number(squad.travelMs || edge.travelMs))
                 };
@@ -1809,7 +1948,7 @@
                     id: tower.id,
                     owner: tower.owner,
                     level: tower.level,
-                    unitCount: Math.round(tower.unitCount * 10) / 10,
+                    unitCount: Math.round(tower.unitCount),
                     prodProgressMs: Math.round(tower.prodProgressMs || 0)
                 };
             }),
@@ -1886,11 +2025,11 @@
         let dragState = null;
         const frontlineHelpConfig = {
             title: "攻占前线",
-            subtitle: "随机地图单机版，包含难度分档、不同塔类型、拖拽派兵和基础 AI。",
+            subtitle: "随机地图单机版，包含难度分档、六种功能塔、拖拽派兵和基础 AI。",
             bullets: [
                 "从塔的四宫格区域按下并拖到相邻塔，可以按 25/50/75/100% 派兵。",
                 "不同难度会改变主路径长度、分支数量、中立守军和特殊塔数量。",
-                "工坊塔偏经济，堡垒塔偏防守，脉冲塔偏爆发；胜利后会播放结算动画并展示加分。"
+                "工坊、堡垒、脉冲、中继、军械、储备塔各有专长；胜利后会播放结算动画并展示加分。"
             ],
             hint: "点击“新地图”会按当前难度重新生成一张图；刷新页面仍可续玩当前随机图。"
         };
@@ -2332,15 +2471,16 @@
             if (sendCount <= 0) {
                 return false;
             }
+            const sourceSpec = getTowerSpecForTower(source);
             source.unitCount = Math.max(0, source.unitCount - sendCount);
             session.squads.push({
                 id: session.nextSquadId,
                 owner: owner,
                 fromId: fromId,
                 toId: toId,
-                count: sendCount,
+                count: Math.max(1, Math.round(sendCount * Math.max(1, Number(sourceSpec.dispatchMultiplier || 1)))),
                 progress: 0,
-                travelMs: edge.travelMs
+                travelMs: Math.max(800, Math.round(edge.travelMs * Math.max(0.6, Number(sourceSpec.travelMultiplier || 1))))
             });
             session.nextSquadId += 1;
             return true;
@@ -2354,7 +2494,7 @@
             if (available <= 0) {
                 return 0;
             }
-            let sendCount = ratio >= 1 ? available : Math.floor(source.unitCount * ratio);
+            let sendCount = ratio >= 1 ? available : Math.floor(available * ratio);
             sendCount = clamp(sendCount, 0, available);
             return sendCount;
         }
@@ -2369,22 +2509,20 @@
                 return;
             }
             const spec = getTowerSpecForTower(tower);
-            const effectiveGuard = tower.unitCount * (spec.defenseMultiplier || 1);
+            const defenseMultiplier = Math.max(1, Number(spec.defenseMultiplier || 1));
+            const effectiveGuard = Math.max(0, Math.round(tower.unitCount * defenseMultiplier));
             if (squad.count > effectiveGuard) {
                 const remainder = squad.count - effectiveGuard;
                 const previousOwner = tower.owner;
                 tower.owner = squad.owner;
-                tower.unitCount = remainder;
+                tower.unitCount = Math.max(1, Math.round(remainder));
                 tower.prodProgressMs = 0;
                 if (previousOwner === "player" || previousOwner === "ai") {
                     tower.level = Math.max(1, tower.level - 1);
                 }
                 return;
             }
-            tower.unitCount -= squad.count / Math.max(1, spec.defenseMultiplier || 1);
-            if (tower.unitCount < 0.01) {
-                tower.unitCount = 0;
-            }
+            tower.unitCount = Math.max(0, Math.ceil((effectiveGuard - squad.count) / defenseMultiplier));
         }
 
         function resolveSquadEncounters() {
@@ -2477,6 +2615,12 @@
                     score += Number(targetSpec.priorityScore || 0);
                     if (towerNode && towerNode.towerType === "foundry") {
                         score += 8;
+                    } else if (towerNode && towerNode.towerType === "relay") {
+                        score += 10;
+                    } else if (towerNode && towerNode.towerType === "arsenal") {
+                        score += 14;
+                    } else if (towerNode && towerNode.towerType === "vault") {
+                        score += 4;
                     }
                     return { targetId: targetId, score: score };
                 }).filter(Boolean).sort(function (left, right) {
@@ -2520,7 +2664,6 @@
                     return;
                 }
                 if (tower.unitCount >= spec.cap) {
-                    tower.unitCount = Math.min(tower.unitCount, spec.cap);
                     tower.prodProgressMs = 0;
                     return;
                 }
@@ -2638,6 +2781,7 @@
                 '  <div class="game-frontline-note">塔型 ' + escapeHtml(frontlineTowerTypeMeta(towerType).label) + ' · ' + escapeHtml(frontlineTowerTypeDescription(towerType)) + '</div>',
                 '  <div class="game-frontline-note">驻军 ' + escapeHtml(Math.floor(selectedTower.unitCount)) + ' / ' + escapeHtml(spec.cap) + ' · 当前等级 Lv.' + escapeHtml(selectedTower.level) + '</div>',
                 '  <div class="game-frontline-note">产兵批次：每 ' + escapeHtml((spec.productionInterval / 1000).toFixed(1)) + ' 秒 + ' + escapeHtml(spec.productionAmount) + ' 兵</div>',
+                '  <div class="game-frontline-note">行军速度：' + escapeHtml(Math.round((1 / Math.max(0.6, spec.travelMultiplier)) * 100)) + '% / 出兵兵力：' + escapeHtml(Math.round(spec.dispatchMultiplier * 100)) + '%</div>',
                 '  <div class="game-frontline-note">邻接塔：' + neighborLabel + '</div>',
                 upgradeMarkup,
                 '</div>'
@@ -3414,7 +3558,7 @@
             const rect = playfieldEl.getBoundingClientRect();
             const stageRect = shell.getBoundingClientRect();
             const isSingleColumn = stageRect.width < 1180;
-            const maxBoardSize = puzzle.size >= 16 ? 860 : 540;
+            const maxBoardSize = puzzle.size >= 16 ? 980 : 760;
             const minBoardSize = puzzle.size >= 16 ? 300 : 260;
             const verticalSpace = Math.max(260, rect.height - 28);
             const horizontalSpace = Math.max(260, rect.width - (isSingleColumn ? 20 : 28));
@@ -3994,7 +4138,7 @@
         maxEnemiesHard: 40,
         // 道具与精英
         totalRerolls: 5,
-        eliteTypes: ["dash", "冷锋", "杀马特团长", "self-destruct", "buffer", "splitter", "repulsor", "blackhand", "nightmare", "liangzi"],
+        eliteTypes: ["dash", "sniper", "summoner", "self-destruct", "buffer", "splitter", "repulsor", "blackhand", "nightmare", "liangzi", "luse", "succubus"],
         eliteDashCooldown: 3.2,
         eliteDashSpeed: 270,
         eliteDashDuration: 0.5,
@@ -4013,10 +4157,11 @@
         selfDestructDelay: 1.15,
         selfDestructRadius: 76,
         selfDestructBurstLife: 0.42,
-        repulsorRange: 130,
+        repulsorRange: 168,
         repulsorKnockDistance: 128,
         repulsorKnockSpeed: 360,
         repulsorCooldown: 3.1,
+        repulsorSlowMultiplier: 0.58,
         blackhandHookRange: 430,
         blackhandHookSpeed: 226,
         blackhandPullSpeed: 258,
@@ -4024,8 +4169,22 @@
         nightmareBlindDuration: 5,
         nightmareVisionRadius: 108,
         nightmareTouchCooldown: 1.1,
+        nightmareAuraRange: 126,
         liangziConsumeCooldown: 1,
         liangziConsumeHpFactor: 1.5,
+        luseTriggerRange: 330,
+        luseBarrageCount: 34,
+        luseSpreadRadians: 0.0523598776,
+        luseDecayPerSecond: 20,
+        succubusAuraRange: 178,
+        succubusPullStrength: 156,
+        succubusEnrageDuration: 5,
+        frenzyBurstDuration: 3,
+        frenzyExhaustDuration: 5,
+        frenzyMoveMultiplier: 0.5,
+        frenzyVolleyInterval: 0.12,
+        frenzyBulletCount: 18,
+        frenzySpreadRadians: 0.0523598776,
         // 普通小怪幸运掉落
         luckyDropChance: 0.01,
         luckyDropItemWeight: 0.6,
@@ -4060,8 +4219,10 @@
         invincibleDuration: 10,
         maxSkillProjectiles: 180,
         // 局外养成
-        metaSkinDrawCost: 1600,
-        metaSkinDuplicateRefundRate: 0.2,
+        metaColorDrawCost: 2600,
+        metaIconDrawCost: 900,
+        metaDuplicateRefundRate: 0.2,
+        metaRareColorChance: 0.035,
         metaPointsBaseReward: 120,
         metaPointsScoreRate: 1.1,
         metaPointsBossBonus: 180,
@@ -4082,6 +4243,41 @@
             "element-swap": { label: "SW", color: "#f472b6", accent: "#fce7f3" }
         };
         return map[itemKey] || map.upgrade;
+    }
+
+    function topdownSkillTriggerKeyOptions() {
+        return ["KeyQ", "KeyE", "Space"];
+    }
+
+    function topdownSkillTriggerKeyLabel(code) {
+        const map = {
+            KeyQ: "Q",
+            KeyE: "E",
+            Space: "空格"
+        };
+        return map[code] || "Q";
+    }
+
+    function topdownCanonicalEliteType(type) {
+        const value = String(type || "");
+        const aliasMap = {
+            "冷锋": "sniper",
+            "杀马特团长": "summoner",
+            dash: "dash",
+            sniper: "sniper",
+            summoner: "summoner",
+            "self-destruct": "self-destruct",
+            buffer: "buffer",
+            splitter: "splitter",
+            repulsor: "repulsor",
+            blackhand: "blackhand",
+            nightmare: "nightmare",
+            liangzi: "liangzi",
+            luse: "luse",
+            succubus: "succubus",
+            boss: "boss"
+        };
+        return aliasMap[value] || value;
     }
 
     function topdownItemCatalog() {
@@ -4336,16 +4532,129 @@
         return Math.max(0, Number(session.wave || 1) - TOPDOWN_BALANCE.latePressureStartWave);
     }
 
-    function topdownSkinCatalog() {
+    function topdownColorCatalog() {
         return {
-            classic: { key: "classic", label: "经典蓝", icon: "▲", fill: "#38bdf8", stroke: "#bae6fd", accent: "#67e8f9" },
-            ember: { key: "ember", label: "余烬红", icon: "◆", fill: "#f97316", stroke: "#fdba74", accent: "#fb7185" },
-            frost: { key: "frost", label: "冰棱白", icon: "❄", fill: "#93c5fd", stroke: "#dbeafe", accent: "#e0f2fe" },
-            volt: { key: "volt", label: "电弧黄", icon: "⚡", fill: "#facc15", stroke: "#fde68a", accent: "#fef08a" },
-            nuclear: { key: "nuclear", label: "核域绿", icon: "☢", fill: "#4ade80", stroke: "#bbf7d0", accent: "#86efac" },
-            void: { key: "void", label: "虚空紫", icon: "✦", fill: "#8b5cf6", stroke: "#c4b5fd", accent: "#a78bfa" },
-            sakura: { key: "sakura", label: "樱雾粉", icon: "✿", fill: "#f472b6", stroke: "#fbcfe8", accent: "#f9a8d4" },
-            ghost: { key: "ghost", label: "幽灵银", icon: "☄", fill: "#94a3b8", stroke: "#e2e8f0", accent: "#cbd5e1" }
+            classic: { key: "classic", label: "经典蓝", tier: "common", fill: "#38bdf8", stroke: "#bae6fd", accent: "#67e8f9" },
+            ember: { key: "ember", label: "余烬红", tier: "common", fill: "#f97316", stroke: "#fdba74", accent: "#fb7185" },
+            frost: { key: "frost", label: "冰棱白", tier: "common", fill: "#93c5fd", stroke: "#dbeafe", accent: "#e0f2fe" },
+            volt: { key: "volt", label: "电弧黄", tier: "common", fill: "#facc15", stroke: "#fde68a", accent: "#fef08a" },
+            nuclear: { key: "nuclear", label: "核域绿", tier: "common", fill: "#4ade80", stroke: "#bbf7d0", accent: "#86efac" },
+            void: { key: "void", label: "虚空紫", tier: "common", fill: "#8b5cf6", stroke: "#c4b5fd", accent: "#a78bfa" },
+            sakura: { key: "sakura", label: "樱雾粉", tier: "common", fill: "#f472b6", stroke: "#fbcfe8", accent: "#f9a8d4" },
+            ghost: { key: "ghost", label: "幽灵银", tier: "common", fill: "#94a3b8", stroke: "#e2e8f0", accent: "#cbd5e1" },
+            emerald: { key: "emerald", label: "翡翠潮", tier: "common", fill: "#10b981", stroke: "#a7f3d0", accent: "#6ee7b7" },
+            coral: { key: "coral", label: "珊瑚橙", tier: "common", fill: "#fb7185", stroke: "#fecdd3", accent: "#fdba74" },
+            cobalt: { key: "cobalt", label: "钴蓝", tier: "common", fill: "#2563eb", stroke: "#bfdbfe", accent: "#60a5fa" },
+            amethyst: { key: "amethyst", label: "紫晶", tier: "common", fill: "#a855f7", stroke: "#e9d5ff", accent: "#c084fc" },
+            aurora: { key: "aurora", label: "极光流", tier: "rare", stroke: "#d8fbff", accent: "#f9a8d4", gradient: ["#38bdf8", "#34d399", "#f472b6"] },
+            magma: { key: "magma", label: "熔火混色", tier: "rare", stroke: "#fed7aa", accent: "#fde68a", gradient: ["#f97316", "#ef4444", "#facc15"] },
+            dusk: { key: "dusk", label: "暮空混色", tier: "rare", stroke: "#ddd6fe", accent: "#bfdbfe", gradient: ["#312e81", "#8b5cf6", "#38bdf8"] },
+            venom: { key: "venom", label: "毒雾混色", tier: "rare", stroke: "#dcfce7", accent: "#86efac", gradient: ["#84cc16", "#10b981", "#22d3ee"] },
+            halo: { key: "halo", label: "圣辉渐层", tier: "rare", stroke: "#fef3c7", accent: "#fff7ed", gradient: ["#fef08a", "#fde68a", "#f59e0b"] },
+            nebula: { key: "nebula", label: "星云渐层", tier: "rare", stroke: "#f5d0fe", accent: "#c4b5fd", gradient: ["#7c3aed", "#ec4899", "#22d3ee"] },
+            prism: { key: "prism", label: "棱镜混辉", tier: "rare", stroke: "#e0f2fe", accent: "#f5f3ff", gradient: ["#22d3ee", "#a78bfa", "#f472b6"] },
+            rainbow: { key: "rainbow", label: "彩虹呼吸", tier: "rare", stroke: "#ffffff", accent: "#fef9c3", effect: "rainbow-breathe", gradient: ["#ef4444", "#f59e0b", "#facc15", "#22c55e", "#38bdf8", "#8b5cf6"] }
+        };
+    }
+
+    function topdownCommonColorKeys() {
+        return Object.keys(topdownColorCatalog()).filter(function (key) {
+            return topdownColorCatalog()[key].tier === "common";
+        });
+    }
+
+    function topdownRareColorKeys() {
+        return Object.keys(topdownColorCatalog()).filter(function (key) {
+            return topdownColorCatalog()[key].tier === "rare";
+        });
+    }
+
+    function topdownIconCatalog() {
+        const rareEmojiKeys = {
+            rainbow_emoji: true,
+            crown: true,
+            gem: true,
+            rocket_emoji: true,
+            robot: true,
+            alien: true,
+            ufo: true,
+            satellite_emoji: true,
+            dragon: true,
+            planet: true,
+            milkyway: true,
+            volcano_emoji: true,
+            trophy_emoji: true,
+            skull_emoji: true,
+            ghost_emoji: true,
+            biohazard: true
+        };
+        const emojiIcons = [
+            ["triangle", "▲"], ["diamond", "◆"], ["spark", "✦"], ["snow", "❄"], ["lightning", "⚡"], ["biohazard", "☢"],
+            ["rocket_emoji", "🚀"], ["alien", "👽"], ["robot", "🤖"], ["ghost_emoji", "👻"], ["skull_emoji", "💀"], ["fire", "🔥"],
+            ["droplet", "💧"], ["leaf", "🍃"], ["sun", "☀️"], ["moon", "🌙"], ["star_emoji", "⭐"], ["sparkles", "✨"],
+            ["comet", "☄️"], ["zap", "🌩️"], ["rainbow_emoji", "🌈"], ["crown", "👑"], ["gem", "💎"], ["heart_emoji", "💖"],
+            ["orange_heart", "🧡"], ["yellow_heart", "💛"], ["green_heart", "💚"], ["blue_heart", "💙"], ["purple_heart", "💜"], ["black_heart", "🖤"],
+            ["white_heart", "🤍"], ["target", "🎯"], ["soccer", "⚽"], ["basketball", "🏀"], ["baseball", "⚾"], ["tennis", "🎾"],
+            ["volleyball", "🏐"], ["8ball", "🎱"], ["bowling", "🎳"], ["trophy_emoji", "🏆"], ["medal", "🏅"], ["gamepad", "🎮"],
+            ["joystick", "🕹️"], ["dice", "🎲"], ["slot", "🎰"], ["microphone", "🎤"], ["headphone", "🎧"], ["radio", "📻"],
+            ["satellite_emoji", "🛰️"], ["ufo", "🛸"], ["helicopter", "🚁"], ["airplane", "✈️"], ["ship", "🚢"], ["anchor", "⚓"],
+            ["car", "🚗"], ["taxi", "🚕"], ["bus", "🚌"], ["train", "🚆"], ["tram", "🚋"], ["bike", "🚲"],
+            ["motor", "🏍️"], ["wheel", "🛞"], ["wrench_emoji", "🔧"], ["hammer", "🔨"], ["gear_emoji", "⚙️"], ["nut_bolt", "🔩"],
+            ["magnet", "🧲"], ["battery", "🔋"], ["bulb", "💡"], ["flashlight", "🔦"], ["key", "🔑"], ["lock", "🔒"],
+            ["unlock", "🔓"], ["shield_emoji", "🛡️"], ["sword", "🗡️"], ["dagger", "🗡"], ["bomb", "💣"], ["gun", "🔫"],
+            ["boomerang", "🪃"], ["axe", "🪓"], ["pickaxe", "⛏️"], ["chains", "⛓️"], ["link", "🔗"], ["hook", "🪝"],
+            ["beetle", "🪲"], ["bug_emoji", "🐞"], ["spider_emoji", "🕷️"], ["scorpion", "🦂"], ["dragon", "🐉"], ["dino", "🦖"],
+            ["octopus", "🐙"], ["fish_emoji", "🐟"], ["whale", "🐋"], ["crab", "🦀"], ["shrimp_emoji", "🦐"], ["frog", "🐸"],
+            ["cat", "🐱"], ["dog", "🐶"], ["fox", "🦊"], ["wolf", "🐺"], ["bear", "🐻"], ["panda", "🐼"],
+            ["koala", "🐨"], ["tiger", "🐯"], ["lion", "🦁"], ["monkey", "🐵"], ["pig", "🐷"], ["cow", "🐮"],
+            ["rabbit", "🐰"], ["mouse", "🐭"], ["chicken", "🐔"], ["penguin", "🐧"], ["bird", "🐦"], ["owl", "🦉"],
+            ["eagle", "🦅"], ["crow_emoji", "🐦‍⬛"], ["butterfly", "🦋"], ["flower", "🌸"], ["rose", "🌹"], ["hibiscus", "🌺"],
+            ["mushroom", "🍄"], ["tree", "🌳"], ["cactus", "🌵"], ["planet", "🪐"], ["milkyway", "🌌"], ["volcano_emoji", "🌋"],
+            ["icecream", "🍦"], ["cookie", "🍪"], ["burger", "🍔"], ["pizza", "🍕"], ["coffee", "☕"], ["boba", "🧋"],
+            ["banana", "🍌"], ["apple", "🍎"], ["watermelon", "🍉"], ["grape", "🍇"], ["cherry", "🍒"], ["peach", "🍑"]
+        ];
+        const svgIcons = [
+            ["rocket_svg", "火箭徽记", "/static/svgs/solid/rocket.svg"],
+            ["shield_svg", "盾牌徽记", "/static/svgs/solid/shield-halved.svg"],
+            ["gear_svg", "齿轮徽记", "/static/svgs/solid/gear.svg"],
+            ["bolt_svg", "雷击徽记", "/static/svgs/solid/bolt.svg"],
+            ["skull_svg", "骷髅徽记", "/static/svgs/solid/skull.svg"],
+            ["ghost_svg", "幽灵徽记", "/static/svgs/solid/ghost.svg"],
+            ["heart_svg", "心核徽记", "/static/svgs/solid/heart.svg"],
+            ["star_svg", "星芒徽记", "/static/svgs/solid/star.svg"],
+            ["bug_svg", "甲壳徽记", "/static/svgs/solid/bug.svg"],
+            ["atom_svg", "原子徽记", "/static/svgs/solid/atom.svg"],
+            ["meteor_svg", "陨石徽记", "/static/svgs/solid/meteor.svg"],
+            ["satellite_svg", "卫星徽记", "/static/svgs/solid/satellite.svg"]
+        ];
+        const catalog = {
+            triangle: { key: "triangle", label: "经典三角", kind: "glyph", glyph: "▲", tier: "common" }
+        };
+        emojiIcons.forEach(function (entry) {
+            catalog[entry[0]] = {
+                key: entry[0],
+                label: "图标 " + entry[1],
+                kind: "emoji",
+                glyph: entry[1],
+                tier: rareEmojiKeys[entry[0]] ? "rare" : "common"
+            };
+        });
+        svgIcons.forEach(function (entry) {
+            catalog[entry[0]] = { key: entry[0], label: entry[1], kind: "svg", src: entry[2], glyph: "⬢", tier: "rare" };
+        });
+        return catalog;
+    }
+
+    function topdownLegacySkinCatalog() {
+        return {
+            classic: { colorKey: "classic", iconKey: "triangle" },
+            ember: { colorKey: "ember", iconKey: "diamond" },
+            frost: { colorKey: "frost", iconKey: "snow" },
+            volt: { colorKey: "volt", iconKey: "lightning" },
+            nuclear: { colorKey: "nuclear", iconKey: "biohazard" },
+            void: { colorKey: "void", iconKey: "spark" },
+            sakura: { colorKey: "sakura", iconKey: "flower" },
+            ghost: { colorKey: "ghost", iconKey: "comet" }
         };
     }
 
@@ -4355,33 +4664,78 @@
             totalEarned: 0,
             totalSpent: 0,
             pulls: 0,
-            ownedSkins: ["classic"],
-            equippedSkin: "classic"
+            colorPulls: 0,
+            iconPulls: 0,
+            ownedColors: ["classic"],
+            ownedIcons: ["triangle"],
+            equippedColor: "classic",
+            equippedIcon: "triangle"
         };
     }
 
+    function topdownNormalizeOwnedKeys(rawList, catalog, requiredKey) {
+        const fallback = requiredKey ? [requiredKey] : [];
+        const list = Array.isArray(rawList) ? rawList : fallback;
+        const filtered = list.filter(function (key) {
+            return Object.prototype.hasOwnProperty.call(catalog, key);
+        });
+        if (requiredKey && filtered.indexOf(requiredKey) === -1) {
+            filtered.unshift(requiredKey);
+        }
+        return filtered.filter(function (key, index, items) {
+            return items.indexOf(key) === index;
+        });
+    }
+
     function normalizeTopdownMetaState(raw) {
-        const catalog = topdownSkinCatalog();
+        const colorCatalog = topdownColorCatalog();
+        const iconCatalog = topdownIconCatalog();
+        const legacyCatalog = topdownLegacySkinCatalog();
         const meta = Object.assign(createTopdownMetaState(), raw || {});
         meta.points = Math.max(0, Number(meta.points || 0));
         meta.totalEarned = Math.max(0, Number(meta.totalEarned || 0));
         meta.totalSpent = Math.max(0, Number(meta.totalSpent || 0));
         meta.pulls = Math.max(0, Number(meta.pulls || 0));
-        meta.ownedSkins = Array.isArray(meta.ownedSkins) ? meta.ownedSkins.filter(function (key) {
-            return Object.prototype.hasOwnProperty.call(catalog, key);
-        }) : ["classic"];
-        if (meta.ownedSkins.indexOf("classic") === -1) {
-            meta.ownedSkins.unshift("classic");
-        }
-        meta.ownedSkins = meta.ownedSkins.filter(function (key, index, list) {
-            return list.indexOf(key) === index;
+        meta.colorPulls = Math.max(0, Number(meta.colorPulls || 0));
+        meta.iconPulls = Math.max(0, Number(meta.iconPulls || 0));
+
+        const legacyOwned = Array.isArray(meta.ownedSkins) ? meta.ownedSkins : [];
+        const migratedColors = (Array.isArray(meta.ownedColors) ? meta.ownedColors : []).slice();
+        const migratedIcons = (Array.isArray(meta.ownedIcons) ? meta.ownedIcons : []).slice();
+        legacyOwned.forEach(function (legacyKey) {
+            const legacy = legacyCatalog[String(legacyKey || "")];
+            if (!legacy) {
+                return;
+            }
+            migratedColors.push(legacy.colorKey);
+            migratedIcons.push(legacy.iconKey);
         });
-        meta.equippedSkin = meta.ownedSkins.indexOf(String(meta.equippedSkin || "")) !== -1 ? String(meta.equippedSkin) : "classic";
+        const legacyEquipped = legacyCatalog[String(meta.equippedSkin || "")] || legacyCatalog.classic;
+        meta.ownedColors = topdownNormalizeOwnedKeys(migratedColors, colorCatalog, "classic");
+        meta.ownedIcons = topdownNormalizeOwnedKeys(migratedIcons, iconCatalog, "triangle");
+        meta.equippedColor = meta.ownedColors.indexOf(String(meta.equippedColor || legacyEquipped.colorKey || "classic")) !== -1
+            ? String(meta.equippedColor || legacyEquipped.colorKey || "classic")
+            : "classic";
+        meta.equippedIcon = meta.ownedIcons.indexOf(String(meta.equippedIcon || legacyEquipped.iconKey || "triangle")) !== -1
+            ? String(meta.equippedIcon || legacyEquipped.iconKey || "triangle")
+            : "triangle";
         return meta;
     }
 
     function serializeTopdownMetaState(meta) {
-        return JSON.parse(JSON.stringify(normalizeTopdownMetaState(meta)));
+        const state = normalizeTopdownMetaState(meta);
+        return {
+            points: state.points,
+            totalEarned: state.totalEarned,
+            totalSpent: state.totalSpent,
+            pulls: state.pulls,
+            colorPulls: state.colorPulls,
+            iconPulls: state.iconPulls,
+            ownedColors: state.ownedColors.slice(),
+            ownedIcons: state.ownedIcons.slice(),
+            equippedColor: state.equippedColor,
+            equippedIcon: state.equippedIcon
+        };
     }
 
     function summarizeTopdownMetaState(meta) {
@@ -4389,15 +4743,152 @@
         return {
             points: state.points,
             pulls: state.pulls,
-            equipped_skin: state.equippedSkin,
-            owned_skins: state.ownedSkins.length
+            equipped_color: state.equippedColor,
+            equipped_icon: state.equippedIcon,
+            owned_colors: state.ownedColors.length,
+            owned_icons: state.ownedIcons.length
         };
     }
 
-    function topdownEquippedSkin(meta) {
-        const catalog = topdownSkinCatalog();
+    function topdownEquippedAppearance(meta) {
+        const colors = topdownColorCatalog();
+        const icons = topdownIconCatalog();
         const state = normalizeTopdownMetaState(meta);
-        return catalog[state.equippedSkin] || catalog.classic;
+        return {
+            color: colors[state.equippedColor] || colors.classic,
+            icon: icons[state.equippedIcon] || icons.triangle
+        };
+    }
+
+    function topdownAllCommonColorsOwned(meta) {
+        const state = normalizeTopdownMetaState(meta);
+        const owned = {};
+        state.ownedColors.forEach(function (key) {
+            owned[key] = true;
+        });
+        return topdownCommonColorKeys().every(function (key) {
+            return Boolean(owned[key]);
+        });
+    }
+
+    function topdownMetaTierLabel(tier, type) {
+        if (tier === "rare") {
+            return type === "color" ? "稀有色" : "稀有";
+        }
+        return type === "color" ? "普通色" : "普通";
+    }
+
+    function topdownMetaTierClass(tier) {
+        return tier === "rare" ? "is-rare" : "is-common";
+    }
+
+    function topdownIconPreviewGlyph(icon) {
+        return icon && icon.glyph ? icon.glyph : "⬢";
+    }
+
+    function topdownWeightedPick(items, getWeight) {
+        const list = Array.isArray(items) ? items.slice() : [];
+        if (!list.length) {
+            return "";
+        }
+        let totalWeight = 0;
+        const normalized = list.map(function (item) {
+            const weight = Math.max(0.0001, Number(getWeight(item) || 0.0001));
+            totalWeight += weight;
+            return { item: item, weight: weight };
+        });
+        let roll = Math.random() * totalWeight;
+        for (let index = 0; index < normalized.length; index += 1) {
+            roll -= normalized[index].weight;
+            if (roll <= 0) {
+                return normalized[index].item;
+            }
+        }
+        return normalized[normalized.length - 1].item;
+    }
+
+    function topdownIconDrawWeight(icon) {
+        return icon && icon.tier === "rare" ? 0.18 : 1;
+    }
+
+    function topdownRollRowBaseKeys(kind) {
+        const catalog = kind === "color" ? topdownColorCatalog() : topdownIconCatalog();
+        return Object.keys(catalog);
+    }
+
+    function topdownRollSequence(kind, winnerKey, count, rareEnabled) {
+        const catalog = kind === "color" ? topdownColorCatalog() : topdownIconCatalog();
+        const keys = topdownRollRowBaseKeys(kind);
+        const sequence = [];
+        const winnerIndex = Math.max(18, Math.min((count || 40) - 8, Math.floor((count || 40) * 0.72)));
+        for (let index = 0; index < (count || 40); index += 1) {
+            if (index === winnerIndex) {
+                sequence.push(winnerKey);
+                continue;
+            }
+            if (kind === "color") {
+                const commonPool = topdownCommonColorKeys().filter(function (key) { return key !== "classic"; });
+                const rarePool = topdownRareColorKeys();
+                const useRare = Boolean(rareEnabled) && Math.random() < TOPDOWN_BALANCE.metaRareColorChance;
+                const pool = useRare ? rarePool : commonPool;
+                sequence.push(pool[Math.floor(Math.random() * pool.length)]);
+            } else {
+                sequence.push(topdownWeightedPick(keys, function (key) {
+                    return topdownIconDrawWeight(catalog[key]);
+                }));
+            }
+        }
+        return {
+            keys: sequence,
+            winnerIndex: winnerIndex
+        };
+    }
+
+    function topdownAppearanceColorStops(color, tick) {
+        const stops = Array.isArray(color && color.gradient) && color.gradient.length ? color.gradient.slice() : [];
+        if (color && color.effect === "rainbow-breathe") {
+            const shift = Math.floor(((Number(tick || 0) % 6) + 6) % 6);
+            for (let index = 0; index < shift; index += 1) {
+                stops.push(stops.shift());
+            }
+        }
+        if (!stops.length) {
+            stops.push((color && color.fill) || "#38bdf8", (color && color.accent) || "#67e8f9");
+        }
+        return stops;
+    }
+
+    function topdownApplyFillStyle(ctx, color, x, y, radius, tick) {
+        const stops = topdownAppearanceColorStops(color, tick);
+        if (stops.length <= 1) {
+            ctx.fillStyle = stops[0];
+            return;
+        }
+        const gradient = ctx.createLinearGradient(x - radius, y - radius, x + radius, y + radius);
+        const divisor = Math.max(1, stops.length - 1);
+        stops.forEach(function (stopColor, index) {
+            gradient.addColorStop(index / divisor, stopColor);
+        });
+        ctx.fillStyle = gradient;
+    }
+
+    function topdownIconImageCache() {
+        const store = topdownIconImageCache._store || (topdownIconImageCache._store = {});
+        return store;
+    }
+
+    function topdownGetIconImage(icon) {
+        if (!icon || icon.kind !== "svg" || !icon.src) {
+            return null;
+        }
+        const cache = topdownIconImageCache();
+        if (!cache[icon.src]) {
+            const image = new Image();
+            image.decoding = "async";
+            image.src = icon.src;
+            cache[icon.src] = image;
+        }
+        return cache[icon.src];
     }
 
     function topdownSkillCatalog() {
@@ -4406,19 +4897,19 @@
                 key: "blink",
                 label: "闪现",
                 shortLabel: "闪现",
-                description: "快速双击方向键，朝对应方向闪现一段距离，闪现期间无敌。每 60 秒可触发一次。"
+                description: "按技能键发动，朝当前移动方向闪现一段距离，闪现期间无敌。每 60 秒可触发一次。"
             },
             missile: {
                 key: "missile",
                 label: "导弹矩阵",
                 shortLabel: "导弹",
-                description: "按 Q 发动。把场上的子弹重定向成追踪导弹，优先锁定首领和精英。每 60 秒一次。"
+                description: "按技能键发动。把场上的子弹重定向成追踪导弹，优先锁定首领和精英。每 60 秒一次。"
             },
             invincible: {
                 key: "invincible",
                 label: "绝对无敌",
                 shortLabel: "无敌",
-                description: "按 Q 发动。立刻获得 10 秒无敌时间。每 60 秒一次。"
+                description: "按技能键发动。立刻获得 10 秒无敌时间。每 60 秒一次。"
             }
         };
     }
@@ -4471,6 +4962,10 @@
         const finalAmount = Math.max(0, Math.round(amount * multiplier));
         session.score += finalAmount;
         return finalAmount;
+    }
+
+    function topdownKillBaseScore(session) {
+        return Number((session && session.score) || 0) >= TOPDOWN_SCORE_SOFT_CAP ? 1 : TOPDOWN_BALANCE.killScore;
     }
 
     function topdownComboBonus(session) {
@@ -4964,7 +5459,7 @@
         const bulletSpeedMultiplier = spawnBoss ? TOPDOWN_BALANCE.bossBulletSpeedMultiplier : (1 + Math.max(0, session.wave - 1) * TOPDOWN_BALANCE.eliteBulletSpeedPerWave / 100);
         const speedMultiplier = spawnBoss ? TOPDOWN_BALANCE.bossSpeedMultiplier : (isElite ? TOPDOWN_BALANCE.eliteSpeedMultiplier : 1);
         const bossShield = spawnBoss ? topdownBossShieldValue(session) : 0;
-        const eliteType = spawnBoss ? "boss" : (isElite ? TOPDOWN_BALANCE.eliteTypes[Math.floor(Math.random() * TOPDOWN_BALANCE.eliteTypes.length)] : "");
+        const eliteType = spawnBoss ? "boss" : (isElite ? topdownCanonicalEliteType(TOPDOWN_BALANCE.eliteTypes[Math.floor(Math.random() * TOPDOWN_BALANCE.eliteTypes.length)]) : "");
         const enemySpeedFactor = topdownRelicEnemySpeedMultiplier(session);
         const enemyFireFactor = topdownRelicEnemyFireCooldownMultiplier(session);
         const enemy = {
@@ -5012,7 +5507,10 @@
             repulseCooldown: TOPDOWN_BALANCE.repulsorCooldown,
             hookCooldown: TOPDOWN_BALANCE.blackhandHookCooldown,
             touchCooldown: 0,
-            consumeCooldown: 0
+            consumeCooldown: 0,
+            luseTriggered: false,
+            succubusVictimIds: [],
+            enrageUntil: 0
         };
         if (eliteType === "buffer") {
             enemy.hp *= TOPDOWN_BALANCE.bufferHpFactor;
@@ -5039,6 +5537,14 @@
             enemy.speed *= 1.04;
             enemy.hp *= 0.86;
             enemy.maxHp = enemy.hp;
+        } else if (eliteType === "luse") {
+            enemy.speed *= 0.84;
+            enemy.hp *= 1.08;
+            enemy.maxHp = enemy.hp;
+        } else if (eliteType === "succubus") {
+            enemy.speed *= 0.9;
+            enemy.hp *= 1.24;
+            enemy.maxHp = enemy.hp;
         }
         session.nextId += 1;
         if (isElite) {
@@ -5063,7 +5569,7 @@
     }
 
     function spawnTopdownPickup(session, x, y, kind, itemKey) {
-        session.pickups.push({
+        const pickup = {
             id: session.nextId,
             x: x,
             y: y,
@@ -5071,8 +5577,14 @@
             ttl: TOPDOWN_BALANCE.pickupLifetime,
             kind: kind || "upgrade",
             itemKey: itemKey || "upgrade"
-        });
+        };
+        session.pickups.push(pickup);
         session.nextId += 1;
+        if (session.status === "playing") {
+            const item = topdownItemCatalog()[pickup.itemKey];
+            const label = pickup.kind === "upgrade" ? "升级球" : ((item && item.label) || topdownPickupVisual(pickup).label);
+            setStatus("掉落生成：" + label + "。", false);
+        }
     }
 
     function spawnTopdownItemPickup(session, x, y) {
@@ -5221,6 +5733,7 @@
             element: element,
             elementLevel: elementLevel,
             canUltimate: bulletExtra.canUltimate !== false,
+            ignoreRepulsorField: Boolean(bulletExtra.ignoreRepulsorField),
             aoeStacks: Number(bulletExtra.aoeStacks || 0),
             aoeRadius: Number(bulletExtra.aoeRadius || 0)
         });
@@ -5267,35 +5780,42 @@
         if (enemy.remnantActive) {
             return "自爆";
         }
-        if (enemy.eliteType === "dash") {
+        const eliteType = topdownCanonicalEliteType(enemy.eliteType);
+        if (eliteType === "dash") {
             return "突进";
         }
-        if (enemy.eliteType === "sniper") {
+        if (eliteType === "sniper") {
             return "冷锋";
         }
-        if (enemy.eliteType === "summoner") {
-            return "召唤";
+        if (eliteType === "summoner") {
+            return "杀马特团长";
         }
-        if (enemy.eliteType === "self-destruct") {
+        if (eliteType === "self-destruct") {
             return "自爆";
         }
-        if (enemy.eliteType === "buffer") {
+        if (eliteType === "buffer") {
             return "强化";
         }
-        if (enemy.eliteType === "splitter") {
+        if (eliteType === "splitter") {
             return "分裂";
         }
-        if (enemy.eliteType === "repulsor") {
-            return "击飞";
+        if (eliteType === "repulsor") {
+            return "斥力";
         }
-        if (enemy.eliteType === "blackhand") {
+        if (eliteType === "blackhand") {
             return "黑手";
         }
-        if (enemy.eliteType === "nightmare") {
+        if (eliteType === "nightmare") {
             return "噩梦";
         }
-        if (enemy.eliteType === "liangzi") {
+        if (eliteType === "liangzi") {
             return "良子";
+        }
+        if (eliteType === "luse") {
+            return "撸瑟";
+        }
+        if (eliteType === "succubus") {
+            return "魅魔";
         }
         return "精英";
     }
@@ -5386,6 +5906,84 @@
         session.player.controlLock = Math.max(Number(session.player.controlLock || 0), duration);
         session.player.knockbackVx = 0;
         session.player.knockbackVy = 0;
+    }
+
+    function topdownPlayerInsideRepulsorField(session, x, y) {
+        return (session.enemies || []).some(function (enemy) {
+            return enemy
+                && enemy.hp > 0
+                && enemy.isElite
+                && topdownCanonicalEliteType(enemy.eliteType) === "repulsor"
+                && !enemy.remnantActive
+                && distanceBetween({ x: x, y: y }, enemy) <= TOPDOWN_BALANCE.repulsorRange + Number(enemy.radius || 0);
+        });
+    }
+
+    function topdownPlayerMoveSpeedFactor(session) {
+        let factor = 1;
+        if (topdownPlayerInsideRepulsorField(session, session.player.x, session.player.y)) {
+            factor *= TOPDOWN_BALANCE.repulsorSlowMultiplier;
+        }
+        if (Number(session.player.frenzyExhaustUntil || 0) > Number(session.tick || 0)) {
+            factor *= TOPDOWN_BALANCE.frenzyMoveMultiplier;
+        }
+        return factor;
+    }
+
+    function topdownBulletBlockedByRepulsor(session, bullet) {
+        if (bullet.element === "electric" || bullet.ignoreRepulsorField) {
+            return false;
+        }
+        for (let index = 0; index < session.enemies.length; index += 1) {
+            const enemy = session.enemies[index];
+            if (!enemy || enemy.hp <= 0 || enemy.remnantActive || !enemy.isElite || topdownCanonicalEliteType(enemy.eliteType) !== "repulsor") {
+                continue;
+            }
+            const insideNow = distanceBetween(bullet, enemy) <= TOPDOWN_BALANCE.repulsorRange + enemy.radius;
+            const insidePrev = distanceBetween({ x: bullet.prevX, y: bullet.prevY }, enemy) <= TOPDOWN_BALANCE.repulsorRange + enemy.radius;
+            if (insideNow || insidePrev || distanceToSegmentSquared(enemy.x, enemy.y, bullet.prevX, bullet.prevY, bullet.x, bullet.y) <= Math.pow(TOPDOWN_BALANCE.repulsorRange + enemy.radius, 2)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    function spawnTopdownSpreadShot(session, origin, angle, count, spreadRadians, bulletFactory) {
+        const shots = Math.max(1, Number(count || 1));
+        const spread = Math.max(0, Number(spreadRadians || 0));
+        for (let shotIndex = 0; shotIndex < shots; shotIndex += 1) {
+            const shotAngle = angle + randomBetween(-spread, spread);
+            bulletFactory(shotAngle, shotIndex, shots);
+        }
+    }
+
+    function spawnTopdownLuseBurst(session, enemy, aimAngle, bulletSpeed) {
+        spawnTopdownSpreadShot(session, enemy, aimAngle, TOPDOWN_BALANCE.luseBarrageCount, TOPDOWN_BALANCE.luseSpreadRadians, function (shotAngle) {
+            spawnTopdownEnemyBullet(session, enemy.x, enemy.y, shotAngle, bulletSpeed, 5.2, {
+                damage: 1,
+                kind: "luse-burst",
+                color: "#fda4af"
+            });
+        });
+    }
+
+    function spawnTopdownPlayerFrenzyVolley(session, aimAngle) {
+        const playerStats = getTopdownDerivedStats(session, false);
+        const elementLevel = topdownBuildElementLevel(session.build, false, session.build.element);
+        spawnTopdownSpreadShot(session, session.player, aimAngle, TOPDOWN_BALANCE.frenzyBulletCount, TOPDOWN_BALANCE.frenzySpreadRadians, function (shotAngle) {
+            createTopdownBullet(session, session.player, shotAngle, playerStats.damage, "player", session.build.element, elementLevel, {
+                canUltimate: true,
+                ignoreRepulsorField: topdownPlayerInsideRepulsorField(session, session.player.x, session.player.y)
+            });
+        });
+    }
+
+    function triggerTopdownPlayerFrenzy(session, sourceLabel) {
+        session.player.frenzyUntil = Math.max(Number(session.player.frenzyUntil || 0), session.tick + TOPDOWN_BALANCE.frenzyBurstDuration);
+        session.player.frenzyNextShotAt = session.tick;
+        session.player.frenzyExhaustUntil = 0;
+        session.player.frenzyExhaustQueuedUntil = Math.max(Number(session.player.frenzyExhaustQueuedUntil || 0), session.tick + TOPDOWN_BALANCE.frenzyBurstDuration + TOPDOWN_BALANCE.frenzyExhaustDuration);
+        setStatus((sourceLabel || "战术失控") + "：进入 3 秒弹幕爆发。", false);
     }
 
     function topdownNearestEnemy(session) {
@@ -5617,6 +6215,7 @@
     function spawnTopdownVolley(session, origin, angle, stats, owner) {
         const count = Math.max(1, stats.multishot);
         const offsetBase = -(count - 1) / 2;
+        const ignoreRepulsorField = topdownPlayerInsideRepulsorField(session, session.player.x, session.player.y);
         for (let shot = 0; shot < count; shot += 1) {
             const shotAngle = angle + (offsetBase + shot) * TOPDOWN_BALANCE.multishotSpread;
             if (stats.element === "electric") {
@@ -5633,9 +6232,10 @@
                     stats.elementLevel,
                     emitElementAoe ? {
                         canUltimate: stats.canUltimate,
+                        ignoreRepulsorField: ignoreRepulsorField,
                         aoeStacks: 1,
                         aoeRadius: topdownElementAoeRadius(stats.element, stats.elementLevel)
-                    } : { canUltimate: stats.canUltimate }
+                    } : { canUltimate: stats.canUltimate, ignoreRepulsorField: ignoreRepulsorField }
                 );
             }
         }
@@ -5650,7 +6250,7 @@
         session.combo += 1;
         session.bestCombo = Math.max(session.bestCombo, session.combo);
         session.comboTimer = topdownCurrentComboResetWindow(session);
-        awardTopdownScore(session, TOPDOWN_BALANCE.killScore + topdownComboBonus(session));
+        awardTopdownScore(session, topdownKillBaseScore(session) + topdownComboBonus(session));
         if (session.combo >= session.nextItemComboAt) {
             spawnTopdownItemPickup(session, enemy.x, enemy.y);
             session.nextItemComboAt += topdownCurrentComboItemEvery(session);
@@ -5671,8 +6271,8 @@
                     title: "战术技能选择",
                     subtitle: "每局只能带 1 个技能。首领已为你解锁本局唯一的技能栏位。",
                     detailLines: [
-                        "闪现：双击方向键触发，期间无敌。",
-                        "导弹 / 无敌：按 Q 主动施放，冷却 60 秒。"
+                        "闪现：按技能键朝当前移动方向触发，期间无敌。",
+                        "导弹 / 无敌：按 " + topdownSkillTriggerKeyLabel(session.skillTriggerKey) + " 主动施放，冷却 60 秒。"
                     ],
                     allowDecline: false,
                     choices: buildTopdownSkillChoices()
@@ -5747,6 +6347,13 @@
                 suicideTargetX: 0,
                 suicideTargetY: 0,
                 specialAttackCooldown: randomBetween(TOPDOWN_BALANCE.enemySpecialCooldownMin, TOPDOWN_BALANCE.enemySpecialCooldownMax),
+                repulseCooldown: 0,
+                hookCooldown: 0,
+                touchCooldown: 0,
+                consumeCooldown: 0,
+                luseTriggered: false,
+                succubusVictimIds: [],
+                enrageUntil: 0,
                 isSplitterMinion: true
             });
             session.nextId += 1;
@@ -5772,6 +6379,21 @@
         enemy.explodeDelay = TOPDOWN_BALANCE.selfDestructDelay;
         enemy.auraActive = false;
         enemy.auraTimer = 0;
+    }
+
+    function releaseTopdownSuccubusVictims(session, enemy) {
+        const victimIds = Array.isArray(enemy && enemy.succubusVictimIds) ? enemy.succubusVictimIds.slice() : [];
+        if (!victimIds.length) {
+            return;
+        }
+        session.enemies.forEach(function (candidate) {
+            if (!candidate || victimIds.indexOf(candidate.id) === -1 || candidate.hp <= 0 || candidate.remnantActive) {
+                return;
+            }
+            candidate.enrageUntil = Math.max(Number(candidate.enrageUntil || 0), session.tick + TOPDOWN_BALANCE.succubusEnrageDuration);
+        });
+        triggerTopdownPlayerFrenzy(session, "魅魔崩解");
+        setStatus("魅魔被击败：被吸附单位已狂暴，机体进入 3 秒压制弹幕。", true);
     }
 
     function damageTopdownEnemy(session, enemy, amount) {
@@ -5801,6 +6423,9 @@
         if (enemy.eliteType === "self-destruct" && !enemy.remnantActive) {
             transformTopdownSelfDestructEnemy(session, enemy);
             return false;
+        }
+        if (topdownCanonicalEliteType(enemy.eliteType) === "succubus") {
+            releaseTopdownSuccubusVictims(session, enemy);
         }
         awardTopdownEnemyKill(session, enemy);
         return true;
@@ -5913,7 +6538,12 @@
         }
     }
 
-    function createTopdownShooterSession() {
+    function createTopdownShooterSession(options) {
+        const config = Object.assign({
+            moveControl: "keyboard",
+            fireControl: "manual",
+            skillTriggerKey: "KeyQ"
+        }, options || {});
         const build = normalizeTopdownBuild();
         return {
             sessionKey: "tds-" + Date.now() + "-" + Math.random().toString(36).slice(2, 8),
@@ -5939,7 +6569,13 @@
                 invulnerableUntil: 0,
                 dashLeft: 0,
                 dashVx: 0,
-                dashVy: 0
+                dashVy: 0,
+                moveDirX: 0,
+                moveDirY: 0,
+                frenzyUntil: 0,
+                frenzyNextShotAt: 0,
+                frenzyExhaustUntil: 0,
+                frenzyExhaustQueuedUntil: 0
             },
             bullets: [],
             beams: [],
@@ -5975,8 +6611,9 @@
             nextBossEliteGoal: 5,
             bossesDefeated: 0,
             metaRewardGranted: false,
-            moveControl: "keyboard",
-            fireControl: "manual",
+            moveControl: config.moveControl === "mouse" ? "mouse" : "keyboard",
+            fireControl: config.fireControl === "auto" ? "auto" : "manual",
+            skillTriggerKey: topdownSkillTriggerKeyOptions().indexOf(config.skillTriggerKey) >= 0 ? config.skillTriggerKey : "KeyQ",
             elementBurstTracker: {
                 playerFire: 0,
                 playerIce: 0,
@@ -6033,7 +6670,13 @@
                 invulnerableUntil: 0,
                 dashLeft: 0,
                 dashVx: 0,
-                dashVy: 0
+                dashVy: 0,
+                moveDirX: 0,
+                moveDirY: 0,
+                frenzyUntil: 0,
+                frenzyNextShotAt: 0,
+                frenzyExhaustUntil: 0,
+                frenzyExhaustQueuedUntil: 0
             }, raw.player || {}),
             bullets: Array.isArray(raw.bullets) ? raw.bullets.slice() : [],
             beams: Array.isArray(raw.beams) ? raw.beams.slice() : [],
@@ -6071,6 +6714,7 @@
             metaRewardGranted: Boolean(raw.metaRewardGranted),
             moveControl: raw.moveControl === "mouse" ? "mouse" : (raw.controlMode === "mouse-auto" ? "mouse" : "keyboard"),
             fireControl: raw.fireControl === "auto" ? "auto" : (raw.controlMode === "mouse-auto" ? "auto" : "manual"),
+            skillTriggerKey: topdownSkillTriggerKeyOptions().indexOf(raw.skillTriggerKey) >= 0 ? raw.skillTriggerKey : "KeyQ",
             elementBurstTracker: Object.assign({
                 playerFire: 0,
                 playerIce: 0,
@@ -6099,6 +6743,11 @@
             session.player.wingmanCooldowns.push(0);
         }
         session.player.wingmanCooldowns = session.player.wingmanCooldowns.slice(0, session.build.wingmanLevel);
+        session.enemies.forEach(function (enemy) {
+            if (enemy) {
+                enemy.eliteType = topdownCanonicalEliteType(enemy.eliteType);
+            }
+        });
         syncTopdownShieldCapacity(session);
         session.player.radius = topdownCurrentPlayerRadius(session);
         return session;
@@ -6122,6 +6771,7 @@
             { label: "元素", value: formatTopdownElement(build), tone: "element" },
             { label: "移动", value: session.moveControl === "mouse" ? "鼠标" : "键盘", tone: "buff" },
             { label: "射击", value: session.fireControl === "auto" ? "自动" : "手动", tone: "buff" },
+            { label: "技能键", value: topdownSkillTriggerKeyLabel(session.skillTriggerKey), tone: "buff" },
             { label: "僚机弹种", value: build.wingmanLevel > 0 ? formatTopdownElement(build, true) : "未部署", tone: "wing" },
             { label: "攻击", value: stats.damage.toFixed(1), tone: "attack" },
             { label: "射速", value: (1 / Math.max(0.01, stats.fireInterval)).toFixed(1) + "/s", tone: "rate" },
@@ -6135,7 +6785,7 @@
             { label: "弹体", value: "Lv." + build.projectileLevel, tone: "multi" },
             { label: "续连", value: comboResetWindow.toFixed(1) + "s", tone: "combo" },
             { label: "阈值", value: comboItemEvery + " 连", tone: "item" },
-            { label: "单杀分", value: String(TOPDOWN_BALANCE.killScore + topdownComboBonus(session)), tone: "score" },
+            { label: "单杀分", value: String(topdownKillBaseScore(session) + topdownComboBonus(session)), tone: "score" },
             { label: "刷新", value: session.rerollsRemaining + "/" + TOPDOWN_BALANCE.totalRerolls, tone: "reroll" },
             { label: "精英", value: Math.max(0, session.nextEliteAt - session.kills) + " 击败", tone: "elite" },
             { label: "首领", value: topdownHasLivingBoss(session) ? "场上存在" : (Math.max(0, session.nextBossEliteGoal - session.elitesSinceBoss) + " 精英"), tone: "elite" },
@@ -6257,15 +6907,16 @@
             bullets: [
                 "操作：移动和射击控制现已拆分，可分别切换。WASD / 方向键负责键盘移动；鼠标模式会自动朝指针位置移动。",
                 "射击可切成手动或自动：手动时按住鼠标左键或 J 开火；自动时会持续索敌并自动射击最近敌人。",
+                "技能键也可切换，当前支持 Q / E / 空格；闪现、导弹矩阵和绝对无敌都会走同一个技能键。",
                 "火会灼烧叠层并周期性打出火系范围叠层弹；电是瞬发激光并固定折射最近敌人；冰会减速叠层直到冰冻；核会生成绿色范围爆发圈。",
                 "主武器满级后：火可传染燃烧，电可附加感电增伤，冰冻敌人有概率碎裂秒杀，核会概率留下持续辐射区。",
                 "僚机会共享当前僚机数量对应的弹种等级，但不触发主武器的满级终极效果。",
-                "首个首领必定掉技能。闪现需双击方向键；导弹矩阵和绝对无敌按 Q 发动，技能冷却 60 秒。",
+                "首个首领必定掉技能。闪现会朝当前移动方向触发；若当前没有移动则无法发动。所有技能冷却均为 60 秒。",
                 "普通小怪也有 1% 概率掉落随机补给，可能是升级球，也可能是随机道具。",
                 "后期精英和首领会使用单发、散射、环形弹幕或线性光束；黑手会抓钩，噩梦会致盲，良子会吞怪回血。",
                 "护盾被打空后，再吃到一次伤害就会直接结束，本局没有额外命数。"
             ],
-            hint: "优先决定元素方向，再补攻击、射速、护盾、僚机和弹道。高连杀会给道具，首领会掉技能或整局装备，局外积分可用来抽取皮肤。"
+            hint: "优先决定元素方向，再补攻击、射速、护盾、僚机和弹道。高连杀会给道具，首领会掉技能或整局装备，局外积分可用于抽取颜色和图标外观。"
         };
         const arcade = createArcadeShell(
             "俯视射击",
@@ -6294,8 +6945,7 @@
         arcade.canvas.height = arenaHeight;
         const pointer = { x: arenaWidth / 2, y: arenaHeight / 2, down: false };
         const pressed = Object.create(null);
-        const blockedKeys = { Space: true, ArrowUp: true, ArrowDown: true, ArrowLeft: true, ArrowRight: true, KeyW: true, KeyA: true, KeyS: true, KeyD: true, KeyJ: true, KeyQ: true, KeyR: true, KeyP: true, Digit0: true, Digit1: true, Digit2: true, Digit3: true };
-        const lastDirectionTap = {};
+        const blockedKeys = { Space: true, ArrowUp: true, ArrowDown: true, ArrowLeft: true, ArrowRight: true, KeyW: true, KeyA: true, KeyS: true, KeyD: true, KeyJ: true, KeyQ: true, KeyE: true, KeyR: true, KeyP: true, Digit0: true, Digit1: true, Digit2: true, Digit3: true };
         let animationId = 0;
         let lastFrame = 0;
         let persistStamp = 0;
@@ -6308,7 +6958,11 @@
         addStageButton("重新开局", function () {
             finalizeRunRewardIfNeeded();
             finalizeScoreIfNeeded().finally(function () {
-                session = createTopdownShooterSession();
+                session = createTopdownShooterSession({
+                    moveControl: session.moveControl,
+                    fireControl: session.fireControl,
+                    skillTriggerKey: session.skillTriggerKey
+                });
                 updateControlButtons();
                 updateHud();
                 persist();
@@ -6331,6 +6985,14 @@
             updateHud();
             persist();
         }, false);
+        const skillKeyButton = addStageButton("", function () {
+            const options = topdownSkillTriggerKeyOptions();
+            const currentIndex = options.indexOf(session.skillTriggerKey);
+            session.skillTriggerKey = options[(currentIndex + 1 + options.length) % options.length];
+            updateControlButtons();
+            updateHud();
+            persist();
+        }, false);
         addStageButton("帮助", function () {
             openGameInfoOverlay(arcade.canvasWrap, topdownHelpConfig);
         }, false);
@@ -6344,6 +7006,9 @@
             }
             if (fireControlButton) {
                 fireControlButton.textContent = session.fireControl === "auto" ? "射击: 自动" : "射击: 手动";
+            }
+            if (skillKeyButton) {
+                skillKeyButton.textContent = "技能键: " + topdownSkillTriggerKeyLabel(session.skillTriggerKey);
             }
         }
         updateControlButtons();
@@ -6369,37 +7034,200 @@
             return reward;
         }
 
-        function topdownMetaPanelHtml(message) {
-            const catalog = topdownSkinCatalog();
-            const cost = TOPDOWN_BALANCE.metaSkinDrawCost;
-            const refundLabel = Math.round(TOPDOWN_BALANCE.metaSkinDuplicateRefundRate * 100);
-            const skinCards = Object.keys(catalog).map(function (key) {
-                const skin = catalog[key];
-                const owned = metaState.ownedSkins.indexOf(key) !== -1;
-                const equipped = metaState.equippedSkin === key;
-                return [
-                    '<button type="button" class="topdown-meta-skin' + (owned ? " is-owned" : "") + (equipped ? " is-equipped" : "") + '" data-topdown-equip="' + escapeHtml(key) + '"' + (owned ? "" : " disabled") + '>',
-                    '  <span class="topdown-meta-skin-icon" style="--skin-fill:' + escapeHtml(skin.fill) + ';--skin-stroke:' + escapeHtml(skin.stroke) + ';">' + escapeHtml(skin.icon) + "</span>",
-                    '  <span class="topdown-meta-skin-name">' + escapeHtml(skin.label) + "</span>",
-                    '  <span class="topdown-meta-skin-state">' + (equipped ? "已装备" : (owned ? "已拥有" : "未解锁")) + "</span>",
-                    "</button>"
-                ].join("");
-            }).join("");
+        const metaRollMetrics = {
+            itemWidth: 148,
+            itemGap: 10,
+            sequenceCount: 42,
+            durationMs: 4600
+        };
+        let metaView = "draw";
+        let metaFlashMessage = "";
+        const metaRollState = {
+            color: { rolling: false, sequenceKeys: [], winnerKey: "", winnerIndex: 0, frameId: 0, offsetPx: 0, refund: 0 },
+            icon: { rolling: false, sequenceKeys: [], winnerKey: "", winnerIndex: 0, frameId: 0, offsetPx: 0, refund: 0 }
+        };
+
+        function topdownAnyMetaRollActive() {
+            return metaRollState.color.rolling || metaRollState.icon.rolling;
+        }
+
+        function topdownMetaPreviewStyle(item) {
+            if (item.gradient && item.gradient.length) {
+                return 'background:linear-gradient(135deg,' + item.gradient.join(",") + ');border-color:' + escapeHtml(item.stroke || "#ffffff") + ';';
+            }
+            if (item.fill || item.stroke) {
+                return '--skin-fill:' + escapeHtml(item.fill || "#38bdf8") + ';--skin-stroke:' + escapeHtml(item.stroke || "#bae6fd") + ';';
+            }
+            return "";
+        }
+
+        function topdownMetaColorCardHtml(key, color) {
+            const owned = metaState.ownedColors.indexOf(key) !== -1;
+            const equipped = metaState.equippedColor === key;
             return [
-                '<div class="games-insight-panel topdown-meta-panel">',
-                '  <div class="games-section-title">积分与抽奖</div>',
-                '  <div class="games-stage-meta">当前可用积分：' + escapeHtml(String(metaState.points)) + '</div>',
-                '  <div class="games-stage-meta">单次抽奖：' + escapeHtml(String(cost)) + ' 积分。重复皮肤返还 ' + escapeHtml(String(refundLabel)) + '%。</div>',
-                '  <div class="games-stage-meta">累计抽奖：' + escapeHtml(String(metaState.pulls)) + ' 次，累计获得：' + escapeHtml(String(metaState.totalEarned)) + ' 积分。</div>',
-                '  <div class="topdown-meta-actions">',
-                '    <button type="button" class="games-btn games-btn--primary" data-topdown-draw="1">抽取 1 次皮肤</button>',
+                '<button type="button" class="topdown-meta-skin ' + topdownMetaTierClass(color.tier) + (owned ? " is-owned" : "") + (equipped ? " is-equipped" : "") + '" data-topdown-equip-color="' + escapeHtml(key) + '"' + (owned ? "" : " disabled") + '>',
+                '  <span class="topdown-meta-skin-icon" style="' + topdownMetaPreviewStyle(color) + '"></span>',
+                '  <span class="topdown-meta-skin-name">' + escapeHtml(color.label) + '</span>',
+                '  <span class="topdown-meta-skin-state">' + escapeHtml(topdownMetaTierLabel(color.tier, "color")) + ' / ' + (equipped ? "已装备" : (owned ? "已拥有" : "未拥有")) + '</span>',
+                "</button>"
+            ].join("");
+        }
+
+        function topdownMetaIconCardHtml(key, icon) {
+            const owned = metaState.ownedIcons.indexOf(key) !== -1;
+            const equipped = metaState.equippedIcon === key;
+            return [
+                '<button type="button" class="topdown-meta-skin ' + topdownMetaTierClass(icon.tier) + (owned ? " is-owned" : "") + (equipped ? " is-equipped" : "") + '" data-topdown-equip-icon="' + escapeHtml(key) + '"' + (owned ? "" : " disabled") + '>',
+                '  <span class="topdown-meta-skin-icon">' + escapeHtml(topdownIconPreviewGlyph(icon)) + '</span>',
+                '  <span class="topdown-meta-skin-name">' + escapeHtml(icon.label) + '</span>',
+                '  <span class="topdown-meta-skin-state">' + escapeHtml(topdownMetaTierLabel(icon.tier, "icon")) + ' / ' + (equipped ? "已装备" : (owned ? "已拥有" : "未拥有")) + '</span>',
+                "</button>"
+            ].join("");
+        }
+
+        function topdownMetaRollItemHtml(kind, key) {
+            const catalog = kind === "color" ? topdownColorCatalog() : topdownIconCatalog();
+            const item = catalog[key];
+            if (!item) {
+                return "";
+            }
+            return [
+                '<div class="topdown-meta-roll-item ' + topdownMetaTierClass(item.tier) + '" data-roll-key="' + escapeHtml(key) + '">',
+                '  <span class="topdown-meta-roll-icon"' + (kind === "color" ? (' style="' + topdownMetaPreviewStyle(item) + '"') : "") + '>' + (kind === "icon" ? escapeHtml(topdownIconPreviewGlyph(item)) : "") + '</span>',
+                '  <span class="topdown-meta-roll-name">' + escapeHtml(item.label) + '</span>',
+                '  <span class="topdown-meta-roll-tier">' + escapeHtml(topdownMetaTierLabel(item.tier, kind)) + '</span>',
+                '</div>'
+            ].join("");
+        }
+
+        function topdownMetaStaticRollKeys(kind) {
+            const baseKeys = topdownRollRowBaseKeys(kind);
+            const sequence = [];
+            for (let cycle = 0; cycle < 4; cycle += 1) {
+                baseKeys.forEach(function (key) {
+                    sequence.push(key);
+                });
+            }
+            return sequence;
+        }
+
+        function topdownMetaEnsureIdleSequence(kind) {
+            const state = metaRollState[kind];
+            if (state.rolling) {
+                return;
+            }
+            state.sequenceKeys = topdownMetaStaticRollKeys(kind);
+            state.offsetPx = 0;
+        }
+
+        function topdownMetaRollRowHtml(kind) {
+            const isColor = kind === "color";
+            const cost = isColor ? TOPDOWN_BALANCE.metaColorDrawCost : TOPDOWN_BALANCE.metaIconDrawCost;
+            const rowTitle = isColor ? "颜色奖池" : "图标奖池";
+            const buttonLabel = isColor ? "抽颜色" : "抽图标";
+            const rowState = metaRollState[kind];
+            const trackItems = (rowState.sequenceKeys && rowState.sequenceKeys.length ? rowState.sequenceKeys : topdownMetaStaticRollKeys(kind))
+                .map(function (key) { return topdownMetaRollItemHtml(kind, key); })
+                .join("");
+            return [
+                '<div class="topdown-meta-roll-row" data-topdown-roll-row="' + kind + '">',
+                '  <div class="topdown-meta-roll-head">',
+                '    <div>',
+                '      <div class="games-section-title">' + rowTitle + '</div>',
+                '      <div class="games-stage-meta">单次消耗 ' + escapeHtml(String(cost)) + ' 积分，抽到重复返还 20%。</div>',
+                '    </div>',
+                '    <button type="button" class="games-btn' + (isColor ? " games-btn--primary" : "") + '" data-topdown-draw-' + kind + '="1"' + (rowState.rolling ? " disabled" : "") + '>' + buttonLabel + '</button>',
                 '  </div>',
-                (message ? ('  <div class="games-stage-meta topdown-meta-flash">' + escapeHtml(message) + "</div>") : ""),
-                "</div>",
-                '<div class="games-insight-panel topdown-meta-panel topdown-meta-panel--wide">',
-                '  <div class="games-section-title">皮肤仓库</div>',
-                '  <div class="topdown-meta-skins">' + skinCards + "</div>",
-                "</div>"
+                '  <div class="topdown-meta-roll-viewport" data-topdown-roll-viewport="' + kind + '">',
+                '    <div class="topdown-meta-roll-marker"></div>',
+                '    <div class="topdown-meta-roll-track' + (rowState.rolling ? " is-rolling" : " is-auto") + '" data-topdown-roll-track="' + kind + '">' + trackItems + '</div>',
+                '  </div>',
+                '</div>'
+            ].join("");
+        }
+
+        function topdownMetaDrawViewHtml() {
+            const appearance = topdownEquippedAppearance(metaState);
+            const rareUnlocked = topdownAllCommonColorsOwned(metaState);
+            const colorCatalog = topdownColorCatalog();
+            const iconCatalog = topdownIconCatalog();
+            return [
+                '<div class="topdown-meta-shell">',
+                '  <div class="games-insight-panel topdown-meta-overview">',
+                '    <div class="topdown-meta-overview-main">',
+                '      <div>',
+                '        <div class="games-section-title">抽奖总览</div>',
+                '        <div class="games-stage-meta">颜色与图标分开抽取，命中重复返还 20% 积分。</div>',
+                '      </div>',
+                '      <div class="topdown-meta-active-loadout">',
+                '        <span class="topdown-meta-active-color" style="' + topdownMetaPreviewStyle(appearance.color) + '"></span>',
+                '        <span class="topdown-meta-active-icon">' + escapeHtml(topdownIconPreviewGlyph(appearance.icon)) + '</span>',
+                '        <div class="topdown-meta-active-text">',
+                '          <strong>' + escapeHtml(appearance.color.label) + '</strong>',
+                '          <span>' + escapeHtml(appearance.icon.label) + '</span>',
+                '        </div>',
+                '      </div>',
+                '    </div>',
+                '    <div class="topdown-meta-stat-grid">',
+                '      <div class="topdown-meta-stat"><span>当前积分</span><strong>' + escapeHtml(String(metaState.points)) + '</strong></div>',
+                '      <div class="topdown-meta-stat"><span>累计抽奖</span><strong>' + escapeHtml(String(metaState.pulls)) + '</strong></div>',
+                '      <div class="topdown-meta-stat"><span>颜色收藏</span><strong>' + escapeHtml(String(metaState.ownedColors.length)) + ' / ' + escapeHtml(String(Object.keys(colorCatalog).length)) + '</strong></div>',
+                '      <div class="topdown-meta-stat"><span>图标收藏</span><strong>' + escapeHtml(String(metaState.ownedIcons.length)) + ' / ' + escapeHtml(String(Object.keys(iconCatalog).length)) + '</strong></div>',
+                '    </div>',
+                '    <div class="games-stage-meta topdown-meta-tip">' + (rareUnlocked ? "普通颜色已集齐，颜色池已开放极低概率的稀有色。" : "先收集完全部普通颜色，再开放极低概率的稀有颜色。") + '</div>',
+                (metaFlashMessage ? ('    <div class="games-stage-meta topdown-meta-flash">' + escapeHtml(metaFlashMessage) + '</div>') : ''),
+                '  </div>',
+                '  <div class="topdown-meta-roll-stack">',
+                topdownMetaRollRowHtml("color"),
+                topdownMetaRollRowHtml("icon"),
+                '  </div>',
+                '</div>'
+            ].join("");
+        }
+
+        function topdownMetaEquipViewHtml() {
+            const colorCatalog = topdownColorCatalog();
+            const iconCatalog = topdownIconCatalog();
+            return [
+                '<div class="topdown-meta-shell">',
+                '  <div class="games-insight-panel topdown-meta-overview">',
+                '    <div class="topdown-meta-overview-main">',
+                '      <div>',
+                '        <div class="games-section-title">装备仓库</div>',
+                '        <div class="games-stage-meta">已拥有的可直接点击装备，未拥有的会以灰色锁定展示。</div>',
+                '      </div>',
+                '    </div>',
+                '    <div class="topdown-meta-stat-grid">',
+                '      <div class="topdown-meta-stat"><span>颜色拥有</span><strong>' + escapeHtml(String(metaState.ownedColors.length)) + ' / ' + escapeHtml(String(Object.keys(colorCatalog).length)) + '</strong></div>',
+                '      <div class="topdown-meta-stat"><span>图标拥有</span><strong>' + escapeHtml(String(metaState.ownedIcons.length)) + ' / ' + escapeHtml(String(Object.keys(iconCatalog).length)) + '</strong></div>',
+                '      <div class="topdown-meta-stat"><span>已装备颜色</span><strong>' + escapeHtml(((colorCatalog[metaState.equippedColor] || {}).label || "默认")) + '</strong></div>',
+                '      <div class="topdown-meta-stat"><span>已装备图标</span><strong>' + escapeHtml(((iconCatalog[metaState.equippedIcon] || {}).label || "默认")) + '</strong></div>',
+                '    </div>',
+                (metaFlashMessage ? ('    <div class="games-stage-meta topdown-meta-flash">' + escapeHtml(metaFlashMessage) + '</div>') : ''),
+                '  </div>',
+                '  <div class="games-insight-panel topdown-meta-panel topdown-meta-panel--wide">',
+                '    <div class="topdown-meta-section-head"><div class="games-section-title">颜色装备</div><div class="games-stage-meta">点击已拥有项即可切换</div></div>',
+                '    <div class="topdown-meta-skins">' + Object.keys(colorCatalog).map(function (key) { return topdownMetaColorCardHtml(key, colorCatalog[key]); }).join("") + '</div>',
+                '  </div>',
+                '  <div class="games-insight-panel topdown-meta-panel topdown-meta-panel--wide">',
+                '    <div class="topdown-meta-section-head"><div class="games-section-title">图标装备</div><div class="games-stage-meta">未拥有项保留展示，方便预览奖池</div></div>',
+                '    <div class="topdown-meta-skins">' + Object.keys(iconCatalog).map(function (key) { return topdownMetaIconCardHtml(key, iconCatalog[key]); }).join("") + '</div>',
+                '  </div>',
+                '</div>'
+            ].join("");
+        }
+
+        function topdownMetaPanelHtml() {
+            return [
+                '<div class="topdown-meta-root">',
+                '  <div class="topdown-meta-tabs">',
+                '    <button type="button" class="topdown-meta-tab' + (metaView === "draw" ? " is-active" : "") + '" data-topdown-meta-view="draw">抽奖</button>',
+                '    <button type="button" class="topdown-meta-tab' + (metaView === "equip" ? " is-active" : "") + '" data-topdown-meta-view="equip">装备</button>',
+                '  </div>',
+                '  <div class="topdown-meta-view">',
+                (metaView === "draw" ? topdownMetaDrawViewHtml() : topdownMetaEquipViewHtml()),
+                '  </div>',
+                '</div>'
             ].join("");
         }
 
@@ -6416,11 +7244,11 @@
                 '  <div class="games-modal-head">',
                 '    <div>',
                 '      <div class="games-section-title">Topdown 局外养成</div>',
-                '      <div class="games-stage-meta">抽到的皮肤可永久保留并在本地访客档案中复用。</div>',
+                '      <div class="games-stage-meta">抽到的颜色与图标可永久保留并在本地访客档案中复用。</div>',
                 "    </div>",
                 '    <button type="button" class="games-modal-close" data-topdown-meta-close="1">关闭</button>',
                 "  </div>",
-                '  <div class="games-modal-body games-modal-body--insights" data-topdown-meta-body="1"></div>',
+                '  <div class="games-modal-body topdown-meta-body" data-topdown-meta-body="1"></div>',
                 '  <div class="games-modal-actions">',
                 '    <button type="button" class="games-btn" data-topdown-meta-close="1">关闭</button>',
                 "  </div>",
@@ -6436,28 +7264,88 @@
                     closeMetaModal();
                     return;
                 }
-                const equipKey = target.getAttribute("data-topdown-equip");
-                if (equipKey) {
-                    if (metaState.ownedSkins.indexOf(equipKey) !== -1) {
-                        metaState.equippedSkin = equipKey;
+                const nextView = target.getAttribute("data-topdown-meta-view");
+                if (nextView === "draw" || nextView === "equip") {
+                    if (topdownAnyMetaRollActive()) {
+                        metaFlashMessage = "当前正在开奖，请等待滚动结束。";
+                        renderMetaModal();
+                        return;
+                    }
+                    metaView = nextView;
+                    renderMetaModal();
+                    return;
+                }
+                const equipColorKey = target.getAttribute("data-topdown-equip-color");
+                if (equipColorKey) {
+                    if (topdownAnyMetaRollActive()) {
+                        metaFlashMessage = "当前正在开奖，请等待滚动结束后再切换装备。";
+                        renderMetaModal();
+                        return;
+                    }
+                    if (metaState.ownedColors.indexOf(equipColorKey) !== -1) {
+                        metaState.equippedColor = equipColorKey;
                         persistMeta();
-                        renderMetaModal("已装备皮肤：" + (topdownSkinCatalog()[equipKey] || {}).label);
+                        metaFlashMessage = "已装备颜色：" + ((topdownColorCatalog()[equipColorKey] || {}).label || "");
+                        renderMetaModal();
                     }
                     return;
                 }
-                if (target.hasAttribute("data-topdown-draw")) {
-                    drawTopdownSkin();
+                const equipIconKey = target.getAttribute("data-topdown-equip-icon");
+                if (equipIconKey) {
+                    if (topdownAnyMetaRollActive()) {
+                        metaFlashMessage = "当前正在开奖，请等待滚动结束后再切换装备。";
+                        renderMetaModal();
+                        return;
+                    }
+                    if (metaState.ownedIcons.indexOf(equipIconKey) !== -1) {
+                        metaState.equippedIcon = equipIconKey;
+                        persistMeta();
+                        metaFlashMessage = "已装备图标：" + ((topdownIconCatalog()[equipIconKey] || {}).label || "");
+                        renderMetaModal();
+                    }
+                    return;
+                }
+                if (target.hasAttribute("data-topdown-draw-color")) {
+                    drawTopdownColor();
+                    return;
+                }
+                if (target.hasAttribute("data-topdown-draw-icon")) {
+                    drawTopdownIcon();
                 }
             });
             return metaModal;
         }
 
-        function renderMetaModal(message) {
+        function syncMetaRollTracks() {
+            if (!metaModal || metaView !== "draw") {
+                return;
+            }
+            ["color", "icon"].forEach(function (kind) {
+                const rowState = metaRollState[kind];
+                const viewport = metaModal.querySelector('[data-topdown-roll-viewport="' + kind + '"]');
+                const track = metaModal.querySelector('[data-topdown-roll-track="' + kind + '"]');
+                if (!viewport || !track) {
+                    return;
+                }
+                if (!rowState.sequenceKeys.length) {
+                    topdownMetaEnsureIdleSequence(kind);
+                    track.innerHTML = rowState.sequenceKeys.map(function (key) {
+                        return topdownMetaRollItemHtml(kind, key);
+                    }).join("");
+                }
+                const cycleWidth = topdownRollRowBaseKeys(kind).length * (metaRollMetrics.itemWidth + metaRollMetrics.itemGap);
+                track.style.setProperty("--roll-cycle-width", cycleWidth + "px");
+                track.style.transform = 'translateX(-' + rowState.offsetPx + 'px)';
+            });
+        }
+
+        function renderMetaModal() {
             const modal = ensureMetaModal();
             const body = modal.querySelector("[data-topdown-meta-body='1']");
             if (body) {
-                body.innerHTML = topdownMetaPanelHtml(message || "");
+                body.innerHTML = topdownMetaPanelHtml();
             }
+            syncMetaRollTracks();
         }
 
         function openMetaModal() {
@@ -6465,7 +7353,7 @@
                 togglePause();
             }
             const modal = ensureMetaModal();
-            renderMetaModal("");
+            renderMetaModal();
             modal.hidden = false;
         }
 
@@ -6475,28 +7363,119 @@
             }
         }
 
-        function drawTopdownSkin() {
-            if (metaState.points < TOPDOWN_BALANCE.metaSkinDrawCost) {
-                renderMetaModal("积分不足，当前无法抽取新皮肤。");
+        function topdownResolveRollReward(kind, winnerKey) {
+            if (kind === "color") {
+                const color = topdownColorCatalog()[winnerKey];
+                if (metaState.ownedColors.indexOf(winnerKey) !== -1) {
+                    const refund = Math.round(TOPDOWN_BALANCE.metaColorDrawCost * TOPDOWN_BALANCE.metaDuplicateRefundRate);
+                    metaState.points += refund;
+                    metaFlashMessage = "抽中重复颜色 " + color.label + "，已返还 " + refund + " 积分。";
+                } else {
+                    metaState.ownedColors.push(winnerKey);
+                    metaState.equippedColor = winnerKey;
+                    metaFlashMessage = "获得新颜色：" + color.label + "。已自动装备。";
+                }
                 return;
             }
-            const pool = Object.keys(topdownSkinCatalog()).filter(function (key) { return key !== "classic"; });
-            const rolledKey = pool[Math.floor(Math.random() * pool.length)];
-            const skin = topdownSkinCatalog()[rolledKey];
-            metaState.points -= TOPDOWN_BALANCE.metaSkinDrawCost;
-            metaState.totalSpent += TOPDOWN_BALANCE.metaSkinDrawCost;
-            metaState.pulls += 1;
-            if (metaState.ownedSkins.indexOf(rolledKey) !== -1) {
-                const refund = Math.round(TOPDOWN_BALANCE.metaSkinDrawCost * TOPDOWN_BALANCE.metaSkinDuplicateRefundRate);
+            const icon = topdownIconCatalog()[winnerKey];
+            if (metaState.ownedIcons.indexOf(winnerKey) !== -1) {
+                const refund = Math.round(TOPDOWN_BALANCE.metaIconDrawCost * TOPDOWN_BALANCE.metaDuplicateRefundRate);
                 metaState.points += refund;
-                persistMeta();
-                renderMetaModal("重复获得 " + skin.label + "，已返还 " + refund + " 积分。");
+                metaFlashMessage = "抽中重复图标 " + icon.label + "，已返还 " + refund + " 积分。";
+            } else {
+                metaState.ownedIcons.push(winnerKey);
+                metaState.equippedIcon = winnerKey;
+                metaFlashMessage = "获得新图标：" + icon.label + "。已自动装备。";
+            }
+        }
+
+        function topdownStartRoll(kind, cost, winnerKey) {
+            const rowState = metaRollState[kind];
+            if (rowState.rolling) {
                 return;
             }
-            metaState.ownedSkins.push(rolledKey);
-            metaState.equippedSkin = rolledKey;
-            persistMeta();
-            renderMetaModal("获得新皮肤：" + skin.label + "。已自动装备。");
+            metaView = "draw";
+            metaFlashMessage = "";
+            metaState.points -= cost;
+            metaState.totalSpent += cost;
+            metaState.pulls += 1;
+            if (kind === "color") {
+                metaState.colorPulls += 1;
+            } else {
+                metaState.iconPulls += 1;
+            }
+            const rollSequence = topdownRollSequence(kind, winnerKey, metaRollMetrics.sequenceCount, topdownAllCommonColorsOwned(metaState));
+            rowState.sequenceKeys = rollSequence.keys;
+            rowState.winnerKey = winnerKey;
+            rowState.winnerIndex = rollSequence.winnerIndex;
+            rowState.offsetPx = 0;
+            rowState.rolling = true;
+            renderMetaModal();
+            const viewport = metaModal ? metaModal.querySelector('[data-topdown-roll-viewport="' + kind + '"]') : null;
+            const track = metaModal ? metaModal.querySelector('[data-topdown-roll-track="' + kind + '"]') : null;
+            if (!viewport || !track) {
+                rowState.rolling = false;
+                topdownResolveRollReward(kind, winnerKey);
+                persistMeta();
+                renderMetaModal();
+                return;
+            }
+            const itemSpan = metaRollMetrics.itemWidth + metaRollMetrics.itemGap;
+            const targetOffset = Math.max(0, rowState.winnerIndex * itemSpan - (viewport.clientWidth / 2 - metaRollMetrics.itemWidth / 2));
+            const startedAt = performance.now();
+            function frame(now) {
+                const progress = clamp((now - startedAt) / metaRollMetrics.durationMs, 0, 1);
+                const eased = Math.sin(progress * Math.PI * 0.5);
+                rowState.offsetPx = targetOffset * eased;
+                track.style.transform = 'translateX(-' + rowState.offsetPx + 'px)';
+                if (progress < 1) {
+                    rowState.frameId = window.requestAnimationFrame(frame);
+                    return;
+                }
+                rowState.frameId = 0;
+                rowState.rolling = false;
+                topdownResolveRollReward(kind, winnerKey);
+                persistMeta();
+                renderMetaModal();
+            }
+            rowState.frameId = window.requestAnimationFrame(frame);
+        }
+
+        function drawTopdownColor() {
+            if (topdownAnyMetaRollActive()) {
+                metaFlashMessage = "当前已有一条奖池正在开奖，请稍候。";
+                renderMetaModal();
+                return;
+            }
+            if (metaState.points < TOPDOWN_BALANCE.metaColorDrawCost) {
+                metaFlashMessage = "积分不足，当前无法抽取新颜色。";
+                renderMetaModal();
+                return;
+            }
+            const commonPool = topdownCommonColorKeys().filter(function (key) { return key !== "classic"; });
+            const rareUnlocked = topdownAllCommonColorsOwned(metaState);
+            const useRare = rareUnlocked && Math.random() < TOPDOWN_BALANCE.metaRareColorChance;
+            const pool = useRare ? topdownRareColorKeys() : commonPool;
+            const rolledKey = pool[Math.floor(Math.random() * pool.length)];
+            topdownStartRoll("color", TOPDOWN_BALANCE.metaColorDrawCost, rolledKey);
+        }
+
+        function drawTopdownIcon() {
+            if (topdownAnyMetaRollActive()) {
+                metaFlashMessage = "当前已有一条奖池正在开奖，请稍候。";
+                renderMetaModal();
+                return;
+            }
+            if (metaState.points < TOPDOWN_BALANCE.metaIconDrawCost) {
+                metaFlashMessage = "积分不足，当前无法抽取新图标。";
+                renderMetaModal();
+                return;
+            }
+            const pool = Object.keys(topdownIconCatalog()).filter(function (key) { return key !== "triangle"; });
+            const rolledKey = topdownWeightedPick(pool, function (key) {
+                return topdownIconDrawWeight(topdownIconCatalog()[key]);
+            });
+            topdownStartRoll("icon", TOPDOWN_BALANCE.metaIconDrawCost, rolledKey);
         }
 
         function updateHud() {
@@ -6508,13 +7487,17 @@
                 "状态：" + (session.status === "over" ? "已失败" : (session.status === "paused" ? "已暂停" : (session.pendingUpgrade ? "正在选强化" : (session.pendingPickupChoice ? "正在选择道具" : "战斗中")))),
                 "构筑：" + topdownBuildSummary(session),
                 "技能：" + topdownSkillSummary(session),
+                "技能键：" + topdownSkillTriggerKeyLabel(session.skillTriggerKey),
                 "首领装备：" + topdownBossRelicSummary(session),
                 renderTopdownAttributeCards(session),
                 wingmanLines[0],
-                "局外积分：" + metaState.points + " / 皮肤：" + topdownEquippedSkin(metaState).label
+                "局外积分：" + metaState.points + " / 颜色：" + topdownEquippedAppearance(metaState).color.label + " / 图标：" + topdownEquippedAppearance(metaState).icon.label
             ];
             if (activeBuffSummary && activeBuffSummary !== "无") {
                 sideLines.push("临时增益：" + activeBuffSummary);
+            }
+            if (session.score >= TOPDOWN_SCORE_SOFT_CAP) {
+                sideLines.push("得分软上限已生效：后续击杀基础分降为 1，连杀奖励保留。");
             }
             if (topdownBuffRemaining(session, "enemySilenceUntil") > 0) {
                 sideLines.push("敌方哑火：" + topdownBuffRemaining(session, "enemySilenceUntil").toFixed(1) + " 秒");
@@ -6661,6 +7644,28 @@
                 setStatus("技能冷却中，还需 " + topdownSkillCooldownRemaining(session).toFixed(0) + " 秒。", true);
                 return false;
             }
+            if (session.pendingUpgrade || session.pendingPickupChoice || session.status !== "playing") {
+                return false;
+            }
+            if (session.skill.key === "blink") {
+                const moveX = Number(session.player.moveDirX || 0);
+                const moveY = Number(session.player.moveDirY || 0);
+                const moveLen = Math.sqrt(moveX * moveX + moveY * moveY);
+                if (moveLen < 0.01) {
+                    setStatus("当前没有移动方向，无法触发闪现。", true);
+                    return false;
+                }
+                session.player.dashLeft = TOPDOWN_BALANCE.blinkDuration;
+                session.player.dashVx = moveX / moveLen * TOPDOWN_BALANCE.blinkDistance / TOPDOWN_BALANCE.blinkDuration;
+                session.player.dashVy = moveY / moveLen * TOPDOWN_BALANCE.blinkDistance / TOPDOWN_BALANCE.blinkDuration;
+                session.player.invulnerableUntil = Math.max(Number(session.player.invulnerableUntil || 0), session.tick + TOPDOWN_BALANCE.blinkDuration);
+                session.player.pullLeft = 0;
+                session.player.pullEnemyId = 0;
+                session.player.controlLock = 0;
+                session.skill.readyAt = session.tick + TOPDOWN_BALANCE.skillCooldown;
+                setStatus("已触发闪现。", false);
+                return true;
+            }
             if (session.skill.key === "missile") {
                 const playerStats = getTopdownDerivedStats(session, false);
                 const sources = [];
@@ -6699,43 +7704,14 @@
             return false;
         }
 
-        function tryBlinkSkill(code) {
-            if (!session.skill || session.skill.key !== "blink" || !topdownSkillReady(session) || session.pendingUpgrade || session.pendingPickupChoice || session.status !== "playing") {
-                return false;
-            }
-            const directionMap = {
-                KeyW: { x: 0, y: -1 },
-                ArrowUp: { x: 0, y: -1 },
-                KeyS: { x: 0, y: 1 },
-                ArrowDown: { x: 0, y: 1 },
-                KeyA: { x: -1, y: 0 },
-                ArrowLeft: { x: -1, y: 0 },
-                KeyD: { x: 1, y: 0 },
-                ArrowRight: { x: 1, y: 0 }
-            };
-            const direction = directionMap[code];
-            if (!direction) {
-                return false;
-            }
-            const previous = Number(lastDirectionTap[code] || 0);
-            lastDirectionTap[code] = session.tick;
-            if (session.tick - previous > TOPDOWN_BALANCE.blinkTapWindow) {
-                return false;
-            }
-            session.player.dashLeft = TOPDOWN_BALANCE.blinkDuration;
-            session.player.dashVx = direction.x * TOPDOWN_BALANCE.blinkDistance / TOPDOWN_BALANCE.blinkDuration;
-            session.player.dashVy = direction.y * TOPDOWN_BALANCE.blinkDistance / TOPDOWN_BALANCE.blinkDuration;
-            session.player.invulnerableUntil = Math.max(Number(session.player.invulnerableUntil || 0), session.tick + TOPDOWN_BALANCE.blinkDuration);
-            session.player.pullLeft = 0;
-            session.player.pullEnemyId = 0;
-            session.player.controlLock = 0;
-            session.skill.readyAt = session.tick + TOPDOWN_BALANCE.skillCooldown;
-            setStatus("已触发闪现。", false);
-            return true;
-        }
-
         function maybeShoot() {
             if (session.status !== "playing" || session.pendingUpgrade || session.pendingPickupChoice || session.player.fireCooldown > 0) {
+                return;
+            }
+            if (Number(session.player.frenzyUntil || 0) > Number(session.tick || 0)) {
+                return;
+            }
+            if (Number(session.player.frenzyExhaustUntil || 0) > Number(session.tick || 0)) {
                 return;
             }
             const angle = topdownCurrentAimAngle(session, pointer);
@@ -6800,6 +7776,12 @@
             session.player.controlLock = Math.max(0, Number(session.player.controlLock || 0) - dt);
             session.player.pullLeft = Math.max(0, Number(session.player.pullLeft || 0) - dt);
             session.player.dashLeft = Math.max(0, Number(session.player.dashLeft || 0) - dt);
+            if (Number(session.player.frenzyUntil || 0) > 0 && session.player.frenzyUntil <= session.tick) {
+                session.player.frenzyUntil = 0;
+                session.player.frenzyExhaustUntil = Math.max(Number(session.player.frenzyExhaustUntil || 0), Number(session.player.frenzyExhaustQueuedUntil || 0));
+                session.player.frenzyExhaustQueuedUntil = 0;
+                setStatus("压制弹幕结束，机体进入 5 秒虚弱，无法射击且移速减半。", true);
+            }
             session.player.wingmanCooldowns = session.player.wingmanCooldowns.map(function (value) { return Math.max(0, value - dt); }).slice(0, session.build.wingmanLevel);
             session.beams = session.beams.filter(function (beam) { beam.life -= dt; return beam.life > 0; });
             session.enemyBeams = session.enemyBeams.filter(function (beam) { beam.life -= dt; return beam.life > 0 && !beam.hitApplied; });
@@ -6841,22 +7823,33 @@
                 return;
             }
 
+            if (Number(session.player.frenzyUntil || 0) > Number(session.tick || 0) && Number(session.player.frenzyNextShotAt || 0) <= Number(session.tick || 0)) {
+                spawnTopdownPlayerFrenzyVolley(session, topdownCurrentAimAngle(session, pointer));
+                session.player.frenzyNextShotAt = session.tick + TOPDOWN_BALANCE.frenzyVolleyInterval;
+            }
+
             const playerStats = getTopdownDerivedStats(session, false);
             let moveX = 0;
             let moveY = 0;
+            let actualMoveDirX = 0;
+            let actualMoveDirY = 0;
+            const playerMoveFactor = topdownPlayerMoveSpeedFactor(session);
             if (session.moveControl !== "mouse") {
                 if (pressed.KeyW || pressed.ArrowUp) { moveY -= 1; }
                 if (pressed.KeyS || pressed.ArrowDown) { moveY += 1; }
                 if (pressed.KeyA || pressed.ArrowLeft) { moveX -= 1; }
                 if (pressed.KeyD || pressed.ArrowRight) { moveX += 1; }
             }
-            const moveLen = Math.sqrt(moveX * moveX + moveY * moveY) || 1;
+            const moveMagnitude = Math.sqrt(moveX * moveX + moveY * moveY);
+            const moveLen = moveMagnitude || 1;
             if (session.player.pullLeft > 0) {
                 const pullEnemy = topdownFindEnemyById(session, session.player.pullEnemyId);
                 if (pullEnemy) {
                     const pullDx = pullEnemy.x - session.player.x;
                     const pullDy = pullEnemy.y - session.player.y;
                     const pullLen = Math.max(1, Math.sqrt(pullDx * pullDx + pullDy * pullDy));
+                    actualMoveDirX = pullDx / pullLen;
+                    actualMoveDirY = pullDy / pullLen;
                     session.player.x = clamp(session.player.x + pullDx / pullLen * session.player.pullSpeed * dt, arenaPlayerMargin, arenaWidth - arenaPlayerMargin);
                     session.player.y = clamp(session.player.y + pullDy / pullLen * session.player.pullSpeed * dt, arenaPlayerMargin, arenaHeight - arenaPlayerMargin);
                 } else {
@@ -6864,6 +7857,8 @@
                     session.player.pullEnemyId = 0;
                 }
             } else if (session.player.dashLeft > 0) {
+                actualMoveDirX = Number(session.player.dashVx || 0);
+                actualMoveDirY = Number(session.player.dashVy || 0);
                 session.player.x = clamp(session.player.x + Number(session.player.dashVx || 0) * dt, arenaPlayerMargin, arenaWidth - arenaPlayerMargin);
                 session.player.y = clamp(session.player.y + Number(session.player.dashVy || 0) * dt, arenaPlayerMargin, arenaHeight - arenaPlayerMargin);
                 if (session.player.dashLeft <= 0.001) {
@@ -6871,6 +7866,8 @@
                     session.player.dashVy = 0;
                 }
             } else if (session.player.controlLock > 0) {
+                actualMoveDirX = Number(session.player.knockbackVx || 0);
+                actualMoveDirY = Number(session.player.knockbackVy || 0);
                 session.player.x = clamp(session.player.x + Number(session.player.knockbackVx || 0) * dt, arenaPlayerMargin, arenaWidth - arenaPlayerMargin);
                 session.player.y = clamp(session.player.y + Number(session.player.knockbackVy || 0) * dt, arenaPlayerMargin, arenaHeight - arenaPlayerMargin);
                 if (session.player.controlLock <= 0.001) {
@@ -6885,15 +7882,23 @@
                     const autoDy = pointer.y - session.player.y;
                     const autoLen = Math.sqrt(autoDx * autoDx + autoDy * autoDy) || 0;
                     if (autoLen > 6) {
-                        const travel = Math.min(autoLen, playerStats.moveSpeed * dt);
+                        actualMoveDirX = autoDx / autoLen;
+                        actualMoveDirY = autoDy / autoLen;
+                        const travel = Math.min(autoLen, playerStats.moveSpeed * playerMoveFactor * dt);
                         session.player.x = clamp(session.player.x + autoDx / autoLen * travel, arenaPlayerMargin, arenaWidth - arenaPlayerMargin);
                         session.player.y = clamp(session.player.y + autoDy / autoLen * travel, arenaPlayerMargin, arenaHeight - arenaPlayerMargin);
                     }
                 } else {
-                    session.player.x = clamp(session.player.x + (moveX / moveLen) * playerStats.moveSpeed * dt, arenaPlayerMargin, arenaWidth - arenaPlayerMargin);
-                    session.player.y = clamp(session.player.y + (moveY / moveLen) * playerStats.moveSpeed * dt, arenaPlayerMargin, arenaHeight - arenaPlayerMargin);
+                    if (moveMagnitude > 0) {
+                        actualMoveDirX = moveX / moveLen;
+                        actualMoveDirY = moveY / moveLen;
+                    }
+                    session.player.x = clamp(session.player.x + (moveX / moveLen) * playerStats.moveSpeed * playerMoveFactor * dt, arenaPlayerMargin, arenaWidth - arenaPlayerMargin);
+                    session.player.y = clamp(session.player.y + (moveY / moveLen) * playerStats.moveSpeed * playerMoveFactor * dt, arenaPlayerMargin, arenaHeight - arenaPlayerMargin);
                 }
             }
+            session.player.moveDirX = actualMoveDirX;
+            session.player.moveDirY = actualMoveDirY;
             if ((session.fireControl === "auto" && topdownNearestEnemy(session)) || ((session.fireControl !== "auto") && (pointer.down || pressed.KeyJ))) {
                 maybeShoot();
             }
@@ -6949,6 +7954,8 @@
                 enemy.hookCooldown = Math.max(0, Number(enemy.hookCooldown || 0) - dt);
                 enemy.touchCooldown = Math.max(0, Number(enemy.touchCooldown || 0) - dt);
                 enemy.consumeCooldown = Math.max(0, Number(enemy.consumeCooldown || 0) - dt);
+                enemy.eliteType = topdownCanonicalEliteType(enemy.eliteType);
+                const eliteType = enemy.eliteType;
                 if (enemy.remnantActive) {
                     enemy.explodeDelay = Math.max(0, Number(enemy.explodeDelay || 0) - dt);
                     const targetDx = enemy.suicideTargetX - enemy.x;
@@ -6977,19 +7984,17 @@
                 if (enemy.frozenTime > 0) {
                     enemy.frozenTime = Math.max(0, enemy.frozenTime - dt);
                 }
-                if (enemy.isElite && enemy.eliteType === "buffer") {
+                if (enemy.isElite && eliteType === "buffer") {
                     enemy.auraTimer = Math.max(0, Number(enemy.auraTimer || 0) - dt);
                     if (enemy.auraTimer <= 0) {
                         enemy.auraActive = !enemy.auraActive;
                         enemy.auraTimer = enemy.auraActive ? TOPDOWN_BALANCE.bufferAuraOnDuration : TOPDOWN_BALANCE.bufferAuraOffDuration;
                     }
                 }
-                if (enemy.isElite && enemy.eliteType === "repulsor") {
-                    enemy.repulseCooldown = Math.max(0, Number(enemy.repulseCooldown || 0) - dt);
-                    if (enemy.repulseCooldown <= 0 && distanceBetween(enemy, session.player) <= TOPDOWN_BALANCE.repulsorRange + session.player.radius) {
-                        applyTopdownPlayerKnockback(session, enemy.x, enemy.y, TOPDOWN_BALANCE.repulsorKnockDistance, TOPDOWN_BALANCE.repulsorKnockSpeed);
-                        enemy.repulseCooldown = TOPDOWN_BALANCE.repulsorCooldown;
-                    }
+                if (enemy.isElite && eliteType === "nightmare" && Number(enemy.touchCooldown || 0) <= 0 && distanceBetween(enemy, session.player) <= TOPDOWN_BALANCE.nightmareAuraRange + session.player.radius) {
+                    applyTopdownPlayerBlind(session, TOPDOWN_BALANCE.nightmareBlindDuration);
+                    enemy.touchCooldown = TOPDOWN_BALANCE.nightmareTouchCooldown;
+                    setStatus("噩梦领域触发：视野受限 5 秒。", true);
                 }
                 const startX = enemy.x;
                 const startY = enemy.y;
@@ -7001,7 +8006,11 @@
                 let desiredSpeed = enemy.speed * slowFactor * auraBoost.speedMultiplier;
                 let fireRange = TOPDOWN_BALANCE.enemyFireRange;
                 let bulletSpeed = TOPDOWN_BALANCE.enemyBulletSpeed;
-                if (enemy.isElite && enemy.eliteType === "dash") {
+                if (Number(enemy.enrageUntil || 0) > Number(session.tick || 0)) {
+                    desiredSpeed *= 1.48;
+                    fireRange = 0;
+                }
+                if (enemy.isElite && eliteType === "dash") {
                     enemy.dashCooldown = Math.max(0, enemy.dashCooldown - dt);
                     if (enemy.dashTime > 0) {
                         enemy.dashTime = Math.max(0, enemy.dashTime - dt);
@@ -7018,27 +8027,58 @@
                         enemy.y += dy / len * desiredSpeed * 1.18 * dt;
                     }
                 } else {
-                    if (enemy.isElite && enemy.eliteType === "sniper") {
+                    if (enemy.isElite && eliteType === "sniper") {
                         fireRange = TOPDOWN_BALANCE.eliteSniperRange;
                         bulletSpeed = TOPDOWN_BALANCE.eliteSniperBulletSpeed;
                         desiredSpeed *= len < 220 ? 0.55 : 0.88;
-                    } else if (enemy.isElite && enemy.eliteType === "buffer") {
+                    } else if (enemy.isElite && eliteType === "buffer") {
                         desiredSpeed *= enemy.auraActive ? (len < 180 ? 0.28 : 0.62) : 0.9;
-                    } else if (enemy.isElite && enemy.eliteType === "splitter") {
+                    } else if (enemy.isElite && eliteType === "splitter") {
                         desiredSpeed *= 1.06;
-                    } else if (enemy.isElite && enemy.eliteType === "self-destruct") {
+                    } else if (enemy.isElite && eliteType === "self-destruct") {
                         desiredSpeed *= 0.94;
-                    } else if (enemy.isElite && enemy.eliteType === "blackhand") {
+                    } else if (enemy.isElite && eliteType === "blackhand") {
                         desiredSpeed *= len < 160 ? 0.72 : 0.94;
-                    } else if (enemy.isElite && enemy.eliteType === "nightmare") {
+                    } else if (enemy.isElite && eliteType === "nightmare") {
                         desiredSpeed *= 1.18;
-                    } else if (enemy.isElite && enemy.eliteType === "liangzi") {
+                    } else if (enemy.isElite && eliteType === "liangzi") {
                         desiredSpeed *= len < 150 ? 0.86 : 1.02;
+                    } else if (enemy.isElite && eliteType === "luse") {
+                        fireRange = 0;
+                        if (!enemy.luseTriggered && len <= TOPDOWN_BALANCE.luseTriggerRange) {
+                            spawnTopdownLuseBurst(session, enemy, Math.atan2(dy, dx), bulletSpeed * topdownRelicEnemyBulletSpeedMultiplier(session));
+                            enemy.luseTriggered = true;
+                            enemy.fireCooldown = 999;
+                            setStatus("撸瑟开火：前方弹幕已铺开。", true);
+                        }
+                        desiredSpeed = enemy.luseTriggered ? 0 : desiredSpeed * 0.86;
+                    } else if (enemy.isElite && eliteType === "succubus") {
+                        desiredSpeed *= len < 220 ? 0.72 : 0.92;
+                        enemy.succubusVictimIds = [];
+                        session.enemies.forEach(function (candidate) {
+                            if (!candidate || candidate.id === enemy.id || candidate.hp <= 0 || candidate.remnantActive || candidate.isBoss) {
+                                return;
+                            }
+                            const pullDx = enemy.x - candidate.x;
+                            const pullDy = enemy.y - candidate.y;
+                            const pullLen = Math.sqrt(pullDx * pullDx + pullDy * pullDy) || 0;
+                            if (pullLen <= TOPDOWN_BALANCE.succubusAuraRange + candidate.radius) {
+                                enemy.succubusVictimIds.push(candidate.id);
+                                if (pullLen > 2) {
+                                    const pullStep = Math.min(TOPDOWN_BALANCE.succubusPullStrength * dt, Math.max(0, pullLen - 2));
+                                    candidate.x += pullDx / Math.max(1, pullLen) * pullStep;
+                                    candidate.y += pullDy / Math.max(1, pullLen) * pullStep;
+                                }
+                            }
+                        });
                     }
                     enemy.x += dx / len * desiredSpeed * dt;
                     enemy.y += dy / len * desiredSpeed * dt;
                 }
-                if (enemy.isElite && enemy.eliteType === "liangzi" && enemy.consumeCooldown <= 0) {
+                if (enemy.isElite && eliteType === "luse" && enemy.luseTriggered) {
+                    damageTopdownEnemy(session, enemy, TOPDOWN_BALANCE.luseDecayPerSecond * dt);
+                }
+                if (enemy.isElite && eliteType === "liangzi" && enemy.consumeCooldown <= 0) {
                     for (let eatIndex = 0; eatIndex < session.enemies.length; eatIndex += 1) {
                         const prey = session.enemies[eatIndex];
                         if (!prey || prey.id === enemy.id || prey.hp <= 0 || prey.isBoss || prey.isElite || prey.remnantActive) {
@@ -7055,7 +8095,7 @@
                         }
                     }
                 }
-                if (enemy.isElite && enemy.eliteType === "summoner") {
+                if (enemy.isElite && eliteType === "summoner") {
                     enemy.summonCooldown = Math.max(0, enemy.summonCooldown - dt);
                     if (enemy.summonCooldown <= 0 && session.enemies.length < TOPDOWN_BALANCE.targetEnemyCap) {
                         for (let summonIndex = 0; summonIndex < TOPDOWN_BALANCE.eliteSummonCount; summonIndex += 1) {
@@ -7102,12 +8142,18 @@
                                 repulseCooldown: 0,
                                 hookCooldown: 0,
                                 touchCooldown: 0,
-                                consumeCooldown: 0
+                                consumeCooldown: 0,
+                                luseTriggered: false,
+                                succubusVictimIds: [],
+                                enrageUntil: 0
                             });
                             session.nextId += 1;
                         }
                         enemy.summonCooldown = TOPDOWN_BALANCE.eliteSummonCooldown;
                     }
+                }
+                if (enemy.hp <= 0) {
+                    return;
                 }
                 if (topdownBuffRemaining(session, "enemySilenceUntil") <= 0 && enemy.fireCooldown <= 0 && len < fireRange) {
                     const aimAngle = Math.atan2(dy, dx);
@@ -7145,8 +8191,14 @@
             const aliveBullets = [];
             session.bullets.forEach(function (bullet) {
                 let hit = false;
+                if (topdownBulletBlockedByRepulsor(session, bullet)) {
+                    hit = true;
+                }
                 for (let index = 0; index < session.enemies.length; index += 1) {
                     const enemy = session.enemies[index];
+                    if (hit) {
+                        break;
+                    }
                     if (removedEnemyIds.indexOf(enemy.id) !== -1) {
                         continue;
                     }
@@ -7247,12 +8299,6 @@
                             return;
                         }
                         if (distanceBetween(enemy, session.player) > enemy.radius + session.player.radius + 2) {
-                            return;
-                        }
-                        if (enemy.isElite && enemy.eliteType === "nightmare" && Number(enemy.touchCooldown || 0) <= 0) {
-                            applyTopdownPlayerBlind(session, TOPDOWN_BALANCE.nightmareBlindDuration);
-                            enemy.touchCooldown = TOPDOWN_BALANCE.nightmareTouchCooldown;
-                            setStatus("噩梦缠绕命中：视野受限 5 秒。", true);
                             return;
                         }
                         gotHit = damageTopdownPlayer(session, TOPDOWN_BALANCE.enemyContactDamage, {
@@ -7413,8 +8459,69 @@
             }
         }
 
+        function drawTopdownPlayerCore(ctx, appearance, playerScale, damageFlash) {
+            const color = appearance.color;
+            const baseRadius = 14 * playerScale;
+            const iconBoxSize = baseRadius * 1.48;
+            const iconFontSize = Math.round(baseRadius * 1.12);
+            topdownApplyFillStyle(ctx, color, 0, 0, 18 * playerScale, session.tick);
+            if (damageFlash) {
+                ctx.fillStyle = "#fb7185";
+            }
+            if (appearance.icon.kind === "glyph") {
+                ctx.beginPath();
+                ctx.moveTo(18 * playerScale, 0);
+                ctx.lineTo(-12 * playerScale, -12 * playerScale);
+                ctx.lineTo(-6 * playerScale, 0);
+                ctx.lineTo(-12 * playerScale, 12 * playerScale);
+                ctx.closePath();
+                ctx.fill();
+                ctx.strokeStyle = color.stroke || "#e2e8f0";
+                ctx.lineWidth = 2;
+                ctx.stroke();
+                ctx.fillStyle = color.accent || "#67e8f9";
+                ctx.beginPath();
+                ctx.arc(-2 * playerScale, 0, 3.2 * playerScale, 0, Math.PI * 2);
+                ctx.fill();
+            } else {
+                ctx.beginPath();
+                ctx.arc(0, 0, baseRadius * 1.45, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.strokeStyle = color.stroke || "#e2e8f0";
+                ctx.lineWidth = 2;
+                ctx.stroke();
+                ctx.fillStyle = color.accent || "#67e8f9";
+                ctx.beginPath();
+                ctx.arc(0, 0, baseRadius * 0.42, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            ctx.save();
+            const icon = appearance.icon;
+            if (icon.kind === "svg") {
+                const image = topdownGetIconImage(icon);
+                if (image && image.complete && image.naturalWidth > 0) {
+                    ctx.globalAlpha = damageFlash ? 0.88 : 0.98;
+                    ctx.drawImage(image, -iconBoxSize / 2, -iconBoxSize / 2, iconBoxSize, iconBoxSize);
+                } else {
+                    ctx.fillStyle = "#f8fafc";
+                    ctx.font = "700 " + iconFontSize + "px Segoe UI Symbol";
+                    ctx.textAlign = "center";
+                    ctx.textBaseline = "middle";
+                    ctx.fillText(topdownIconPreviewGlyph(icon), 0, 0);
+                }
+            } else {
+                ctx.fillStyle = "#f8fafc";
+                ctx.font = (icon.kind === "emoji" ? "700 " : "800 ") + iconFontSize + "px Segoe UI Emoji, Segoe UI Symbol, Segoe UI";
+                ctx.textAlign = "center";
+                ctx.textBaseline = "middle";
+                ctx.fillText(topdownIconPreviewGlyph(icon), 0, 0);
+            }
+            ctx.restore();
+        }
+
         function renderSession() {
-            const equippedSkin = topdownEquippedSkin(metaState);
+            const appearance = topdownEquippedAppearance(metaState);
             drawStarfield(ctx, arenaWidth, arenaHeight, session.tick);
             ctx.strokeStyle = "rgba(148,163,184,0.08)";
             for (let x = 0; x < arenaWidth; x += 64) {
@@ -7452,21 +8559,7 @@
             ctx.translate(session.player.x, session.player.y);
             ctx.rotate(topdownCurrentAimAngle(session, pointer));
             const playerScale = session.player.radius / TOPDOWN_BALANCE.playerRadius;
-            ctx.fillStyle = session.player.damageFlash > 0 ? "#fb7185" : equippedSkin.fill;
-            ctx.beginPath();
-            ctx.moveTo(18 * playerScale, 0);
-            ctx.lineTo(-12 * playerScale, -12 * playerScale);
-            ctx.lineTo(-6 * playerScale, 0);
-            ctx.lineTo(-12 * playerScale, 12 * playerScale);
-            ctx.closePath();
-            ctx.fill();
-            ctx.strokeStyle = equippedSkin.stroke;
-            ctx.lineWidth = 2;
-            ctx.stroke();
-            ctx.fillStyle = equippedSkin.accent;
-            ctx.beginPath();
-            ctx.arc(-2 * playerScale, 0, 3.2 * playerScale, 0, Math.PI * 2);
-            ctx.fill();
+            drawTopdownPlayerCore(ctx, appearance, playerScale, session.player.damageFlash > 0);
             {
                 const shieldStats = syncTopdownShieldCapacity(session);
                 for (let shieldIndex = 0; shieldIndex < shieldStats.max; shieldIndex += 1) {
@@ -7649,6 +8742,12 @@
                 if (enemy.isElite && enemy.eliteType === "nightmare") {
                     ctx.save();
                     ctx.strokeStyle = "rgba(30, 41, 59, 0.72)";
+                    ctx.lineWidth = 2.6;
+                    ctx.setLineDash([10, 8]);
+                    ctx.beginPath();
+                    ctx.arc(enemy.x, enemy.y, TOPDOWN_BALANCE.nightmareAuraRange, 0, Math.PI * 2);
+                    ctx.stroke();
+                    ctx.setLineDash([]);
                     ctx.lineWidth = 5;
                     ctx.beginPath();
                     ctx.arc(enemy.x, enemy.y, enemy.radius + 8 + Math.sin(session.tick * 7) * 2, 0, Math.PI * 2);
@@ -7661,6 +8760,25 @@
                     ctx.lineWidth = 2.4;
                     ctx.beginPath();
                     ctx.arc(enemy.x, enemy.y, enemy.radius + 6, 0, Math.PI * 2);
+                    ctx.stroke();
+                    ctx.restore();
+                }
+                if (enemy.isElite && enemy.eliteType === "luse") {
+                    ctx.save();
+                    ctx.strokeStyle = "rgba(251, 191, 36, 0.76)";
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    ctx.arc(enemy.x, enemy.y, TOPDOWN_BALANCE.luseTriggerRange, 0, Math.PI * 2);
+                    ctx.stroke();
+                    ctx.restore();
+                }
+                if (enemy.isElite && enemy.eliteType === "succubus") {
+                    ctx.save();
+                    ctx.strokeStyle = "rgba(244, 114, 182, 0.66)";
+                    ctx.lineWidth = 2.6;
+                    ctx.setLineDash([12, 6]);
+                    ctx.beginPath();
+                    ctx.arc(enemy.x, enemy.y, TOPDOWN_BALANCE.succubusAuraRange, 0, Math.PI * 2);
                     ctx.stroke();
                     ctx.restore();
                 }
@@ -7724,7 +8842,7 @@
             ctx.fillText("连杀 " + session.combo + " / 最佳 " + session.bestCombo, 22, 28);
             ctx.font = "500 13px Segoe UI";
             ctx.fillStyle = session.combo > 0 ? "#facc15" : "#94a3b8";
-            ctx.fillText(session.combo > 0 ? ("剩余连杀时间 " + session.comboTimer.toFixed(1) + "s / 当前击杀得分 " + (TOPDOWN_BALANCE.killScore + topdownComboBonus(session))) : ("连续击败敌人可叠加连杀得分，当前道具阈值 " + topdownCurrentComboItemEvery(session) + " 连"), 22, 49);
+            ctx.fillText(session.combo > 0 ? ("剩余连杀时间 " + session.comboTimer.toFixed(1) + "s / 当前击杀得分 " + (topdownKillBaseScore(session) + topdownComboBonus(session))) : ("连续击败敌人可叠加连杀得分，当前道具阈值 " + topdownCurrentComboItemEvery(session) + " 连"), 22, 49);
             if (topdownHasLivingBoss(session)) {
                 ctx.fillStyle = "#c4b5fd";
                 ctx.fillText("首领已进场：先拆护盾，再压血量。", 22, 70);
@@ -7825,9 +8943,7 @@
                 event.preventDefault();
             }
             pressed[event.code] = true;
-            if (tryBlinkSkill(event.code)) {
-                persist();
-            } else if (session.pendingUpgrade && event.code.indexOf("Digit") === 0) {
+            if (session.pendingUpgrade && event.code.indexOf("Digit") === 0) {
                 selectUpgrade(Number(event.code.slice(5)) - 1);
             } else if (session.pendingUpgrade && event.code === "KeyR") {
                 rerollUpgradeChoices();
@@ -7835,7 +8951,7 @@
                 declinePendingPickupChoice();
             } else if (session.pendingPickupChoice && event.code.indexOf("Digit") === 0) {
                 resolvePendingPickupChoice(Number(event.code.slice(5)) - 1);
-            } else if (event.code === "KeyQ") {
+            } else if (event.code === session.skillTriggerKey) {
                 if (activateTopdownSkill()) {
                     persist();
                 }
@@ -9292,6 +10408,597 @@
         };
     }
 
+    function mountGomoku() {
+        const roomKey = "gamesHub.gomoku.roomCode";
+        const playerId = getGamesDeviceId();
+        const socket = window.io(GOMOKU_NAMESPACE, { transports: ["websocket", "polling"] });
+        let room = null;
+        let roomList = [];
+        let rememberedRoomCode = "";
+
+        function loadRememberedRoomCode() {
+            try {
+                return window.localStorage.getItem(roomKey) || "";
+            } catch (error) {
+                return "";
+            }
+        }
+
+        function saveRememberedRoomCode(value) {
+            rememberedRoomCode = String(value || "").trim().toUpperCase();
+            try {
+                if (!rememberedRoomCode) {
+                    window.localStorage.removeItem(roomKey);
+                } else {
+                    window.localStorage.setItem(roomKey, rememberedRoomCode);
+                }
+            } catch (error) {
+                // ignore
+            }
+        }
+
+        function playerDisplay(player) {
+            return escapeHtml((player && player.display_name) || "玩家");
+        }
+
+        function stoneLabel(stone) {
+            return stone === 1 ? "黑子" : (stone === 2 ? "白子" : "未分配");
+        }
+
+        const shell = document.createElement("div");
+        shell.className = "game-gomoku-shell";
+        shell.innerHTML = [
+            '<div class="game-drawphone-toolbar">',
+            '  <div>',
+            '    <div class="games-section-title">联机五子棋</div>',
+            '    <div class="games-stage-meta" id="gomokuMeta">支持局域网房间、准备同步与实时落子。</div>',
+            "  </div>",
+            '  <div class="game-stat-grid">',
+            '    <div class="game-stat-card"><div class="game-stat-label">房间</div><div class="game-stat-value" id="gomokuRoomValue">----</div></div>',
+            '    <div class="game-stat-card"><div class="game-stat-label">状态</div><div class="game-stat-value" id="gomokuStageValue">大厅</div></div>',
+            '    <div class="game-stat-card"><div class="game-stat-label">手数</div><div class="game-stat-value" id="gomokuMovesValue">0</div></div>',
+            "  </div>",
+            "</div>",
+            '<div class="game-gomoku-stage">',
+            '  <div class="games-panel game-gomoku-panel" id="gomokuControlCard"></div>',
+            '  <div class="games-panel game-gomoku-panel game-gomoku-panel--board">',
+            '    <div class="games-section-title">棋盘</div>',
+            '    <div class="game-gomoku-board-wrap" id="gomokuBoardWrap"></div>',
+            '    <div class="games-stage-meta" id="gomokuTurnMeta">创建或加入房间后即可开始。</div>',
+            "  </div>",
+            "</div>"
+        ].join("");
+        els.stageBody.appendChild(shell);
+
+        const roomValueEl = shell.querySelector("#gomokuRoomValue");
+        const stageValueEl = shell.querySelector("#gomokuStageValue");
+        const movesValueEl = shell.querySelector("#gomokuMovesValue");
+        const controlCardEl = shell.querySelector("#gomokuControlCard");
+        const boardWrapEl = shell.querySelector("#gomokuBoardWrap");
+        const turnMetaEl = shell.querySelector("#gomokuTurnMeta");
+
+        rememberedRoomCode = loadRememberedRoomCode();
+
+        function emitWithIdentity(eventName, payload) {
+            socket.emit(eventName, Object.assign({ player_id: playerId }, payload || {}));
+        }
+
+        function renderLobbyCard() {
+            controlCardEl.innerHTML = [
+                '<div class="games-section-title">房间大厅</div>',
+                '<div class="games-stage-meta">可以自己创建一局，也可以加入别人已经开的房间。</div>',
+                '<div class="game-drawphone-actions">',
+                '  <button class="games-btn games-btn--primary" type="button" id="gomokuCreateBtn">创建房间</button>',
+                (rememberedRoomCode ? ('  <button class="games-btn" type="button" id="gomokuRejoinBtn">重连 ' + escapeHtml(rememberedRoomCode) + "</button>") : ""),
+                "</div>",
+                '<div class="game-drawphone-room-list">' + roomList.map(function (item) {
+                    return [
+                        '<div class="game-drawphone-room-item">',
+                        '  <div><strong>' + escapeHtml(item.room_code || "----") + "</strong> · " + escapeHtml(item.status === "playing" ? "对局中" : (item.status === "finished" ? "已结束" : "等待中")) + "</div>",
+                        '  <div class="games-stage-meta">人数 ' + escapeHtml(String(item.player_count || 0)) + ' / 2 · 在线 ' + escapeHtml(String(item.online_count || 0)) + '</div>',
+                        '  <button class="games-btn" type="button" data-join-gomoku-room="' + escapeHtml(item.room_code || "") + '">加入</button>',
+                        "</div>"
+                    ].join("");
+                }).join("") + "</div>"
+            ].join("");
+            controlCardEl.querySelector("#gomokuCreateBtn").addEventListener("click", function () {
+                emitWithIdentity("gomoku_join", {});
+            });
+            const rejoinBtn = controlCardEl.querySelector("#gomokuRejoinBtn");
+            if (rejoinBtn) {
+                rejoinBtn.addEventListener("click", function () {
+                    emitWithIdentity("gomoku_join", { room_code: rememberedRoomCode });
+                });
+            }
+            controlCardEl.querySelectorAll("[data-join-gomoku-room]").forEach(function (button) {
+                button.addEventListener("click", function () {
+                    emitWithIdentity("gomoku_join", { room_code: button.getAttribute("data-join-gomoku-room") || "" });
+                });
+            });
+        }
+
+        function renderRoomCard() {
+            const players = Array.isArray(room.players) ? room.players : [];
+            const isHost = room.host_player_id === playerId;
+            const canStart = Boolean(room.can_start);
+            controlCardEl.innerHTML = [
+                '<div class="games-section-title">房间 ' + escapeHtml(room.room_code || "----") + "</div>",
+                '<div class="games-stage-meta">房主可在双方准备后开局，对局结束后可继续再来一盘。</div>',
+                '<div class="game-drawphone-players">' + players.map(function (player) {
+                    return '<span class="game-drawphone-player-chip">' + playerDisplay(player) + ' · ' + stoneLabel(Number(player.stone || 0)) + (player.is_ready ? " · 已准备" : "") + "</span>";
+                }).join("") + "</div>",
+                '<div class="game-drawphone-actions">',
+                '  <button class="games-btn" type="button" id="gomokuReadyBtn">' + ((players.find(function (player) { return player.player_id === playerId; }) || {}).is_ready ? "取消准备" : "准备") + "</button>",
+                (isHost ? '<button class="games-btn games-btn--primary" type="button" id="gomokuStartBtn" ' + (canStart ? "" : "disabled") + '>开始对局</button>' : ""),
+                '  <button class="games-btn" type="button" id="gomokuLeaveBtn">离开房间</button>',
+                "</div>",
+                '<div class="games-stage-meta">历史：' + escapeHtml(((room.history || []).slice(-3).map(function (item) { return "第 " + item.match_index + " 局 " + item.winner_label; }).join(" / ")) || "暂无") + "</div>"
+            ].join("");
+            controlCardEl.querySelector("#gomokuReadyBtn").addEventListener("click", function () {
+                emitWithIdentity("gomoku_toggle_ready", { room_code: room.room_code });
+            });
+            const startBtn = controlCardEl.querySelector("#gomokuStartBtn");
+            if (startBtn) {
+                startBtn.addEventListener("click", function () {
+                    emitWithIdentity("gomoku_start", { room_code: room.room_code });
+                });
+            }
+            controlCardEl.querySelector("#gomokuLeaveBtn").addEventListener("click", function () {
+                emitWithIdentity("gomoku_leave", { room_code: room.room_code });
+                room = null;
+                saveRememberedRoomCode("");
+                renderAll();
+            });
+        }
+
+        function renderBoard() {
+            const board = room && Array.isArray(room.board) ? room.board : [];
+            const isMyTurn = room && room.status === "playing" && room.turn_player_id === playerId;
+            boardWrapEl.innerHTML = '<div class="game-gomoku-board">' + new Array(15).fill(0).map(function (_, row) {
+                return new Array(15).fill(0).map(function (_, col) {
+                    const cell = board[row] && board[row][col] ? Number(board[row][col]) : 0;
+                    return '<button type="button" class="game-gomoku-cell' + (cell === 1 ? " is-black" : (cell === 2 ? " is-white" : "")) + '" data-row="' + row + '" data-col="' + col + '"' + ((cell || !isMyTurn) ? " disabled" : "") + "></button>";
+                }).join("");
+            }).join("") + "</div>";
+            boardWrapEl.querySelectorAll(".game-gomoku-cell").forEach(function (cell) {
+                cell.addEventListener("click", function () {
+                    if (!room || room.status !== "playing") {
+                        return;
+                    }
+                    emitWithIdentity("gomoku_place", {
+                        room_code: room.room_code,
+                        row: Number(cell.getAttribute("data-row")),
+                        col: Number(cell.getAttribute("data-col"))
+                    });
+                });
+            });
+        }
+
+        function renderAll() {
+            if (!room) {
+                roomValueEl.textContent = "----";
+                stageValueEl.textContent = "大厅";
+                movesValueEl.textContent = "0";
+                turnMetaEl.textContent = "创建或加入房间后即可开始。";
+                renderLobbyCard();
+                boardWrapEl.innerHTML = '<div class="games-stage-meta">当前尚未加入房间。</div>';
+                return;
+            }
+            roomValueEl.textContent = room.room_code || "----";
+            stageValueEl.textContent = room.status === "playing" ? "对局中" : (room.status === "finished" ? "已结束" : "等待");
+            movesValueEl.textContent = String(room.move_count || 0);
+            if (room.status === "playing") {
+                turnMetaEl.textContent = room.turn_player_id === playerId ? "轮到你落子。" : "等待对手落子。";
+            } else if (room.status === "finished") {
+                turnMetaEl.textContent = room.winner_label ? ("本局结果：" + room.winner_label) : "本局已结束。";
+            } else {
+                turnMetaEl.textContent = "双方准备后由房主开始。";
+            }
+            renderRoomCard();
+            renderBoard();
+        }
+
+        socket.on("gomoku_room", function (payload) {
+            room = payload;
+            saveRememberedRoomCode((payload && payload.room_code) || "");
+            renderAll();
+        });
+
+        socket.on("gomoku_rooms", function (payload) {
+            roomList = Array.isArray(payload) ? payload : [];
+            if (!room) {
+                renderAll();
+            }
+        });
+
+        socket.on("gomoku_error", function (payload) {
+            setStatus((payload && payload.error) || "五子棋操作失败", true);
+        });
+
+        socket.on("connect", function () {
+            setStatus("联机五子棋已连接房间服务。", false);
+            if (rememberedRoomCode) {
+                emitWithIdentity("gomoku_join", { room_code: rememberedRoomCode });
+            }
+        });
+
+        socket.on("disconnect", function () {
+            setStatus("联机五子棋连接已断开。", true);
+        });
+
+        renderAll();
+
+        return function cleanup() {
+            socket.disconnect();
+        };
+    }
+
+    function mountAngryBirdsLite(savedPayload) {
+        function buildAngryLevel(index) {
+            const levels = [
+                {
+                    pigs: [
+                        { x: 710, y: 470, r: 18, hp: 18 },
+                        { x: 760, y: 428, r: 18, hp: 18 }
+                    ],
+                    blocks: [
+                        { x: 680, y: 490, w: 24, h: 70, hp: 18 },
+                        { x: 738, y: 490, w: 24, h: 70, hp: 18 },
+                        { x: 704, y: 446, w: 74, h: 18, hp: 16 },
+                        { x: 730, y: 392, w: 24, h: 58, hp: 14 }
+                    ]
+                },
+                {
+                    pigs: [
+                        { x: 700, y: 470, r: 18, hp: 18 },
+                        { x: 770, y: 470, r: 18, hp: 18 },
+                        { x: 735, y: 420, r: 18, hp: 18 }
+                    ],
+                    blocks: [
+                        { x: 670, y: 490, w: 28, h: 72, hp: 18 },
+                        { x: 770, y: 490, w: 28, h: 72, hp: 18 },
+                        { x: 720, y: 490, w: 28, h: 72, hp: 18 },
+                        { x: 694, y: 440, w: 102, h: 18, hp: 16 },
+                        { x: 694, y: 390, w: 102, h: 18, hp: 16 }
+                    ]
+                }
+            ];
+            return JSON.parse(JSON.stringify(levels[index] || levels[0]));
+        }
+
+        function createAngrySession(raw) {
+            const levelIndex = Math.max(0, Math.min(1, Number((raw || {}).levelIndex || 0)));
+            const layout = buildAngryLevel(levelIndex);
+            return {
+                sessionKey: String((raw && raw.sessionKey) || ("angry-" + Date.now() + "-" + Math.random().toString(36).slice(2, 8))),
+                levelIndex: levelIndex,
+                score: Math.max(0, Number((raw || {}).score || 0)),
+                birdsLeft: Math.max(0, Number((raw || {}).birdsLeft == null ? 2 : raw.birdsLeft)),
+                status: (raw && raw.status) === "over" ? "over" : ((raw && raw.status) === "victory" ? "victory" : "playing"),
+                pigs: Array.isArray((raw || {}).pigs) ? raw.pigs : layout.pigs,
+                blocks: Array.isArray((raw || {}).blocks) ? raw.blocks : layout.blocks,
+                projectile: (raw && raw.projectile) || { x: 150, y: 480, vx: 0, vy: 0, r: 18, launched: false, resting: 0 },
+                submittedScore: Boolean(raw && raw.submittedScore),
+                elapsedSeconds: Math.max(0, Number((raw || {}).elapsedSeconds || 0)),
+                startedAt: Number((raw && raw.startedAt) || Date.now())
+            };
+        }
+
+        function serializeAngrySession(session) {
+            session.elapsedSeconds = Math.max(0, Math.floor((Date.now() - session.startedAt) / 1000));
+            return JSON.parse(JSON.stringify(session));
+        }
+
+        function summarizeAngrySession(session) {
+            return {
+                level: session.levelIndex + 1,
+                score: session.score,
+                birds_left: session.birdsLeft,
+                pigs_left: session.pigs.length,
+                status: session.status
+            };
+        }
+
+        let session = createAngrySession(savedPayload && savedPayload.state);
+        const arcade = createArcadeShell(
+            "愤怒的小鸟",
+            "按住小鸟向后拖动，松手发射。尽量用更少的小鸟摧毁全部小猪。",
+            "这是轻量原型版，主打弹射、碰撞和续玩。"
+        );
+        const canvas = arcade.canvas;
+        const ctx = canvas.getContext("2d");
+        const groundY = 542;
+        const sling = { x: 150, y: 480 };
+        const pointer = { down: false, x: 0, y: 0 };
+        let dragging = false;
+        let animationId = 0;
+        let lastFrame = 0;
+        let persistTimer = 0;
+
+        setArcadeList(arcade.controls, [
+            "鼠标按住小鸟向后拖拽，松开后发射。",
+            "击中木架或小猪会造成伤害，清空全部小猪即可过关。",
+            "小鸟耗尽且场上仍有小猪时，本局结束。"
+        ]);
+
+        function persist() {
+            scheduleGameStateSave("angry-birds-lite", serializeAngrySession(session), summarizeAngrySession(session));
+        }
+
+        function pointFromEvent(event) {
+            const rect = canvas.getBoundingClientRect();
+            const scaleX = canvas.width / Math.max(1, rect.width);
+            const scaleY = canvas.height / Math.max(1, rect.height);
+            return {
+                x: (event.clientX - rect.left) * scaleX,
+                y: (event.clientY - rect.top) * scaleY
+            };
+        }
+
+        function resetProjectile() {
+            session.projectile = { x: sling.x, y: sling.y, vx: 0, vy: 0, r: 18, launched: false, resting: 0 };
+        }
+
+        function circleRectCollision(circle, rect) {
+            const nearestX = clamp(circle.x, rect.x, rect.x + rect.w);
+            const nearestY = clamp(circle.y, rect.y - rect.h, rect.y);
+            const dx = circle.x - nearestX;
+            const dy = circle.y - nearestY;
+            const distSq = dx * dx + dy * dy;
+            if (distSq > circle.r * circle.r) {
+                return null;
+            }
+            const dist = Math.sqrt(distSq) || 1;
+            return { nx: dx / dist, ny: dy / dist, overlap: circle.r - dist };
+        }
+
+        function hitBlock(block, damage) {
+            block.hp -= damage;
+            if (block.hp <= 0) {
+                session.score += 180;
+            }
+        }
+
+        function hitPig(pig, damage) {
+            pig.hp -= damage;
+            if (pig.hp <= 0) {
+                session.score += 500;
+            }
+        }
+
+        function finalizeScoreIfNeeded() {
+            if (session.submittedScore || session.status === "playing" || session.score <= 0) {
+                return Promise.resolve();
+            }
+            session.submittedScore = true;
+            session.elapsedSeconds = Math.max(0, Math.floor((Date.now() - session.startedAt) / 1000));
+            return submitScore("angry-birds-lite", session.score, "standard", session.sessionKey, {
+                level_reached: session.levelIndex + 1,
+                birds_left: session.birdsLeft,
+                elapsed_seconds: session.elapsedSeconds,
+                status: session.status
+            }).catch(function (error) {
+                session.submittedScore = false;
+                setStatus(error.message || "愤怒的小鸟成绩提交失败", true);
+            });
+        }
+
+        function nextBird() {
+            if (!session.pigs.length) {
+                if (session.levelIndex < 1) {
+                    session.levelIndex += 1;
+                    const nextLayout = buildAngryLevel(session.levelIndex);
+                    session.pigs = nextLayout.pigs;
+                    session.blocks = nextLayout.blocks;
+                    resetProjectile();
+                    session.birdsLeft = Math.max(session.birdsLeft, 2);
+                    setStatus("第 " + (session.levelIndex + 1) + " 关开始。", false);
+                } else {
+                    session.status = "victory";
+                    setStatus("全部关卡完成。", false);
+                    finalizeScoreIfNeeded();
+                }
+                persist();
+                return;
+            }
+            if (session.birdsLeft <= 0) {
+                session.status = "over";
+                setStatus("小鸟已用尽，本局结束。", true);
+                finalizeScoreIfNeeded();
+                persist();
+                return;
+            }
+            session.birdsLeft -= 1;
+            resetProjectile();
+            persist();
+        }
+
+        function updateHud() {
+            setArcadeStats(arcade.statGrid, [
+                { label: "关卡", value: String(session.levelIndex + 1) },
+                { label: "分数", value: String(session.score) },
+                { label: "剩余小鸟", value: String(session.birdsLeft + (session.status === "playing" ? 1 : 0)) },
+                { label: "小猪", value: String(session.pigs.length) }
+            ]);
+            setArcadeList(arcade.status, [
+                "状态：" + (session.status === "victory" ? "通关" : (session.status === "over" ? "失败" : "进行中")),
+                "当前弹体：" + (dragging ? "拉弓中" : (session.projectile.launched ? "飞行中" : "待发射")),
+                "提示：尽量利用木架倒塌连锁砸猪。"
+            ], "game-arcade-status-card");
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = "#dbeafe";
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = "#9bd36a";
+            ctx.fillRect(0, groundY, canvas.width, canvas.height - groundY);
+
+            ctx.strokeStyle = "#7c2d12";
+            ctx.lineWidth = 8;
+            ctx.beginPath();
+            ctx.moveTo(sling.x - 18, sling.y + 38);
+            ctx.lineTo(sling.x - 8, sling.y - 18);
+            ctx.moveTo(sling.x + 18, sling.y + 38);
+            ctx.lineTo(sling.x + 8, sling.y - 18);
+            ctx.stroke();
+
+            session.blocks.forEach(function (block) {
+                ctx.fillStyle = block.hp > 10 ? "#b45309" : "#d97706";
+                ctx.fillRect(block.x, block.y - block.h, block.w, block.h);
+            });
+            session.pigs.forEach(function (pig) {
+                ctx.fillStyle = "#65a30d";
+                ctx.beginPath();
+                ctx.arc(pig.x, pig.y, pig.r, 0, Math.PI * 2);
+                ctx.fill();
+            });
+
+            ctx.fillStyle = "#ef4444";
+            ctx.beginPath();
+            ctx.arc(session.projectile.x, session.projectile.y, session.projectile.r, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        function update(dt) {
+            if (session.status !== "playing") {
+                updateHud();
+                draw();
+                return;
+            }
+            const bird = session.projectile;
+            if (bird.launched) {
+                bird.vy += 640 * dt;
+                bird.x += bird.vx * dt;
+                bird.y += bird.vy * dt;
+
+                const speed = Math.sqrt(bird.vx * bird.vx + bird.vy * bird.vy);
+                if (bird.y + bird.r >= groundY) {
+                    bird.y = groundY - bird.r;
+                    bird.vy *= -0.18;
+                    bird.vx *= 0.84;
+                    bird.resting += dt;
+                } else {
+                    bird.resting = 0;
+                }
+
+                session.blocks.forEach(function (block) {
+                    const hit = circleRectCollision(bird, block);
+                    if (!hit) {
+                        return;
+                    }
+                    bird.x += hit.nx * hit.overlap;
+                    bird.y += hit.ny * hit.overlap;
+                    const impact = Math.max(0, speed * 0.06);
+                    bird.vx *= -0.42;
+                    bird.vy *= -0.42;
+                    hitBlock(block, impact);
+                });
+
+                session.pigs.forEach(function (pig) {
+                    const distance = distanceBetween(bird, pig);
+                    if (distance > bird.r + pig.r) {
+                        return;
+                    }
+                    const impact = Math.max(0, speed * 0.08);
+                    hitPig(pig, impact);
+                    const dx = pig.x - bird.x;
+                    const dy = pig.y - bird.y;
+                    const len = Math.sqrt(dx * dx + dy * dy) || 1;
+                    bird.vx -= dx / len * 46;
+                    bird.vy -= dy / len * 46;
+                });
+
+                session.blocks = session.blocks.filter(function (block) { return block.hp > 0; });
+                session.pigs = session.pigs.filter(function (pig) { return pig.hp > 0; });
+
+                if (!session.pigs.length || bird.resting > 0.6 || bird.x > canvas.width + 60 || bird.y > canvas.height + 80 || Math.abs(bird.vx) + Math.abs(bird.vy) < 14) {
+                    nextBird();
+                }
+            }
+            updateHud();
+            draw();
+        }
+
+        function loop(now) {
+            const dt = Math.min(0.033, (now - (lastFrame || now)) / 1000);
+            lastFrame = now;
+            update(dt);
+            animationId = window.requestAnimationFrame(loop);
+        }
+
+        function pointerDown(event) {
+            if (session.status !== "playing") {
+                return;
+            }
+            const point = pointFromEvent(event);
+            if (distanceBetween(point, session.projectile) <= session.projectile.r + 6 && !session.projectile.launched) {
+                dragging = true;
+                pointer.down = true;
+                pointer.x = point.x;
+                pointer.y = point.y;
+            }
+        }
+
+        function pointerMove(event) {
+            if (!dragging) {
+                return;
+            }
+            const point = pointFromEvent(event);
+            pointer.x = point.x;
+            pointer.y = point.y;
+            session.projectile.x = clamp(point.x, sling.x - 90, sling.x + 40);
+            session.projectile.y = clamp(point.y, sling.y - 90, sling.y + 60);
+            draw();
+        }
+
+        function pointerUp() {
+            if (!dragging) {
+                return;
+            }
+            dragging = false;
+            pointer.down = false;
+            const dx = sling.x - session.projectile.x;
+            const dy = sling.y - session.projectile.y;
+            session.projectile.vx = dx * 4.2;
+            session.projectile.vy = dy * 4.2;
+            session.projectile.launched = true;
+            session.projectile.resting = 0;
+            persist();
+        }
+
+        canvas.addEventListener("pointerdown", pointerDown);
+        window.addEventListener("pointermove", pointerMove);
+        window.addEventListener("pointerup", pointerUp);
+
+        resetProjectile();
+        if (savedPayload && savedPayload.state) {
+            session = createAngrySession(savedPayload.state);
+        }
+        updateHud();
+        draw();
+        animationId = window.requestAnimationFrame(loop);
+        persistTimer = window.setInterval(function () {
+            if (state.activeGameId === "angry-birds-lite") {
+                persist();
+            }
+        }, 2000);
+
+        return function cleanup() {
+            if (animationId) {
+                window.cancelAnimationFrame(animationId);
+            }
+            if (persistTimer) {
+                window.clearInterval(persistTimer);
+            }
+            canvas.removeEventListener("pointerdown", pointerDown);
+            window.removeEventListener("pointermove", pointerMove);
+            window.removeEventListener("pointerup", pointerUp);
+            persist();
+            finalizeScoreIfNeeded();
+        };
+    }
+
     function bindStaticEvents() {
         if (els.profileSaveBtn) {
             els.profileSaveBtn.addEventListener("click", function () {
@@ -9341,6 +11048,7 @@
     }
 
     async function init() {
+        initGamesThemeScheme();
         bindStaticEvents();
         try {
             await Promise.all([loadProfile(), loadManifest(), refreshScorePanels(), loadOnlineVisitors()]);
