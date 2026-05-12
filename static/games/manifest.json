@@ -1,0 +1,53 @@
+{
+  "title": "Yobboy Games",
+  "games": [
+    {
+      "id": "2048",
+      "title": "2048",
+      "summary": "带过渡动画、用时记录、自动续玩和分数入库的 2048。",
+      "engine": "builtin",
+      "status": "ready",
+      "tags": ["单机", "数字", "计时"]
+    },
+    {
+      "id": "sudoku",
+      "title": "数独",
+      "summary": "包含经典 9x9 与 16 进制模式，支持续玩、计时和积分结算。",
+      "engine": "builtin",
+      "status": "ready",
+      "tags": ["单机", "逻辑", "进度保存"]
+    },
+    {
+      "id": "drawphone",
+      "title": "Drawphone",
+      "summary": "站内本地房间版 Drawphone，支持房间列表、续局和回合历史。",
+      "engine": "builtin",
+      "status": "ready",
+      "tags": ["联机", "绘画", "聚会"]
+    },
+    {
+      "id": "frontline",
+      "title": "攻占前线",
+      "summary": "固定地图原型版线路占领 RTS，支持自动存档、单机 AI 对战和积分结算。",
+      "engine": "builtin",
+      "status": "beta",
+      "tags": ["单机", "策略", "原型"]
+    },
+    {
+      "id": "topdown-shooter",
+      "title": "Top-Down Shooter",
+      "summary": "键鼠或键盘操作的俯视角射击，支持波次、续玩和积分记录。",
+      "engine": "builtin",
+      "status": "ready",
+      "tags": ["单机", "动作", "射击"]
+    },
+    {
+      "id": "space-rocks",
+      "title": "Space Rocks",
+      "summary": "太空陨石射击，支持关卡推进、续玩和积分入库。",
+      "engine": "builtin",
+      "status": "ready",
+      "tags": ["单机", "动作", "街机"]
+    }
+  ]
+}

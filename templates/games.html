@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    {% include '_theme_bootstrap.html' %}
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Games - Yobboy</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap.min.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/font-awesome.min.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/themes.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/games_hub.css') }}">
+    <script>
+        (function () {
+            var cookieName = "games_device_id";
+            var prefix = "hw-";
+            function readCookie(name) {
+                var pairs = document.cookie ? document.cookie.split("; ") : [];
+                for (var i = 0; i < pairs.length; i += 1) {
+                    var item = pairs[i].split("=");
+                    if (item[0] === name) {
+                        return decodeURIComponent(item.slice(1).join("="));
+                    }
+                }
+                return "";
+            }
+            function hash(value) {
+                var input = String(value || "");
+                var h = 0x811c9dc5;
+                for (var i = 0; i < input.length; i += 1) {
+                    h ^= input.charCodeAt(i);
+                    h = Math.imul(h, 16777619);
+                }
+                return (h >>> 0).toString(16).padStart(8, "0");
+            }
+            if (window.__nativeMachineId) {
+                window.__gamesDeviceId = String(window.__nativeMachineId);
+            } else {
+            var nav = window.navigator || {};
+            var screenInfo = window.screen || {};
+            var timezone = (window.Intl && Intl.DateTimeFormat) ? Intl.DateTimeFormat().resolvedOptions().timeZone : "";
+            var raw = [
+                nav.userAgent || "",
+                nav.platform || "",
+                nav.language || "",
+                (nav.languages || []).join(","),
+                nav.hardwareConcurrency || "",
+                nav.deviceMemory || "",
+                screenInfo.width || "",
+                screenInfo.height || "",
+                screenInfo.colorDepth || "",
+                nav.maxTouchPoints || "",
+                timezone || "",
+                new Date().getTimezoneOffset(),
+                nav.vendor || "",
+                nav.appVersion || "",
+                nav.product || ""
+            ].join("|");
+            var deviceId = prefix + hash(raw) + hash(raw + "|games");
+            window.__gamesDeviceId = deviceId;
+            }
+            var current = readCookie(cookieName);
+            var pendingLegacyKey = "games-legacy-device-id";
+            if (current !== window.__gamesDeviceId) {
+                if (current) {
+                    sessionStorage.setItem(pendingLegacyKey, current);
+                }
+                document.cookie = cookieName + "=" + encodeURIComponent(window.__gamesDeviceId) + "; path=/; max-age=" + String(60 * 60 * 24 * 365 * 5) + "; SameSite=Lax";
+            } else {
+                sessionStorage.removeItem("games-device-cookie-sync");
+            }
+        })();
+    </script>
+</head>
+<body>
+    <div class="games-shell">
+        <aside class="games-sidebar">
+            <div class="games-brand">
+                <span class="games-kicker">Dev Game</span>
+                <h1>Games Hub</h1>
+                <p>把访客状态、游戏入口、在线信息和本地联机入口集中到一个页面里，方便随时开玩和继续进度。</p>
+            </div>
+
+            <section class="games-panel games-profile-card">
+                <div class="games-profile-head">
+                    <div class="games-avatar-frame">
+                        <img id="gameProfileAvatar" src="{{ game_profile.avatar_url or '' }}" alt="avatar">
+                        <div class="games-avatar-fallback" id="gameProfileAvatarFallback">{{ (game_profile.display_name or 'I')[:1] }}</div>
+                    </div>
+                    <div class="games-profile-copy">
+                        <div class="games-profile-label">当前访客</div>
+                        <div class="games-profile-name" id="gameProfileName">{{ game_profile.nickname or '正在识别设备...' }}</div>
+                        <div class="games-profile-ip" id="gameProfileIp">{{ game_profile.identity_label or '正在同步资料...' }}</div>
+                    </div>
+                </div>
+                <div class="games-profile-inline">
+                    <span class="games-profile-chip" id="gamesCurrentStatusChip">空闲中</span>
+                    <div class="games-profile-actions">
+                        <button type="button" class="games-btn" id="gameProfileEditBtn">编辑资料</button>
+                    </div>
+                </div>
+                <div class="games-field-help" id="gamesBossKeyHint">老板键可修改，触发后会立刻切到安全目录；当前游玩状态会展示给同一局域网内的在线访客。</div>
+                <div class="games-status" id="gamesStatusBar">准备就绪</div>
+            </section>
+
+            <section class="games-panel games-online-card">
+                <div class="games-section-title">在线访客</div>
+                <div class="games-online-list" id="gamesOnlineList"></div>
+            </section>
+
+            <section class="games-panel games-nav-card">
+                <div class="games-section-title">游戏入口</div>
+                <div class="games-nav-list" id="gamesNavList"></div>
+            </section>
+
+            <section class="games-panel games-manifest-card">
+                <div class="games-section-title">本地资源清单</div>
+                <div class="games-manifest-list" id="gamesManifestList"></div>
+            </section>
+
+            <div class="games-back-links">
+                <a href="{{ url_for('index') }}" class="games-link"><i class="fa fa-arrow-left"></i> 返回入口页</a>
+            </div>
+        </aside>
+
+        <main class="games-main">
+            <section class="games-panel games-stage">
+                <button type="button" class="games-stage-sidebtn" id="gamesInsightsBtn">榜单</button>
+                <div class="games-stage-toolbar">
+                    <div>
+                        <div class="games-stage-label">当前游戏</div>
+                        <div class="games-stage-title" id="gamesStageTitle">2048</div>
+                        <div class="games-stage-meta" id="gamesStageMeta">支持自动续玩、用时记录、积分榜和老板键切换。</div>
+                    </div>
+                </div>
+                <div class="games-stage-body" id="gamesStageBody"></div>
+                <div class="games-stage-actions" id="gamesStageActions"></div>
+            </section>
+        </main>
+    </div>
+
+    <div class="games-modal" id="gamesProfileModal" hidden>
+        <div class="games-modal-backdrop" data-close-profile-modal></div>
+        <div class="games-modal-dialog">
+            <div class="games-modal-head">
+                <div>
+                    <div class="games-section-title">编辑资料</div>
+                    <div class="games-stage-meta">在这里修改昵称、头像和老板键安全目录，不占左侧常驻空间。</div>
+                </div>
+                <button type="button" class="games-modal-close" data-close-profile-modal>&times;</button>
+            </div>
+            <div class="games-modal-body">
+                <label class="games-field-label" for="gameNicknameInput">昵称</label>
+                <div class="games-inline-form">
+                    <input id="gameNicknameInput" class="games-text-input" type="text" maxlength="32" value="{{ game_profile.nickname or '' }}" placeholder="给这台设备起个名字">
+                </div>
+
+                <label class="games-field-label" for="gameBossPathInput">老板键安全目录</label>
+                <div class="games-inline-form">
+                    <input id="gameBossPathInput" class="games-text-input" type="text" maxlength="240" value="{{ game_profile.boss_path or '' }}" placeholder="例如：Projects/WeeklyReport">
+                </div>
+
+                <label class="games-field-label" for="gameBossKeySelect">老板键按键</label>
+                <div class="games-inline-form">
+                    <select id="gameBossKeySelect" class="games-text-input">
+                        <option value="F9" {% if (game_profile.boss_key or 'F9') == 'F9' %}selected{% endif %}>F9</option>
+                        <option value="TAB" {% if (game_profile.boss_key or 'F9') == 'TAB' %}selected{% endif %}>Tab</option>
+                        <option value="SPACE" {% if (game_profile.boss_key or 'F9') == 'SPACE' %}selected{% endif %}>Space</option>
+                    </select>
+                </div>
+
+                <label class="games-field-label" for="gameAvatarInput">头像</label>
+                <div class="games-inline-form games-inline-form--file">
+                    <input id="gameAvatarInput" class="games-file-input" type="file" accept=".png,.jpg,.jpeg,.gif,.webp">
+                    <button type="button" class="games-btn" id="gameAvatarUploadBtn">上传头像</button>
+                </div>
+            </div>
+            <div class="games-modal-actions">
+                <button type="button" class="games-btn games-btn--primary" id="gameProfileSaveBtn">保存资料</button>
+                <button type="button" class="games-btn" id="gamesBossKeyBtn">触发老板键</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="games-modal" id="gamesInsightsModal" hidden>
+        <div class="games-modal-backdrop" data-close-insights-modal></div>
+        <div class="games-modal-dialog games-modal-dialog--wide">
+            <div class="games-modal-head">
+                <div>
+                    <div class="games-section-title">榜单记录</div>
+                    <div class="games-stage-meta">本周总榜、当前游戏周榜和历史成绩统一收纳在这里。</div>
+                </div>
+                <button type="button" class="games-modal-close" data-close-insights-modal>&times;</button>
+            </div>
+            <div class="games-modal-body games-modal-body--insights">
+                <section class="games-panel games-insight-panel">
+                    <div class="games-section-title">本周总榜</div>
+                    <div class="games-week-key" id="gamesWeekKey"></div>
+                    <div class="games-ranking-list" id="gamesWeeklyTotalList"></div>
+                </section>
+
+                <section class="games-panel games-insight-panel">
+                    <div class="games-section-title">当前游戏周榜</div>
+                    <div class="games-week-key" id="gamesWeeklyGameTitle">2048</div>
+                    <div class="games-ranking-list" id="gamesWeeklyGameList"></div>
+                </section>
+
+                <section class="games-panel games-insight-panel games-insight-panel--wide">
+                    <div class="games-section-title">我的历史成绩</div>
+                    <div class="games-history-list" id="gamesHistoryList"></div>
+                </section>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        window.gamesHubConfig = {
+            manifestUrl: "{{ url_for('games_manifest_api') }}",
+            profileUrl: "{{ url_for('games_profile_api') }}",
+            avatarUploadUrl: "{{ url_for('games_profile_avatar_upload') }}",
+            stateUrlTemplate: "{{ url_for('games_state_api', game_id='__GAME_ID__') }}",
+            scoreUrl: "{{ url_for('games_score_api') }}",
+            historyUrl: "{{ url_for('games_history_api') }}",
+            leaderboardsUrl: "{{ url_for('games_leaderboards_api') }}",
+            onlineUrl: "{{ url_for('games_online_api') }}",
+            safeFileUrl: "{{ games_safe_file_url }}",
+            fallbackAvatarText: "{{ (game_profile.display_name or 'I')[:1] }}",
+            initialGameId: "{{ request.args.get('game', '') }}",
+            initialRoomCode: "{{ request.args.get('room', '') }}"
+        };
+    </script>
+    <script src="{{ url_for('static', filename='js/bootstrap.bundle.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/socket.io.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/games_hub.js') }}"></script>
+</body>
+</html>

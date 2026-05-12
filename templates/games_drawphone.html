@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Drawphone</title>
+    <style>
+        html, body {
+            margin: 0;
+            height: 100%;
+            background: #0d1117;
+            color: #e6edf3;
+            font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+        }
+
+        .drawphone-shell {
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+        }
+
+        .drawphone-topbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 16px;
+            background: rgba(13, 17, 23, 0.96);
+            border-bottom: 1px solid rgba(148, 163, 184, 0.16);
+        }
+
+        .drawphone-copy {
+            font-size: 13px;
+            color: #94a3b8;
+        }
+
+        .drawphone-actions {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .drawphone-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 38px;
+            padding: 0 14px;
+            border-radius: 999px;
+            border: 1px solid rgba(148, 163, 184, 0.2);
+            background: #111827;
+            color: #e6edf3;
+            text-decoration: none;
+            font-size: 13px;
+            font-weight: 700;
+        }
+
+        iframe {
+            flex: 1;
+            width: 100%;
+            border: none;
+            background: #fff;
+        }
+    </style>
+</head>
+<body>
+    <div class="drawphone-shell">
+        <div class="drawphone-topbar">
+            <div class="drawphone-copy">Drawphone by Tanner Krewson，当前通过站内壳嵌入外部应用。</div>
+            <div class="drawphone-actions">
+                <a class="drawphone-btn" href="{{ drawphone_external_url }}" target="_blank" rel="noopener noreferrer">新窗口打开</a>
+                <a class="drawphone-btn" href="{{ url_for('games_page') }}">返回 Games Hub</a>
+            </div>
+        </div>
+        <iframe src="{{ drawphone_external_url }}" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
+    </div>
+</body>
+</html>

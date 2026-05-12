@@ -8,6 +8,7 @@ import logging
 import math
 import tempfile
 import unicodedata
+import secrets
 from datetime import datetime
 from html import escape as html_escape
 from typing import Any, Dict, Optional
@@ -28,10 +29,31 @@ from .shared_serial_hub import shared_serial_hub
 from .product_compare_manager import product_compare_manager
 from .logging_setup import parse_log_level
 from .paths import get_data_path as runtime_data_path, get_logs_path, project_base_dir, project_path
+from .game_hub import (
+    GameHubStore,
+    allowed_avatar_extension,
+    format_visitor_label,
+    games_avatar_dir,
+    games_device_cookie_name,
+    get_game_identity,
+    rank_info_for_identity,
+)
 from . import todo_kb_store
 from . import product_compare_kb_store
 
 _routes_logger = logging.getLogger('yobboy_file_server.routes')
+_game_hub_store_singleton = GameHubStore()
+
+
+def resolve_game_profile_payload(request_obj) -> Dict[str, Any]:
+    ip = get_game_identity(request_obj)
+    profile = _game_hub_store_singleton.get_profile(ip)
+    profile['avatar_url'] = f"/games/avatar/{profile.get('avatar_filename', '')}" if profile.get('avatar_filename') else ""
+    profile['display_name'] = profile.get('nickname') or format_visitor_label(ip)
+    profile['total_score'] = _game_hub_store_singleton.total_score_summary(ip).get('total_score', 0)
+    profile['rank'] = rank_info_for_identity(ip, profile['total_score'], _game_hub_store_singleton.top_total_score_identity())
+    profile['identity_label'] = f"设备 {ip[-8:]}"
+    return profile
 
 
 def log_message(message, level='INFO'):
@@ -1190,6 +1212,194 @@ def init_app(app):
     
     def has_todo_access():
         return is_logged_in() or session.get('todo_direct_access')
+
+    game_hub_store = _game_hub_store_singleton
+
+    def _game_avatar_url(avatar_filename: str) -> str:
+        if avatar_filename:
+            return url_for('games_avatar_file', filename=avatar_filename)
+        return ""
+
+    def _game_profile_payload(ip: str) -> Dict[str, Any]:
+        profile = game_hub_store.get_profile(ip)
+        totals = game_hub_store.total_score_summary(ip)
+        profile['avatar_url'] = _game_avatar_url(profile.get('avatar_filename', ''))
+        profile['display_name'] = profile.get('nickname') or format_visitor_label(ip)
+        profile['identity_label'] = f'设备 {ip[-8:]}'
+        profile['total_score'] = totals.get('total_score', 0)
+        profile['rank'] = rank_info_for_identity(ip, profile['total_score'], game_hub_store.top_total_score_identity())
+        return profile
+
+    def _resolved_games_identity() -> str:
+        identity = get_game_identity(request)
+        legacy_identity = str(request.headers.get('X-Games-Legacy-Device-Id') or '').strip()
+        if legacy_identity and legacy_identity != identity:
+            try:
+                game_hub_store.migrate_identity(legacy_identity, identity)
+            except Exception:
+                pass
+        return identity
+
+    def _attach_games_identity(response, identity: str):
+        response.set_cookie(
+            games_device_cookie_name(),
+            identity,
+            path='/',
+            max_age=60 * 60 * 24 * 365 * 5,
+            samesite='Lax',
+        )
+        return response
+
+    @app.route('/games')
+    def games_page():
+        if not is_logged_in():
+            return redirect(url_for('login'))
+        identity = _resolved_games_identity()
+        profile = _game_profile_payload(identity)
+        response = make_response(render_template(
+            'games.html',
+            game_profile=profile,
+            games_safe_file_url=url_for('file_browser'),
+        ))
+        return _attach_games_identity(response, identity)
+
+    @app.route('/games/drawphone')
+    def games_drawphone_page():
+        if not is_logged_in():
+            return redirect(url_for('login'))
+        return redirect(url_for('games_page', game='drawphone'))
+
+    @app.route('/api/games/manifest', methods=['GET'])
+    def games_manifest_api():
+        if not is_logged_in():
+            return jsonify({'success': False, 'error': '未登录'}), 401
+        return jsonify({'success': True, 'data': game_hub_store.manifest()})
+
+    @app.route('/api/games/profile', methods=['GET', 'POST'])
+    def games_profile_api():
+        if not is_logged_in():
+            return jsonify({'success': False, 'error': '未登录'}), 401
+
+        ip = _resolved_games_identity()
+        if request.method == 'POST':
+            payload = request.get_json(silent=True) or request.form or {}
+            nickname = str(payload.get('nickname') or '').strip()
+            boss_path = payload.get('boss_path')
+            boss_key = payload.get('boss_key')
+            if nickname and len(nickname) > 32:
+                return jsonify({'success': False, 'error': '昵称最多 32 个字符'}), 400
+            profile = game_hub_store.upsert_profile(ip, nickname, boss_path=boss_path, boss_key=boss_key)
+        else:
+            profile = game_hub_store.get_profile(ip)
+
+        profile['avatar_url'] = _game_avatar_url(profile.get('avatar_filename', ''))
+        profile['display_name'] = profile.get('nickname') or format_visitor_label(ip)
+        profile['identity_label'] = f'设备 {ip[-8:]}'
+        profile['total_score'] = game_hub_store.total_score_summary(ip).get('total_score', 0)
+        profile['rank'] = rank_info_for_identity(ip, profile['total_score'], game_hub_store.top_total_score_identity())
+        return _attach_games_identity(make_response(jsonify({'success': True, 'data': profile})), ip)
+
+    @app.route('/api/games/state/<game_id>', methods=['GET', 'POST', 'DELETE'])
+    def games_state_api(game_id: str):
+        if not is_logged_in():
+            return jsonify({'success': False, 'error': '未登录'}), 401
+
+        ip = _resolved_games_identity()
+        if request.method == 'GET':
+            return _attach_games_identity(make_response(jsonify({'success': True, 'data': game_hub_store.get_game_state(ip, game_id)})), ip)
+
+        if request.method == 'DELETE':
+            game_hub_store.clear_game_state(ip, game_id)
+            return _attach_games_identity(make_response(jsonify({'success': True, 'data': {'game_id': game_id}})), ip)
+
+        payload = request.get_json(silent=True) or request.form or {}
+        state_payload = payload.get('state') or {}
+        summary_payload = payload.get('summary') or {}
+        saved = game_hub_store.save_game_state(ip, game_id, state_payload, summary_payload)
+        return _attach_games_identity(make_response(jsonify({'success': True, 'data': saved})), ip)
+
+    @app.route('/api/games/score', methods=['POST'])
+    def games_score_api():
+        if not is_logged_in():
+            return jsonify({'success': False, 'error': '未登录'}), 401
+
+        payload = request.get_json(silent=True) or request.form or {}
+        game_id = str(payload.get('game_id') or '').strip()
+        if not game_id:
+            return jsonify({'success': False, 'error': '缺少 game_id'}), 400
+        identity = _resolved_games_identity()
+        saved = game_hub_store.record_score(
+            identity,
+            game_id=game_id,
+            score=payload.get('score', 0),
+            mode=payload.get('mode', ''),
+            session_key=payload.get('session_key', ''),
+            meta=payload.get('meta') or {},
+        )
+        return _attach_games_identity(make_response(jsonify({'success': True, 'data': saved})), identity)
+
+    @app.route('/api/games/history', methods=['GET'])
+    def games_history_api():
+        if not is_logged_in():
+            return jsonify({'success': False, 'error': '未登录'}), 401
+        limit = request.args.get('limit', default=20, type=int) or 20
+        identity = _resolved_games_identity()
+        return _attach_games_identity(make_response(jsonify({'success': True, 'data': game_hub_store.recent_scores(identity, limit=limit)})), identity)
+
+    @app.route('/api/games/leaderboards', methods=['GET'])
+    def games_leaderboards_api():
+        if not is_logged_in():
+            return jsonify({'success': False, 'error': '未登录'}), 401
+        limit = request.args.get('limit', default=10, type=int) or 10
+        identity = _resolved_games_identity()
+        return _attach_games_identity(make_response(jsonify({'success': True, 'data': game_hub_store.leaderboards(limit=limit)})), identity)
+
+    @app.route('/api/games/online', methods=['GET', 'POST'])
+    def games_online_api():
+        if not is_logged_in():
+            return jsonify({'success': False, 'error': '未登录'}), 401
+        ip = _resolved_games_identity()
+        if request.method == 'POST':
+            payload = request.get_json(silent=True) or request.form or {}
+            game_hub_store.touch_presence(
+                ip,
+                current_game=payload.get('current_game', ''),
+                play_status=payload.get('play_status', ''),
+                room_code=payload.get('room_code', ''),
+            )
+        visitors = game_hub_store.online_visitors(active_within_seconds=120)
+        for visitor in visitors:
+            visitor['avatar_url'] = _game_avatar_url(visitor.get('avatar_filename', ''))
+        return _attach_games_identity(make_response(jsonify({'success': True, 'data': visitors})), ip)
+
+    @app.route('/api/games/profile/avatar', methods=['POST'])
+    def games_profile_avatar_upload():
+        if not is_logged_in():
+            return jsonify({'success': False, 'error': '未登录'}), 401
+
+        upload = request.files.get('avatar')
+        if not upload or not upload.filename:
+            return jsonify({'success': False, 'error': '未选择头像文件'}), 400
+        if not allowed_avatar_extension(upload.filename):
+            return jsonify({'success': False, 'error': '仅支持 png/jpg/jpeg/gif/webp'}), 400
+
+        safe_ext = os.path.splitext(upload.filename)[1].lower()
+        ip = _resolved_games_identity()
+        filename = f'{secrets.token_hex(8)}{safe_ext}'
+        upload.save(os.path.join(games_avatar_dir(), filename))
+        profile = game_hub_store.set_avatar(ip, filename)
+        profile['avatar_url'] = _game_avatar_url(profile.get('avatar_filename', ''))
+        profile['display_name'] = profile.get('nickname') or format_visitor_label(ip)
+        profile['identity_label'] = f'设备 {ip[-8:]}'
+        profile['total_score'] = game_hub_store.total_score_summary(ip).get('total_score', 0)
+        profile['rank'] = rank_info_for_identity(ip, profile['total_score'], game_hub_store.top_total_score_identity())
+        return _attach_games_identity(make_response(jsonify({'success': True, 'data': profile})), ip)
+
+    @app.route('/games/avatar/<path:filename>', methods=['GET'])
+    def games_avatar_file(filename: str):
+        if not is_logged_in():
+            return redirect(url_for('login'))
+        return send_from_directory(games_avatar_dir(), filename)
 
     @app.route('/')
     def index():

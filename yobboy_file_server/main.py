@@ -34,6 +34,8 @@ from .shared_serial_hub import (
 )
 from .paths import project_base_dir
 from .paths import get_data_dir, get_logs_dir as get_runtime_logs_dir, resolve_path
+from .game_drawphone import init_drawphone_socketio
+from .game_hub import GameHubStore
 
 DEFAULT_MAX_UPLOAD_SIZE_MB = 0
 
@@ -482,6 +484,10 @@ def create_app(debug=False):
                       ping_timeout=60,
                       ping_interval=25)
     init_serial_socketio(socketio)
+    init_drawphone_socketio(
+        socketio,
+        profile_resolver=lambda req: routes.resolve_game_profile_payload(req),
+    )
     app.socketio = socketio
 
     configure_flask_app_logger(app)
@@ -4171,6 +4177,11 @@ class MainWindow(QMainWindow):
         settings_action.triggered.connect(self.open_settings)
         file_menu.addAction(settings_action)
 
+        manage_games_action = QAction('🗑️ 删除游戏用户数据', self)
+        manage_games_action.setStatusTip('仅管理员可在桌面 GUI 中删除 Games Hub 用户数据')
+        manage_games_action.triggered.connect(self.open_games_data_admin)
+        file_menu.addAction(manage_games_action)
+
         file_menu.addSeparator()
 
         # 退出
@@ -4815,6 +4826,103 @@ class MainWindow(QMainWindow):
             webbrowser.open(help_url)
         except Exception as e:
             QMessageBox.warning(self, "错误", f"无法打开浏览器：{e}")
+
+    def open_games_data_admin(self):
+        """管理员入口：删除 Games Hub 用户数据。"""
+        if self.is_server_running:
+            reply = QMessageBox.question(
+                self,
+                "停止服务器",
+                "删除游戏用户数据前建议先停止服务器，是否现在停止？",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.Yes
+            )
+            if reply != QMessageBox.Yes:
+                return
+            self.stop_server()
+            if not self.wait_for_server_state(expected_running=False, timeout_ms=5000):
+                QMessageBox.warning(self, "错误", "服务器停止失败，已取消删除操作。")
+                return
+
+        settings = read_runtime_settings()
+        current_admin_password = settings.get('ADMIN_PASSWORD', 'admin123')
+        admin_pass, ok = QInputDialog.getText(
+            self,
+            "验证管理员密码",
+            "请输入管理员密码：",
+            QLineEdit.Password
+        )
+        if not ok:
+            return
+        if admin_pass != current_admin_password:
+            QMessageBox.critical(self, "错误", "管理员密码错误，无法删除游戏用户数据。")
+            return
+
+        try:
+            store = GameHubStore()
+            players = store.list_player_profiles(limit=1000)
+        except Exception as e:
+            QMessageBox.critical(self, "错误", f"读取游戏用户数据失败：{e}")
+            return
+
+        if not players:
+            QMessageBox.information(self, "提示", "当前没有可删除的 Games Hub 用户数据。")
+            return
+
+        labels = [
+            f"{item.get('display_name', '')} | {item.get('identity', '')} | 总分 {int(item.get('total_score', 0))} | 记录 {int(item.get('play_count', 0))} | 存档 {int(item.get('state_count', 0))}"
+            for item in players
+        ]
+        selected_label, ok = QInputDialog.getItem(
+            self,
+            "选择用户",
+            "请选择要删除的游戏用户数据：",
+            labels,
+            0,
+            False
+        )
+        if not ok or not selected_label:
+            return
+
+        selected_index = labels.index(selected_label)
+        selected_player = players[selected_index]
+        selected_identity = str(selected_player.get('identity') or '')
+        confirm = QMessageBox.warning(
+            self,
+            "确认删除",
+            (
+                f"确定删除以下用户的 Games Hub 数据吗？\n\n"
+                f"显示名：{selected_player.get('display_name', '')}\n"
+                f"身份：{selected_identity}\n"
+                f"总分：{int(selected_player.get('total_score', 0))}\n"
+                f"历史记录：{int(selected_player.get('play_count', 0))}\n"
+                f"游戏存档：{int(selected_player.get('state_count', 0))}\n\n"
+                f"此操作不可撤销。"
+            ),
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+        if confirm != QMessageBox.Yes:
+            return
+
+        try:
+            result = store.delete_player_data(selected_identity)
+        except Exception as e:
+            QMessageBox.critical(self, "错误", f"删除游戏用户数据失败：{e}")
+            return
+
+        QMessageBox.information(
+            self,
+            "删除完成",
+            (
+                f"已删除 {selected_player.get('display_name', selected_identity)} 的 Games Hub 数据。\n\n"
+                f"成绩记录：{result.get('deleted_scores', 0)}\n"
+                f"游戏存档：{result.get('deleted_states', 0)}\n"
+                f"在线状态：{result.get('deleted_presence', 0)}\n"
+                f"资料记录：{result.get('deleted_profile', 0)}\n"
+                f"头像文件：{'已删除' if result.get('avatar_deleted') else '无或未删除'}"
+            )
+        )
 
     def open_settings(self):
         """打开设置对话框"""
