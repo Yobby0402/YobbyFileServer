@@ -34,7 +34,17 @@
             topdownActiveBuffSummary,
             topdownAllCommonColorsOwned,
             topdownAllRareColorsOwned,
+            applyTopdownBossRelic,
+            applyTopdownElement,
+            applyTopdownElementSwap,
             topdownApplyFillStyle,
+            applyTopdownItemEffect,
+            applyTopdownPlayerBlind,
+            applyTopdownPlayerKnockback,
+            applyTopdownPlayerPull,
+            applyTopdownRandomUpgrade,
+            applyTopdownUpgrade,
+            applyTopdownWingmanElementChoice,
             topdownBackgroundCatalog,
             topdownBackgroundDrawWeight,
             topdownBackgroundPreviewStyle,
@@ -55,12 +65,18 @@
             topdownEnemyAuraBoost,
             topdownEnemyHp,
             topdownEnemyWardenSlowFactor,
+            drawTopdownAoeBurstVisual,
+            drawTopdownCosmeticBackground,
+            drawTopdownElementBeam,
+            drawTopdownElementBullet,
             topdownEquippedAppearance,
             topdownFindEnemyById,
             topdownFireEnemyAttack,
             getTopdownDerivedStats,
             topdownGetIconImage,
             topdownHasLivingBoss,
+            drawTopdownStatusRing,
+            getWingmanSlots,
             renderTopdownAttributeCards,
             topdownIconCatalog,
             topdownIconDrawWeight,
@@ -916,6 +932,8 @@
                 }
                 if (!rowState.sequenceKeys.length) {
                     topdownMetaEnsureIdleSequence(kind);
+                }
+                if (!track.innerHTML.trim() || track.childElementCount !== rowState.sequenceKeys.length) {
                     track.innerHTML = rowState.sequenceKeys.map(function (key) {
                         return topdownMetaRollItemHtml(kind, key);
                     }).join("");
@@ -1173,7 +1191,10 @@
                 const progress = clamp((now - startedAt) / metaRollMetrics.durationMs, 0, 1);
                 const eased = Math.sin(progress * Math.PI * 0.5);
                 rowState.offsetPx = targetOffset * eased;
-                track.style.transform = 'translateX(-' + rowState.offsetPx + 'px)';
+                const liveTrack = metaModal ? metaModal.querySelector('[data-topdown-roll-track="' + kind + '"]') : track;
+                if (liveTrack) {
+                    liveTrack.style.transform = 'translateX(-' + rowState.offsetPx + 'px)';
+                }
                 if (progress < 1) {
                     rowState.frameId = window.requestAnimationFrame(frame);
                     return;
@@ -1208,7 +1229,9 @@
                 metaFlashMessage = error.message || "扣除抽奖积分失败，请稍后重试。";
             } finally {
                 metaPaymentBusy = false;
-                renderMetaModal();
+                if (!topdownAnyMetaRollActive()) {
+                    renderMetaModal();
+                }
             }
         }
 
@@ -1233,7 +1256,9 @@
                 metaFlashMessage = error.message || "扣除抽奖积分失败，请稍后重试。";
             } finally {
                 metaPaymentBusy = false;
-                renderMetaModal();
+                if (!topdownAnyMetaRollActive()) {
+                    renderMetaModal();
+                }
             }
         }
 
@@ -1258,7 +1283,9 @@
                 metaFlashMessage = error.message || "扣除抽奖积分失败，请稍后重试。";
             } finally {
                 metaPaymentBusy = false;
-                renderMetaModal();
+                if (!topdownAnyMetaRollActive()) {
+                    renderMetaModal();
+                }
             }
         }
 

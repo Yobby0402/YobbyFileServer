@@ -909,7 +909,17 @@
                 topdownActiveBuffSummary: topdownActiveBuffSummary,
                 topdownAllCommonColorsOwned: topdownAllCommonColorsOwned,
                 topdownAllRareColorsOwned: topdownAllRareColorsOwned,
+                applyTopdownBossRelic: applyTopdownBossRelic,
+                applyTopdownElement: applyTopdownElement,
+                applyTopdownElementSwap: applyTopdownElementSwap,
                 topdownApplyFillStyle: topdownApplyFillStyle,
+                applyTopdownItemEffect: applyTopdownItemEffect,
+                applyTopdownPlayerBlind: applyTopdownPlayerBlind,
+                applyTopdownPlayerKnockback: applyTopdownPlayerKnockback,
+                applyTopdownPlayerPull: applyTopdownPlayerPull,
+                applyTopdownRandomUpgrade: applyTopdownRandomUpgrade,
+                applyTopdownUpgrade: applyTopdownUpgrade,
+                applyTopdownWingmanElementChoice: applyTopdownWingmanElementChoice,
                 topdownBackgroundCatalog: topdownBackgroundCatalog,
                 topdownBackgroundDrawWeight: topdownBackgroundDrawWeight,
                 topdownBackgroundPreviewStyle: topdownBackgroundPreviewStyle,
@@ -930,12 +940,18 @@
                 topdownEnemyAuraBoost: topdownEnemyAuraBoost,
                 topdownEnemyHp: topdownEnemyHp,
                 topdownEnemyWardenSlowFactor: topdownEnemyWardenSlowFactor,
+                drawTopdownAoeBurstVisual: drawTopdownAoeBurstVisual,
+                drawTopdownCosmeticBackground: drawTopdownCosmeticBackground,
+                drawTopdownElementBeam: drawTopdownElementBeam,
+                drawTopdownElementBullet: drawTopdownElementBullet,
                 topdownEquippedAppearance: topdownEquippedAppearance,
                 topdownFindEnemyById: topdownFindEnemyById,
                 topdownFireEnemyAttack: topdownFireEnemyAttack,
                 getTopdownDerivedStats: getTopdownDerivedStats,
                 topdownGetIconImage: topdownGetIconImage,
                 topdownHasLivingBoss: topdownHasLivingBoss,
+                drawTopdownStatusRing: drawTopdownStatusRing,
+                getWingmanSlots: getWingmanSlots,
                 renderTopdownAttributeCards: renderTopdownAttributeCards,
                 topdownIconCatalog: topdownIconCatalog,
                 topdownIconDrawWeight: topdownIconDrawWeight,
@@ -5708,6 +5724,8 @@
             }
             if (!rowState.sequenceKeys.length) {
                 topdownMetaEnsureIdleSequence(kind);
+            }
+            if (!track.innerHTML.trim() || track.childElementCount !== rowState.sequenceKeys.length) {
                 track.innerHTML = rowState.sequenceKeys.map(function (key) { return topdownMetaRollItemHtml(kind, key); }).join("");
             }
             const cycleItemCount = rowState.rolling ? rowState.sequenceKeys.length : Math.max(1, Math.floor(rowState.sequenceKeys.length / 2));
@@ -5910,7 +5928,10 @@
             const progress = clamp((now - startedAt) / topdownMetaUi.rollMetrics.durationMs, 0, 1);
             const eased = Math.sin(progress * Math.PI * 0.5);
             rowState.offsetPx = targetOffset * eased;
-            track.style.transform = 'translateX(-' + rowState.offsetPx + 'px)';
+            const liveTrack = topdownMetaUi.modal ? topdownMetaUi.modal.querySelector('[data-topdown-roll-track="' + kind + '"]') : track;
+            if (liveTrack) {
+                liveTrack.style.transform = 'translateX(-' + rowState.offsetPx + 'px)';
+            }
             if (progress < 1) {
                 rowState.frameId = window.requestAnimationFrame(frame);
                 return;
@@ -5946,7 +5967,9 @@
             topdownMetaUi.flashMessage = error.message || "扣除抽奖积分失败，请稍后重试。";
         } finally {
             topdownMetaUi.paymentBusy = false;
-            renderTopdownMetaModal();
+            if (!topdownMetaAnyRollActive()) {
+                renderTopdownMetaModal();
+            }
         }
     }
 
