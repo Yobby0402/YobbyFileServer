@@ -1,13 +1,20 @@
-﻿(function () {
+(function () {
     "use strict";
 
     const config = window.gamesHubConfig || {};
     const GAMES_THEME_SCHEME_KEY = "games_theme_scheme";
     const TOPDOWN_SCORE_SOFT_CAP = Math.max(0, Number(config.topdownScoreSoftCap || 100000));
-    const HEX_SYMBOLS = "0123456789ABCDEF".split("");
-    const CLASSIC_SYMBOLS = "123456789".split("");
-    const DRAWHONE_NAMESPACE = "/games-drawphone";
     const GOMOKU_NAMESPACE = "/games-gomoku";
+    const GAMES_SCRIPT_BASE_URL = (document.currentScript && document.currentScript.src)
+        ? new URL(".", document.currentScript.src).href
+        : "/static/js/";
+    const GAME_MODULE_SCRIPTS = {
+        "2048": "games/game_2048.js",
+        sudoku: "games/game_sudoku.js",
+        frontline: "games/game_frontline.js",
+        gomoku: "games/game_gomoku.js",
+        "topdown-shooter": "games/game_topdown.js"
+    };
 
     const state = {
         manifest: { games: [] },
@@ -19,14 +26,18 @@
         activeCleanup: null,
         saveTimers: Object.create(null),
         presenceTimer: null,
+        topdownMetaState: null,
+        topdownMetaRefresh: null,
+        topdownMetaBeforeOpen: null,
         currentPresence: {
             current_game: "",
             play_status: "空闲中",
             room_code: ""
         },
-        drawphoneRoomCode: config.initialRoomCode || "",
         launchToken: 0
     };
+    const gameModules = Object.create(null);
+    const gameModuleLoadPromises = Object.create(null);
 
     function fnv1aHash(input) {
         let hash = 0x811c9dc5;
@@ -68,117 +79,6 @@
         ].join("|"));
     }
 
-    const classicPuzzles = [
-        {
-            id: "classic-easy-01",
-            name: "入门 01",
-            variant: "classic",
-            difficulty: "easy",
-            size: 9,
-            subgrid: 3,
-            symbols: CLASSIC_SYMBOLS,
-            puzzle: "530070000600195000098000060800060003400803001700020006060000280000419005000080079",
-            solution: "534678912672195348198342567859761423426853791713924856961537284287419635345286179"
-        },
-        {
-            id: "classic-easy-02",
-            name: "入门 02",
-            variant: "classic",
-            difficulty: "easy",
-            size: 9,
-            subgrid: 3,
-            symbols: CLASSIC_SYMBOLS,
-            puzzle: "200080300060070084030500209000105408000000000402706000301007040720040060004010003",
-            solution: "245981376169273584837564219976125438513498627482736951391657842728349165654812793"
-        },
-        {
-            id: "classic-medium-01",
-            name: "标准 01",
-            variant: "classic",
-            difficulty: "medium",
-            size: 9,
-            subgrid: 3,
-            symbols: CLASSIC_SYMBOLS,
-            puzzle: "000260701680070090190004500820100040004602900050003028009300074040050036703018000",
-            solution: "435269781682571493197834562826195347374682915951743628519326874248957136763418259"
-        },
-        {
-            id: "classic-medium-02",
-            name: "标准 02",
-            variant: "classic",
-            difficulty: "medium",
-            size: 9,
-            subgrid: 3,
-            symbols: CLASSIC_SYMBOLS,
-            puzzle: "302609005000000040000010200700304009090000010800507003001040000080000000600708104",
-            solution: "312649875958273641467815239721384569593426718846597423175942386284136957639758124"
-        },
-        {
-            id: "classic-hard-01",
-            name: "进阶 01",
-            variant: "classic",
-            difficulty: "hard",
-            size: 9,
-            subgrid: 3,
-            symbols: CLASSIC_SYMBOLS,
-            puzzle: "300000000005009000200504000020000700160000058704310600000890100000067080000005437",
-            solution: "391682745475139826286574913823456791169723458754318692537894162942167385618245437"
-        },
-        {
-            id: "classic-hard-02",
-            name: "进阶 02",
-            variant: "classic",
-            difficulty: "hard",
-            size: 9,
-            subgrid: 3,
-            symbols: CLASSIC_SYMBOLS,
-            puzzle: "000000907000420180000705026100904000050000040000507009920108000034059000507000000",
-            solution: "462831957795426183381795426173984265659312748248567319926178534834259671517643892"
-        }
-    ];
-
-    function buildHexPuzzleDefinition(id, name, keepRule) {
-        const size = 16;
-        const subgrid = 4;
-        const solutionChars = [];
-        const puzzleChars = [];
-
-        for (let row = 0; row < size; row += 1) {
-            for (let col = 0; col < size; col += 1) {
-                const index = (subgrid * (row % subgrid) + Math.floor(row / subgrid) + col) % size;
-                const symbol = HEX_SYMBOLS[index];
-                solutionChars.push(symbol);
-                const keep = keepRule(row, col);
-                puzzleChars.push(keep ? symbol : ".");
-            }
-        }
-
-        return {
-            id: id,
-            name: name,
-            variant: "hex",
-            difficulty: "super",
-            size: 16,
-            subgrid: 4,
-            symbols: HEX_SYMBOLS,
-            puzzle: puzzleChars.join(""),
-            solution: solutionChars.join("")
-        };
-    }
-
-    const hexPuzzles = [
-        buildHexPuzzleDefinition("hex-16-01", "HEX-16 Grid A", function (row, col) {
-            return ((row * 11 + col * 7 + row * col) % 5 === 0) || ((row + col) % 7 === 0) || (row === col);
-        }),
-        buildHexPuzzleDefinition("hex-16-02", "HEX-16 Grid B", function (row, col) {
-            return ((row * 13 + col * 5 + row + col) % 6 === 0) || ((row % 5) === (col % 5)) || ((row + col) % 9 === 0);
-        }),
-        buildHexPuzzleDefinition("hex-16-03", "HEX-16 Grid C", function (row, col) {
-            return ((row * 3 + col * 17) % 7 === 0) || ((row ^ col) % 5 === 0) || (row === (15 - col));
-        })
-    ];
-    const allSudokuPuzzles = classicPuzzles.concat(hexPuzzles);
-
     const els = {
         navList: document.getElementById("gamesNavList"),
         manifestList: document.getElementById("gamesManifestList"),
@@ -207,6 +107,7 @@
         avatarFrame: document.querySelector(".games-avatar-frame"),
         avatarImg: document.getElementById("gameProfileAvatar"),
         avatarFallback: document.getElementById("gameProfileAvatarFallback"),
+        metaEntryBtn: null,
         historyList: document.getElementById("gamesHistoryList"),
         weeklyTotalList: document.getElementById("gamesWeeklyTotalList"),
         weeklyGameList: document.getElementById("gamesWeeklyGameList"),
@@ -437,59 +338,6 @@
         els.stageBody.appendChild(node);
     }
 
-    function getPuzzleById(id) {
-        return allSudokuPuzzles.find(function (item) { return item.id === id; }) || classicPuzzles[0];
-    }
-
-    function getPuzzlesForMode(modeKey) {
-        if (modeKey === "hex-16") {
-            return hexPuzzles.slice();
-        }
-        const parts = String(modeKey || "classic-medium").split("-");
-        const difficulty = parts[1] || "medium";
-        return classicPuzzles.filter(function (item) {
-            return item.difficulty === difficulty;
-        });
-    }
-
-    function choosePuzzle(modeKey, previousPuzzleId) {
-        const list = getPuzzlesForMode(modeKey);
-        if (!list.length) {
-            return classicPuzzles[0];
-        }
-        if (!previousPuzzleId) {
-            return list[Math.floor(Math.random() * list.length)];
-        }
-        const currentIndex = list.findIndex(function (item) {
-            return item.id === previousPuzzleId;
-        });
-        if (currentIndex === -1) {
-            return list[Math.floor(Math.random() * list.length)];
-        }
-        return list[(currentIndex + 1) % list.length];
-    }
-
-    function getSudokuScoreSpec(modeKey) {
-        const table = {
-            "classic-easy": { base: 2200, difficultyBonus: 900, targetSeconds: 1800, timeRate: 1.1 },
-            "classic-medium": { base: 3000, difficultyBonus: 1700, targetSeconds: 2400, timeRate: 1.35 },
-            "classic-hard": { base: 4200, difficultyBonus: 3000, targetSeconds: 3000, timeRate: 1.8 },
-            "hex-16": { base: 8800, difficultyBonus: 7600, targetSeconds: 5400, timeRate: 3.0 }
-        };
-        return table[modeKey] || table["classic-medium"];
-    }
-
-    function computeSudokuScore(modeKey, elapsedSeconds) {
-        const spec = getSudokuScoreSpec(modeKey);
-        const scoreMultiplier = 20;
-        const timeBonus = Math.max(0, Math.round((spec.targetSeconds - Math.max(0, elapsedSeconds)) * spec.timeRate)) * scoreMultiplier;
-        return {
-            baseSalary: spec.base * scoreMultiplier,
-            difficultyBonus: spec.difficultyBonus * scoreMultiplier,
-            timeBonus: timeBonus,
-            total: spec.base * scoreMultiplier + spec.difficultyBonus * scoreMultiplier + timeBonus
-        };
-    }
 
     function openProfileModal() {
         if (els.profileModal) {
@@ -588,6 +436,35 @@
         els.bossKeyHint.textContent = "老板键当前为 " + formatBossKeyLabel(savedKey) + "，触发后会立刻切到安全目录；当前游玩状态会展示给同一局域网内的在线访客。";
     }
 
+    function ensureProfileMetaEntryButton() {
+        if (els.metaEntryBtn) {
+            return els.metaEntryBtn;
+        }
+        const anchor = document.querySelector(".games-profile-inline");
+        if (!anchor || !anchor.parentNode) {
+            return null;
+        }
+        const button = document.createElement("button");
+        button.type = "button";
+        button.id = "gamesMetaEntryBtn";
+        button.className = "games-meta-entry-btn";
+        button.innerHTML = [
+            '<span class="games-meta-entry-mark">★</span>',
+            '<span class="games-meta-entry-copy">',
+            '  <strong>局外养成</strong>',
+            '  <small>抽奖 / 装备 / 全游戏外观</small>',
+            '</span>'
+        ].join("");
+        button.addEventListener("click", function () {
+            openTopdownMetaModal().catch(function (error) {
+                setStatus(error.message || "局外养成打开失败", true);
+            });
+        });
+        anchor.insertAdjacentElement("afterend", button);
+        els.metaEntryBtn = button;
+        return button;
+    }
+
     function renderManifestList() {
         if (!els.manifestList) {
             return;
@@ -605,6 +482,22 @@
         });
     }
 
+    function gameNavIconLabel(game) {
+        const id = String((game && game.id) || "").toLowerCase();
+        const iconMap = {
+            "2048": "20",
+            sudoku: "数",
+            gomoku: "五",
+            frontline: "线",
+            "topdown-shooter": "射"
+        };
+        if (iconMap[id]) {
+            return iconMap[id];
+        }
+        const title = String((game && (game.title || game.id)) || "?").trim();
+        return title.slice(0, 2).toUpperCase();
+    }
+
     function renderGameNav() {
         if (!els.navList) {
             return;
@@ -618,9 +511,15 @@
             button.type = "button";
             button.className = "games-nav-item";
             button.classList.toggle("is-active", state.activeGameId === game.id);
+            const title = game.title || game.id || "游戏";
+            const summary = game.summary || "暂无说明";
+            const tooltip = title + " · " + summary;
+            button.title = tooltip;
+            button.setAttribute("aria-label", tooltip);
+            button.setAttribute("data-tooltip", tooltip);
             button.innerHTML = [
-                '<div class="games-nav-title">' + escapeHtml(game.title || game.id) + "</div>",
-                '<div class="games-nav-meta">' + escapeHtml(game.summary || "暂无说明") + "</div>"
+                '<span class="games-nav-icon" aria-hidden="true">' + escapeHtml(gameNavIconLabel(game)) + "</span>",
+                '<span class="games-nav-title">' + escapeHtml(title) + "</span>"
             ].join("");
             button.addEventListener("click", function () {
                 launchGame(game.id).catch(function (error) {
@@ -964,6 +863,161 @@
         return requestJson(getStateUrl(gameId), { method: "GET" });
     }
 
+    function createGameModuleContext() {
+        return {
+            config: config,
+            state: state,
+            els: els,
+            escapeHtml: escapeHtml,
+            formatSeconds: formatSeconds,
+            addStageButton: addStageButton,
+            addStageTagButton: addStageTagButton,
+            setStageStats: setStageStats,
+            scheduleGameStateSave: scheduleGameStateSave,
+            submitScore: submitScore,
+            syncPresence: syncPresence,
+            setStatus: setStatus,
+            requestJson: requestJson,
+            loadProfile: loadProfile,
+            refreshScorePanels: refreshScorePanels,
+            openGameInfoOverlay: openGameInfoOverlay,
+            createGameStartOverlay: createGameStartOverlay,
+            randomBetween: randomBetween,
+            clamp: clamp,
+            getGamesDeviceId: getGamesDeviceId,
+            GOMOKU_NAMESPACE: GOMOKU_NAMESPACE,
+            setTopdownSharedMetaState: setTopdownSharedMetaState,
+            getTopdownSharedMetaState: getTopdownSharedMetaState,
+            normalizeTopdownMetaState: normalizeTopdownMetaState,
+            serializeTopdownMetaState: serializeTopdownMetaState,
+            summarizeTopdownMetaState: summarizeTopdownMetaState,
+            topdownEquippedAppearance: topdownEquippedAppearance,
+            topdownColorCatalog: topdownColorCatalog,
+            topdownIconCatalog: topdownIconCatalog,
+            topdownBackgroundCatalog: topdownBackgroundCatalog,
+            topdownAppearanceColorStops: topdownAppearanceColorStops,
+            topdownIconPreviewGlyph: topdownIconPreviewGlyph,
+            topdownMetaTierLabel: topdownMetaTierLabel,
+            topdownBackgroundPreviewStyle: topdownBackgroundPreviewStyle,
+            topdown: {
+                TOPDOWN_BALANCE: TOPDOWN_BALANCE,
+                TOPDOWN_SCORE_SOFT_CAP: TOPDOWN_SCORE_SOFT_CAP,
+                topdownActiveBuffSummary: topdownActiveBuffSummary,
+                topdownAllCommonColorsOwned: topdownAllCommonColorsOwned,
+                topdownAllRareColorsOwned: topdownAllRareColorsOwned,
+                topdownApplyFillStyle: topdownApplyFillStyle,
+                topdownBackgroundCatalog: topdownBackgroundCatalog,
+                topdownBackgroundDrawWeight: topdownBackgroundDrawWeight,
+                topdownBackgroundPreviewStyle: topdownBackgroundPreviewStyle,
+                topdownBossRelicSummary: topdownBossRelicSummary,
+                topdownBuffRemaining: topdownBuffRemaining,
+                topdownBuildSummary: topdownBuildSummary,
+                topdownBulletBlockedByWardenField: topdownBulletBlockedByWardenField,
+                topdownCanonicalEliteType: topdownCanonicalEliteType,
+                topdownCatalogForKind: topdownCatalogForKind,
+                topdownColorCatalog: topdownColorCatalog,
+                topdownComboBonus: topdownComboBonus,
+                topdownCommonColorKeys: topdownCommonColorKeys,
+                topdownCurrentAimAngle: topdownCurrentAimAngle,
+                topdownCurrentComboItemEvery: topdownCurrentComboItemEvery,
+                topdownCurrentPlayerRadius: topdownCurrentPlayerRadius,
+                topdownDisplayRollKey: topdownDisplayRollKey,
+                topdownEliteLabel: topdownEliteLabel,
+                topdownEnemyAuraBoost: topdownEnemyAuraBoost,
+                topdownEnemyHp: topdownEnemyHp,
+                topdownEnemyWardenSlowFactor: topdownEnemyWardenSlowFactor,
+                topdownEquippedAppearance: topdownEquippedAppearance,
+                topdownFindEnemyById: topdownFindEnemyById,
+                topdownFireEnemyAttack: topdownFireEnemyAttack,
+                getTopdownDerivedStats: getTopdownDerivedStats,
+                topdownGetIconImage: topdownGetIconImage,
+                topdownHasLivingBoss: topdownHasLivingBoss,
+                topdownIconCatalog: topdownIconCatalog,
+                topdownIconDrawWeight: topdownIconDrawWeight,
+                topdownIconPreviewGlyph: topdownIconPreviewGlyph,
+                topdownIsUltimateProjectile: topdownIsUltimateProjectile,
+                topdownKillBaseScore: topdownKillBaseScore,
+                topdownMagneticTrapOrbs: topdownMagneticTrapOrbs,
+                topdownMetaRewardAmount: topdownMetaRewardAmount,
+                topdownMetaTierClass: topdownMetaTierClass,
+                topdownMetaTierLabel: topdownMetaTierLabel,
+                topdownNearestEnemy: topdownNearestEnemy,
+                topdownPickupVisual: topdownPickupVisual,
+                topdownPlayerMoveSpeedFactor: topdownPlayerMoveSpeedFactor,
+                topdownRareColorKeys: topdownRareColorKeys,
+                topdownRelicEnemyBulletSpeedMultiplier: topdownRelicEnemyBulletSpeedMultiplier,
+                topdownRelicStacks: topdownRelicStacks,
+                topdownRollRowBaseKeys: topdownRollRowBaseKeys,
+                topdownRollSequence: topdownRollSequence,
+                topdownSkillCatalog: topdownSkillCatalog,
+                topdownSkillCooldownRemaining: topdownSkillCooldownRemaining,
+                topdownSkillReady: topdownSkillReady,
+                topdownSkillSummary: topdownSkillSummary,
+                topdownSkillTriggerKeyLabel: topdownSkillTriggerKeyLabel,
+                topdownSkillTriggerKeyOptions: topdownSkillTriggerKeyOptions,
+                topdownSortCatalogKeysByTier: topdownSortCatalogKeysByTier,
+                topdownSpawnInterval: topdownSpawnInterval,
+                topdownSuperRareColorKeys: topdownSuperRareColorKeys,
+                topdownTargetEnemyCount: topdownTargetEnemyCount,
+                topdownWeightedPick: topdownWeightedPick,
+                topdownWingmanDetailLines: topdownWingmanDetailLines,
+                createTopdownShooterSession: createTopdownShooterSession,
+                getTopdownSharedMetaState: getTopdownSharedMetaState,
+                normalizeTopdownShooterSession: normalizeTopdownShooterSession,
+                serializeTopdownMetaState: serializeTopdownMetaState,
+                serializeTopdownShooterSession: serializeTopdownShooterSession,
+                setTopdownSharedMetaState: setTopdownSharedMetaState,
+                spawnTopdownEnemy: spawnTopdownEnemy,
+                spawnTopdownEnemyExplosion: spawnTopdownEnemyExplosion,
+                spawnTopdownLuseBurst: spawnTopdownLuseBurst,
+                spawnTopdownPlayerFrenzyVolley: spawnTopdownPlayerFrenzyVolley,
+                spawnTopdownVolley: spawnTopdownVolley,
+                summarizeTopdownMetaState: summarizeTopdownMetaState,
+                summarizeTopdownShooterSession: summarizeTopdownShooterSession,
+                syncTopdownClock: syncTopdownClock,
+                syncTopdownShieldCapacity: syncTopdownShieldCapacity
+            }
+        };
+    }
+
+    function registerGameModule(gameId, factory) {
+        if (!gameId || typeof factory !== "function") {
+            return;
+        }
+        gameModules[String(gameId)] = factory;
+    }
+
+    function loadScriptOnce(src) {
+        if (gameModuleLoadPromises[src]) {
+            return gameModuleLoadPromises[src];
+        }
+        gameModuleLoadPromises[src] = new Promise(function (resolve, reject) {
+            const script = document.createElement("script");
+            script.src = src;
+            script.async = true;
+            script.onload = function () { resolve(); };
+            script.onerror = function () { reject(new Error("游戏模块加载失败：" + src)); };
+            document.head.appendChild(script);
+        });
+        return gameModuleLoadPromises[src];
+    }
+
+    async function ensureGameModule(gameId) {
+        if (gameModules[gameId]) {
+            return gameModules[gameId];
+        }
+        const scriptName = GAME_MODULE_SCRIPTS[gameId];
+        if (!scriptName) {
+            return null;
+        }
+        await loadScriptOnce(new URL(scriptName, GAMES_SCRIPT_BASE_URL).href);
+        return gameModules[gameId] || null;
+    }
+
+    window.GamesHubModules = Object.assign({}, window.GamesHubModules || {}, {
+        register: registerGameModule
+    });
+
     async function submitScore(gameId, score, mode, sessionKey, meta) {
         await requestJson(config.scoreUrl, {
             method: "POST",
@@ -976,6 +1030,7 @@
                 meta: meta || {}
             })
         });
+        await loadProfile();
         await refreshScorePanels();
     }
 
@@ -1027,9 +1082,10 @@
             els.stageMeta.textContent = game ? (game.summary || "") : "";
         }
         clearStage();
+        applyActiveGameMetaAppearance();
         addGlobalStageButtons();
         renderStageLoadingState(game, "正在读取本地存档、恢复上次进度，并挂载游戏界面。");
-        syncPresence(gameId === "drawphone" ? "等待房间" : (gameId === "gomoku" ? "等待对局" : "游玩中"), state.drawphoneRoomCode);
+        syncPresence(gameId === "gomoku" ? "等待对局" : "游玩中", "");
         postPresence();
 
         async function mountIfCurrent(factory) {
@@ -1054,25 +1110,53 @@
 
         if (gameId === "2048") {
             const payload2048 = await loadGameState("2048").catch(function () { return { state: {} }; });
-            await mountIfCurrent(function () { return mount2048(payload2048); });
+            const mount2048Module = await ensureGameModule("2048");
+            await mountIfCurrent(function () {
+                if (mount2048Module) {
+                    return mount2048Module(payload2048, createGameModuleContext());
+                }
+                renderEmptyStage("2048 模块加载失败，请刷新页面重试。");
+                return null;
+            });
             return;
         }
         if (gameId === "sudoku") {
             const payloadSudoku = await loadGameState("sudoku").catch(function () { return { state: {} }; });
-            await mountIfCurrent(function () { return mountSudoku(payloadSudoku); });
-            return;
-        }
-        if (gameId === "drawphone") {
-            await mountIfCurrent(function () { return mountDrawphone(); });
+            const mountSudokuModule = await ensureGameModule("sudoku");
+            await mountIfCurrent(function () {
+                if (mountSudokuModule) {
+                    return mountSudokuModule(payloadSudoku, createGameModuleContext());
+                }
+                renderEmptyStage("数独模块加载失败，请刷新页面重试。");
+                return null;
+            });
             return;
         }
         if (gameId === "gomoku") {
-            await mountIfCurrent(function () { return mountGomoku(); });
+            const payloadGomokuMeta = await loadGameState("topdown-shooter-meta").catch(function () { return { state: {} }; });
+            if (!state.topdownMetaState) {
+                setTopdownSharedMetaState(payloadGomokuMeta.state || {});
+            }
+            const mountGomokuModule = await ensureGameModule("gomoku");
+            await mountIfCurrent(function () {
+                if (mountGomokuModule) {
+                    return mountGomokuModule(payloadGomokuMeta, createGameModuleContext());
+                }
+                renderEmptyStage("五子棋模块加载失败，请刷新页面重试。");
+                return null;
+            });
             return;
         }
         if (gameId === "frontline") {
             const payloadFrontline = await loadGameState("frontline").catch(function () { return { state: {} }; });
-            await mountIfCurrent(function () { return mountFrontline(payloadFrontline); });
+            const mountFrontlineModule = await ensureGameModule("frontline");
+            await mountIfCurrent(function () {
+                if (mountFrontlineModule) {
+                    return mountFrontlineModule(payloadFrontline, createGameModuleContext());
+                }
+                renderEmptyStage("前线模块加载失败，请刷新页面重试。");
+                return null;
+            });
             return;
         }
         if (gameId === "topdown-shooter") {
@@ -1080,22 +1164,17 @@
                 loadGameState("topdown-shooter").catch(function () { return { state: {} }; }),
                 loadGameState("topdown-shooter-meta").catch(function () { return { state: {} }; })
             ]);
+            const mountTopdownModule = await ensureGameModule("topdown-shooter");
             await mountIfCurrent(function () {
-                return mountTopdownShooter({
-                    state: topdownPayloads[0].state || {},
-                    metaState: topdownPayloads[1].state || {}
-                });
+                if (mountTopdownModule) {
+                    return mountTopdownModule({
+                        state: topdownPayloads[0].state || {},
+                        metaState: state.topdownMetaState || topdownPayloads[1].state || {}
+                    }, createGameModuleContext());
+                }
+                renderEmptyStage("俯视射击模块加载失败，请刷新页面重试。");
+                return null;
             });
-            return;
-        }
-        if (gameId === "space-rocks") {
-            const payloadSpaceRocks = await loadGameState("space-rocks").catch(function () { return { state: {} }; });
-            await mountIfCurrent(function () { return mountSpaceRocks(payloadSpaceRocks); });
-            return;
-        }
-        if (gameId === "angry-birds-lite") {
-            const payloadAngryBirds = await loadGameState("angry-birds-lite").catch(function () { return { state: {} }; });
-            await mountIfCurrent(function () { return mountAngryBirdsLite(payloadAngryBirds); });
             return;
         }
         if (launchToken === state.launchToken) {
@@ -1103,2008 +1182,6 @@
         }
     }
 
-    function create2048Session() {
-        const session = {
-            sessionKey: "g2048-" + Date.now() + "-" + Math.random().toString(36).slice(2, 8),
-            nextTileId: 1,
-            tiles: [],
-            score: 0,
-            moves: 0,
-            maxTile: 0,
-            status: "playing",
-            startedAt: Date.now(),
-            elapsedSeconds: 0,
-            submittedScore: false
-        };
-        spawn2048Tile(session);
-        spawn2048Tile(session);
-        return session;
-    }
-
-    function normalize2048Session(raw) {
-        if (!raw || !Array.isArray(raw.tiles) || !raw.tiles.length) {
-            return create2048Session();
-        }
-        return {
-            sessionKey: String(raw.sessionKey || ("g2048-" + Date.now())),
-            nextTileId: Number(raw.nextTileId || 1),
-            tiles: raw.tiles.map(function (tile) {
-                return { id: Number(tile.id), row: Number(tile.row), col: Number(tile.col), value: Number(tile.value) };
-            }),
-            score: Number(raw.score || 0),
-            moves: Number(raw.moves || 0),
-            maxTile: Number(raw.maxTile || 0),
-            status: raw.status === "over" ? "over" : "playing",
-            startedAt: Number(raw.startedAt || Date.now()),
-            elapsedSeconds: Number(raw.elapsedSeconds || 0),
-            submittedScore: Boolean(raw.submittedScore)
-        };
-    }
-
-    function sync2048Clock(session) {
-        if (session.status !== "over") {
-            session.elapsedSeconds = Math.max(0, Math.floor((Date.now() - session.startedAt) / 1000));
-        }
-    }
-
-    function serialize2048Session(session) {
-        sync2048Clock(session);
-        return {
-            sessionKey: session.sessionKey,
-            nextTileId: session.nextTileId,
-            tiles: session.tiles.map(function (tile) { return { id: tile.id, row: tile.row, col: tile.col, value: tile.value }; }),
-            score: session.score,
-            moves: session.moves,
-            maxTile: session.maxTile,
-            status: session.status,
-            startedAt: session.startedAt,
-            elapsedSeconds: session.elapsedSeconds,
-            submittedScore: session.submittedScore
-        };
-    }
-
-    function summarize2048Session(session) {
-        sync2048Clock(session);
-        return {
-            score: session.score,
-            moves: session.moves,
-            max_tile: session.maxTile,
-            elapsed_seconds: session.elapsedSeconds,
-            status: session.status
-        };
-    }
-
-    function spawn2048Tile(session) {
-        const occupied = {};
-        session.tiles.forEach(function (tile) {
-            occupied[tile.row + ":" + tile.col] = true;
-        });
-        const empty = [];
-        for (let row = 0; row < 4; row += 1) {
-            for (let col = 0; col < 4; col += 1) {
-                if (!occupied[row + ":" + col]) {
-                    empty.push({ row: row, col: col });
-                }
-            }
-        }
-        if (!empty.length) {
-            return;
-        }
-        const spot = empty[Math.floor(Math.random() * empty.length)];
-        session.tiles.push({
-            id: session.nextTileId,
-            row: spot.row,
-            col: spot.col,
-            value: Math.random() < 0.9 ? 2 : 4,
-            newNow: true
-        });
-        session.nextTileId += 1;
-    }
-
-    function get2048Lines(direction) {
-        const lines = [];
-        for (let index = 0; index < 4; index += 1) {
-            if (direction === "left") {
-                lines.push([{ row: index, col: 0 }, { row: index, col: 1 }, { row: index, col: 2 }, { row: index, col: 3 }]);
-            } else if (direction === "right") {
-                lines.push([{ row: index, col: 3 }, { row: index, col: 2 }, { row: index, col: 1 }, { row: index, col: 0 }]);
-            } else if (direction === "up") {
-                lines.push([{ row: 0, col: index }, { row: 1, col: index }, { row: 2, col: index }, { row: 3, col: index }]);
-            } else {
-                lines.push([{ row: 3, col: index }, { row: 2, col: index }, { row: 1, col: index }, { row: 0, col: index }]);
-            }
-        }
-        return lines;
-    }
-
-    function move2048Session(session, direction) {
-        const matrix = [];
-        for (let row = 0; row < 4; row += 1) {
-            matrix[row] = [null, null, null, null];
-        }
-        session.tiles.forEach(function (tile) {
-            matrix[tile.row][tile.col] = tile;
-        });
-
-        let moved = false;
-        let scoreDelta = 0;
-        const nextTiles = [];
-
-        get2048Lines(direction).forEach(function (line) {
-            const original = line.map(function (pos) { return matrix[pos.row][pos.col]; });
-            const compact = original.filter(Boolean);
-            const produced = [];
-            for (let i = 0; i < compact.length; i += 1) {
-                const current = compact[i];
-                const next = compact[i + 1];
-                if (next && next.value === current.value) {
-                    produced.push({ id: current.id, row: 0, col: 0, value: current.value * 2, mergedNow: true });
-                    scoreDelta += current.value * 2;
-                    i += 1;
-                } else {
-                    produced.push({ id: current.id, row: 0, col: 0, value: current.value });
-                }
-            }
-            produced.forEach(function (tile, targetIndex) {
-                tile.row = line[targetIndex].row;
-                tile.col = line[targetIndex].col;
-                nextTiles.push(tile);
-            });
-            for (let i = 0; i < 4; i += 1) {
-                const before = original[i];
-                const after = produced[i] || null;
-                if (!before && after) {
-                    moved = true;
-                } else if (before && !after) {
-                    moved = true;
-                } else if (before && after && (before.id !== after.id || before.value !== after.value || before.row !== after.row || before.col !== after.col)) {
-                    moved = true;
-                }
-            }
-        });
-
-        if (!moved) {
-            return false;
-        }
-        session.tiles = nextTiles;
-        session.score += scoreDelta;
-        session.moves += 1;
-        session.maxTile = Math.max.apply(null, session.tiles.map(function (tile) { return tile.value; }).concat([session.maxTile]));
-        spawn2048Tile(session);
-        sync2048Clock(session);
-        if (!canMove2048(session.tiles)) {
-            session.status = "over";
-        }
-        return true;
-    }
-
-    function canMove2048(tiles) {
-        if (tiles.length < 16) {
-            return true;
-        }
-        const matrix = [];
-        for (let row = 0; row < 4; row += 1) {
-            matrix[row] = [0, 0, 0, 0];
-        }
-        tiles.forEach(function (tile) {
-            matrix[tile.row][tile.col] = tile.value;
-        });
-        for (let row = 0; row < 4; row += 1) {
-            for (let col = 0; col < 4; col += 1) {
-                const value = matrix[row][col];
-                if (row < 3 && matrix[row + 1][col] === value) {
-                    return true;
-                }
-                if (col < 3 && matrix[row][col + 1] === value) {
-                    return true;
-                }
-            }
-        }
-        return false;
-    }
-
-    function get2048TileColors(value) {
-        const map = {
-            2: ["#f8fafc", "#111827"],
-            4: ["#dbeafe", "#1d4ed8"],
-            8: ["#93c5fd", "#0f172a"],
-            16: ["#60a5fa", "#0f172a"],
-            32: ["#38bdf8", "#082f49"],
-            64: ["#2dd4bf", "#042f2e"],
-            128: ["#34d399", "#052e16"],
-            256: ["#a3e635", "#1f2937"],
-            512: ["#facc15", "#422006"],
-            1024: ["#fb7185", "#4c0519"],
-            2048: ["#f472b6", "#4a044e"]
-        };
-        return map[value] || ["#e879f9", "#3b0764"];
-    }
-
-    function mount2048(savedPayload) {
-        let session = normalize2048Session(savedPayload.state || {});
-        const tileMap = Object.create(null);
-        let timerId = null;
-        const helpConfig2048 = {
-            title: "2048",
-            subtitle: "合并数字、控制棋盘空间，尽量把局面滚大。",
-            bullets: [
-                "操作：方向键或 WASD 一次推动整盘数字。",
-                "相同数字相撞会合并，连锁越顺，分数涨得越快。",
-                "真正稀缺的是可操作空间，不只是大数字。",
-                "本局会自动保存，随时可以关闭页面，下次继续。"
-            ],
-            hint: "优先保持角落和边线稳定，再考虑高数字的合并路线。"
-        };
-
-        addStageButton("重新开始", function () {
-            finalizeScoreIfNeeded("restart").finally(function () {
-                session = create2048Session();
-                render();
-                persist();
-            });
-        }, true);
-
-        const shell = document.createElement("div");
-        shell.className = "game-2048-shell";
-        shell.innerHTML = [
-            '<div class="game-2048-top">',
-            "  <div>",
-            '    <div class="games-section-title">操作方式</div>',
-            '    <div class="games-stage-meta">方向键或 WASD 控制移动，分数、用时和进度会自动保存。</div>',
-            "  </div>",
-            '  <div class="game-stat-grid">',
-            '    <div class="game-stat-card"><div class="game-stat-label">分数</div><div class="game-stat-value" id="game2048Score">0</div></div>',
-            '    <div class="game-stat-card"><div class="game-stat-label">最大块</div><div class="game-stat-value" id="game2048Max">0</div></div>',
-            '    <div class="game-stat-card"><div class="game-stat-label">步数</div><div class="game-stat-value" id="game2048Moves">0</div></div>',
-            '    <div class="game-stat-card"><div class="game-stat-label">用时</div><div class="game-stat-value" id="game2048Time">00:00</div></div>',
-            "  </div>",
-            "</div>",
-            '<div class="games-stage-meta" id="game2048StatusLine"></div>',
-            '<div class="game-2048-board game-start-host" id="game2048Board"><div class="game-2048-grid" id="game2048Grid"></div><div class="game-2048-tile-layer" id="game2048TileLayer"></div></div>'
-        ].join("");
-        els.stageBody.appendChild(shell);
-
-        const localStatGrid = shell.querySelector(".game-stat-grid");
-        const scoreEl = shell.querySelector("#game2048Score");
-        const maxEl = shell.querySelector("#game2048Max");
-        const movesEl = shell.querySelector("#game2048Moves");
-        const timeEl = shell.querySelector("#game2048Time");
-        const statusEl = shell.querySelector("#game2048StatusLine");
-        const boardHost = shell.querySelector("#game2048Board");
-        const gridEl = shell.querySelector("#game2048Grid");
-        const tileLayerEl = shell.querySelector("#game2048TileLayer");
-        let introShownAt = Date.now();
-        let introActive = true;
-
-        addStageButton("帮助", function () {
-            openGameInfoOverlay(boardHost, helpConfig2048);
-        }, false);
-
-        if (localStatGrid) {
-            localStatGrid.hidden = true;
-        }
-
-        for (let i = 0; i < 16; i += 1) {
-            const bg = document.createElement("div");
-            bg.className = "game-2048-cell-bg";
-            gridEl.appendChild(bg);
-        }
-
-        function persist() {
-            scheduleGameStateSave("2048", serialize2048Session(session), summarize2048Session(session));
-        }
-
-        function render() {
-            sync2048Clock(session);
-            scoreEl.textContent = String(session.score);
-            maxEl.textContent = String(session.maxTile);
-            movesEl.textContent = String(session.moves);
-            timeEl.textContent = formatSeconds(session.elapsedSeconds);
-            setStageStats([
-                { label: "分数", value: String(session.score) },
-                { label: "最大块", value: String(session.maxTile) },
-                { label: "步数", value: String(session.moves) },
-                { label: "用时", value: formatSeconds(session.elapsedSeconds) }
-            ]);
-            statusEl.textContent = session.status === "over" ? "本局结束，成绩已保存。" : "进度会自动保存。";
-            syncPresence(session.status === "over" ? "2048 结算中" : "正在玩 2048", "");
-
-            const activeIds = {};
-            session.tiles.forEach(function (tile) {
-                activeIds[tile.id] = true;
-                let tileEl = tileMap[tile.id];
-                if (!tileEl) {
-                    tileEl = document.createElement("div");
-                    tileEl.className = "game-2048-tile";
-                    tileMap[tile.id] = tileEl;
-                    tileLayerEl.appendChild(tileEl);
-                }
-                const colors = get2048TileColors(tile.value);
-                tileEl.textContent = String(tile.value);
-                tileEl.style.setProperty("--row", tile.row);
-                tileEl.style.setProperty("--col", tile.col);
-                tileEl.style.background = colors[0];
-                tileEl.style.color = colors[1];
-                tileEl.classList.remove("is-new", "is-merged");
-                if (tile.newNow) {
-                    tileEl.classList.add("is-new");
-                }
-                if (tile.mergedNow) {
-                    tileEl.classList.add("is-merged");
-                }
-            });
-
-            Object.keys(tileMap).forEach(function (key) {
-                if (!activeIds[key]) {
-                    tileMap[key].remove();
-                    delete tileMap[key];
-                }
-            });
-
-            window.setTimeout(function () {
-                session.tiles.forEach(function (tile) {
-                    delete tile.newNow;
-                    delete tile.mergedNow;
-                });
-                Object.keys(tileMap).forEach(function (key) {
-                    tileMap[key].classList.remove("is-new", "is-merged");
-                });
-            }, 220);
-        }
-
-        function finalizeScoreIfNeeded(reason) {
-            sync2048Clock(session);
-            if (session.submittedScore || session.score <= 0) {
-                return Promise.resolve();
-            }
-            session.submittedScore = true;
-            return submitScore("2048", session.score, "standard", session.sessionKey, {
-                mode_key: "2048-standard",
-                elapsed_seconds: session.elapsedSeconds,
-                max_tile: session.maxTile,
-                moves: session.moves,
-                reason: reason
-            }).catch(function (error) {
-                session.submittedScore = false;
-                setStatus(error.message || "2048 成绩提交失败", true);
-            });
-        }
-
-        function move(direction) {
-            if (session.status === "over") {
-                return;
-            }
-            if (!move2048Session(session, direction)) {
-                return;
-            }
-            render();
-            persist();
-            if (session.status === "over") {
-                finalizeScoreIfNeeded("game_over");
-            }
-        }
-
-        function keyHandler(event) {
-            if (state.activeGameId !== "2048" || introActive) {
-                return;
-            }
-            const map = { ArrowUp: "up", ArrowDown: "down", ArrowLeft: "left", ArrowRight: "right", w: "up", a: "left", s: "down", d: "right", W: "up", A: "left", S: "down", D: "right" };
-            if (!map[event.key]) {
-                return;
-            }
-            event.preventDefault();
-            move(map[event.key]);
-        }
-
-        document.addEventListener("keydown", keyHandler);
-        timerId = window.setInterval(function () {
-            if (state.activeGameId === "2048") {
-                render();
-            }
-        }, 1000);
-
-        createGameStartOverlay(boardHost, Object.assign({}, helpConfig2048, {
-            buttonLabel: session.moves > 0 || session.elapsedSeconds > 0 ? "继续本局" : "开始游戏",
-            useStageActionButton: true,
-            onStart: function () {
-                introActive = false;
-                session.startedAt += Date.now() - introShownAt;
-                render();
-                persist();
-            }
-        }));
-
-        render();
-        persist();
-
-        return function cleanup() {
-            document.removeEventListener("keydown", keyHandler);
-            if (timerId) {
-                window.clearInterval(timerId);
-            }
-            persist();
-            if (session.status === "over") {
-                finalizeScoreIfNeeded("teardown");
-            }
-        };
-    }
-
-    function frontlineDifficultyConfig(key) {
-        const table = {
-            easy: { key: "easy", label: "简单", mainNodes: [5, 6], branchCount: [1, 2], specialCount: 1, neutralGuard: [8, 15], mainJitter: 20 },
-            normal: { key: "normal", label: "普通", mainNodes: [6, 7], branchCount: [2, 3], specialCount: 2, neutralGuard: [10, 19], mainJitter: 28 },
-            hard: { key: "hard", label: "困难", mainNodes: [7, 8], branchCount: [3, 4], specialCount: 3, neutralGuard: [13, 24], mainJitter: 34 }
-        };
-        return table[key] || table.normal;
-    }
-
-    function frontlineTowerTypeMeta(towerType) {
-        const table = {
-            core: { key: "core", label: "核心", shortLabel: "CORE", intervalMultiplier: 1, amountMultiplier: 1, capMultiplier: 1.05, defenseMultiplier: 1.05, priorityScore: 12, travelMultiplier: 1, dispatchMultiplier: 1 },
-            normal: { key: "normal", label: "前哨", shortLabel: "OUT", intervalMultiplier: 1, amountMultiplier: 1, capMultiplier: 1, defenseMultiplier: 1, priorityScore: 0, travelMultiplier: 1, dispatchMultiplier: 1 },
-            foundry: { key: "foundry", label: "工坊", shortLabel: "FND", intervalMultiplier: 0.8, amountMultiplier: 1, capMultiplier: 0.95, defenseMultiplier: 0.95, priorityScore: 34, travelMultiplier: 1, dispatchMultiplier: 1 },
-            bastion: { key: "bastion", label: "堡垒", shortLabel: "BST", intervalMultiplier: 1.08, amountMultiplier: 1, capMultiplier: 1.28, defenseMultiplier: 1.35, priorityScore: 28, travelMultiplier: 1, dispatchMultiplier: 1 },
-            surge: { key: "surge", label: "脉冲塔", shortLabel: "SRG", intervalMultiplier: 1.18, amountMultiplier: 1.55, capMultiplier: 1.08, defenseMultiplier: 1, priorityScore: 22, travelMultiplier: 1, dispatchMultiplier: 1 },
-            relay: { key: "relay", label: "中继塔", shortLabel: "RLY", intervalMultiplier: 0.94, amountMultiplier: 0.92, capMultiplier: 0.92, defenseMultiplier: 0.96, priorityScore: 26, travelMultiplier: 0.72, dispatchMultiplier: 1 },
-            arsenal: { key: "arsenal", label: "军械塔", shortLabel: "ARS", intervalMultiplier: 1.12, amountMultiplier: 0.96, capMultiplier: 0.9, defenseMultiplier: 0.92, priorityScore: 31, travelMultiplier: 0.96, dispatchMultiplier: 1.18 },
-            vault: { key: "vault", label: "储备塔", shortLabel: "VLT", intervalMultiplier: 1.1, amountMultiplier: 1.08, capMultiplier: 1.42, defenseMultiplier: 1.18, priorityScore: 24, travelMultiplier: 1.08, dispatchMultiplier: 1 }
-        };
-        return table[towerType] || table.normal;
-    }
-
-    function frontlineTowerTypeDescription(towerType) {
-        const meta = frontlineTowerTypeMeta(towerType);
-        if (meta.key === "foundry") {
-            return "工坊塔：批次更快，适合滚经济。";
-        }
-        if (meta.key === "bastion") {
-            return "堡垒塔：容量更高，防守更硬。";
-        }
-        if (meta.key === "surge") {
-            return "脉冲塔：批次更大，爆发更强。";
-        }
-        if (meta.key === "relay") {
-            return "中继塔：行军更快，适合抢点接力。";
-        }
-        if (meta.key === "arsenal") {
-            return "军械塔：出兵会有额外增幅，擅长正面压制。";
-        }
-        if (meta.key === "vault") {
-            return "储备塔：容量更夸张，适合囤兵后再反扑。";
-        }
-        if (meta.key === "core") {
-            return "核心塔：起始阵地，属性更稳。";
-        }
-        return "前哨塔：标准属性，适合均衡推进。";
-    }
-
-    function frontlineRandomInt(min, max) {
-        return Math.floor(Math.random() * (max - min + 1)) + min;
-    }
-
-    function frontlineShuffle(items) {
-        const list = items.slice();
-        for (let index = list.length - 1; index > 0; index -= 1) {
-            const swapIndex = Math.floor(Math.random() * (index + 1));
-            const tmp = list[index];
-            list[index] = list[swapIndex];
-            list[swapIndex] = tmp;
-        }
-        return list;
-    }
-
-    function frontlineNodeLabel(index) {
-        const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-        if (index < alphabet.length) {
-            return alphabet.charAt(index);
-        }
-        return "N" + String(index + 1);
-    }
-
-    function frontlineEdgeTravelMs(nodeA, nodeB) {
-        const dx = nodeA.x - nodeB.x;
-        const dy = nodeA.y - nodeB.y;
-        const distance = Math.sqrt(dx * dx + dy * dy);
-        return Math.round(1350 + distance * 4.4 + frontlineRandomInt(-90, 110));
-    }
-
-    function frontlineClampNodePosition(node, width, height, padding) {
-        node.x = clamp(Math.round(Number(node.x || 0)), padding, width - padding);
-        node.y = clamp(Math.round(Number(node.y || 0)), padding, height - padding);
-    }
-
-    function frontlineSeparateNodes(nodes, width, height, fixedIds) {
-        const padding = 76;
-        const minDistance = 116;
-        const locked = fixedIds || {};
-        for (let iteration = 0; iteration < 28; iteration += 1) {
-            let moved = false;
-            for (let index = 0; index < nodes.length; index += 1) {
-                const node = nodes[index];
-                for (let otherIndex = index + 1; otherIndex < nodes.length; otherIndex += 1) {
-                    const other = nodes[otherIndex];
-                    const dx = Number(other.x || 0) - Number(node.x || 0);
-                    const dy = Number(other.y || 0) - Number(node.y || 0);
-                    const distance = Math.sqrt(dx * dx + dy * dy) || 0.0001;
-                    if (distance >= minDistance) {
-                        continue;
-                    }
-                    const overlap = (minDistance - distance) / 2;
-                    const normalX = dx / distance;
-                    const normalY = dy / distance;
-                    const nodeLocked = Boolean(locked[node.id]);
-                    const otherLocked = Boolean(locked[other.id]);
-                    if (nodeLocked && otherLocked) {
-                        continue;
-                    }
-                    if (nodeLocked) {
-                        other.x += normalX * overlap * 2;
-                        other.y += normalY * overlap * 2;
-                    } else if (otherLocked) {
-                        node.x -= normalX * overlap * 2;
-                        node.y -= normalY * overlap * 2;
-                    } else {
-                        node.x -= normalX * overlap;
-                        node.y -= normalY * overlap;
-                        other.x += normalX * overlap;
-                        other.y += normalY * overlap;
-                    }
-                    frontlineClampNodePosition(node, width, height, padding);
-                    frontlineClampNodePosition(other, width, height, padding);
-                    moved = true;
-                }
-            }
-            if (!moved) {
-                break;
-            }
-        }
-    }
-
-    function createFrontlineMap(difficultyKey) {
-        const config = frontlineDifficultyConfig(difficultyKey);
-        const width = 920;
-        const height = 560;
-        const centerY = 290;
-        const mainCount = frontlineRandomInt(config.mainNodes[0], config.mainNodes[1]);
-        const stepX = (width - 160) / Math.max(1, mainCount - 1);
-        const nodes = [];
-        const edges = [];
-        const mainNodes = [];
-        let nextIndex = 0;
-
-        for (let index = 0; index < mainCount; index += 1) {
-            const label = frontlineNodeLabel(nextIndex);
-            nextIndex += 1;
-            const x = Math.round(80 + stepX * index + (index > 0 && index < mainCount - 1 ? frontlineRandomInt(-14, 14) : 0));
-            const y = Math.round(centerY + (index > 0 && index < mainCount - 1 ? frontlineRandomInt(-config.mainJitter, config.mainJitter) : 0));
-            const owner = index === 0 ? "player" : (index === mainCount - 1 ? "ai" : "neutral");
-            const towerType = owner === "neutral" ? "normal" : "core";
-            const node = {
-                id: label,
-                label: label,
-                x: x,
-                y: y,
-                owner: owner,
-                level: 1,
-                towerType: towerType,
-                unitCount: owner === "neutral" ? 0 : 20
-            };
-            nodes.push(node);
-            mainNodes.push(node);
-        }
-
-        function addEdge(nodeA, nodeB) {
-            const edgeId = nodeA.id + "-" + nodeB.id;
-            edges.push({
-                id: edgeId,
-                a: nodeA.id,
-                b: nodeB.id,
-                travelMs: frontlineEdgeTravelMs(nodeA, nodeB)
-            });
-        }
-
-        for (let index = 0; index < mainNodes.length - 1; index += 1) {
-            addEdge(mainNodes[index], mainNodes[index + 1]);
-        }
-
-        const branchTargetCount = frontlineRandomInt(config.branchCount[0], config.branchCount[1]);
-        const candidateSlots = [];
-        for (let index = 1; index < mainNodes.length - 2; index += 1) {
-            candidateSlots.push({ from: index, to: index + 2, side: (index % 2 === 0 ? "top" : "bottom") });
-            if (index + 3 < mainNodes.length && config.key !== "easy") {
-                candidateSlots.push({ from: index, to: index + 3, side: (index % 2 === 0 ? "bottom" : "top") });
-            }
-        }
-        const pickedSlots = frontlineShuffle(candidateSlots).slice(0, branchTargetCount);
-        let topDepth = 0;
-        let bottomDepth = 0;
-        pickedSlots.forEach(function (slot) {
-            const fromNode = mainNodes[slot.from];
-            const toNode = mainNodes[slot.to];
-            const label = frontlineNodeLabel(nextIndex);
-            nextIndex += 1;
-            const depth = slot.side === "top" ? topDepth++ : bottomDepth++;
-            const levelY = slot.side === "top"
-                ? 126 - depth * 32 + frontlineRandomInt(-12, 12)
-                : 454 + depth * 26 + frontlineRandomInt(-10, 10);
-            const branchNode = {
-                id: label,
-                label: label,
-                x: Math.round((fromNode.x + toNode.x) / 2 + frontlineRandomInt(-18, 18)),
-                y: Math.round(levelY),
-                owner: "neutral",
-                level: 1,
-                towerType: "normal",
-                unitCount: 0
-            };
-            nodes.push(branchNode);
-            addEdge(fromNode, branchNode);
-            addEdge(branchNode, toNode);
-        });
-
-        const neutralNodes = nodes.filter(function (node) {
-            return node.owner === "neutral";
-        });
-        const specialPool = frontlineShuffle(neutralNodes);
-        const availableTypes = frontlineShuffle(["foundry", "bastion", "surge", "relay", "arsenal", "vault"]);
-        for (let index = 0; index < Math.min(config.specialCount, specialPool.length); index += 1) {
-            specialPool[index].towerType = availableTypes[index % availableTypes.length];
-        }
-
-        neutralNodes.forEach(function (node) {
-            const progress = clamp((node.x - 80) / Math.max(1, width - 160), 0, 1);
-            let guard = Math.round(config.neutralGuard[0] + (config.neutralGuard[1] - config.neutralGuard[0]) * progress) + frontlineRandomInt(-2, 2);
-            if (node.towerType === "bastion") {
-                guard += 4;
-            } else if (node.towerType === "surge") {
-                guard += 2;
-            } else if (node.towerType === "foundry") {
-                guard += 1;
-            } else if (node.towerType === "vault") {
-                guard += 5;
-            } else if (node.towerType === "arsenal") {
-                guard += 3;
-            } else if (node.towerType === "relay") {
-                guard += 1;
-            }
-            node.unitCount = Math.max(6, guard);
-        });
-
-        frontlineSeparateNodes(nodes, width, height, {
-            [mainNodes[0] ? mainNodes[0].id : ""]: true,
-            [mainNodes[mainNodes.length - 1] ? mainNodes[mainNodes.length - 1].id : ""]: true
-        });
-
-        return {
-            key: "frontline-" + config.key + "-" + Date.now() + "-" + Math.random().toString(36).slice(2, 6),
-            width: width,
-            height: height,
-            difficulty: config.key,
-            nodes: nodes,
-            edges: edges
-        };
-    }
-
-    function getFrontlineTowerSpec(level, towerType) {
-        const baseTable = {
-            1: { cap: 30, productionInterval: 3400, productionAmount: 4, upgradeCost: 15 },
-            2: { cap: 45, productionInterval: 2800, productionAmount: 6, upgradeCost: 25 },
-            3: { cap: 65, productionInterval: 2200, productionAmount: 8, upgradeCost: 0 }
-        };
-        const base = baseTable[level] || baseTable[1];
-        const meta = frontlineTowerTypeMeta(towerType);
-        return {
-            cap: Math.max(20, Math.round(base.cap * meta.capMultiplier)),
-            productionInterval: Math.max(1200, Math.round(base.productionInterval * meta.intervalMultiplier)),
-            productionAmount: Math.max(1, Math.round(base.productionAmount * meta.amountMultiplier)),
-            upgradeCost: level >= 3 ? 0 : Math.max(8, Math.round(base.upgradeCost)),
-            defenseMultiplier: meta.defenseMultiplier,
-            travelMultiplier: meta.travelMultiplier,
-            dispatchMultiplier: meta.dispatchMultiplier,
-            priorityScore: meta.priorityScore,
-            label: meta.label,
-            shortLabel: meta.shortLabel
-        };
-    }
-
-    function createFrontlineSession(difficultyKey) {
-        const difficulty = String(difficultyKey || "normal");
-        const currentMap = createFrontlineMap(difficulty);
-        return {
-            sessionKey: "frontline-" + Date.now() + "-" + Math.random().toString(36).slice(2, 8),
-            mapKey: currentMap.key,
-            difficulty: difficulty,
-            status: "playing",
-            startedAt: Date.now(),
-            elapsedSeconds: 0,
-            nextSquadId: 1,
-            selectedTowerId: currentMap.nodes.length ? currentMap.nodes[0].id : "",
-            submittedScore: false,
-            celebrationPlayed: false,
-            map: currentMap,
-            towers: currentMap.nodes.map(function (node) {
-                return {
-                    id: node.id,
-                    owner: node.owner,
-                    level: node.level,
-                    unitCount: node.unitCount,
-                    prodProgressMs: 0
-                };
-            }),
-            squads: []
-        };
-    }
-
-    function normalizeFrontlineSession(raw) {
-        if (!raw || !Array.isArray(raw.towers) || !raw.towers.length) {
-            return createFrontlineSession("normal");
-        }
-        const rawMap = raw.map && Array.isArray(raw.map.nodes) && Array.isArray(raw.map.edges) ? raw.map : createFrontlineMap(String(raw.difficulty || "normal"));
-        const currentMap = {
-            key: String(rawMap.key || ("frontline-" + Date.now())),
-            width: Number(rawMap.width || 920),
-            height: Number(rawMap.height || 560),
-            difficulty: String(rawMap.difficulty || raw.difficulty || "normal"),
-            nodes: rawMap.nodes.map(function (node, index) {
-                return {
-                    id: String(node.id || frontlineNodeLabel(index)),
-                    label: String(node.label || node.id || frontlineNodeLabel(index)),
-                    x: Number(node.x || 0),
-                    y: Number(node.y || 0),
-                    owner: node.owner === "player" || node.owner === "ai" ? node.owner : "neutral",
-                    level: clamp(Number(node.level || 1), 1, 3),
-                    towerType: String(node.towerType || "normal"),
-                    unitCount: Math.max(0, Number(node.unitCount || 0))
-                };
-            }),
-            edges: rawMap.edges.map(function (edge, index) {
-                return {
-                    id: String(edge.id || ("edge-" + index)),
-                    a: String(edge.a || ""),
-                    b: String(edge.b || ""),
-                    travelMs: Math.max(800, Number(edge.travelMs || 1800))
-                };
-            })
-        };
-        const nodeIds = {};
-        currentMap.nodes.forEach(function (node) {
-            nodeIds[node.id] = true;
-        });
-        const towerById = {};
-        raw.towers.forEach(function (tower) {
-            if (tower && nodeIds[tower.id]) {
-                towerById[tower.id] = tower;
-            }
-        });
-        const edgeByNodePair = {};
-        currentMap.edges.forEach(function (edge) {
-            edgeByNodePair[edge.a + ":" + edge.b] = edge;
-            edgeByNodePair[edge.b + ":" + edge.a] = edge;
-        });
-        return {
-            sessionKey: String(raw.sessionKey || ("frontline-" + Date.now())),
-            mapKey: currentMap.key,
-            difficulty: String(raw.difficulty || currentMap.difficulty || "normal"),
-            status: raw.status === "victory" || raw.status === "defeat" ? raw.status : "playing",
-            startedAt: Number(raw.startedAt || Date.now()),
-            elapsedSeconds: Number(raw.elapsedSeconds || 0),
-            nextSquadId: Math.max(1, Number(raw.nextSquadId || 1)),
-            selectedTowerId: nodeIds[raw.selectedTowerId] ? raw.selectedTowerId : (currentMap.nodes[0] ? currentMap.nodes[0].id : ""),
-            submittedScore: Boolean(raw.submittedScore),
-            celebrationPlayed: Boolean(raw.celebrationPlayed),
-            map: currentMap,
-            towers: currentMap.nodes.map(function (node) {
-                const source = towerById[node.id] || {};
-                return {
-                    id: node.id,
-                    owner: source.owner === "player" || source.owner === "ai" || source.owner === "neutral" ? source.owner : node.owner,
-                    level: clamp(Number(source.level || node.level), 1, 3),
-                    unitCount: Math.max(0, Math.round(Number(source.unitCount != null ? source.unitCount : node.unitCount))),
-                    prodProgressMs: Math.max(0, Number(source.prodProgressMs || 0))
-                };
-            }),
-            squads: Array.isArray(raw.squads) ? raw.squads.map(function (squad) {
-                const edge = edgeByNodePair[(squad && squad.fromId) + ":" + (squad && squad.toId)];
-                if (!edge) {
-                    return null;
-                }
-                return {
-                    id: Math.max(1, Number(squad.id || 0)),
-                    owner: squad.owner === "player" || squad.owner === "ai" ? squad.owner : "neutral",
-                    fromId: edge.a === squad.fromId ? edge.a : squad.fromId,
-                    toId: edge.a === squad.fromId ? edge.b : squad.toId,
-                    count: Math.max(0, Math.round(Number(squad.count || 0))),
-                    progress: clamp(Number(squad.progress || 0), 0, 1),
-                    travelMs: Math.max(800, Number(squad.travelMs || edge.travelMs))
-                };
-            }).filter(function (squad) {
-                return squad && squad.count > 0 && squad.owner !== "neutral";
-            }) : []
-        };
-    }
-
-    function syncFrontlineClock(session) {
-        if (session.status === "playing") {
-            session.elapsedSeconds = Math.max(0, Math.floor((Date.now() - session.startedAt) / 1000));
-        }
-    }
-
-    function serializeFrontlineSession(session) {
-        syncFrontlineClock(session);
-        return {
-            sessionKey: session.sessionKey,
-            mapKey: session.mapKey,
-            difficulty: session.difficulty,
-            status: session.status,
-            startedAt: session.startedAt,
-            elapsedSeconds: session.elapsedSeconds,
-            nextSquadId: session.nextSquadId,
-            selectedTowerId: session.selectedTowerId,
-            submittedScore: session.submittedScore,
-            celebrationPlayed: session.celebrationPlayed,
-            map: session.map,
-            towers: session.towers.map(function (tower) {
-                return {
-                    id: tower.id,
-                    owner: tower.owner,
-                    level: tower.level,
-                    unitCount: Math.round(tower.unitCount),
-                    prodProgressMs: Math.round(tower.prodProgressMs || 0)
-                };
-            }),
-            squads: session.squads.map(function (squad) {
-                return {
-                    id: squad.id,
-                    owner: squad.owner,
-                    fromId: squad.fromId,
-                    toId: squad.toId,
-                    count: Math.round(squad.count),
-                    progress: Math.round(clamp(squad.progress, 0, 1) * 1000) / 1000,
-                    travelMs: Math.round(squad.travelMs)
-                };
-            })
-        };
-    }
-
-    function summarizeFrontlineSession(session) {
-        syncFrontlineClock(session);
-        const towerCounts = { player: 0, ai: 0, neutral: 0 };
-        const units = { player: 0, ai: 0 };
-        session.towers.forEach(function (tower) {
-            towerCounts[tower.owner] += 1;
-            if (tower.owner === "player" || tower.owner === "ai") {
-                units[tower.owner] += tower.unitCount;
-            }
-        });
-        session.squads.forEach(function (squad) {
-            if (squad.owner === "player" || squad.owner === "ai") {
-                units[squad.owner] += squad.count;
-            }
-        });
-        return {
-            status: session.status,
-            elapsed_seconds: session.elapsedSeconds,
-            player_towers: towerCounts.player,
-            ai_towers: towerCounts.ai,
-            player_units: Math.round(units.player),
-            ai_units: Math.round(units.ai)
-        };
-    }
-
-    function computeFrontlineScore(session) {
-        const summary = summarizeFrontlineSession(session);
-        const difficultyMultiplier = session.difficulty === "hard" ? 1.75 : (session.difficulty === "easy" ? 1 : 1.35);
-        const survivedUnits = Number(summary.player_units || 0);
-        const playerTowers = Number(summary.player_towers || 0);
-        const victoryBonus = session.status === "victory" ? Math.round(1200 * difficultyMultiplier) : 0;
-        const mapControlBonus = Math.round(playerTowers * 140 * difficultyMultiplier);
-        const unitBonus = Math.round(survivedUnits * 12 * difficultyMultiplier);
-        const timeBonus = session.status === "victory" ? Math.max(0, 720 - session.elapsedSeconds) * Math.round(4 * difficultyMultiplier) : 0;
-        return {
-            victoryBonus: victoryBonus,
-            mapControlBonus: mapControlBonus,
-            unitBonus: unitBonus,
-            timeBonus: timeBonus,
-            total: Math.max(0, Math.round(victoryBonus + mapControlBonus + unitBonus + timeBonus))
-        };
-    }
-
-    function mountFrontline(savedPayload) {
-        const nodeById = {};
-        const edgeById = {};
-        const edgeByPair = {};
-        const neighbors = {};
-        let session = normalizeFrontlineSession(savedPayload.state || {});
-        let currentMap = session.map;
-        let timerId = null;
-        let introActive = true;
-        let introShownAt = Date.now();
-        let lastFrameAt = Date.now();
-        let aiAccumulatorMs = 0;
-        let autosaveAccumulatorMs = 0;
-        let dragState = null;
-        const frontlineHelpConfig = {
-            title: "攻占前线",
-            subtitle: "随机地图单机版，包含难度分档、六种功能塔、拖拽派兵和基础 AI。",
-            bullets: [
-                "从塔的四宫格区域按下并拖到相邻塔，可以按 25/50/75/100% 派兵。",
-                "不同难度会改变主路径长度、分支数量、中立守军和特殊塔数量。",
-                "工坊、堡垒、脉冲、中继、军械、储备塔各有专长；胜利后会播放结算动画并展示加分。"
-            ],
-            hint: "点击“新地图”会按当前难度重新生成一张图；刷新页面仍可续玩当前随机图。"
-        };
-
-        function rebuildMapIndexes() {
-            Object.keys(nodeById).forEach(function (key) { delete nodeById[key]; });
-            Object.keys(edgeById).forEach(function (key) { delete edgeById[key]; });
-            Object.keys(edgeByPair).forEach(function (key) { delete edgeByPair[key]; });
-            Object.keys(neighbors).forEach(function (key) { delete neighbors[key]; });
-            currentMap = session.map;
-            currentMap.nodes.forEach(function (node) {
-                nodeById[node.id] = node;
-                neighbors[node.id] = [];
-            });
-            currentMap.edges.forEach(function (edge) {
-                edgeById[edge.id] = edge;
-                edgeByPair[edge.a + ":" + edge.b] = edge;
-                edgeByPair[edge.b + ":" + edge.a] = edge;
-                if (neighbors[edge.a]) {
-                    neighbors[edge.a].push(edge.b);
-                }
-                if (neighbors[edge.b]) {
-                    neighbors[edge.b].push(edge.a);
-                }
-            });
-        }
-
-        function restartFrontline(difficultyKey) {
-            finalizeScoreIfNeeded("restart").finally(function () {
-                session = createFrontlineSession(difficultyKey || session.difficulty);
-                rebuildMapIndexes();
-                introShownAt = Date.now();
-                introActive = true;
-                lastFrameAt = Date.now();
-                clearVictoryVisuals();
-                render();
-                persist();
-                showIntro();
-            });
-        }
-
-        rebuildMapIndexes();
-
-        addStageButton("重新开局", function () {
-            restartFrontline(session.difficulty);
-        }, true);
-        addStageButton("新地图", function () {
-            restartFrontline(session.difficulty);
-        }, false);
-        addStageButton("简单", function () {
-            restartFrontline("easy");
-        }, false);
-        addStageButton("普通", function () {
-            restartFrontline("normal");
-        }, false);
-        addStageButton("困难", function () {
-            restartFrontline("hard");
-        }, false);
-
-        const shell = document.createElement("div");
-        shell.className = "game-frontline-shell";
-        shell.innerHTML = [
-            '<div class="game-frontline-top">',
-            '  <div>',
-            '    <div class="games-section-title">地图情报</div>',
-            '    <div class="games-stage-meta" id="frontlineMapMeta"></div>',
-            "  </div>",
-            '  <div class="game-stat-grid">',
-            '    <div class="game-stat-card"><div class="game-stat-label">难度</div><div class="game-stat-value" id="frontlineDifficulty">普通</div></div>',
-            '    <div class="game-stat-card"><div class="game-stat-label">玩家塔</div><div class="game-stat-value" id="frontlinePlayerTowers">0</div></div>',
-            '    <div class="game-stat-card"><div class="game-stat-label">AI 塔</div><div class="game-stat-value" id="frontlineAiTowers">0</div></div>',
-            '    <div class="game-stat-card"><div class="game-stat-label">行军队伍</div><div class="game-stat-value" id="frontlineSquads">0</div></div>',
-            '    <div class="game-stat-card"><div class="game-stat-label">用时</div><div class="game-stat-value" id="frontlineTime">00:00</div></div>',
-            "  </div>",
-            "</div>",
-            '<div class="games-stage-meta" id="frontlineStatusLine"></div>',
-            '<div class="game-frontline-stage">',
-            '  <div class="game-frontline-mapwrap game-start-host" id="frontlineMapWrap">',
-            '    <svg class="game-frontline-svg" id="frontlineSvg" viewBox="0 0 ' + currentMap.width + " " + currentMap.height + '" preserveAspectRatio="xMidYMid meet"></svg>',
-            '    <canvas class="game-frontline-victory-canvas" id="frontlineVictoryCanvas"></canvas>',
-            '    <div class="game-frontline-victory-banner" id="frontlineVictoryBanner"></div>',
-            "  </div>",
-            '  <div class="game-frontline-sidecard">',
-            '    <div class="game-frontline-panel">',
-            '      <div class="games-section-title" id="frontlinePanelTitle">塔信息</div>',
-            '      <div class="game-frontline-selection" id="frontlineSelectionCard"></div>',
-            "    </div>",
-            "  </div>",
-            "</div>"
-        ].join("");
-        els.stageBody.appendChild(shell);
-
-        const localStatGrid = shell.querySelector(".game-stat-grid");
-        const mapWrapEl = shell.querySelector("#frontlineMapWrap");
-        const svgEl = shell.querySelector("#frontlineSvg");
-        const victoryCanvasEl = shell.querySelector("#frontlineVictoryCanvas");
-        const victoryBannerEl = shell.querySelector("#frontlineVictoryBanner");
-        const mapMetaEl = shell.querySelector("#frontlineMapMeta");
-        const difficultyEl = shell.querySelector("#frontlineDifficulty");
-        const playerTowersEl = shell.querySelector("#frontlinePlayerTowers");
-        const aiTowersEl = shell.querySelector("#frontlineAiTowers");
-        const squadsEl = shell.querySelector("#frontlineSquads");
-        const timeEl = shell.querySelector("#frontlineTime");
-        const statusEl = shell.querySelector("#frontlineStatusLine");
-        const panelTitleEl = shell.querySelector("#frontlinePanelTitle");
-        const selectionCardEl = shell.querySelector("#frontlineSelectionCard");
-        let victoryAnimFrame = 0;
-        let victoryAnimTimeout = 0;
-
-        addStageButton("帮助", function () {
-            openGameInfoOverlay(mapWrapEl, frontlineHelpConfig);
-        }, false);
-
-        if (localStatGrid) {
-            localStatGrid.hidden = true;
-        }
-
-        function createSvgNode(tagName, attrs) {
-            const node = document.createElementNS("http://www.w3.org/2000/svg", tagName);
-            Object.keys(attrs || {}).forEach(function (key) {
-                node.setAttribute(key, String(attrs[key]));
-            });
-            return node;
-        }
-
-        function syncVictoryCanvasSize() {
-            if (!victoryCanvasEl || !mapWrapEl) {
-                return;
-            }
-            const rect = mapWrapEl.getBoundingClientRect();
-            const ratio = window.devicePixelRatio || 1;
-            victoryCanvasEl.width = Math.max(1, Math.round(rect.width * ratio));
-            victoryCanvasEl.height = Math.max(1, Math.round(rect.height * ratio));
-            victoryCanvasEl.style.width = rect.width + "px";
-            victoryCanvasEl.style.height = rect.height + "px";
-        }
-
-        function clearVictoryVisuals() {
-            if (victoryAnimFrame) {
-                window.cancelAnimationFrame(victoryAnimFrame);
-                victoryAnimFrame = 0;
-            }
-            if (victoryAnimTimeout) {
-                window.clearTimeout(victoryAnimTimeout);
-                victoryAnimTimeout = 0;
-            }
-            if (mapWrapEl) {
-                mapWrapEl.classList.remove("is-victory-active");
-            }
-            if (victoryBannerEl) {
-                victoryBannerEl.classList.remove("is-visible");
-                victoryBannerEl.textContent = "";
-            }
-            if (victoryCanvasEl) {
-                const context = victoryCanvasEl.getContext("2d");
-                if (context) {
-                    context.clearRect(0, 0, victoryCanvasEl.width, victoryCanvasEl.height);
-                }
-            }
-        }
-
-        function playFrontlineVictoryCelebration(scoreData) {
-            if (!victoryCanvasEl || !victoryBannerEl) {
-                return;
-            }
-            syncVictoryCanvasSize();
-            clearVictoryVisuals();
-            mapWrapEl.classList.add("is-victory-active");
-            const ratio = window.devicePixelRatio || 1;
-            const context = victoryCanvasEl.getContext("2d");
-            if (!context) {
-                return;
-            }
-            const width = victoryCanvasEl.width;
-            const height = victoryCanvasEl.height;
-            const particles = [];
-            const colors = ["#fde68a", "#f59e0b", "#bfdbfe", "#fca5a5", "#ffffff"];
-            for (let index = 0; index < 52; index += 1) {
-                particles.push({
-                    x: Math.random() * width,
-                    y: -Math.random() * height * 0.45,
-                    vx: (Math.random() - 0.5) * 3.4 * ratio,
-                    vy: (1.8 + Math.random() * 3.6) * ratio,
-                    size: (4 + Math.random() * 8) * ratio,
-                    angle: Math.random() * Math.PI * 2,
-                    spin: (Math.random() - 0.5) * 0.22,
-                    color: colors[index % colors.length]
-                });
-            }
-            const startedAt = Date.now();
-            function frame() {
-                const elapsed = Date.now() - startedAt;
-                context.clearRect(0, 0, width, height);
-                particles.forEach(function (particle) {
-                    particle.x += particle.vx;
-                    particle.y += particle.vy;
-                    particle.angle += particle.spin;
-                    particle.vy += 0.06 * ratio;
-                    context.save();
-                    context.translate(particle.x, particle.y);
-                    context.rotate(particle.angle);
-                    context.fillStyle = particle.color;
-                    context.fillRect(-particle.size / 2, -particle.size / 3, particle.size, particle.size * 0.66);
-                    context.restore();
-                });
-                if (elapsed < 3200) {
-                    victoryAnimFrame = window.requestAnimationFrame(frame);
-                } else {
-                    victoryAnimFrame = 0;
-                }
-            }
-            victoryBannerEl.textContent = "胜利 +" + scoreData.total;
-            victoryBannerEl.classList.add("is-visible");
-            victoryAnimFrame = window.requestAnimationFrame(frame);
-            victoryAnimTimeout = window.setTimeout(function () {
-                if (victoryBannerEl) {
-                    victoryBannerEl.classList.remove("is-visible");
-                }
-            }, 3600);
-        }
-
-        function clientPointToSvg(event) {
-            const ctm = svgEl.getScreenCTM();
-            if (!ctm) {
-                return { x: 0, y: 0 };
-            }
-            const point = svgEl.createSVGPoint();
-            point.x = event.clientX;
-            point.y = event.clientY;
-            const result = point.matrixTransform(ctm.inverse());
-            return { x: result.x, y: result.y };
-        }
-
-        function frontlineTowerHalfSize() {
-            return 38;
-        }
-
-        function frontlineTowerHitRadius() {
-            return 54;
-        }
-
-        function frontlineRatioLabel(ratio) {
-            const table = {
-                1: "100%",
-                0.75: "75%",
-                0.5: "50%",
-                0.25: "25%"
-            };
-            return table[ratio] || (Math.round(ratio * 100) + "%");
-        }
-
-        function frontlineRatioFromCell(offsetX, offsetY) {
-            const right = offsetX >= 0;
-            const bottom = offsetY >= 0;
-            if (!right && !bottom) {
-                return 0.25;
-            }
-            if (right && !bottom) {
-                return 0.5;
-            }
-            if (!right && bottom) {
-                return 0.75;
-            }
-            return 1;
-        }
-
-        function pickTowerAtPoint(point) {
-            let best = null;
-            session.towers.forEach(function (tower) {
-                const node = nodeById[tower.id];
-                if (!node) {
-                    return;
-                }
-                const dx = point.x - node.x;
-                const dy = point.y - node.y;
-                const distance = Math.sqrt(dx * dx + dy * dy);
-                if (distance <= frontlineTowerHitRadius() && (!best || distance < best.distance)) {
-                    best = { tower: tower, distance: distance };
-                }
-            });
-            return best ? best.tower : null;
-        }
-
-        function getTower(towerId) {
-            return session.towers.find(function (tower) {
-                return tower.id === towerId;
-            }) || null;
-        }
-
-        function getEdge(fromId, toId) {
-            return edgeByPair[fromId + ":" + toId] || null;
-        }
-
-        function isAdjacent(fromId, toId) {
-            return Boolean(getEdge(fromId, toId));
-        }
-
-        function persist() {
-            scheduleGameStateSave("frontline", serializeFrontlineSession(session), summarizeFrontlineSession(session));
-        }
-
-        function countOwnedTowers(owner) {
-            return session.towers.filter(function (tower) {
-                return tower.owner === owner;
-            }).length;
-        }
-
-        function countActiveSquads(owner) {
-            return session.squads.filter(function (squad) {
-                return squad.owner === owner;
-            }).length;
-        }
-
-        function getTowerNode(towerId) {
-            return nodeById[towerId] || null;
-        }
-
-        function getTowerSpecForTower(tower) {
-            const node = tower ? getTowerNode(tower.id) : null;
-            return getFrontlineTowerSpec(tower ? tower.level : 1, node ? node.towerType : "normal");
-        }
-
-        function canUpgradeTower(tower) {
-            if (!tower || tower.owner !== "player" || tower.level >= 3) {
-                return false;
-            }
-            const spec = getTowerSpecForTower(tower);
-            return tower.unitCount >= spec.upgradeCost;
-        }
-
-        function upgradeTower(towerId, silent) {
-            const tower = getTower(towerId);
-            if (!tower || tower.owner !== "player") {
-                return false;
-            }
-            if (tower.level >= 3) {
-                if (!silent) {
-                    setStatus("该塔已经满级。", true);
-                }
-                return false;
-            }
-            const spec = getTowerSpecForTower(tower);
-            if (tower.unitCount < spec.upgradeCost) {
-                if (!silent) {
-                    setStatus("驻军不足，无法升级。", true);
-                }
-                return false;
-            }
-            tower.unitCount -= spec.upgradeCost;
-            tower.level += 1;
-            tower.prodProgressMs = 0;
-            if (!silent) {
-                setStatus("塔 " + tower.id + " 已升级到 Lv." + tower.level + "。", false);
-            }
-            render();
-            persist();
-            return true;
-        }
-
-        function beginDrag(towerId, event) {
-            const tower = getTower(towerId);
-            const node = nodeById[towerId];
-            if (!tower || !node || tower.owner !== "player" || session.status !== "playing" || introActive) {
-                return;
-            }
-            const previousSelectedId = session.selectedTowerId;
-            const point = clientPointToSvg(event);
-            const ratio = frontlineRatioFromCell(point.x - node.x, point.y - node.y);
-            session.selectedTowerId = towerId;
-            dragState = {
-                sourceId: towerId,
-                ratio: ratio,
-                previousSelectedId: previousSelectedId,
-                startPoint: point,
-                currentPoint: point,
-                hoveredTargetId: "",
-                moved: false
-            };
-            render();
-        }
-
-        function updateDrag(event) {
-            if (!dragState) {
-                return;
-            }
-            const point = clientPointToSvg(event);
-            dragState.currentPoint = point;
-            const sourceNode = nodeById[dragState.sourceId];
-            const dx = point.x - dragState.startPoint.x;
-            const dy = point.y - dragState.startPoint.y;
-            dragState.moved = dragState.moved || Math.sqrt(dx * dx + dy * dy) > 10;
-            const hovered = pickTowerAtPoint(point);
-            dragState.hoveredTargetId = hovered && hovered.id !== dragState.sourceId && isAdjacent(dragState.sourceId, hovered.id) ? hovered.id : "";
-            if (sourceNode) {
-                dragState.ratio = frontlineRatioFromCell(dragState.startPoint.x - sourceNode.x, dragState.startPoint.y - sourceNode.y);
-            }
-            render();
-        }
-
-        function endDrag() {
-            if (!dragState) {
-                return;
-            }
-            const sourceId = dragState.sourceId;
-            const targetId = dragState.hoveredTargetId;
-            const moved = dragState.moved;
-            const ratio = dragState.ratio;
-            const previousSelectedId = dragState.previousSelectedId;
-            dragState = null;
-            if (targetId) {
-                if (dispatchSquad(sourceId, targetId, ratio, "player")) {
-                    setStatus("已从 " + sourceId + " 向 " + targetId + " 派出 " + frontlineRatioLabel(ratio) + " 兵力。", false);
-                    render();
-                    persist();
-                    return;
-                }
-            }
-            if (!moved) {
-                session.selectedTowerId = previousSelectedId === sourceId ? "" : sourceId;
-            }
-            render();
-        }
-
-        function dispatchSquad(fromId, toId, ratio, owner) {
-            const source = getTower(fromId);
-            const target = getTower(toId);
-            const edge = getEdge(fromId, toId);
-            if (!source || !target || !edge) {
-                return false;
-            }
-            if (source.owner !== owner) {
-                return false;
-            }
-            const available = Math.max(0, Math.floor(source.unitCount) - 1);
-            if (available <= 0) {
-                return false;
-            }
-            const sendCount = getFrontlineDispatchCount(source, ratio);
-            if (sendCount <= 0) {
-                return false;
-            }
-            const sourceSpec = getTowerSpecForTower(source);
-            source.unitCount = Math.max(0, source.unitCount - sendCount);
-            session.squads.push({
-                id: session.nextSquadId,
-                owner: owner,
-                fromId: fromId,
-                toId: toId,
-                count: Math.max(1, Math.round(sendCount * Math.max(1, Number(sourceSpec.dispatchMultiplier || 1)))),
-                progress: 0,
-                travelMs: Math.max(800, Math.round(edge.travelMs * Math.max(0.6, Number(sourceSpec.travelMultiplier || 1))))
-            });
-            session.nextSquadId += 1;
-            return true;
-        }
-
-        function getFrontlineDispatchCount(source, ratio) {
-            if (!source) {
-                return 0;
-            }
-            const available = Math.max(0, Math.floor(source.unitCount) - 1);
-            if (available <= 0) {
-                return 0;
-            }
-            let sendCount = ratio >= 1 ? available : Math.floor(available * ratio);
-            sendCount = clamp(sendCount, 0, available);
-            return sendCount;
-        }
-
-        function handleArrival(squad) {
-            const tower = getTower(squad.toId);
-            if (!tower) {
-                return;
-            }
-            if (tower.owner === squad.owner) {
-                tower.unitCount += squad.count;
-                return;
-            }
-            const spec = getTowerSpecForTower(tower);
-            const defenseMultiplier = Math.max(1, Number(spec.defenseMultiplier || 1));
-            const effectiveGuard = Math.max(0, Math.round(tower.unitCount * defenseMultiplier));
-            if (squad.count > effectiveGuard) {
-                const remainder = squad.count - effectiveGuard;
-                const previousOwner = tower.owner;
-                tower.owner = squad.owner;
-                tower.unitCount = Math.max(1, Math.round(remainder));
-                tower.prodProgressMs = 0;
-                if (previousOwner === "player" || previousOwner === "ai") {
-                    tower.level = Math.max(1, tower.level - 1);
-                }
-                return;
-            }
-            tower.unitCount = Math.max(0, Math.ceil((effectiveGuard - squad.count) / defenseMultiplier));
-        }
-
-        function resolveSquadEncounters() {
-            const removed = {};
-            for (let index = 0; index < session.squads.length; index += 1) {
-                const squad = session.squads[index];
-                if (!squad || removed[squad.id]) {
-                    continue;
-                }
-                for (let otherIndex = index + 1; otherIndex < session.squads.length; otherIndex += 1) {
-                    const other = session.squads[otherIndex];
-                    if (!other || removed[other.id] || squad.owner === other.owner) {
-                        continue;
-                    }
-                    if (squad.fromId === other.toId && squad.toId === other.fromId && squad.progress >= (1 - other.progress)) {
-                        const loss = Math.min(squad.count, other.count);
-                        squad.count -= loss;
-                        other.count -= loss;
-                        if (squad.count <= 0) {
-                            removed[squad.id] = true;
-                        }
-                        if (other.count <= 0) {
-                            removed[other.id] = true;
-                        }
-                    }
-                }
-            }
-            if (Object.keys(removed).length) {
-                session.squads = session.squads.filter(function (squad) {
-                    return !removed[squad.id] && squad.count > 0;
-                });
-            }
-        }
-
-        function updateVictoryState() {
-            const playerTowerCount = countOwnedTowers("player");
-            const aiTowerCount = countOwnedTowers("ai");
-            const playerSquads = countActiveSquads("player");
-            const aiSquads = countActiveSquads("ai");
-            if (session.status !== "playing") {
-                return;
-            }
-            if (aiTowerCount === 0 && aiSquads === 0) {
-                session.status = "victory";
-                finalizeScoreIfNeeded("victory");
-                setStatus("攻占前线：玩家胜利。", false);
-            } else if (playerTowerCount === 0 && playerSquads === 0) {
-                session.status = "defeat";
-                clearVictoryVisuals();
-                finalizeScoreIfNeeded("defeat");
-                setStatus("攻占前线：本局失败。", true);
-            }
-        }
-
-        function runAiTurn() {
-            if (session.status !== "playing") {
-                return;
-            }
-            const aiTowers = session.towers.filter(function (tower) {
-                return tower.owner === "ai";
-            }).sort(function (left, right) {
-                return right.unitCount - left.unitCount;
-            });
-            let acted = false;
-
-            aiTowers.forEach(function (tower) {
-                if (acted) {
-                    return;
-                }
-                const towerNode = getTowerNode(tower.id);
-                const spec = getTowerSpecForTower(tower);
-                const outgoingThreshold = Math.max(10, Math.floor(spec.cap * 0.66));
-                if (tower.unitCount < outgoingThreshold) {
-                    return;
-                }
-
-                const candidates = neighbors[tower.id].map(function (targetId) {
-                    const target = getTower(targetId);
-                    if (!target || target.owner === "ai") {
-                        return null;
-                    }
-                    const targetSpec = getTowerSpecForTower(target);
-                    const advantage = tower.unitCount - target.unitCount;
-                    let score = advantage * 8;
-                    if (target.owner === "player") {
-                        score += 60;
-                    } else {
-                        score += 30;
-                    }
-                    score += Number(targetSpec.priorityScore || 0);
-                    if (towerNode && towerNode.towerType === "foundry") {
-                        score += 8;
-                    } else if (towerNode && towerNode.towerType === "relay") {
-                        score += 10;
-                    } else if (towerNode && towerNode.towerType === "arsenal") {
-                        score += 14;
-                    } else if (towerNode && towerNode.towerType === "vault") {
-                        score += 4;
-                    }
-                    return { targetId: targetId, score: score };
-                }).filter(Boolean).sort(function (left, right) {
-                    return right.score - left.score;
-                });
-
-                if (candidates.length && candidates[0].score > 20) {
-                    acted = dispatchSquad(tower.id, candidates[0].targetId, tower.unitCount > spec.cap * 0.88 ? 1 : 0.5, "ai");
-                    return;
-                }
-
-                const aiNeighbors = neighbors[tower.id].map(function (targetId) {
-                    return getTower(targetId);
-                }).filter(function (target) {
-                    return target && target.owner === "ai";
-                }).sort(function (left, right) {
-                    return left.unitCount - right.unitCount;
-                });
-                if (aiNeighbors.length && tower.unitCount - aiNeighbors[0].unitCount >= 14) {
-                    acted = dispatchSquad(tower.id, aiNeighbors[0].id, 0.5, "ai");
-                    return;
-                }
-                if (tower.level < 3 && tower.unitCount >= spec.upgradeCost + 14) {
-                    tower.unitCount -= spec.upgradeCost;
-                    tower.level += 1;
-                    tower.prodProgressMs = 0;
-                    acted = true;
-                }
-            });
-        }
-
-        function advanceSimulation(deltaMs) {
-            if (session.status !== "playing") {
-                return;
-            }
-            syncFrontlineClock(session);
-            session.towers.forEach(function (tower) {
-                const spec = getTowerSpecForTower(tower);
-                if (tower.owner === "neutral") {
-                    tower.prodProgressMs = 0;
-                    return;
-                }
-                if (tower.unitCount >= spec.cap) {
-                    tower.prodProgressMs = 0;
-                    return;
-                }
-                tower.prodProgressMs += deltaMs;
-                while (tower.prodProgressMs >= spec.productionInterval && tower.unitCount < spec.cap) {
-                    tower.prodProgressMs -= spec.productionInterval;
-                    tower.unitCount = Math.min(spec.cap, tower.unitCount + spec.productionAmount);
-                }
-            });
-
-            session.squads.forEach(function (squad) {
-                squad.progress += deltaMs / Math.max(800, squad.travelMs);
-            });
-            resolveSquadEncounters();
-
-            const arrivals = [];
-            session.squads = session.squads.filter(function (squad) {
-                if (squad.count <= 0) {
-                    return false;
-                }
-                if (squad.progress >= 1) {
-                    arrivals.push(squad);
-                    return false;
-                }
-                return true;
-            });
-            arrivals.forEach(handleArrival);
-
-            aiAccumulatorMs += deltaMs;
-            if (aiAccumulatorMs >= 1100) {
-                aiAccumulatorMs = 0;
-                runAiTurn();
-            }
-            updateVictoryState();
-        }
-
-        function finalizeScoreIfNeeded(reason) {
-            syncFrontlineClock(session);
-            const scoreData = computeFrontlineScore(session);
-            if (session.submittedScore || scoreData.total <= 0 || session.status === "playing") {
-                return Promise.resolve();
-            }
-            if (session.status === "victory" && !session.celebrationPlayed) {
-                session.celebrationPlayed = true;
-                playFrontlineVictoryCelebration(scoreData);
-            }
-            session.submittedScore = true;
-            return submitScore("frontline", scoreData.total, session.difficulty, session.sessionKey, {
-                mode_key: session.mapKey,
-                status: session.status,
-                elapsed_seconds: session.elapsedSeconds,
-                player_towers: countOwnedTowers("player"),
-                ai_towers: countOwnedTowers("ai"),
-                squads_remaining: countActiveSquads("player"),
-                reason: reason
-            }).catch(function (error) {
-                session.submittedScore = false;
-                setStatus(error.message || "攻占前线成绩提交失败", true);
-            });
-        }
-
-        function renderLines(linesGroup, selectedTowerId) {
-            currentMap.edges.forEach(function (edge) {
-                const nodeA = nodeById[edge.a];
-                const nodeB = nodeById[edge.b];
-                const active = selectedTowerId && (edge.a === selectedTowerId || edge.b === selectedTowerId);
-                const line = createSvgNode("line", {
-                    x1: nodeA.x,
-                    y1: nodeA.y,
-                    x2: nodeB.x,
-                    y2: nodeB.y,
-                    "class": active ? "game-frontline-edge is-active" : "game-frontline-edge"
-                });
-                linesGroup.appendChild(line);
-            });
-        }
-
-        function renderSelectionCard(selectedTower) {
-            if (!selectedTower) {
-                if (panelTitleEl) {
-                    panelTitleEl.textContent = "塔信息";
-                }
-                selectionCardEl.innerHTML = "";
-                selectionCardEl.classList.add("is-empty");
-                return;
-            }
-            selectionCardEl.classList.remove("is-empty");
-            const node = getTowerNode(selectedTower.id);
-            const towerType = node ? node.towerType : "normal";
-            const spec = getTowerSpecForTower(selectedTower);
-            const canUpgrade = canUpgradeTower(selectedTower);
-            if (panelTitleEl) {
-                panelTitleEl.textContent = "塔 " + selectedTower.id + " · " + frontlineTowerTypeMeta(towerType).label;
-            }
-            const ownerLabel = selectedTower.owner === "player" ? "玩家控制" : (selectedTower.owner === "ai" ? "AI 控制" : "中立塔");
-            const neighborLabel = escapeHtml((neighbors[selectedTower.id] || []).join("、") || "无");
-            const upgradeMarkup = selectedTower.owner === "player"
-                ? (
-                    selectedTower.level >= 3
-                        ? '<div class="game-frontline-note">已满级，无可用升级项。</div>'
-                        : [
-                            '<div class="game-frontline-upgrade-card">',
-                            '  <div class="game-frontline-note"><strong>升级到 Lv.' + escapeHtml(selectedTower.level + 1) + '</strong></div>',
-                            '  <div class="game-frontline-note">消耗 ' + escapeHtml(spec.upgradeCost) + ' 兵，下一档容量 ' + escapeHtml(getFrontlineTowerSpec(selectedTower.level + 1, towerType).cap) + '。</div>',
-                            '  <div class="game-frontline-note">下一档批次：每 ' + escapeHtml((getFrontlineTowerSpec(selectedTower.level + 1, towerType).productionInterval / 1000).toFixed(1)) + ' 秒 + ' + escapeHtml(getFrontlineTowerSpec(selectedTower.level + 1, towerType).productionAmount) + ' 兵。</div>',
-                            '  <button type="button" class="games-btn games-btn--primary" id="frontlineUpgradeBtn" ' + (canUpgrade ? "" : "disabled") + '>升级这座塔</button>',
-                            (!canUpgrade ? '<div class="game-frontline-note">当前驻军不足，无法升级。</div>' : ''),
-                            '</div>'
-                        ].join("")
-                )
-                : '<div class="game-frontline-note">只有玩家控制的塔可以升级。</div>';
-            selectionCardEl.innerHTML = [
-                '<div class="game-frontline-selection-main">',
-                '  <div class="game-frontline-note"><strong>' + escapeHtml(ownerLabel) + '</strong></div>',
-                '  <div class="game-frontline-note">塔型 ' + escapeHtml(frontlineTowerTypeMeta(towerType).label) + ' · ' + escapeHtml(frontlineTowerTypeDescription(towerType)) + '</div>',
-                '  <div class="game-frontline-note">驻军 ' + escapeHtml(Math.floor(selectedTower.unitCount)) + ' / ' + escapeHtml(spec.cap) + ' · 当前等级 Lv.' + escapeHtml(selectedTower.level) + '</div>',
-                '  <div class="game-frontline-note">产兵批次：每 ' + escapeHtml((spec.productionInterval / 1000).toFixed(1)) + ' 秒 + ' + escapeHtml(spec.productionAmount) + ' 兵</div>',
-                '  <div class="game-frontline-note">行军速度：' + escapeHtml(Math.round((1 / Math.max(0.6, spec.travelMultiplier)) * 100)) + '% / 出兵兵力：' + escapeHtml(Math.round(spec.dispatchMultiplier * 100)) + '%</div>',
-                '  <div class="game-frontline-note">邻接塔：' + neighborLabel + '</div>',
-                upgradeMarkup,
-                '</div>'
-            ].join("");
-            const upgradeButton = selectionCardEl.querySelector("#frontlineUpgradeBtn");
-            if (upgradeButton) {
-                upgradeButton.addEventListener("click", function () {
-                    upgradeTower(selectedTower.id, false);
-                });
-            }
-        }
-
-        function renderTowers(towersGroup) {
-            const selectedTower = getTower(session.selectedTowerId);
-            session.towers.forEach(function (tower) {
-                const node = getTowerNode(tower.id);
-                const towerType = node ? node.towerType : "normal";
-                const spec = getTowerSpecForTower(tower);
-                const ownedByPlayer = tower.owner === "player";
-                const actionable = dragState
-                    ? dragState.hoveredTargetId === tower.id
-                    : (selectedTower && selectedTower.owner === "player" && selectedTower.id !== tower.id && isAdjacent(selectedTower.id, tower.id));
-                const selected = selectedTower && selectedTower.id === tower.id;
-                const dragSource = dragState && dragState.sourceId === tower.id;
-                const hoveredTarget = dragState && dragState.hoveredTargetId === tower.id;
-                const progress = tower.owner === "neutral" || tower.unitCount >= spec.cap ? 0 : clamp((tower.prodProgressMs || 0) / spec.productionInterval, 0, 1);
-                const half = frontlineTowerHalfSize();
-                const cell = 28;
-                const group = createSvgNode("g", {
-                    "class": [
-                        "game-frontline-tower",
-                        "is-" + tower.owner,
-                        selected ? "is-selected" : "",
-                        actionable ? "is-targetable" : "",
-                        dragSource ? "is-drag-source" : "",
-                        hoveredTarget ? "is-hovered-target" : "",
-                        "is-type-" + towerType
-                    ].join(" ").trim(),
-                    transform: "translate(" + nodeById[tower.id].x + " " + nodeById[tower.id].y + ")",
-                    "data-tower-id": tower.id
-                });
-                const frame = createSvgNode("rect", {
-                    x: -half - 4,
-                    y: -half - 4,
-                    width: (half + 4) * 2,
-                    height: (half + 4) * 2,
-                    rx: 16,
-                    ry: 16,
-                    "class": "game-frontline-tower-ring"
-                });
-                const body = createSvgNode("rect", {
-                    x: -half,
-                    y: -half,
-                    width: half * 2,
-                    height: half * 2,
-                    rx: 12,
-                    ry: 12,
-                    "class": "game-frontline-tower-body"
-                });
-                const q1 = createSvgNode("rect", { x: -half + 6, y: -half + 6, width: cell, height: cell, rx: 7, ry: 7, "class": "game-frontline-tower-cell" });
-                const q2 = createSvgNode("rect", { x: 4, y: -half + 6, width: cell, height: cell, rx: 7, ry: 7, "class": "game-frontline-tower-cell" });
-                const q3 = createSvgNode("rect", { x: -half + 6, y: 4, width: cell, height: cell, rx: 7, ry: 7, "class": "game-frontline-tower-cell" });
-                const q4 = createSvgNode("rect", { x: 4, y: 4, width: cell, height: cell, rx: 7, ry: 7, "class": "game-frontline-tower-cell" });
-                const activeCellClass = dragSource ? " game-frontline-tower-cell--active" : "";
-                if (dragSource) {
-                    if (dragState.ratio === 0.25) {
-                        q1.setAttribute("class", q1.getAttribute("class") + activeCellClass);
-                    } else if (dragState.ratio === 0.5) {
-                        q2.setAttribute("class", q2.getAttribute("class") + activeCellClass);
-                    } else if (dragState.ratio === 0.75) {
-                        q3.setAttribute("class", q3.getAttribute("class") + activeCellClass);
-                    } else {
-                        q4.setAttribute("class", q4.getAttribute("class") + activeCellClass);
-                    }
-                }
-                const pBg = createSvgNode("rect", {
-                    x: -half + 6,
-                    y: half - 16,
-                    width: half * 2 - 12,
-                    height: 8,
-                    rx: 4,
-                    ry: 4,
-                    "class": "game-frontline-progress-bg"
-                });
-                const pFill = createSvgNode("rect", {
-                    x: -half + 6,
-                    y: half - 16,
-                    width: (half * 2 - 12) * progress,
-                    height: 8,
-                    rx: 4,
-                    ry: 4,
-                    "class": "game-frontline-progress-fill"
-                });
-                const idText = createSvgNode("text", {
-                    x: 0,
-                    y: -half - 12,
-                    "text-anchor": "middle",
-                    "class": "game-frontline-tower-id"
-                });
-                idText.textContent = tower.id;
-                const countText = createSvgNode("text", {
-                    x: 0,
-                    y: -2,
-                    "text-anchor": "middle",
-                    "class": "game-frontline-tower-count"
-                });
-                countText.textContent = String(Math.floor(tower.unitCount));
-                const metaText = createSvgNode("text", {
-                    x: 0,
-                    y: half + 16,
-                    "text-anchor": "middle",
-                    "class": "game-frontline-tower-meta"
-                });
-                metaText.textContent = "Lv." + tower.level + " · " + spec.shortLabel;
-                function makeRatioText(x, y, value) {
-                    const ratioText = createSvgNode("text", {
-                        x: x,
-                        y: y,
-                        "text-anchor": "middle",
-                        "class": "game-frontline-cell-ratio"
-                    });
-                    ratioText.textContent = value;
-                    return ratioText;
-                }
-                group.appendChild(frame);
-                group.appendChild(body);
-                group.appendChild(q1);
-                group.appendChild(q2);
-                group.appendChild(q3);
-                group.appendChild(q4);
-                group.appendChild(makeRatioText(-half + 20, -half + 22, "25"));
-                group.appendChild(makeRatioText(half - 20, -half + 22, "50"));
-                group.appendChild(makeRatioText(-half + 20, 24, "75"));
-                group.appendChild(makeRatioText(half - 20, 24, "100"));
-                group.appendChild(pBg);
-                group.appendChild(pFill);
-                group.appendChild(idText);
-                group.appendChild(countText);
-                group.appendChild(metaText);
-
-                group.addEventListener("pointerdown", function (event) {
-                    event.preventDefault();
-                    beginDrag(tower.id, event);
-                });
-                towersGroup.appendChild(group);
-            });
-            renderSelectionCard(selectedTower);
-        }
-
-        function renderSquads(squadsGroup) {
-            session.squads.forEach(function (squad) {
-                const fromNode = nodeById[squad.fromId];
-                const toNode = nodeById[squad.toId];
-                if (!fromNode || !toNode) {
-                    return;
-                }
-                const x = fromNode.x + (toNode.x - fromNode.x) * clamp(squad.progress, 0, 1);
-                const y = fromNode.y + (toNode.y - fromNode.y) * clamp(squad.progress, 0, 1);
-                const group = createSvgNode("g", {
-                    "class": "game-frontline-squad is-" + squad.owner,
-                    transform: "translate(" + x + " " + y + ")"
-                });
-                const bubble = createSvgNode("rect", {
-                    x: -18,
-                    y: -13,
-                    width: 36,
-                    height: 26,
-                    rx: 13,
-                    ry: 13,
-                    "class": "game-frontline-squad-pill"
-                });
-                const label = createSvgNode("text", {
-                    x: 0,
-                    y: 5,
-                    "text-anchor": "middle",
-                    "class": "game-frontline-squad-label"
-                });
-                label.textContent = String(Math.round(squad.count));
-                group.appendChild(bubble);
-                group.appendChild(label);
-                squadsGroup.appendChild(group);
-            });
-        }
-
-        function renderDragOverlay(overlayGroup) {
-            if (!dragState) {
-                return;
-            }
-            const sourceNode = nodeById[dragState.sourceId];
-            const sourceTower = getTower(dragState.sourceId);
-            const targetNode = dragState.hoveredTargetId ? nodeById[dragState.hoveredTargetId] : null;
-            const endX = targetNode ? targetNode.x : dragState.currentPoint.x;
-            const endY = targetNode ? targetNode.y : dragState.currentPoint.y;
-            overlayGroup.appendChild(createSvgNode("line", {
-                x1: sourceNode.x,
-                y1: sourceNode.y,
-                x2: endX,
-                y2: endY,
-                "class": "game-frontline-dragline" + (targetNode ? " is-valid" : "")
-            }));
-            const badgeX = sourceNode.x;
-            const badgeY = sourceNode.y - 60;
-            const sendCount = getFrontlineDispatchCount(sourceTower, dragState.ratio);
-            overlayGroup.appendChild(createSvgNode("rect", {
-                x: badgeX - 42,
-                y: badgeY - 16,
-                width: 84,
-                height: 24,
-                rx: 12,
-                ry: 12,
-                "class": "game-frontline-dragbadge"
-            }));
-            const label = createSvgNode("text", {
-                x: badgeX,
-                y: badgeY + 1,
-                "text-anchor": "middle",
-                "class": "game-frontline-dragbadge-text"
-            });
-            label.textContent = frontlineRatioLabel(dragState.ratio) + " · " + sendCount;
-            overlayGroup.appendChild(label);
-        }
-
-        function render() {
-            syncFrontlineClock(session);
-            const difficultyInfo = frontlineDifficultyConfig(session.difficulty);
-            const specialTowers = currentMap.nodes.filter(function (node) {
-                return node.towerType !== "normal" && node.towerType !== "core";
-            }).length;
-            playerTowersEl.textContent = String(countOwnedTowers("player"));
-            aiTowersEl.textContent = String(countOwnedTowers("ai"));
-            squadsEl.textContent = String(session.squads.length);
-            timeEl.textContent = formatSeconds(session.elapsedSeconds);
-            if (difficultyEl) {
-                difficultyEl.textContent = difficultyInfo.label;
-            }
-            if (mapMetaEl) {
-                mapMetaEl.textContent = "主路径与分支会随难度变化。当前地图：" + currentMap.nodes.length + " 塔 / " + currentMap.edges.length + " 线路 / " + specialTowers + " 特殊塔。";
-            }
-            setStageStats([
-                { label: "难度", value: difficultyInfo.label },
-                { label: "玩家塔", value: String(countOwnedTowers("player")) },
-                { label: "AI 塔", value: String(countOwnedTowers("ai")) },
-                { label: "行军队伍", value: String(session.squads.length) },
-                { label: "用时", value: formatSeconds(session.elapsedSeconds) }
-            ]);
-            statusEl.textContent =
-                session.status === "victory" ? "你已经攻占所有敌方势力，本局已记录成绩。" :
-                    (session.status === "defeat" ? "前线失守，本局已结束。" : ("随机地图进行中：" + difficultyInfo.label + " 难度，进度会自动保存。"));
-            syncPresence(
-                session.status === "victory" ? "攻占前线 胜利" :
-                    (session.status === "defeat" ? "攻占前线 失败" : "正在玩 攻占前线"),
-                ""
-            );
-            svgEl.setAttribute("viewBox", "0 0 " + currentMap.width + " " + currentMap.height);
-            svgEl.innerHTML = "";
-            const linesGroup = createSvgNode("g", { "class": "game-frontline-lines" });
-            const squadsGroup = createSvgNode("g", { "class": "game-frontline-squads" });
-            const overlayGroup = createSvgNode("g", { "class": "game-frontline-overlay" });
-            const towersGroup = createSvgNode("g", { "class": "game-frontline-towers" });
-            renderLines(linesGroup, session.selectedTowerId);
-            renderSquads(squadsGroup);
-            renderDragOverlay(overlayGroup);
-            renderTowers(towersGroup);
-            svgEl.appendChild(linesGroup);
-            svgEl.appendChild(squadsGroup);
-            svgEl.appendChild(overlayGroup);
-            svgEl.appendChild(towersGroup);
-        }
-
-        function tick() {
-            const now = Date.now();
-            const deltaMs = Math.min(250, Math.max(16, now - lastFrameAt));
-            lastFrameAt = now;
-            if (!introActive && state.activeGameId === "frontline") {
-                advanceSimulation(deltaMs);
-                autosaveAccumulatorMs += deltaMs;
-                if (autosaveAccumulatorMs >= 900) {
-                    autosaveAccumulatorMs = 0;
-                    persist();
-                }
-            }
-            render();
-        }
-
-        function showIntro() {
-            createGameStartOverlay(mapWrapEl, Object.assign({}, frontlineHelpConfig, {
-                buttonLabel: session.elapsedSeconds > 0 || session.squads.length > 0 ? "继续本局" : "开始推进",
-                useStageActionButton: true,
-                onStart: function () {
-                    introActive = false;
-                    session.startedAt += Date.now() - introShownAt;
-                    lastFrameAt = Date.now();
-                    render();
-                    persist();
-                }
-            }));
-        }
-
-        timerId = window.setInterval(tick, 100);
-        syncVictoryCanvasSize();
-        window.addEventListener("resize", syncVictoryCanvasSize);
-        window.addEventListener("pointermove", updateDrag);
-        window.addEventListener("pointerup", endDrag);
-        window.addEventListener("pointercancel", endDrag);
-        render();
-        persist();
-        showIntro();
-
-        return function cleanup() {
-            if (timerId) {
-                window.clearInterval(timerId);
-            }
-            window.removeEventListener("resize", syncVictoryCanvasSize);
-            window.removeEventListener("pointermove", updateDrag);
-            window.removeEventListener("pointerup", endDrag);
-            window.removeEventListener("pointercancel", endDrag);
-            clearVictoryVisuals();
-            persist();
-            if (session.status !== "playing") {
-                finalizeScoreIfNeeded("teardown");
-            }
-        };
-    }
 
     function openGameInfoOverlay(host, options) {
         if (!host) {
@@ -3129,755 +1206,6 @@
         return controller;
     }
 
-    function createSudokuSession(modeKey, options) {
-        const opts = options || {};
-        const nextModeKey = modeKey || "classic-medium";
-        const puzzle = opts.puzzleId
-            ? getPuzzleById(opts.puzzleId)
-            : choosePuzzle(nextModeKey, opts.previousPuzzleId);
-        return {
-            sessionKey: "sdk-" + Date.now() + "-" + Math.random().toString(36).slice(2, 8),
-            puzzleId: puzzle.id,
-            modeKey: nextModeKey,
-            board: puzzle.puzzle.split("").map(function (char) { return char === "0" || char === "." ? "" : char; }),
-            elapsedSeconds: 0,
-            checks: 0,
-            completed: false,
-            submittedScore: false,
-            usedSolver: false,
-            celebrationPlayed: false,
-            startedAt: Date.now(),
-            pausedElapsed: 0,
-            paused: false
-        };
-    }
-
-    function normalizeSudokuSession(raw) {
-        if (!raw || !raw.puzzleId) {
-            return createSudokuSession("classic-medium");
-        }
-        const puzzle = getPuzzleById(raw.puzzleId);
-        return {
-            sessionKey: String(raw.sessionKey || ("sdk-" + Date.now())),
-            puzzleId: puzzle.id,
-            modeKey: String(raw.modeKey || (puzzle.variant === "hex" ? "hex-16" : ("classic-" + puzzle.difficulty))),
-            board: Array.isArray(raw.board) && raw.board.length ? raw.board.slice(0, puzzle.size * puzzle.size) : puzzle.puzzle.split("").map(function (char) { return char === "0" || char === "." ? "" : char; }),
-            elapsedSeconds: Number(raw.elapsedSeconds || 0),
-            checks: Number(raw.checks || 0),
-            completed: Boolean(raw.completed),
-            submittedScore: Boolean(raw.submittedScore),
-            usedSolver: Boolean(raw.usedSolver),
-            celebrationPlayed: Boolean(raw.celebrationPlayed),
-            startedAt: Date.now(),
-            pausedElapsed: Number(raw.pausedElapsed == null ? raw.elapsedSeconds || 0 : raw.pausedElapsed),
-            paused: Boolean(raw.paused)
-        };
-    }
-
-    function syncSudokuClock(session) {
-        if (!session.completed && !session.paused) {
-            session.elapsedSeconds = session.pausedElapsed + Math.max(0, Math.floor((Date.now() - session.startedAt) / 1000));
-        }
-    }
-
-    function serializeSudokuSession(session) {
-        syncSudokuClock(session);
-        return {
-            sessionKey: session.sessionKey,
-            puzzleId: session.puzzleId,
-            modeKey: session.modeKey,
-            board: session.board.slice(),
-            elapsedSeconds: session.elapsedSeconds,
-            checks: session.checks,
-            completed: session.completed,
-            submittedScore: session.submittedScore,
-            usedSolver: session.usedSolver,
-            celebrationPlayed: Boolean(session.celebrationPlayed),
-            pausedElapsed: session.completed || session.paused ? session.pausedElapsed : session.elapsedSeconds,
-            paused: Boolean(session.paused)
-        };
-    }
-
-    function summarizeSudokuSession(session) {
-        syncSudokuClock(session);
-        const puzzle = getPuzzleById(session.puzzleId);
-        const scoreData = computeSudokuScore(session.modeKey, session.elapsedSeconds);
-        const filled = session.board.filter(Boolean).length;
-        return {
-            mode_key: session.modeKey,
-            puzzle_name: puzzle.name,
-            elapsed_seconds: session.elapsedSeconds,
-            completion: Math.floor((filled / (puzzle.size * puzzle.size)) * 100),
-            estimated_score: session.usedSolver ? 0 : scoreData.total
-        };
-    }
-
-    function parseSudokuInput(raw, symbols) {
-        const value = String(raw || "").toUpperCase().slice(-1);
-        return symbols.indexOf(value) !== -1 ? value : "";
-    }
-
-    function getSudokuGroups(puzzle) {
-        const groups = [];
-        for (let row = 0; row < puzzle.size; row += 1) {
-            groups.push(Array.from({ length: puzzle.size }, function (_, col) { return row * puzzle.size + col; }));
-        }
-        for (let col = 0; col < puzzle.size; col += 1) {
-            groups.push(Array.from({ length: puzzle.size }, function (_, row) { return row * puzzle.size + col; }));
-        }
-        for (let boxRow = 0; boxRow < puzzle.size / puzzle.subgrid; boxRow += 1) {
-            for (let boxCol = 0; boxCol < puzzle.size / puzzle.subgrid; boxCol += 1) {
-                const group = [];
-                for (let row = 0; row < puzzle.subgrid; row += 1) {
-                    for (let col = 0; col < puzzle.subgrid; col += 1) {
-                        group.push((boxRow * puzzle.subgrid + row) * puzzle.size + (boxCol * puzzle.subgrid + col));
-                    }
-                }
-                groups.push(group);
-            }
-        }
-        return groups;
-    }
-
-    function findSudokuConflicts(board, puzzle) {
-        const conflicts = new Set();
-        getSudokuGroups(puzzle).forEach(function (group) {
-            const seen = {};
-            group.forEach(function (index) {
-                const value = board[index];
-                if (!value) {
-                    return;
-                }
-                seen[value] = seen[value] || [];
-                seen[value].push(index);
-            });
-            Object.keys(seen).forEach(function (key) {
-                if (seen[key].length > 1) {
-                    seen[key].forEach(function (index) {
-                        conflicts.add(index);
-                    });
-                }
-            });
-        });
-        return conflicts;
-    }
-
-    function summarizeSudokuConflictHints(board, puzzle, limit) {
-        const hints = [];
-        const maxHints = Math.max(1, Number(limit || 3));
-
-        function pushHint(scopeLabel, seenMap) {
-            Object.keys(seenMap).forEach(function (key) {
-                if (hints.length >= maxHints || seenMap[key].length < 2) {
-                    return;
-                }
-                hints.push(scopeLabel + "重复了 " + key);
-            });
-        }
-
-        for (let row = 0; row < puzzle.size && hints.length < maxHints; row += 1) {
-            const seen = {};
-            for (let col = 0; col < puzzle.size; col += 1) {
-                const value = board[row * puzzle.size + col];
-                if (!value) {
-                    continue;
-                }
-                seen[value] = seen[value] || [];
-                seen[value].push(col);
-            }
-            pushHint("第 " + (row + 1) + " 行", seen);
-        }
-        for (let col = 0; col < puzzle.size && hints.length < maxHints; col += 1) {
-            const seen = {};
-            for (let row = 0; row < puzzle.size; row += 1) {
-                const value = board[row * puzzle.size + col];
-                if (!value) {
-                    continue;
-                }
-                seen[value] = seen[value] || [];
-                seen[value].push(row);
-            }
-            pushHint("第 " + (col + 1) + " 列", seen);
-        }
-        for (let boxRow = 0; boxRow < puzzle.size / puzzle.subgrid && hints.length < maxHints; boxRow += 1) {
-            for (let boxCol = 0; boxCol < puzzle.size / puzzle.subgrid && hints.length < maxHints; boxCol += 1) {
-                const seen = {};
-                for (let row = 0; row < puzzle.subgrid; row += 1) {
-                    for (let col = 0; col < puzzle.subgrid; col += 1) {
-                        const index = (boxRow * puzzle.subgrid + row) * puzzle.size + (boxCol * puzzle.subgrid + col);
-                        const value = board[index];
-                        if (!value) {
-                            continue;
-                        }
-                        seen[value] = seen[value] || [];
-                        seen[value].push(index);
-                    }
-                }
-                pushHint("宫格 (" + (boxRow + 1) + "," + (boxCol + 1) + ") ", seen);
-            }
-        }
-        return hints;
-    }
-
-    function getSudokuVictoryFireworkCount(modeKey) {
-        if (modeKey === "hex-16") {
-            return 26;
-        }
-        if (modeKey === "classic-hard") {
-            return 18;
-        }
-        if (modeKey === "classic-medium") {
-            return 14;
-        }
-        return 10;
-    }
-
-    function getSudokuVictoryOrder(puzzle) {
-        const order = [];
-        const size = Number(puzzle.size || 9);
-        const ringCount = Math.ceil(size / 2);
-        for (let ring = 0; ring < ringCount; ring += 1) {
-            const top = ring;
-            const left = ring;
-            const bottom = size - 1 - ring;
-            const right = size - 1 - ring;
-            for (let col = left; col <= right; col += 1) {
-                order.push(top * size + col);
-            }
-            for (let row = top + 1; row <= bottom; row += 1) {
-                order.push(row * size + right);
-            }
-            if (bottom > top) {
-                for (let col = right - 1; col >= left; col -= 1) {
-                    order.push(bottom * size + col);
-                }
-            }
-            if (right > left) {
-                for (let row = bottom - 1; row > top; row -= 1) {
-                    order.push(row * size + left);
-                }
-            }
-        }
-        return order;
-    }
-
-    function mountSudoku(savedPayload) {
-        let session = normalizeSudokuSession(savedPayload.state || {});
-        let manualCheckpoint = savedPayload && savedPayload.state && savedPayload.state.manualCheckpoint
-            ? Object.assign({}, savedPayload.state.manualCheckpoint, {
-                board: Array.isArray(savedPayload.state.manualCheckpoint.board)
-                    ? savedPayload.state.manualCheckpoint.board.slice()
-                    : []
-            })
-            : null;
-        let timerId = null;
-        let inputs = [];
-        const sudokuHelpConfig = {
-            title: "数独",
-            subtitle: "看清盘面、稳定落子，尽量保住高分倍率。",
-            bullets: [
-                "目标：让每一行、每一列、每个宫内都不出现重复，并最终全部填满。",
-                "重复提示会直接告诉你当前哪些行、列或宫格出现了重复，适合排错。",
-                "经典模式分为简单、中等、困难；HEX-16 是最高难度，盘面更大、奖励也更高。",
-                "自动解题只用于预览或跳关，完成后也会播结算动画，但本局分数会归零。"
-            ],
-            hint: "数独采用高底薪模型，完整手动解出通常就是几千分起步；HEX-16 会更高。"
-        };
-        const modeButtons = [];
-
-        addStageButton("校验", function () {
-            session.checks += 1;
-            validateAndMaybeFinish(true);
-            persist();
-        }, true);
-        addStageButton("重复提示", function () {
-            session.checks += 1;
-            const puzzle = getPuzzleById(session.puzzleId);
-            const conflicts = findSudokuConflicts(session.board, puzzle);
-            validateAndMaybeFinish(false);
-            if (!conflicts.size) {
-                setStatus("当前没有重复冲突。", false);
-            } else {
-                setStatus("重复提示：" + summarizeSudokuConflictHints(session.board, puzzle, 3).join("；"), true);
-            }
-            persist();
-        }, false);
-        addStageButton("自动解题", function () {
-            const puzzle = getPuzzleById(session.puzzleId);
-            session.board = puzzle.solution.split("");
-            session.usedSolver = true;
-            session.completed = true;
-            syncSudokuClock(session);
-            session.pausedElapsed = session.elapsedSeconds;
-            drawBoard();
-            persist();
-            setStatus("已自动解题，本局不计分。", false);
-        }, false);
-        addStageButton("存档点", function () {
-            const snapshot = serializeSudokuSession(session);
-            snapshot.pausedElapsed = snapshot.elapsedSeconds;
-            snapshot.paused = false;
-            manualCheckpoint = snapshot;
-            persist();
-            setStatus("已记录 1 个数独存档点。", false);
-        }, false);
-        addStageButton("读档", function () {
-            if (!manualCheckpoint) {
-                setStatus("当前还没有可读取的存档点。", true);
-                return;
-            }
-            const restored = Object.assign({}, manualCheckpoint, {
-                board: Array.isArray(manualCheckpoint.board) ? manualCheckpoint.board.slice() : []
-            });
-            restored.pausedElapsed = restored.elapsedSeconds;
-            restored.paused = false;
-            session = normalizeSudokuSession(restored);
-            drawBoard();
-            persist();
-            setStatus("已恢复到手动存档点。", false);
-        }, false);
-        addStageButton("重置当前题", function () {
-            const puzzle = getPuzzleById(session.puzzleId);
-            session = createSudokuSession(session.modeKey, { puzzleId: puzzle.id });
-            drawBoard();
-            persist();
-        }, false);
-        addStageButton("换一题", function () {
-            session = createSudokuSession(session.modeKey, { previousPuzzleId: session.puzzleId });
-            drawBoard();
-            persist();
-        }, false);
-        let pauseButton = addStageButton("暂停", function () {
-            if (introActive || session.completed) {
-                return;
-            }
-            if (session.paused) {
-                session.startedAt = Date.now();
-                session.paused = false;
-            } else {
-                syncSudokuClock(session);
-                session.pausedElapsed = session.elapsedSeconds;
-                session.paused = true;
-            }
-            updatePauseState();
-            updateHeader();
-            persist();
-        }, false);
-        addStageButton("帮助", function () {
-            openGameInfoOverlay(playfieldEl, sudokuHelpConfig);
-        }, false);
-
-        const shell = document.createElement("div");
-        shell.className = "game-sudoku-shell";
-        shell.innerHTML = [
-            '<div class="game-sudoku-stage">',
-            '  <div class="game-sudoku-playfield game-start-host" id="gameSudokuPlayfield"><div class="game-sudoku-board" id="gameSudokuBoard"></div><div class="game-sudoku-pause-overlay" id="gameSudokuPauseOverlay" hidden><div class="game-sudoku-pause-card"><div class="game-sudoku-pause-title">已暂停</div><div class="game-sudoku-pause-text">当前题面已遮罩，点击下方按钮继续。</div></div></div><canvas class="game-sudoku-victory-canvas" id="gameSudokuVictoryCanvas"></canvas><div class="game-sudoku-victory-banner" id="gameSudokuVictoryBanner"></div></div>',
-            '  <div class="game-sudoku-sidecard">',
-            '    <div class="game-sudoku-panel"><div class="games-section-title">当前题面</div><div class="games-stage-meta" id="gameSudokuMetaLine"></div></div>',
-            '    <div class="game-sudoku-panel"><div class="games-section-title">积分说明</div><div class="game-sudoku-scoreline" id="gameSudokuScoreline"></div></div>',
-            "  </div>",
-            "</div>"
-        ].join("");
-        els.stageBody.appendChild(shell);
-
-        const metaEl = shell.querySelector("#gameSudokuMetaLine");
-        const scorelineEl = shell.querySelector("#gameSudokuScoreline");
-        const playfieldEl = shell.querySelector("#gameSudokuPlayfield");
-        const boardEl = shell.querySelector("#gameSudokuBoard");
-        const pauseOverlayEl = shell.querySelector("#gameSudokuPauseOverlay");
-        const victoryCanvas = shell.querySelector("#gameSudokuVictoryCanvas");
-        const victoryBannerEl = shell.querySelector("#gameSudokuVictoryBanner");
-        const sidecardEl = shell.querySelector(".game-sudoku-sidecard");
-        let introShownAt = Date.now();
-        let introActive = true;
-        let victoryAnimationId = 0;
-        let victoryAnimationEndsAt = 0;
-        let victoryTimeouts = [];
-        let victoryParticles = [];
-
-        [
-            { key: "classic-easy", label: "经典 简单" },
-            { key: "classic-medium", label: "经典 中等" },
-            { key: "classic-hard", label: "经典 困难" },
-            { key: "hex-16", label: "HEX-16" }
-        ].forEach(function (mode) {
-            const btn = addStageTagButton(mode.label, function () {
-                session = createSudokuSession(mode.key);
-                drawBoard();
-                persist();
-            });
-            btn.dataset.modeKey = mode.key;
-            btn.addEventListener("click", function () {
-                Array.from(modeButtons).forEach(function (node) {
-                    node.classList.toggle("is-active", node === btn);
-                });
-            });
-            modeButtons.push(btn);
-        });
-
-        function clearSudokuVictoryAnimation(keepGoldState) {
-            victoryTimeouts.forEach(function (timer) {
-                window.clearTimeout(timer);
-            });
-            victoryTimeouts = [];
-            if (victoryAnimationId) {
-                window.cancelAnimationFrame(victoryAnimationId);
-                victoryAnimationId = 0;
-            }
-            victoryAnimationEndsAt = 0;
-            victoryParticles = [];
-            boardEl.classList.remove("is-victory-glow");
-            playfieldEl.classList.remove("is-victory-active");
-            victoryBannerEl.classList.remove("is-visible");
-            victoryBannerEl.textContent = "";
-            inputs.forEach(function (item) {
-                if (!item || !item.wrapper) {
-                    return;
-                }
-                item.wrapper.classList.remove("is-celebrate-gold");
-                item.wrapper.classList.toggle("is-victory-complete", Boolean(keepGoldState));
-            });
-            const ctx = victoryCanvas.getContext("2d");
-            ctx.clearRect(0, 0, victoryCanvas.width, victoryCanvas.height);
-        }
-
-        function resizeSudokuVictoryCanvas() {
-            const rect = playfieldEl.getBoundingClientRect();
-            const dpr = window.devicePixelRatio || 1;
-            victoryCanvas.width = Math.max(1, Math.round(rect.width * dpr));
-            victoryCanvas.height = Math.max(1, Math.round(rect.height * dpr));
-            victoryCanvas.style.width = rect.width + "px";
-            victoryCanvas.style.height = rect.height + "px";
-            const ctx = victoryCanvas.getContext("2d");
-            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-            return { width: rect.width, height: rect.height };
-        }
-
-        function syncSudokuBoardLayout() {
-            const puzzle = getPuzzleById(session.puzzleId);
-            const rect = playfieldEl.getBoundingClientRect();
-            const stageRect = shell.getBoundingClientRect();
-            const isSingleColumn = stageRect.width < 1180;
-            const maxBoardSize = puzzle.size >= 16 ? 980 : 760;
-            const minBoardSize = puzzle.size >= 16 ? 300 : 260;
-            const verticalSpace = Math.max(260, rect.height - 28);
-            const horizontalSpace = Math.max(260, rect.width - (isSingleColumn ? 20 : 28));
-            const targetSize = Math.max(minBoardSize, Math.min(maxBoardSize, horizontalSpace, verticalSpace));
-            const fontSize = Math.max(puzzle.size >= 16 ? 12 : 18, Math.floor(targetSize / puzzle.size * (puzzle.size >= 16 ? 0.44 : 0.54)));
-            boardEl.style.setProperty("--board-size", targetSize + "px");
-            boardEl.style.setProperty("--sudoku-cell-font", fontSize + "px");
-        }
-
-        function spawnSudokuFireworkBurst(x, y, power) {
-            const burstSize = Math.max(18, Math.floor(18 + power * 0.55));
-            const palette = ["#fbbf24", "#f59e0b", "#fde68a", "#fff7cc", "#f97316"];
-            for (let index = 0; index < burstSize; index += 1) {
-                const angle = Math.PI * 2 * index / burstSize + randomBetween(-0.08, 0.08);
-                const speed = randomBetween(54, 160 + power);
-                victoryParticles.push({
-                    x: x,
-                    y: y,
-                    vx: Math.cos(angle) * speed,
-                    vy: Math.sin(angle) * speed,
-                    life: randomBetween(0.9, 1.8),
-                    maxLife: randomBetween(0.9, 1.8),
-                    radius: randomBetween(1.6, 3.8),
-                    color: palette[Math.floor(Math.random() * palette.length)]
-                });
-            }
-        }
-
-        function playSudokuVictoryAnimation() {
-            const puzzle = getPuzzleById(session.puzzleId);
-            const revealOrder = getSudokuVictoryOrder(puzzle);
-            const revealDuration = puzzle.size >= 16 ? 2400 : 1700;
-            const revealStep = Math.max(8, Math.floor(revealDuration / Math.max(1, revealOrder.length)));
-            const fireworkCount = getSudokuVictoryFireworkCount(session.modeKey);
-            const fireworkWindow = puzzle.size >= 16 ? 3600 : 2800;
-
-            clearSudokuVictoryAnimation(false);
-            resizeSudokuVictoryCanvas();
-            playfieldEl.classList.add("is-victory-active");
-            victoryBannerEl.textContent = session.modeKey === "hex-16" ? "SUPER CLEAR" : "BRILLIANT CLEAR";
-            victoryAnimationEndsAt = Date.now() + revealOrder.length * revealStep + fireworkWindow + 2400;
-
-            revealOrder.forEach(function (cellIndex, orderIndex) {
-                victoryTimeouts.push(window.setTimeout(function () {
-                    if (inputs[cellIndex] && inputs[cellIndex].wrapper) {
-                        inputs[cellIndex].wrapper.classList.add("is-celebrate-gold");
-                    }
-                }, orderIndex * revealStep));
-            });
-
-            victoryTimeouts.push(window.setTimeout(function () {
-                inputs.forEach(function (item) {
-                    if (item && item.wrapper) {
-                        item.wrapper.classList.add("is-victory-complete");
-                    }
-                });
-                boardEl.classList.add("is-victory-glow");
-                victoryBannerEl.classList.add("is-visible");
-            }, revealOrder.length * revealStep + 80));
-
-            for (let burstIndex = 0; burstIndex < fireworkCount; burstIndex += 1) {
-                victoryTimeouts.push(window.setTimeout(function () {
-                    const rect = resizeSudokuVictoryCanvas();
-                    spawnSudokuFireworkBurst(
-                        randomBetween(rect.width * 0.14, rect.width * 0.86),
-                        randomBetween(rect.height * 0.12, rect.height * 0.56),
-                        24 + burstIndex * 2
-                    );
-                }, revealOrder.length * revealStep + 220 + Math.floor(burstIndex * (fireworkWindow / Math.max(1, fireworkCount)))));
-            }
-
-            (function animateSudokuFireworks() {
-                const rect = resizeSudokuVictoryCanvas();
-                const ctx = victoryCanvas.getContext("2d");
-                ctx.clearRect(0, 0, rect.width, rect.height);
-                ctx.globalCompositeOperation = "lighter";
-                victoryParticles = victoryParticles.filter(function (particle) {
-                    particle.life -= 1 / 60;
-                    if (particle.life <= 0) {
-                        return false;
-                    }
-                    particle.x += particle.vx / 60;
-                    particle.y += particle.vy / 60;
-                    particle.vx *= 0.988;
-                    particle.vy = particle.vy * 0.988 + 2.8;
-                    const alpha = Math.max(0, particle.life / particle.maxLife);
-                    ctx.fillStyle = particle.color;
-                    ctx.globalAlpha = alpha;
-                    ctx.beginPath();
-                    ctx.arc(particle.x, particle.y, particle.radius * (0.62 + alpha * 0.5), 0, Math.PI * 2);
-                    ctx.fill();
-                    return true;
-                });
-                ctx.globalAlpha = 1;
-                ctx.globalCompositeOperation = "source-over";
-                if (victoryParticles.length || Date.now() < victoryAnimationEndsAt) {
-                    victoryAnimationId = window.requestAnimationFrame(animateSudokuFireworks);
-                } else {
-                    victoryAnimationId = 0;
-                }
-            }());
-        }
-
-        function persist() {
-            const payload = serializeSudokuSession(session);
-            payload.manualCheckpoint = manualCheckpoint
-                ? Object.assign({}, manualCheckpoint, {
-                    board: Array.isArray(manualCheckpoint.board) ? manualCheckpoint.board.slice() : []
-                })
-                : null;
-            scheduleGameStateSave("sudoku", payload, summarizeSudokuSession(session));
-        }
-
-        function updatePauseState() {
-            if (pauseButton) {
-                pauseButton.textContent = session.paused ? "继续" : "暂停";
-            }
-            if (pauseOverlayEl) {
-                pauseOverlayEl.hidden = !session.paused;
-            }
-            boardEl.classList.toggle("is-paused", Boolean(session.paused));
-            inputs.forEach(function (item) {
-                if (!item || !item.input || !item.wrapper) {
-                    return;
-                }
-                item.input.readOnly = session.paused || session.completed || item.wrapper.classList.contains("is-fixed");
-                if (session.paused) {
-                    item.input.blur();
-                }
-            });
-        }
-
-        function updateHeader() {
-            const puzzle = getPuzzleById(session.puzzleId);
-            syncSudokuClock(session);
-            const scoreData = computeSudokuScore(session.modeKey, session.elapsedSeconds);
-            const conflictCount = findSudokuConflicts(session.board, puzzle).size;
-            metaEl.textContent = "题目: " + puzzle.name + "，校验次数 " + session.checks + "，冲突格 " + conflictCount + "，" + (session.paused ? "当前已暂停，可随时继续。" : "关闭页面后可从当前盘面继续。");
-            setStageStats([
-                { label: "模式", value: session.modeKey.toUpperCase() },
-                { label: "状态", value: session.completed ? "完成" : (session.paused ? "暂停" : "进行中") },
-                { label: "用时", value: formatSeconds(session.elapsedSeconds) },
-                { label: "积分", value: String(session.usedSolver ? 0 : scoreData.total) },
-                { label: "冲突格", value: String(conflictCount) },
-                { label: "存档点", value: manualCheckpoint ? "已记录" : "无" }
-            ]);
-            scorelineEl.textContent = session.usedSolver
-                ? "已使用自动解题，本局不计算分数。"
-                : ("积分 =（底薪 " + scoreData.baseSalary + " + 难度提成 " + scoreData.difficultyBonus + " + 时间提成 " + scoreData.timeBonus + "），数独总奖励已整体提升到 20 倍。");
-            modeButtons.forEach(function (btn) {
-                btn.classList.toggle("is-active", btn.dataset.modeKey === session.modeKey);
-            });
-            syncPresence(session.paused ? "数独 已暂停" : (session.usedSolver ? "数独自动解题中" : ("正在玩 " + session.modeKey)), "");
-            syncSudokuBoardLayout();
-            updatePauseState();
-        }
-
-        function drawBoard() {
-            const puzzle = getPuzzleById(session.puzzleId);
-            const fixed = puzzle.puzzle.split("").map(function (char) { return char !== "0" && char !== "."; });
-            clearSudokuVictoryAnimation(Boolean(session.completed && !session.usedSolver));
-            boardEl.innerHTML = "";
-            boardEl.style.gridTemplateColumns = "repeat(" + puzzle.size + ", 1fr)";
-            boardEl.classList.toggle("is-hex", puzzle.size === 16);
-            boardEl.classList.toggle("is-victory-glow", Boolean(session.completed && !session.usedSolver));
-            inputs = [];
-            updateHeader();
-
-            session.board.forEach(function (value, index) {
-                const wrapper = document.createElement("div");
-                wrapper.className = "game-sudoku-cell";
-                if (puzzle.size === 16) {
-                    wrapper.classList.add("is-hex");
-                }
-                if (fixed[index]) {
-                    wrapper.classList.add("is-fixed");
-                }
-                if (session.completed && !session.usedSolver) {
-                    wrapper.classList.add("is-victory-complete");
-                }
-                if ((Math.floor(index / puzzle.size) + 1) % puzzle.subgrid === 0) {
-                    wrapper.style.borderBottomColor = "rgba(203, 213, 225, 0.8)";
-                    wrapper.style.borderBottomWidth = "2px";
-                }
-                if (((index % puzzle.size) + 1) % puzzle.subgrid === 0) {
-                    wrapper.style.borderRightColor = "rgba(203, 213, 225, 0.8)";
-                    wrapper.style.borderRightWidth = "2px";
-                }
-                const input = document.createElement("input");
-                input.type = "text";
-                input.maxLength = 1;
-                input.autocomplete = "off";
-                input.spellcheck = false;
-                input.value = value;
-                input.readOnly = fixed[index] || session.completed || session.paused;
-                input.addEventListener("input", function (event) {
-                    if (introActive || session.paused) {
-                        event.target.value = session.board[index] || "";
-                        return;
-                    }
-                    const nextValue = parseSudokuInput(event.target.value, puzzle.symbols);
-                    event.target.value = nextValue;
-                    session.board[index] = nextValue;
-                    validateAndMaybeFinish(false);
-                    persist();
-                });
-                wrapper.appendChild(input);
-                boardEl.appendChild(wrapper);
-                inputs.push({ wrapper: wrapper, input: input });
-            });
-
-            validateAndMaybeFinish(false);
-            syncSudokuBoardLayout();
-        }
-
-        function maybeSubmitScore() {
-            if (session.submittedScore || session.usedSolver) {
-                return;
-            }
-            syncSudokuClock(session);
-            const scoreData = computeSudokuScore(session.modeKey, session.elapsedSeconds);
-            session.submittedScore = true;
-            submitScore("sudoku", scoreData.total, session.modeKey, session.sessionKey, {
-                mode_key: session.modeKey,
-                elapsed_seconds: session.elapsedSeconds,
-                checks: session.checks,
-                base_salary: scoreData.baseSalary,
-                difficulty_bonus: scoreData.difficultyBonus,
-                time_bonus: scoreData.timeBonus,
-                auto_solved: false,
-                puzzle_id: session.puzzleId
-            }).catch(function (error) {
-                session.submittedScore = false;
-                setStatus(error.message || "数独成绩提交失败", true);
-            });
-        }
-
-        function validateAndMaybeFinish(showMessage) {
-            const puzzle = getPuzzleById(session.puzzleId);
-            const conflicts = findSudokuConflicts(session.board, puzzle);
-            inputs.forEach(function (item, index) {
-                item.wrapper.classList.toggle("is-error", conflicts.has(index));
-                item.input.classList.toggle("is-error", conflicts.has(index));
-            });
-            updateHeader();
-
-            if (showMessage && session.usedSolver && session.completed && !conflicts.size && session.board.every(Boolean) && session.board.join("") === puzzle.solution) {
-                playSudokuVictoryAnimation();
-                setStatus("已自动解题，当前为庆祝动画预览，不计分。", false);
-                persist();
-                return;
-            }
-
-            if (showMessage) {
-                if (conflicts.size > 0) {
-                    setStatus("当前有冲突格，请先修正。", true);
-                    return;
-                }
-                if (session.board.some(function (item) { return !item; })) {
-                    setStatus("还有空格未填完。", true);
-                    return;
-                }
-            }
-
-            if (!conflicts.size && session.board.every(Boolean) && session.board.join("") === puzzle.solution) {
-                session.completed = true;
-                syncSudokuClock(session);
-                session.pausedElapsed = session.elapsedSeconds;
-                if (session.usedSolver) {
-                    setStatus("已完成，但由于使用了自动解题，本局不计分。", false);
-                } else {
-                    maybeSubmitScore();
-                    if (!session.celebrationPlayed) {
-                        session.celebrationPlayed = true;
-                        playSudokuVictoryAnimation();
-                    }
-                    setStatus("数独完成，成绩已记录。", false);
-                }
-                persist();
-            }
-        }
-
-        timerId = window.setInterval(function () {
-            if (state.activeGameId === "sudoku") {
-                updateHeader();
-            }
-        }, 1000);
-        window.addEventListener("resize", syncSudokuBoardLayout);
-
-        createGameStartOverlay(playfieldEl, Object.assign({}, sudokuHelpConfig, {
-            buttonLabel: session.elapsedSeconds > 0 || session.checks > 0 ? "继续本局" : "开始游戏",
-            useStageActionButton: true,
-            onStart: function () {
-                introActive = false;
-                if (session.paused) {
-                    session.startedAt = Date.now();
-                    session.paused = false;
-                } else {
-                    session.startedAt += Date.now() - introShownAt;
-                }
-                updateHeader();
-                persist();
-            }
-        }));
-
-        drawBoard();
-        persist();
-
-        return function cleanup() {
-            if (timerId) {
-                window.clearInterval(timerId);
-            }
-            window.removeEventListener("resize", syncSudokuBoardLayout);
-            clearSudokuVictoryAnimation(Boolean(session.completed && !session.usedSolver));
-            syncSudokuClock(session);
-            session.pausedElapsed = session.elapsedSeconds;
-            persist();
-        };
-    }
 
     function randomBetween(min, max) {
         return min + Math.random() * (max - min);
@@ -3951,7 +1279,8 @@
             return;
         }
         container.innerHTML = items.map(function (item) {
-            return '<div class="' + (className || "games-stage-meta") + '">' + item + "</div>";
+            const extraClass = String(item || "").indexOf("game-arcade-attr-grid") !== -1 ? " game-arcade-status-card--attrs" : "";
+            return '<div class="' + (className || "games-stage-meta") + extraClass + '">' + item + "</div>";
         }).join("");
     }
 
@@ -4138,7 +1467,7 @@
         maxEnemiesHard: 40,
         // 道具与精英
         totalRerolls: 5,
-        eliteTypes: ["dash", "sniper", "summoner", "self-destruct", "buffer", "splitter", "repulsor", "blackhand", "nightmare", "liangzi", "luse", "succubus"],
+        eliteTypes: ["dash", "sniper", "summoner", "self-destruct", "buffer", "splitter", "repulsor", "warden", "blackhand", "nightmare", "liangzi", "luse", "succubus"],
         eliteDashCooldown: 3.2,
         eliteDashSpeed: 270,
         eliteDashDuration: 0.5,
@@ -4161,7 +1490,10 @@
         repulsorKnockDistance: 128,
         repulsorKnockSpeed: 360,
         repulsorCooldown: 3.1,
-        repulsorSlowMultiplier: 0.58,
+        wardenFieldRange: 168,
+        wardenFieldOnDuration: 2.8,
+        wardenFieldOffDuration: 1.7,
+        wardenEnemySlowMultiplier: 0.58,
         blackhandHookRange: 430,
         blackhandHookSpeed: 226,
         blackhandPullSpeed: 258,
@@ -4219,10 +1551,13 @@
         invincibleDuration: 10,
         maxSkillProjectiles: 180,
         // 局外养成
-        metaColorDrawCost: 2600,
-        metaIconDrawCost: 900,
-        metaDuplicateRefundRate: 0.2,
+        metaColorDrawCost: Math.max(0, Number(config.topdownMetaColorDrawCost == null ? 4800 : config.topdownMetaColorDrawCost)),
+        metaIconDrawCost: Math.max(0, Number(config.topdownMetaIconDrawCost == null ? 3200 : config.topdownMetaIconDrawCost)),
+        metaBackgroundDrawCost: Math.max(0, Number(config.topdownMetaBackgroundDrawCost == null ? 4000 : config.topdownMetaBackgroundDrawCost)),
+        metaLoginGiftPulls: 100,
+        metaDailyFreeTenCount: 10,
         metaRareColorChance: 0.035,
+        metaSuperRareColorChance: 0.012,
         metaPointsBaseReward: 120,
         metaPointsScoreRate: 1.1,
         metaPointsBossBonus: 180,
@@ -4270,6 +1605,8 @@
             buffer: "buffer",
             splitter: "splitter",
             repulsor: "repulsor",
+            warden: "warden",
+            "典狱长": "warden",
             blackhand: "blackhand",
             nightmare: "nightmare",
             liangzi: "liangzi",
@@ -4533,7 +1870,7 @@
     }
 
     function topdownColorCatalog() {
-        return {
+        const catalog = {
             classic: { key: "classic", label: "经典蓝", tier: "common", fill: "#38bdf8", stroke: "#bae6fd", accent: "#67e8f9" },
             ember: { key: "ember", label: "余烬红", tier: "common", fill: "#f97316", stroke: "#fdba74", accent: "#fb7185" },
             frost: { key: "frost", label: "冰棱白", tier: "common", fill: "#93c5fd", stroke: "#dbeafe", accent: "#e0f2fe" },
@@ -4546,6 +1883,10 @@
             coral: { key: "coral", label: "珊瑚橙", tier: "common", fill: "#fb7185", stroke: "#fecdd3", accent: "#fdba74" },
             cobalt: { key: "cobalt", label: "钴蓝", tier: "common", fill: "#2563eb", stroke: "#bfdbfe", accent: "#60a5fa" },
             amethyst: { key: "amethyst", label: "紫晶", tier: "common", fill: "#a855f7", stroke: "#e9d5ff", accent: "#c084fc" },
+            limeflare: { key: "limeflare", label: "青柠闪", tier: "common", fill: "#a3e635", stroke: "#ecfccb", accent: "#bef264" },
+            rosequartz: { key: "rosequartz", label: "玫瑰石英", tier: "common", fill: "#fb7185", stroke: "#ffe4e6", accent: "#fda4af" },
+            deepsea: { key: "deepsea", label: "深海青", tier: "common", fill: "#0891b2", stroke: "#cffafe", accent: "#22d3ee" },
+            amberforge: { key: "amberforge", label: "琥珀炉", tier: "common", fill: "#d97706", stroke: "#fde68a", accent: "#fbbf24" },
             aurora: { key: "aurora", label: "极光流", tier: "rare", stroke: "#d8fbff", accent: "#f9a8d4", gradient: ["#38bdf8", "#34d399", "#f472b6"] },
             magma: { key: "magma", label: "熔火混色", tier: "rare", stroke: "#fed7aa", accent: "#fde68a", gradient: ["#f97316", "#ef4444", "#facc15"] },
             dusk: { key: "dusk", label: "暮空混色", tier: "rare", stroke: "#ddd6fe", accent: "#bfdbfe", gradient: ["#312e81", "#8b5cf6", "#38bdf8"] },
@@ -4553,8 +1894,59 @@
             halo: { key: "halo", label: "圣辉渐层", tier: "rare", stroke: "#fef3c7", accent: "#fff7ed", gradient: ["#fef08a", "#fde68a", "#f59e0b"] },
             nebula: { key: "nebula", label: "星云渐层", tier: "rare", stroke: "#f5d0fe", accent: "#c4b5fd", gradient: ["#7c3aed", "#ec4899", "#22d3ee"] },
             prism: { key: "prism", label: "棱镜混辉", tier: "rare", stroke: "#e0f2fe", accent: "#f5f3ff", gradient: ["#22d3ee", "#a78bfa", "#f472b6"] },
-            rainbow: { key: "rainbow", label: "彩虹呼吸", tier: "rare", stroke: "#ffffff", accent: "#fef9c3", effect: "rainbow-breathe", gradient: ["#ef4444", "#f59e0b", "#facc15", "#22c55e", "#38bdf8", "#8b5cf6"] }
+            solarflare: { key: "solarflare", label: "日冕耀斑", tier: "rare", stroke: "#fff7ed", accent: "#fde68a", gradient: ["#fb923c", "#facc15", "#fef3c7"] },
+            abyssmint: { key: "abyssmint", label: "深渊薄荷", tier: "rare", stroke: "#ccfbf1", accent: "#5eead4", gradient: ["#0f172a", "#14b8a6", "#a7f3d0"] },
+            ionstorm: { key: "ionstorm", label: "离子风暴", tier: "rare", stroke: "#bfdbfe", accent: "#c4b5fd", gradient: ["#1d4ed8", "#7c3aed", "#06b6d4"] },
+            bloodmoon: { key: "bloodmoon", label: "血月残辉", tier: "rare", stroke: "#fecaca", accent: "#fda4af", gradient: ["#7f1d1d", "#dc2626", "#f97316"] },
+            glacierink: { key: "glacierink", label: "冰川墨蓝", tier: "rare", stroke: "#dbeafe", accent: "#93c5fd", gradient: ["#020617", "#1e3a8a", "#bfdbfe"] },
+            lotusdream: { key: "lotusdream", label: "莲梦流光", tier: "rare", stroke: "#fae8ff", accent: "#f0abfc", gradient: ["#f9a8d4", "#c084fc", "#67e8f9"] },
+            rainbow: { key: "rainbow", label: "彩虹呼吸", tier: "superrare", stroke: "#ffffff", accent: "#fef9c3", effect: "rainbow-breathe", gradient: ["#ef4444", "#f59e0b", "#facc15", "#22c55e", "#38bdf8", "#8b5cf6"] },
+            provinceflare: { key: "provinceflare", label: "省会霓虹", tier: "superrare", stroke: "#ffffff", accent: "#f0abfc", effect: "rainbow-breathe", gradient: ["#0ea5e9", "#22c55e", "#facc15", "#ef4444", "#8b5cf6"] },
+            ashveil: { key: "ashveil", label: "混灰渐层", tier: "superrare", stroke: "#f8fafc", accent: "#cbd5e1", gradient: ["#020617", "#64748b", "#f8fafc", "#94a3b8"] },
+            quantumgold: { key: "quantumgold", label: "量子鎏金", tier: "superrare", stroke: "#fff7ed", accent: "#fde68a", effect: "rainbow-breathe", gradient: ["#f59e0b", "#fef3c7", "#facc15", "#fb7185"] },
+            voidopera: { key: "voidopera", label: "虚空歌剧", tier: "superrare", stroke: "#f5d0fe", accent: "#a78bfa", effect: "rainbow-breathe", gradient: ["#020617", "#4c1d95", "#ec4899", "#22d3ee"] }
         };
+        [
+            ["pearlmist", "珍珠雾", "#f8fafc", "#e2e8f0", "#bae6fd"], ["sandgold", "沙金", "#f59e0b", "#fde68a", "#fef3c7"],
+            ["mintchip", "薄荷芯", "#2dd4bf", "#ccfbf1", "#99f6e4"], ["stormslate", "风暴灰", "#475569", "#cbd5e1", "#94a3b8"],
+            ["raspberry", "覆盆莓", "#e11d48", "#fecdd3", "#fb7185"], ["lilac", "丁香紫", "#c084fc", "#f3e8ff", "#d8b4fe"],
+            ["seaglass", "海玻璃", "#14b8a6", "#cffafe", "#67e8f9"], ["sunset", "落日橙", "#fb923c", "#fed7aa", "#fdba74"],
+            ["inkblue", "墨蓝", "#1e40af", "#dbeafe", "#93c5fd"], ["moss", "苔原绿", "#65a30d", "#d9f99d", "#bef264"],
+            ["cream", "奶油白", "#fef3c7", "#ffedd5", "#fde68a"], ["plum", "黑李紫", "#7e22ce", "#e9d5ff", "#c084fc"],
+            ["copper", "铜锈", "#b45309", "#fed7aa", "#fb923c"], ["aqua", "水晶青", "#06b6d4", "#cffafe", "#67e8f9"],
+            ["ruby", "红宝石", "#dc2626", "#fecaca", "#f87171"], ["olive", "橄榄辉", "#84cc16", "#ecfccb", "#bef264"]
+        ].forEach(function (entry) {
+            catalog[entry[0]] = { key: entry[0], label: entry[1], tier: "common", fill: entry[2], stroke: entry[3], accent: entry[4] };
+        });
+        [
+            ["starlagoon", "星湖渐层", "#dbeafe", "#93c5fd", ["#0f172a", "#2563eb", "#22d3ee", "#bef264"]],
+            ["cherryvolt", "樱电混辉", "#fce7f3", "#f9a8d4", ["#ec4899", "#facc15", "#38bdf8"]],
+            ["jadefire", "玉焰流光", "#dcfce7", "#86efac", ["#166534", "#22c55e", "#f97316"]],
+            ["moondust", "月尘银蓝", "#e2e8f0", "#cbd5e1", ["#0f172a", "#64748b", "#bfdbfe"]],
+            ["violetreef", "紫礁幻彩", "#ede9fe", "#c4b5fd", ["#4c1d95", "#7c3aed", "#14b8a6"]],
+            ["emberice", "冰焰裂隙", "#ffedd5", "#fdba74", ["#ef4444", "#fb923c", "#93c5fd"]],
+            ["limecosmos", "青柠宇宙", "#ecfccb", "#bef264", ["#020617", "#65a30d", "#a3e635", "#22d3ee"]],
+            ["rosemetal", "玫瑰金属", "#ffe4e6", "#fda4af", ["#9f1239", "#fb7185", "#e2e8f0"]],
+            ["deepaurora", "深境极光", "#ccfbf1", "#5eead4", ["#111827", "#0f766e", "#a78bfa", "#f472b6"]],
+            ["solariris", "太阳虹膜", "#fef3c7", "#fde68a", ["#7c2d12", "#f97316", "#facc15", "#38bdf8"]],
+            ["dreamfoam", "梦沫流彩", "#e0f2fe", "#bae6fd", ["#67e8f9", "#f0abfc", "#fef08a"]],
+            ["nightorchid", "夜兰混色", "#f5d0fe", "#e879f9", ["#1e1b4b", "#7e22ce", "#ec4899"]]
+        ].forEach(function (entry) {
+            catalog[entry[0]] = { key: entry[0], label: entry[1], tier: "rare", stroke: entry[2], accent: entry[3], gradient: entry[4] };
+        });
+        [
+            ["hypernova", "超新星脉冲", "#ffffff", "#fef08a", ["#020617", "#facc15", "#ef4444", "#38bdf8", "#a855f7"]],
+            ["dragonbreath", "龙息王焰", "#fff7ed", "#fb923c", ["#450a0a", "#dc2626", "#f97316", "#fde68a"]],
+            ["celestialmint", "天穹薄荷", "#ecfeff", "#5eead4", ["#022c22", "#14b8a6", "#a7f3d0", "#f0fdfa"]],
+            ["royalprism", "王权棱镜", "#ffffff", "#c4b5fd", ["#312e81", "#8b5cf6", "#f472b6", "#fde68a", "#38bdf8"]],
+            ["eclipsegold", "日蚀鎏金", "#fff7ed", "#facc15", ["#020617", "#713f12", "#f59e0b", "#fef3c7"]],
+            ["neonabyss", "霓虹深渊", "#cffafe", "#22d3ee", ["#020617", "#06b6d4", "#ec4899", "#84cc16"]],
+            ["angelcore", "天使核心", "#ffffff", "#fef9c3", ["#f8fafc", "#bae6fd", "#fef08a", "#f0abfc"]],
+            ["chaosruby", "混沌红宝", "#fecaca", "#f87171", ["#111827", "#7f1d1d", "#ef4444", "#fbbf24"]]
+        ].forEach(function (entry) {
+            catalog[entry[0]] = { key: entry[0], label: entry[1], tier: "superrare", stroke: entry[2], accent: entry[3], effect: "rainbow-breathe", gradient: entry[4] };
+        });
+        return catalog;
     }
 
     function topdownCommonColorKeys() {
@@ -4566,6 +1958,12 @@
     function topdownRareColorKeys() {
         return Object.keys(topdownColorCatalog()).filter(function (key) {
             return topdownColorCatalog()[key].tier === "rare";
+        });
+    }
+
+    function topdownSuperRareColorKeys() {
+        return Object.keys(topdownColorCatalog()).filter(function (key) {
+            return topdownColorCatalog()[key].tier === "superrare";
         });
     }
 
@@ -4586,8 +1984,44 @@
             trophy_emoji: true,
             skull_emoji: true,
             ghost_emoji: true,
-            biohazard: true
+            biohazard: true,
+            grin_face: true,
+            starstruck_face: true,
+            sunglasses_face: true,
+            monocle_face: true,
+            mindblown_face: true,
+            smirk_face: true,
+            devil_face: true,
+            angel_face: true,
+            melting_face: true,
+            salute_face: true
         };
+        const superRareEmojiKeys = {
+            galaxy_face: true,
+            fire_eyes_face: true,
+            crystal_ball: true,
+            comet_crown: true,
+            blackhole: true,
+            phoenix: true
+        };
+        const namedEmojiIcons = [
+            ["grin_face", "咧嘴黄脸", "😁"],
+            ["starstruck_face", "星星眼", "🤩"],
+            ["sunglasses_face", "墨镜黄脸", "😎"],
+            ["monocle_face", "单片镜", "🧐"],
+            ["mindblown_face", "脑洞爆炸", "🤯"],
+            ["smirk_face", "坏笑黄脸", "😏"],
+            ["devil_face", "恶魔黄脸", "😈"],
+            ["angel_face", "天使黄脸", "😇"],
+            ["melting_face", "融化黄脸", "🫠"],
+            ["salute_face", "敬礼黄脸", "🫡"],
+            ["galaxy_face", "银河尊颜", "🌌"],
+            ["fire_eyes_face", "燃目尊颜", "❤️‍🔥"],
+            ["crystal_ball", "水晶预言", "🔮"],
+            ["comet_crown", "彗星王冠", "☄️"],
+            ["blackhole", "黑洞核心", "🕳️"],
+            ["phoenix", "凤凰印记", "🐦‍🔥"]
+        ];
         const emojiIcons = [
             ["triangle", "▲"], ["diamond", "◆"], ["spark", "✦"], ["snow", "❄"], ["lightning", "⚡"], ["biohazard", "☢"],
             ["rocket_emoji", "🚀"], ["alien", "👽"], ["robot", "🤖"], ["ghost_emoji", "👻"], ["skull_emoji", "💀"], ["fire", "🔥"],
@@ -4627,9 +2061,56 @@
             ["meteor_svg", "陨石徽记", "/static/svgs/solid/meteor.svg"],
             ["satellite_svg", "卫星徽记", "/static/svgs/solid/satellite.svg"]
         ];
+        const extraEmojiIcons = [
+            ["laugh_face", "大笑黄脸", "😂", "rare"], ["joy_face", "乐疯黄脸", "🤣", "rare"], ["wink_face", "眨眼黄脸", "😉", "rare"], ["cool_smile", "自信黄脸", "☺️", "rare"],
+            ["blush_face", "脸红黄脸", "😊", "rare"], ["pleading_face", "恳求黄脸", "🥺", "rare"], ["party_face", "派对黄脸", "🥳", "rare"], ["cowboy_face", "牛仔黄脸", "🤠", "rare"],
+            ["ninja_face", "忍者黄脸", "🥷", "rare"], ["detective_face", "侦探尊颜", "🕵️", "rare"], ["wizard_face", "法师尊颜", "🧙", "rare"], ["vampire_face", "夜族尊颜", "🧛", "rare"],
+            ["troll_face", "巨魔尊颜", "🧌", "superrare"], ["genie_face", "灯神尊颜", "🧞", "superrare"], ["mage_fire", "烈焰法印", "🪄", "superrare"], ["lotus_icon", "莲花徽记", "🪷", "rare"],
+            ["dna_icon", "基因螺旋", "🧬", "rare"], ["testtube_icon", "炼金试管", "🧪", "common"], ["compass_icon", "星盘罗盘", "🧭", "common"], ["hourglass_icon", "时砂", "⌛", "common"],
+            ["scroll_icon", "古卷", "📜", "common"], ["map_icon", "藏宝图", "🗺️", "common"], ["bell_icon", "灵铃", "🔔", "common"], ["crystal_heart", "晶心", "🫶", "rare"],
+            ["mirrorball", "镜球", "🪩", "rare"], ["kite_icon", "风筝", "🪁", "common"], ["yo_yo", "悠悠球", "🪀", "common"], ["magic_disc", "飞盘", "🥏", "common"],
+            ["sax_icon", "萨克斯", "🎷", "common"], ["violin_icon", "小提琴", "🎻", "common"], ["drum_icon", "战鼓", "🥁", "common"], ["trumpet_icon", "号角", "🎺", "common"],
+            ["ticket_icon", "黄金券", "🎟️", "common"], ["clapper_icon", "星场板", "🎬", "common"], ["palette_icon", "调色盘", "🎨", "rare"], ["thread_icon", "命运线轴", "🧵", "common"],
+            ["needle_icon", "银针", "🪡", "common"], ["crystal_seed", "水晶种子", "🫘", "common"], ["teapot_icon", "灵茶壶", "🫖", "common"], ["fortune_cookie", "签语饼", "🥠", "rare"],
+            ["ramen_icon", "能量拉面", "🍜", "common"], ["sushi_icon", "寿司标记", "🍣", "common"], ["taco_icon", "塔可星", "🌮", "common"], ["avocado_icon", "牛油果核", "🥑", "common"],
+            ["strawberry_icon", "草莓星", "🍓", "common"], ["kiwi_icon", "猕猴桃环", "🥝", "common"], ["pineapple_icon", "菠萝冠", "🍍", "common"], ["coconut_icon", "椰壳", "🥥", "common"],
+            ["hotpepper_icon", "辣椒火种", "🌶️", "common"], ["cheese_icon", "奶酪月", "🧀", "common"], ["pretzel_icon", "扭结符", "🥨", "common"], ["cupcake_icon", "纸杯甜心", "🧁", "common"],
+            ["donut_icon", "甜甜圈", "🍩", "common"], ["lollipop_icon", "棒棒糖", "🍭", "common"], ["honey_icon", "蜂蜜罐", "🍯", "common"], ["popcorn_icon", "爆米花", "🍿", "common"],
+            ["snowman_icon", "雪人", "⛄", "common"], ["cloud_icon", "云团", "☁️", "common"], ["tornado_icon", "龙卷", "🌪️", "rare"], ["fog_icon", "雾域", "🌫️", "common"],
+            ["crescent_icon", "弯月", "☾", "common"], ["umbrella_icon", "护伞", "☂️", "common"], ["rain_icon", "雨滴云", "🌧️", "common"], ["snowcloud_icon", "雪云", "🌨️", "common"],
+            ["thundercloud_icon", "雷云", "⛈️", "rare"], ["earth_asia_icon", "东方星球", "🌏", "rare"], ["earth_americas_icon", "西境星球", "🌎", "rare"], ["ringed_planet", "环星", "🪐", "rare"],
+            ["bat_icon", "夜蝠", "🦇", "common"], ["unicorn_icon", "独角兽", "🦄", "rare"], ["horse_icon", "战马", "🐴", "common"], ["deer_icon", "鹿角", "🦌", "common"],
+            ["goat_icon", "山羊", "🐐", "common"], ["camel_icon", "沙舟", "🐪", "common"], ["llama_icon", "羊驼", "🦙", "common"], ["sloth_icon", "树懒", "🦥", "common"],
+            ["otter_icon", "水獭", "🦦", "common"], ["seal_icon", "海豹", "🦭", "common"], ["shark_icon", "鲨影", "🦈", "rare"], ["squid_icon", "鱿鱼", "🦑", "common"],
+            ["jellyfish_icon", "水母", "🪼", "rare"], ["coral_icon", "珊瑚", "🪸", "rare"], ["parrot_icon", "鹦鹉", "🦜", "common"], ["peacock_icon", "孔雀", "🦚", "rare"],
+            ["flamingo_icon", "火烈鸟", "🦩", "common"], ["swan_icon", "天鹅", "🦢", "common"], ["dove_icon", "白鸽", "🕊️", "common"], ["hatching_chick", "破壳星", "🐣", "common"],
+            ["honeybee_icon", "蜜蜂", "🐝", "common"], ["ant_icon", "蚁兵", "🐜", "common"], ["mosquito_icon", "蚊影", "🦟", "common"], ["fly_icon", "飞虫", "🪰", "common"],
+            ["worm_icon", "蠕虫", "🪱", "common"], ["snail_icon", "蜗牛", "🐌", "common"], ["shell_icon", "贝壳", "🐚", "common"], ["feather_icon", "羽印", "🪶", "rare"],
+            ["paw_icon", "爪印", "🐾", "common"], ["bone_icon", "骨符", "🦴", "common"], ["eyes_icon", "洞察之眼", "👀", "rare"], ["brain_icon", "脑核", "🧠", "rare"],
+            ["mechanical_arm", "机械臂", "🦾", "rare"], ["mechanical_leg", "机械腿", "🦿", "rare"], ["tooth_icon", "齿印", "🦷", "common"], ["foot_icon", "足迹", "🦶", "common"],
+            ["hand_rock", "拳印", "✊", "common"], ["hand_victory", "胜利手势", "✌️", "common"], ["hand_love", "爱心手势", "🫰", "rare"], ["hand_fire", "火手印", "🫴", "rare"],
+            ["red_envelope", "红包", "🧧", "rare"], ["coin_icon", "金币", "🪙", "rare"], ["receipt_icon", "契约票据", "🧾", "common"], ["briefcase_icon", "秘匣", "💼", "common"],
+            ["toolbox_icon", "工具箱", "🧰", "common"], ["ladder_icon", "阶梯", "🪜", "common"], ["brick_icon", "砖印", "🧱", "common"], ["window_icon", "窗格", "🪟", "common"],
+            ["mirror_icon", "镜面", "🪞", "rare"], ["plunger_icon", "吸盘", "🪠", "common"], ["bucket_icon", "桶标", "🪣", "common"], ["soap_icon", "泡泡皂", "🧼", "common"],
+            ["toothbrush_icon", "刷柄", "🪥", "common"], ["razor_icon", "剃刀", "🪒", "common"], ["sponge_icon", "海绵", "🧽", "common"], ["pin_icon", "圆头针", "📍", "common"],
+            ["paperclip_icon", "回形针", "📎", "common"], ["scissors_icon", "剪影", "✂️", "common"], ["pencil_icon", "铅笔", "✏️", "common"], ["fountain_pen", "钢笔", "🖋️", "common"],
+            ["paintbrush_icon", "画笔", "🖌️", "rare"], ["magnifier_icon", "放大镜", "🔎", "common"], ["candle_icon", "烛火", "🕯️", "rare"], ["coffin_icon", "秘棺", "⚰️", "rare"],
+            ["urn_icon", "灵瓮", "⚱️", "rare"], ["moai_icon", "石像", "🗿", "rare"], ["ankh_icon", "生命十字", "☥", "superrare"], ["yin_yang_icon", "阴阳核", "☯", "superrare"]
+        ];
+        const runeGlyphs = Array.from("♠♣♥♦♤♧♡♢♔♕♖♗♘♙♚♛♜♝♞♟☉☽☿♀♁♂♃♄♅♆♇♈♉♊♋♌♍♎♏♐♑♒♓☰☱☲☳☴☵☶☷☀★☆✦✧✩✪✫✬✭✮✯✰✹✺✻✼✽✾✿❀❁❂❃❄❅❆❇❈❉❊❋✚✜✢✣✤✥✱✲✳✴✵✶✷✸◈◇◆◊○◌◎●◐◑◒◓◔◕◖◗◦◯⬡⬢⬣⬟⬠⬤⬥⬦⬧▲△▴▵▶▷▸▹▼▽▾▿◀◁◂◃◉◍◎●");
         const catalog = {
             triangle: { key: "triangle", label: "经典三角", kind: "glyph", glyph: "▲", tier: "common" }
         };
+        runeGlyphs.forEach(function (glyph, index) {
+            const tier = index % 23 === 0 ? "superrare" : (index % 5 === 0 ? "rare" : "common");
+            catalog["rune_" + String(index).padStart(3, "0")] = {
+                key: "rune_" + String(index).padStart(3, "0"),
+                label: (tier === "superrare" ? "超稀有符文 " : (tier === "rare" ? "稀有符文 " : "符文 ")) + glyph,
+                kind: "glyph",
+                glyph: glyph,
+                tier: tier
+            };
+        });
         emojiIcons.forEach(function (entry) {
             catalog[entry[0]] = {
                 key: entry[0],
@@ -4639,9 +2120,51 @@
                 tier: rareEmojiKeys[entry[0]] ? "rare" : "common"
             };
         });
-        svgIcons.forEach(function (entry) {
-            catalog[entry[0]] = { key: entry[0], label: entry[1], kind: "svg", src: entry[2], glyph: "⬢", tier: "rare" };
+        namedEmojiIcons.forEach(function (entry) {
+            catalog[entry[0]] = {
+                key: entry[0],
+                label: entry[1],
+                kind: "emoji",
+                glyph: entry[2],
+                tier: superRareEmojiKeys[entry[0]] ? "superrare" : "rare"
+            };
         });
+        extraEmojiIcons.forEach(function (entry) {
+            catalog[entry[0]] = {
+                key: entry[0],
+                label: entry[1],
+                kind: "emoji",
+                glyph: entry[2],
+                tier: entry[3] || "common"
+            };
+        });
+        svgIcons.forEach(function (entry) {
+            catalog[entry[0]] = { key: entry[0], label: entry[1], kind: "svg", src: entry[2], glyph: "⬢", tier: "superrare" };
+        });
+        return catalog;
+    }
+
+    function topdownBackgroundCatalog() {
+        const catalog = {
+            dojo: { key: "dojo", label: "竹影道场", tier: "common", base: "#c8924f", line: "#6f4324", accent: "#f7d08a", pattern: "wood" },
+            slate: { key: "slate", label: "冷岩棋盘", tier: "common", base: "#334155", line: "#cbd5e1", accent: "#94a3b8", pattern: "grid" },
+            parchment: { key: "parchment", label: "古卷纸面", tier: "common", base: "#f5deb3", line: "#8b5e34", accent: "#fef3c7", pattern: "paper" },
+            jade: { key: "jade", label: "青玉台", tier: "common", base: "#0f766e", line: "#ccfbf1", accent: "#5eead4", pattern: "stone" },
+            midnight: { key: "midnight", label: "午夜蓝图", tier: "common", base: "#0f172a", line: "#60a5fa", accent: "#38bdf8", pattern: "grid" },
+            sakura_board: { key: "sakura_board", label: "樱落棋庭", tier: "common", base: "#fbcfe8", line: "#be185d", accent: "#fff1f2", pattern: "petals" },
+            bamboo_rain: { key: "bamboo_rain", label: "竹雨庭", tier: "common", base: "#365314", line: "#bef264", accent: "#86efac", pattern: "rain" },
+            copper_grid: { key: "copper_grid", label: "铜质网格", tier: "common", base: "#7c2d12", line: "#fed7aa", accent: "#fb923c", pattern: "grid" },
+            neon_grid: { key: "neon_grid", label: "霓虹网格", tier: "rare", base: "#020617", line: "#22d3ee", accent: "#f472b6", pattern: "neon", gradient: ["#020617", "#111827", "#0f172a"] },
+            starfield: { key: "starfield", label: "星海棋域", tier: "rare", base: "#020617", line: "#93c5fd", accent: "#facc15", pattern: "stars", gradient: ["#020617", "#1e1b4b", "#0f172a"] },
+            ink_wash: { key: "ink_wash", label: "水墨云台", tier: "rare", base: "#e2e8f0", line: "#334155", accent: "#64748b", pattern: "ink", gradient: ["#f8fafc", "#cbd5e1", "#94a3b8"] },
+            aurora_board: { key: "aurora_board", label: "极光棋盘", tier: "rare", base: "#082f49", line: "#a7f3d0", accent: "#f0abfc", pattern: "aurora", gradient: ["#0f172a", "#0ea5e9", "#22c55e", "#f472b6"] },
+            lava_board: { key: "lava_board", label: "熔岩裂盘", tier: "rare", base: "#450a0a", line: "#fdba74", accent: "#ef4444", pattern: "crack", gradient: ["#450a0a", "#7f1d1d", "#f97316"] },
+            ocean_board: { key: "ocean_board", label: "深海流域", tier: "rare", base: "#083344", line: "#67e8f9", accent: "#22d3ee", pattern: "wave", gradient: ["#0f172a", "#155e75", "#0891b2"] },
+            prism_board: { key: "prism_board", label: "棱镜幻盘", tier: "superrare", base: "#111827", line: "#ffffff", accent: "#facc15", pattern: "prism", effect: "shimmer", gradient: ["#020617", "#7c3aed", "#ec4899", "#22d3ee", "#facc15"] },
+            galaxy_board: { key: "galaxy_board", label: "银河王座", tier: "superrare", base: "#020617", line: "#f8fafc", accent: "#a78bfa", pattern: "galaxy", effect: "shimmer", gradient: ["#020617", "#312e81", "#7c3aed", "#06b6d4"] },
+            gold_eclipse: { key: "gold_eclipse", label: "日蚀金座", tier: "superrare", base: "#1c1917", line: "#fef3c7", accent: "#f59e0b", pattern: "eclipse", effect: "shimmer", gradient: ["#020617", "#713f12", "#f59e0b", "#fef3c7"] },
+            void_lotus: { key: "void_lotus", label: "虚空莲台", tier: "superrare", base: "#1e1b4b", line: "#f5d0fe", accent: "#f472b6", pattern: "lotus", effect: "shimmer", gradient: ["#020617", "#4c1d95", "#ec4899", "#14b8a6"] }
+        };
         return catalog;
     }
 
@@ -4666,10 +2189,21 @@
             pulls: 0,
             colorPulls: 0,
             iconPulls: 0,
-            ownedColors: ["classic"],
+            backgroundPulls: 0,
+            freeColorPulls: 0,
+            freeIconPulls: 0,
+            freeBackgroundPulls: 0,
+            loginGiftVersion: 0,
+            dailyFreeTen: { color: "", icon: "" },
+            colorPity: 0,
+            iconPity: 0,
+            backgroundPity: 0,
+            ownedColors: ["classic", "ember"],
             ownedIcons: ["triangle"],
+            ownedBackgrounds: ["dojo"],
             equippedColor: "classic",
-            equippedIcon: "triangle"
+            equippedIcon: "triangle",
+            equippedBackground: "dojo"
         };
     }
 
@@ -4687,17 +2221,38 @@
         });
     }
 
+    function parseTopdownMetaNumber(value) {
+        if (typeof value === "string") {
+            const normalized = value.replace(/[^\d.-]/g, "");
+            return Number(normalized || 0);
+        }
+        return Number(value || 0);
+    }
+
     function normalizeTopdownMetaState(raw) {
         const colorCatalog = topdownColorCatalog();
         const iconCatalog = topdownIconCatalog();
+        const backgroundCatalog = topdownBackgroundCatalog();
         const legacyCatalog = topdownLegacySkinCatalog();
         const meta = Object.assign(createTopdownMetaState(), raw || {});
-        meta.points = Math.max(0, Number(meta.points || 0));
-        meta.totalEarned = Math.max(0, Number(meta.totalEarned || 0));
-        meta.totalSpent = Math.max(0, Number(meta.totalSpent || 0));
-        meta.pulls = Math.max(0, Number(meta.pulls || 0));
-        meta.colorPulls = Math.max(0, Number(meta.colorPulls || 0));
-        meta.iconPulls = Math.max(0, Number(meta.iconPulls || 0));
+        meta.points = Math.max(0, Math.floor(parseTopdownMetaNumber(meta.points)));
+        meta.totalEarned = Math.max(0, Math.floor(parseTopdownMetaNumber(meta.totalEarned)));
+        meta.totalSpent = Math.max(0, Math.floor(parseTopdownMetaNumber(meta.totalSpent)));
+        meta.pulls = Math.max(0, Math.floor(parseTopdownMetaNumber(meta.pulls)));
+        meta.colorPulls = Math.max(0, Math.floor(parseTopdownMetaNumber(meta.colorPulls)));
+        meta.iconPulls = Math.max(0, Math.floor(parseTopdownMetaNumber(meta.iconPulls)));
+        meta.backgroundPulls = Math.max(0, Math.floor(parseTopdownMetaNumber(meta.backgroundPulls)));
+        meta.freeColorPulls = Math.max(0, Math.floor(parseTopdownMetaNumber(meta.freeColorPulls)));
+        meta.freeIconPulls = Math.max(0, Math.floor(parseTopdownMetaNumber(meta.freeIconPulls)));
+        meta.freeBackgroundPulls = Math.max(0, Math.floor(parseTopdownMetaNumber(meta.freeBackgroundPulls)));
+        meta.loginGiftVersion = Math.max(0, Math.floor(parseTopdownMetaNumber(meta.loginGiftVersion)));
+        meta.dailyFreeTen = Object.assign({ color: "", icon: "", background: "" }, meta.dailyFreeTen && typeof meta.dailyFreeTen === "object" ? meta.dailyFreeTen : {});
+        meta.dailyFreeTen.color = String(meta.dailyFreeTen.color || "");
+        meta.dailyFreeTen.icon = String(meta.dailyFreeTen.icon || "");
+        meta.dailyFreeTen.background = String(meta.dailyFreeTen.background || "");
+        meta.colorPity = Math.max(0, Math.floor(parseTopdownMetaNumber(meta.colorPity)));
+        meta.iconPity = Math.max(0, Math.floor(parseTopdownMetaNumber(meta.iconPity)));
+        meta.backgroundPity = Math.max(0, Math.floor(parseTopdownMetaNumber(meta.backgroundPity)));
 
         const legacyOwned = Array.isArray(meta.ownedSkins) ? meta.ownedSkins : [];
         const migratedColors = (Array.isArray(meta.ownedColors) ? meta.ownedColors : []).slice();
@@ -4712,14 +2267,59 @@
         });
         const legacyEquipped = legacyCatalog[String(meta.equippedSkin || "")] || legacyCatalog.classic;
         meta.ownedColors = topdownNormalizeOwnedKeys(migratedColors, colorCatalog, "classic");
+        if (meta.ownedColors.indexOf("ember") === -1) {
+            meta.ownedColors.push("ember");
+        }
         meta.ownedIcons = topdownNormalizeOwnedKeys(migratedIcons, iconCatalog, "triangle");
+        meta.ownedBackgrounds = topdownNormalizeOwnedKeys(meta.ownedBackgrounds, backgroundCatalog, "dojo");
         meta.equippedColor = meta.ownedColors.indexOf(String(meta.equippedColor || legacyEquipped.colorKey || "classic")) !== -1
             ? String(meta.equippedColor || legacyEquipped.colorKey || "classic")
             : "classic";
         meta.equippedIcon = meta.ownedIcons.indexOf(String(meta.equippedIcon || legacyEquipped.iconKey || "triangle")) !== -1
             ? String(meta.equippedIcon || legacyEquipped.iconKey || "triangle")
             : "triangle";
+        meta.equippedBackground = meta.ownedBackgrounds.indexOf(String(meta.equippedBackground || "dojo")) !== -1
+            ? String(meta.equippedBackground || "dojo")
+            : "dojo";
         return meta;
+    }
+
+    function setTopdownSharedMetaState(raw) {
+        state.topdownMetaState = normalizeTopdownMetaState(raw || {});
+        applyActiveGameMetaAppearance();
+        return state.topdownMetaState;
+    }
+
+    function getTopdownSharedMetaState(raw) {
+        if (!state.topdownMetaState) {
+            return setTopdownSharedMetaState(raw || {});
+        }
+        return state.topdownMetaState;
+    }
+
+    function notifyTopdownMetaRefresh() {
+        applyActiveGameMetaAppearance();
+        if (typeof state.topdownMetaRefresh === "function") {
+            state.topdownMetaRefresh();
+        }
+    }
+
+    function applyActiveGameMetaAppearance() {
+        if (!els.stageBody || !state.topdownMetaState) {
+            return;
+        }
+        const appearance = topdownEquippedAppearance(state.topdownMetaState);
+        const background = appearance.background || topdownBackgroundCatalog().dojo;
+        const activeGame = String(state.activeGameId || "");
+        const enabled = activeGame && activeGame !== "topdown-shooter" && activeGame !== "gomoku";
+        els.stageBody.classList.toggle("games-stage-body--cosmetic", Boolean(enabled));
+        if (!enabled) {
+            els.stageBody.style.removeProperty("--games-cosmetic-bg");
+            els.stageBody.style.removeProperty("--games-cosmetic-line");
+            return;
+        }
+        els.stageBody.style.setProperty("--games-cosmetic-bg", topdownBackgroundCss(background));
+        els.stageBody.style.setProperty("--games-cosmetic-line", background.line || background.accent || "#ffffff");
     }
 
     function serializeTopdownMetaState(meta) {
@@ -4731,10 +2331,25 @@
             pulls: state.pulls,
             colorPulls: state.colorPulls,
             iconPulls: state.iconPulls,
+            backgroundPulls: state.backgroundPulls,
+            freeColorPulls: state.freeColorPulls,
+            freeIconPulls: state.freeIconPulls,
+            freeBackgroundPulls: state.freeBackgroundPulls,
+            loginGiftVersion: state.loginGiftVersion,
+            dailyFreeTen: {
+                color: state.dailyFreeTen.color || "",
+                icon: state.dailyFreeTen.icon || "",
+                background: state.dailyFreeTen.background || ""
+            },
+            colorPity: state.colorPity,
+            iconPity: state.iconPity,
+            backgroundPity: state.backgroundPity,
             ownedColors: state.ownedColors.slice(),
             ownedIcons: state.ownedIcons.slice(),
+            ownedBackgrounds: state.ownedBackgrounds.slice(),
             equippedColor: state.equippedColor,
-            equippedIcon: state.equippedIcon
+            equippedIcon: state.equippedIcon,
+            equippedBackground: state.equippedBackground
         };
     }
 
@@ -4743,20 +2358,30 @@
         return {
             points: state.points,
             pulls: state.pulls,
+            free_color_pulls: state.freeColorPulls,
+            free_icon_pulls: state.freeIconPulls,
+            free_background_pulls: state.freeBackgroundPulls,
+            color_pity: state.colorPity,
+            icon_pity: state.iconPity,
+            background_pity: state.backgroundPity,
             equipped_color: state.equippedColor,
             equipped_icon: state.equippedIcon,
+            equipped_background: state.equippedBackground,
             owned_colors: state.ownedColors.length,
-            owned_icons: state.ownedIcons.length
+            owned_icons: state.ownedIcons.length,
+            owned_backgrounds: state.ownedBackgrounds.length
         };
     }
 
     function topdownEquippedAppearance(meta) {
         const colors = topdownColorCatalog();
         const icons = topdownIconCatalog();
+        const backgrounds = topdownBackgroundCatalog();
         const state = normalizeTopdownMetaState(meta);
         return {
             color: colors[state.equippedColor] || colors.classic,
-            icon: icons[state.equippedIcon] || icons.triangle
+            icon: icons[state.equippedIcon] || icons.triangle,
+            background: backgrounds[state.equippedBackground] || backgrounds.dojo
         };
     }
 
@@ -4771,14 +2396,53 @@
         });
     }
 
-    function topdownMetaTierLabel(tier, type) {
-        if (tier === "rare") {
-            return type === "color" ? "稀有色" : "稀有";
+    function topdownAllRareColorsOwned(meta) {
+        const state = normalizeTopdownMetaState(meta);
+        const owned = {};
+        state.ownedColors.forEach(function (key) {
+            owned[key] = true;
+        });
+        return topdownRareColorKeys().every(function (key) {
+            return Boolean(owned[key]);
+        });
+    }
+
+    function topdownTierRank(tier) {
+        if (tier === "superrare") {
+            return 2;
         }
-        return type === "color" ? "普通色" : "普通";
+        if (tier === "rare") {
+            return 1;
+        }
+        return 0;
+    }
+
+    function topdownSortCatalogKeysByTier(catalog) {
+        return Object.keys(catalog).sort(function (left, right) {
+            const leftItem = catalog[left] || {};
+            const rightItem = catalog[right] || {};
+            const tierDelta = topdownTierRank(leftItem.tier) - topdownTierRank(rightItem.tier);
+            if (tierDelta !== 0) {
+                return tierDelta;
+            }
+            return String(leftItem.label || left).localeCompare(String(rightItem.label || right), "zh-CN");
+        });
+    }
+
+    function topdownMetaTierLabel(tier, type) {
+        if (tier === "superrare") {
+            return type === "color" ? "传说色" : (type === "background" ? "超级背景" : "超级稀有");
+        }
+        if (tier === "rare") {
+            return type === "color" ? "稀有色" : (type === "background" ? "稀有背景" : "稀有");
+        }
+        return type === "color" ? "普通色" : (type === "background" ? "普通背景" : "普通");
     }
 
     function topdownMetaTierClass(tier) {
+        if (tier === "superrare") {
+            return "is-superrare";
+        }
         return tier === "rare" ? "is-rare" : "is-common";
     }
 
@@ -4808,16 +2472,72 @@
     }
 
     function topdownIconDrawWeight(icon) {
+        if (icon && icon.tier === "superrare") {
+            return 0.035;
+        }
         return icon && icon.tier === "rare" ? 0.18 : 1;
     }
 
-    function topdownRollRowBaseKeys(kind) {
-        const catalog = kind === "color" ? topdownColorCatalog() : topdownIconCatalog();
-        return Object.keys(catalog);
+    function topdownBackgroundDrawWeight(background) {
+        if (background && background.tier === "superrare") {
+            return 0.05;
+        }
+        return background && background.tier === "rare" ? 0.22 : 1;
     }
 
-    function topdownRollSequence(kind, winnerKey, count, rareEnabled) {
-        const catalog = kind === "color" ? topdownColorCatalog() : topdownIconCatalog();
+    function topdownCatalogForKind(kind) {
+        if (kind === "color") {
+            return topdownColorCatalog();
+        }
+        if (kind === "background") {
+            return topdownBackgroundCatalog();
+        }
+        return topdownIconCatalog();
+    }
+
+    function topdownRollRowBaseKeys(kind) {
+        const catalog = topdownCatalogForKind(kind);
+        return topdownSortCatalogKeysByTier(catalog);
+    }
+
+    function topdownRandomCatalogKey(keys) {
+        const list = Array.isArray(keys) ? keys.filter(Boolean) : [];
+        return list.length ? list[Math.floor(Math.random() * list.length)] : "";
+    }
+
+    function topdownDisplayRollKey(kind) {
+        if (kind === "color") {
+            const commonPool = topdownCommonColorKeys().filter(function (key) { return key !== "classic"; });
+            const rarePool = topdownRareColorKeys();
+            const superRarePool = topdownSuperRareColorKeys();
+            const roll = Math.random();
+            if (roll < 0.15 && superRarePool.length) {
+                return topdownRandomCatalogKey(superRarePool);
+            }
+            if (roll < 0.55 && rarePool.length) {
+                return topdownRandomCatalogKey(rarePool);
+            }
+            return topdownRandomCatalogKey(commonPool.length ? commonPool : topdownCommonColorKeys());
+        }
+        const catalog = topdownCatalogForKind(kind);
+        const tierKeys = topdownRollRowBaseKeys(kind).reduce(function (groups, key) {
+            const tier = (catalog[key] && catalog[key].tier) || "common";
+            groups[tier] = groups[tier] || [];
+            groups[tier].push(key);
+            return groups;
+        }, {});
+        const roll = Math.random();
+        if (roll < (kind === "background" ? 0.18 : 0.16) && tierKeys.superrare && tierKeys.superrare.length) {
+            return topdownRandomCatalogKey(tierKeys.superrare);
+        }
+        if (roll < (kind === "background" ? 0.56 : 0.48) && tierKeys.rare && tierKeys.rare.length) {
+            return topdownRandomCatalogKey(tierKeys.rare);
+        }
+        return topdownRandomCatalogKey(tierKeys.common || topdownRollRowBaseKeys(kind));
+    }
+
+    function topdownRollSequence(kind, winnerKey, count, rareEnabled, superRareEnabled) {
+        const catalog = topdownCatalogForKind(kind);
         const keys = topdownRollRowBaseKeys(kind);
         const sequence = [];
         const winnerIndex = Math.max(18, Math.min((count || 40) - 8, Math.floor((count || 40) * 0.72)));
@@ -4826,17 +2546,9 @@
                 sequence.push(winnerKey);
                 continue;
             }
-            if (kind === "color") {
-                const commonPool = topdownCommonColorKeys().filter(function (key) { return key !== "classic"; });
-                const rarePool = topdownRareColorKeys();
-                const useRare = Boolean(rareEnabled) && Math.random() < TOPDOWN_BALANCE.metaRareColorChance;
-                const pool = useRare ? rarePool : commonPool;
-                sequence.push(pool[Math.floor(Math.random() * pool.length)]);
-            } else {
-                sequence.push(topdownWeightedPick(keys, function (key) {
-                    return topdownIconDrawWeight(catalog[key]);
-                }));
-            }
+            sequence.push(topdownDisplayRollKey(kind) || topdownWeightedPick(keys, function (key) {
+                return kind === "background" ? topdownBackgroundDrawWeight(catalog[key]) : topdownIconDrawWeight(catalog[key]);
+            }));
         }
         return {
             keys: sequence,
@@ -4870,6 +2582,231 @@
             gradient.addColorStop(index / divisor, stopColor);
         });
         ctx.fillStyle = gradient;
+    }
+
+    function topdownElementPalette(element) {
+        const map = {
+            fire: { fill: "#fb923c", accent: "#facc15", deep: "#ef4444", glow: "rgba(251, 146, 60, 0.42)" },
+            ice: { fill: "#93c5fd", accent: "#e0f2fe", deep: "#38bdf8", glow: "rgba(147, 197, 253, 0.42)" },
+            electric: { fill: "#facc15", accent: "#fef08a", deep: "#f59e0b", glow: "rgba(250, 204, 21, 0.48)" },
+            nuclear: { fill: "#4ade80", accent: "#bbf7d0", deep: "#22c55e", glow: "rgba(74, 222, 128, 0.42)" }
+        };
+        return map[element] || { fill: "#f8fafc", accent: "#cbd5e1", deep: "#94a3b8", glow: "rgba(248, 250, 252, 0.32)" };
+    }
+
+    function topdownIsUltimateProjectile(projectile) {
+        return Boolean(projectile && projectile.canUltimate && Number(projectile.elementLevel || 0) >= TOPDOWN_BALANCE.elementCap);
+    }
+
+    function drawTopdownElementBullet(ctx, bullet, tick) {
+        const palette = topdownElementPalette(bullet.element);
+        const ultimate = topdownIsUltimateProjectile(bullet);
+        const angle = Math.atan2(Number(bullet.vy || 0), Number(bullet.vx || 0));
+        const radius = Number(bullet.radius || 4);
+        ctx.save();
+        ctx.lineCap = "round";
+        ctx.shadowColor = palette.fill;
+        ctx.shadowBlur = ultimate ? 20 : 9;
+        const trailGradient = ctx.createLinearGradient(bullet.prevX, bullet.prevY, bullet.x, bullet.y);
+        trailGradient.addColorStop(0, "rgba(255,255,255,0)");
+        trailGradient.addColorStop(0.36, palette.glow);
+        trailGradient.addColorStop(1, palette.fill);
+        ctx.strokeStyle = trailGradient;
+        ctx.lineWidth = ultimate ? Math.max(5, radius * 1.08) : Math.max(2.2, radius * 0.58);
+        ctx.beginPath();
+        ctx.moveTo(bullet.prevX, bullet.prevY);
+        ctx.lineTo(bullet.x, bullet.y);
+        ctx.stroke();
+        ctx.translate(bullet.x, bullet.y);
+        ctx.rotate(angle);
+        if (ultimate) {
+            ctx.save();
+            ctx.rotate(tick * 5 + Number(bullet.visualPhase || 0));
+            ctx.strokeStyle = palette.accent;
+            ctx.globalAlpha = 0.8;
+            ctx.lineWidth = 1.7;
+            ctx.beginPath();
+            ctx.arc(0, 0, radius * 1.78, 0, Math.PI * 2);
+            ctx.stroke();
+            for (let index = 0; index < 4; index += 1) {
+                ctx.rotate(Math.PI / 2);
+                ctx.beginPath();
+                ctx.moveTo(radius * 1.05, 0);
+                ctx.lineTo(radius * 2.26, 0);
+                ctx.stroke();
+            }
+            ctx.restore();
+        }
+        if (bullet.element === "ice") {
+            ctx.fillStyle = ultimate ? palette.accent : palette.fill;
+            ctx.beginPath();
+            ctx.moveTo(radius * 1.55, 0);
+            ctx.lineTo(0, -radius);
+            ctx.lineTo(-radius * 1.35, 0);
+            ctx.lineTo(0, radius);
+            ctx.closePath();
+            ctx.fill();
+        } else if (bullet.element === "nuclear") {
+            ctx.fillStyle = ultimate ? palette.accent : palette.fill;
+            ctx.beginPath();
+            ctx.arc(0, 0, radius * (ultimate ? 1.2 : 1), 0, Math.PI * 2);
+            ctx.fill();
+            ctx.strokeStyle = palette.deep;
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(0, 0, radius * 1.8, -tick * 4, -tick * 4 + Math.PI * 1.3);
+            ctx.stroke();
+        } else {
+            const core = ctx.createRadialGradient(0, 0, 1, 0, 0, radius * (ultimate ? 1.55 : 1.05));
+            core.addColorStop(0, "#ffffff");
+            core.addColorStop(0.42, palette.accent);
+            core.addColorStop(1, palette.fill);
+            ctx.fillStyle = core;
+            ctx.beginPath();
+            ctx.arc(0, 0, radius * (ultimate ? 1.22 : 1), 0, Math.PI * 2);
+            ctx.fill();
+        }
+        ctx.restore();
+    }
+
+    function drawTopdownElementBeam(ctx, beam) {
+        const palette = topdownElementPalette(beam.element || "electric");
+        const ultimate = topdownIsUltimateProjectile(beam);
+        const lifeBase = beam.hostile ? TOPDOWN_BALANCE.enemyBeamLife : TOPDOWN_BALANCE.electricBeamLife;
+        const alpha = Math.max(0.22, Number(beam.life || 0) / lifeBase);
+        ctx.save();
+        ctx.lineCap = "round";
+        ctx.globalAlpha = alpha;
+        if (ultimate) {
+            ctx.shadowColor = palette.accent;
+            ctx.shadowBlur = 18;
+            ctx.strokeStyle = palette.glow;
+            ctx.lineWidth = (beam.width || 3) + 6;
+            ctx.beginPath();
+            ctx.moveTo(beam.fromX, beam.fromY);
+            ctx.lineTo(beam.toX, beam.toY);
+            ctx.stroke();
+        }
+        ctx.shadowColor = beam.color || palette.fill;
+        ctx.shadowBlur = ultimate ? 14 : 6;
+        ctx.strokeStyle = beam.color || palette.fill;
+        ctx.lineWidth = ultimate ? (beam.width || 3) + 1.6 : (beam.width || 3);
+        ctx.beginPath();
+        ctx.moveTo(beam.fromX, beam.fromY);
+        ctx.lineTo(beam.toX, beam.toY);
+        ctx.stroke();
+        if (ultimate) {
+            ctx.strokeStyle = "#ffffff";
+            ctx.lineWidth = 1.2;
+            ctx.globalAlpha = alpha * 0.86;
+            ctx.beginPath();
+            ctx.moveTo(beam.fromX, beam.fromY);
+            ctx.lineTo(beam.toX, beam.toY);
+            ctx.stroke();
+        }
+        ctx.restore();
+    }
+
+    function drawTopdownAoeBurstVisual(ctx, burst) {
+        const isHostile = burst.type === "enemy-explosion";
+        const palette = isHostile ? { fill: "#fb7185", accent: "#fecdd3", deep: "#e11d48", glow: "rgba(251,113,133,0.26)" } : topdownElementPalette(burst.element || "nuclear");
+        const lifeBase = isHostile ? TOPDOWN_BALANCE.selfDestructBurstLife : (burst.type === "radiation" ? TOPDOWN_BALANCE.nuclearRadiationDuration : TOPDOWN_BALANCE.nuclearBurstLife);
+        const progress = clamp(1 - Number(burst.life || 0) / Math.max(0.001, lifeBase), 0, 1);
+        const radius = Number(burst.radius || 0) * (0.82 + progress * 0.22);
+        ctx.save();
+        ctx.globalAlpha = Math.max(0.16, Number(burst.life || 0) / Math.max(0.001, lifeBase));
+        ctx.fillStyle = burst.type === "radiation" ? "rgba(74, 222, 128, " + TOPDOWN_BALANCE.nuclearRadiationAlpha + ")" : palette.glow;
+        ctx.strokeStyle = palette.fill;
+        ctx.lineWidth = burst.ultimate ? 4.2 : 3;
+        ctx.shadowColor = palette.fill;
+        ctx.shadowBlur = burst.ultimate ? 18 : 8;
+        ctx.beginPath();
+        ctx.arc(burst.x, burst.y, radius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        if (burst.ultimate) {
+            ctx.strokeStyle = palette.accent;
+            ctx.lineWidth = 1.8;
+            ctx.setLineDash([8, 8]);
+            ctx.lineDashOffset = -progress * 32;
+            ctx.beginPath();
+            ctx.arc(burst.x, burst.y, radius * 0.72, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.setLineDash([]);
+        }
+        ctx.restore();
+    }
+
+    function topdownBackgroundCss(background) {
+        const bg = background || topdownBackgroundCatalog().dojo;
+        const layers = [];
+        if (bg.pattern === "stars" || bg.pattern === "galaxy") {
+            layers.push("radial-gradient(circle at 20% 24%, rgba(255,255,255,.9) 0 1px, transparent 2px)");
+            layers.push("radial-gradient(circle at 78% 38%, rgba(255,255,255,.7) 0 1px, transparent 2px)");
+        }
+        if (bg.gradient && bg.gradient.length) {
+            layers.push("linear-gradient(135deg," + bg.gradient.join(",") + ")");
+        } else {
+            layers.push("linear-gradient(135deg," + (bg.base || "#0f172a") + "," + (bg.accent || bg.line || "#38bdf8") + ")");
+        }
+        return layers.join(",");
+    }
+
+    function topdownBackgroundPreviewStyle(background) {
+        const bg = background || topdownBackgroundCatalog().dojo;
+        return 'background:' + topdownBackgroundCss(bg) + ';border-color:' + escapeHtml(bg.line || bg.accent || "#ffffff") + ';';
+    }
+
+    function drawTopdownCosmeticBackground(ctx, width, height, tick, background) {
+        const bg = background || topdownBackgroundCatalog().dojo;
+        const gradientStops = Array.isArray(bg.gradient) && bg.gradient.length ? bg.gradient : [bg.base || "#020617", bg.accent || "#1e293b"];
+        const gradient = ctx.createLinearGradient(0, 0, width, height);
+        const divisor = Math.max(1, gradientStops.length - 1);
+        gradientStops.forEach(function (stop, index) {
+            gradient.addColorStop(index / divisor, stop);
+        });
+        ctx.fillStyle = gradient;
+        ctx.fillRect(0, 0, width, height);
+        if (bg.pattern === "stars" || bg.pattern === "galaxy") {
+            for (let i = 0; i < 90; i += 1) {
+                const x = (i * 127 + tick * (bg.effect ? 18 : 10)) % width;
+                const y = (i * 53 + tick * 7) % height;
+                const alpha = 0.22 + ((i * 17) % 10) / 18;
+                ctx.fillStyle = "rgba(248,250,252," + alpha.toFixed(2) + ")";
+                ctx.fillRect(x, y, i % 7 === 0 ? 3 : 2, i % 7 === 0 ? 3 : 2);
+            }
+        } else if (bg.pattern === "wood" || bg.pattern === "paper" || bg.pattern === "stone") {
+            ctx.strokeStyle = bg.pattern === "paper" ? "rgba(120, 84, 44, 0.12)" : "rgba(255,255,255,0.08)";
+            ctx.lineWidth = 2;
+            for (let y = 20; y < height; y += 38) {
+                ctx.beginPath();
+                ctx.moveTo(0, y + Math.sin((tick + y) * 0.03) * 4);
+                ctx.bezierCurveTo(width * 0.28, y - 10, width * 0.66, y + 14, width, y + Math.cos(y) * 5);
+                ctx.stroke();
+            }
+        } else if (bg.pattern === "rain" || bg.pattern === "wave") {
+            ctx.strokeStyle = "rgba(255,255,255,0.13)";
+            ctx.lineWidth = 1.5;
+            for (let x = -height; x < width; x += 26) {
+                ctx.beginPath();
+                ctx.moveTo(x + (tick * 22) % 26, 0);
+                ctx.lineTo(x + height + (tick * 22) % 26, height);
+                ctx.stroke();
+            }
+        } else if (bg.pattern === "crack" || bg.pattern === "prism" || bg.pattern === "eclipse" || bg.pattern === "lotus") {
+            ctx.strokeStyle = bg.line || "rgba(255,255,255,0.35)";
+            ctx.globalAlpha = bg.effect ? 0.24 + Math.sin(tick * 2.2) * 0.08 : 0.18;
+            ctx.lineWidth = 2;
+            for (let i = 0; i < 12; i += 1) {
+                const cx = (i * 83) % width;
+                const cy = (i * 47) % height;
+                ctx.beginPath();
+                ctx.moveTo(cx, cy);
+                ctx.lineTo((cx + 80 + i * 9) % width, (cy + 140 + i * 13) % height);
+                ctx.stroke();
+            }
+            ctx.globalAlpha = 1;
+        }
     }
 
     function topdownIconImageCache() {
@@ -5498,6 +3435,8 @@
             auraActive: eliteType === "buffer",
             auraTimer: eliteType === "buffer" ? TOPDOWN_BALANCE.bufferAuraOnDuration : 0,
             auraRadius: TOPDOWN_BALANCE.bufferAuraRadius,
+            wardenFieldActive: eliteType === "warden",
+            wardenFieldTimer: eliteType === "warden" ? TOPDOWN_BALANCE.wardenFieldOnDuration : 0,
             hasSplit: false,
             remnantActive: false,
             explodeDelay: 0,
@@ -5521,7 +3460,11 @@
         } else if (eliteType === "splitter") {
             enemy.speed *= 1.05;
         } else if (eliteType === "repulsor") {
-            enemy.speed *= 0.82;
+            enemy.speed *= 1.06;
+            enemy.hp *= 1.04;
+            enemy.maxHp = enemy.hp;
+        } else if (eliteType === "warden") {
+            enemy.speed *= 0.78;
             enemy.hp *= 1.18;
             enemy.maxHp = enemy.hp;
         } else if (eliteType === "blackhand") {
@@ -5675,14 +3618,16 @@
         return false;
     }
 
-    function spawnTopdownAoeBurst(session, x, y, radius) {
+    function spawnTopdownAoeBurst(session, x, y, radius, element, ultimate) {
         session.aoeBursts.push({
             id: session.nextId,
             type: "burst",
             x: x,
             y: y,
             radius: radius,
-            life: TOPDOWN_BALANCE.nuclearBurstLife
+            life: TOPDOWN_BALANCE.nuclearBurstLife,
+            element: element || "nuclear",
+            ultimate: Boolean(ultimate)
         });
         session.nextId += 1;
     }
@@ -5697,7 +3642,9 @@
             life: TOPDOWN_BALANCE.nuclearRadiationDuration,
             tickInterval: Math.max(0.08, interval),
             tickLeft: Math.max(0.08, interval),
-            damage: damage
+            damage: damage,
+            element: "nuclear",
+            ultimate: true
         });
         session.nextId += 1;
     }
@@ -5733,9 +3680,11 @@
             element: element,
             elementLevel: elementLevel,
             canUltimate: bulletExtra.canUltimate !== false,
-            ignoreRepulsorField: Boolean(bulletExtra.ignoreRepulsorField),
+            ultimate: bulletExtra.canUltimate !== false && Number(elementLevel || 0) >= TOPDOWN_BALANCE.elementCap,
+            ignoreWardenField: Boolean(bulletExtra.ignoreWardenField || bulletExtra.ignoreRepulsorField),
             aoeStacks: Number(bulletExtra.aoeStacks || 0),
-            aoeRadius: Number(bulletExtra.aoeRadius || 0)
+            aoeRadius: Number(bulletExtra.aoeRadius || 0),
+            visualPhase: Math.random() * Math.PI * 2
         });
         session.nextId += 1;
     }
@@ -5801,6 +3750,9 @@
         }
         if (eliteType === "repulsor") {
             return "斥力";
+        }
+        if (eliteType === "warden") {
+            return "典狱";
         }
         if (eliteType === "blackhand") {
             return "黑手";
@@ -5908,40 +3860,45 @@
         session.player.knockbackVy = 0;
     }
 
-    function topdownPlayerInsideRepulsorField(session, x, y) {
+    function topdownPointInsideWardenField(session, x, y) {
         return (session.enemies || []).some(function (enemy) {
             return enemy
                 && enemy.hp > 0
                 && enemy.isElite
-                && topdownCanonicalEliteType(enemy.eliteType) === "repulsor"
+                && topdownCanonicalEliteType(enemy.eliteType) === "warden"
+                && enemy.wardenFieldActive
                 && !enemy.remnantActive
-                && distanceBetween({ x: x, y: y }, enemy) <= TOPDOWN_BALANCE.repulsorRange + Number(enemy.radius || 0);
+                && distanceBetween({ x: x, y: y }, enemy) <= TOPDOWN_BALANCE.wardenFieldRange + Number(enemy.radius || 0);
         });
     }
 
     function topdownPlayerMoveSpeedFactor(session) {
         let factor = 1;
-        if (topdownPlayerInsideRepulsorField(session, session.player.x, session.player.y)) {
-            factor *= TOPDOWN_BALANCE.repulsorSlowMultiplier;
-        }
         if (Number(session.player.frenzyExhaustUntil || 0) > Number(session.tick || 0)) {
             factor *= TOPDOWN_BALANCE.frenzyMoveMultiplier;
         }
         return factor;
     }
 
-    function topdownBulletBlockedByRepulsor(session, bullet) {
-        if (bullet.element === "electric" || bullet.ignoreRepulsorField) {
+    function topdownEnemyWardenSlowFactor(session, enemy) {
+        if (!enemy || topdownCanonicalEliteType(enemy.eliteType) === "warden") {
+            return 1;
+        }
+        return topdownPointInsideWardenField(session, enemy.x, enemy.y) ? TOPDOWN_BALANCE.wardenEnemySlowMultiplier : 1;
+    }
+
+    function topdownBulletBlockedByWardenField(session, bullet) {
+        if (bullet.element === "electric" || bullet.ignoreWardenField || bullet.ignoreRepulsorField) {
             return false;
         }
         for (let index = 0; index < session.enemies.length; index += 1) {
             const enemy = session.enemies[index];
-            if (!enemy || enemy.hp <= 0 || enemy.remnantActive || !enemy.isElite || topdownCanonicalEliteType(enemy.eliteType) !== "repulsor") {
+            if (!enemy || enemy.hp <= 0 || enemy.remnantActive || !enemy.isElite || topdownCanonicalEliteType(enemy.eliteType) !== "warden" || !enemy.wardenFieldActive) {
                 continue;
             }
-            const insideNow = distanceBetween(bullet, enemy) <= TOPDOWN_BALANCE.repulsorRange + enemy.radius;
-            const insidePrev = distanceBetween({ x: bullet.prevX, y: bullet.prevY }, enemy) <= TOPDOWN_BALANCE.repulsorRange + enemy.radius;
-            if (insideNow || insidePrev || distanceToSegmentSquared(enemy.x, enemy.y, bullet.prevX, bullet.prevY, bullet.x, bullet.y) <= Math.pow(TOPDOWN_BALANCE.repulsorRange + enemy.radius, 2)) {
+            const insideNow = distanceBetween(bullet, enemy) <= TOPDOWN_BALANCE.wardenFieldRange + enemy.radius;
+            const insidePrev = distanceBetween({ x: bullet.prevX, y: bullet.prevY }, enemy) <= TOPDOWN_BALANCE.wardenFieldRange + enemy.radius;
+            if (insideNow || insidePrev || distanceToSegmentSquared(enemy.x, enemy.y, bullet.prevX, bullet.prevY, bullet.x, bullet.y) <= Math.pow(TOPDOWN_BALANCE.wardenFieldRange + enemy.radius, 2)) {
                 return true;
             }
         }
@@ -5973,7 +3930,7 @@
         spawnTopdownSpreadShot(session, session.player, aimAngle, TOPDOWN_BALANCE.frenzyBulletCount, TOPDOWN_BALANCE.frenzySpreadRadians, function (shotAngle) {
             createTopdownBullet(session, session.player, shotAngle, playerStats.damage, "player", session.build.element, elementLevel, {
                 canUltimate: true,
-                ignoreRepulsorField: topdownPlayerInsideRepulsorField(session, session.player.x, session.player.y)
+                ignoreWardenField: topdownPointInsideWardenField(session, session.player.x, session.player.y)
             });
         });
     }
@@ -6195,7 +4152,11 @@
             toY: beamEndY,
             color: owner === "wingman" ? "#fde68a" : "#facc15",
             life: TOPDOWN_BALANCE.electricBeamLife,
-            width: owner === "wingman" ? 2.2 : 3.2
+            width: owner === "wingman" ? 2.2 : 3.2,
+            element: "electric",
+            elementLevel: stats.elementLevel,
+            canUltimate: stats.canUltimate,
+            ultimate: stats.canUltimate
         });
         if (!hitEnemy) {
             return;
@@ -6215,7 +4176,7 @@
     function spawnTopdownVolley(session, origin, angle, stats, owner) {
         const count = Math.max(1, stats.multishot);
         const offsetBase = -(count - 1) / 2;
-        const ignoreRepulsorField = topdownPlayerInsideRepulsorField(session, session.player.x, session.player.y);
+        const ignoreWardenField = topdownPointInsideWardenField(session, session.player.x, session.player.y);
         for (let shot = 0; shot < count; shot += 1) {
             const shotAngle = angle + (offsetBase + shot) * TOPDOWN_BALANCE.multishotSpread;
             if (stats.element === "electric") {
@@ -6232,10 +4193,10 @@
                     stats.elementLevel,
                     emitElementAoe ? {
                         canUltimate: stats.canUltimate,
-                        ignoreRepulsorField: ignoreRepulsorField,
+                        ignoreWardenField: ignoreWardenField,
                         aoeStacks: 1,
                         aoeRadius: topdownElementAoeRadius(stats.element, stats.elementLevel)
-                    } : { canUltimate: stats.canUltimate, ignoreRepulsorField: ignoreRepulsorField }
+                    } : { canUltimate: stats.canUltimate, ignoreWardenField: ignoreWardenField }
                 );
             }
         }
@@ -6341,6 +4302,8 @@
                 auraActive: false,
                 auraTimer: 0,
                 auraRadius: 0,
+                wardenFieldActive: false,
+                wardenFieldTimer: 0,
                 hasSplit: true,
                 remnantActive: false,
                 explodeDelay: 0,
@@ -6452,7 +4415,7 @@
                     + enemy.burnStacks * TOPDOWN_BALANCE.burnDamagePerStack
             );
             if (bullet.aoeStacks > 0 && bullet.aoeRadius > 0) {
-                spawnTopdownAoeBurst(session, enemy.x, enemy.y, bullet.aoeRadius);
+                spawnTopdownAoeBurst(session, enemy.x, enemy.y, bullet.aoeRadius, "fire", topdownIsUltimateProjectile(bullet));
                 session.enemies.forEach(function (target) {
                     if (target.id === enemy.id || target.remnantActive || topdownEnemyProtectedByBuffer(session, target) || distanceBetween(target, enemy) > bullet.aoeRadius + target.radius) {
                         return;
@@ -6471,7 +4434,7 @@
         if (bullet.element === "ice" && bullet.elementLevel > 0) {
             enemy.iceStacks += 1 + Math.floor(bullet.elementLevel / 2);
             if (bullet.aoeStacks > 0 && bullet.aoeRadius > 0) {
-                spawnTopdownAoeBurst(session, enemy.x, enemy.y, bullet.aoeRadius);
+                spawnTopdownAoeBurst(session, enemy.x, enemy.y, bullet.aoeRadius, "ice", topdownIsUltimateProjectile(bullet));
                 session.enemies.forEach(function (target) {
                     if (target.id === enemy.id || target.remnantActive || topdownEnemyProtectedByBuffer(session, target) || distanceBetween(target, enemy) > bullet.aoeRadius + target.radius) {
                         return;
@@ -6514,7 +4477,11 @@
                         toY: target.y,
                         color: "#facc15",
                         life: TOPDOWN_BALANCE.electricBeamLife,
-                        width: 2 + bullet.elementLevel * 0.35
+                        width: 2 + bullet.elementLevel * 0.35,
+                        element: "electric",
+                        elementLevel: bullet.elementLevel,
+                        canUltimate: bullet.canUltimate,
+                        ultimate: topdownIsUltimateProjectile(bullet)
                     });
                     const chainDamage = applyElectricDamageModifier(target, bullet.damage * TOPDOWN_BALANCE.electricDamageFactor, bullet.canUltimate);
                     if (damageTopdownEnemy(session, target, chainDamage)) {
@@ -6526,7 +4493,7 @@
         }
         if (bullet.element === "nuclear" && bullet.elementLevel > 0) {
             const radius = TOPDOWN_BALANCE.nuclearBaseRadius + bullet.elementLevel * TOPDOWN_BALANCE.nuclearRadiusPerLevel;
-            spawnTopdownAoeBurst(session, enemy.x, enemy.y, radius);
+            spawnTopdownAoeBurst(session, enemy.x, enemy.y, radius, "nuclear", topdownIsUltimateProjectile(bullet));
             if (bullet.canUltimate && Math.random() < TOPDOWN_BALANCE.nuclearRadiationChance) {
                 spawnTopdownRadiationZone(session, enemy.x, enemy.y, radius, bullet.damage * TOPDOWN_BALANCE.nuclearDamageFactor, getTopdownDerivedStats(session, false).fireInterval);
             }
@@ -6746,6 +4713,13 @@
         session.enemies.forEach(function (enemy) {
             if (enemy) {
                 enemy.eliteType = topdownCanonicalEliteType(enemy.eliteType);
+                if (enemy.eliteType === "warden") {
+                    enemy.wardenFieldActive = enemy.wardenFieldActive !== false;
+                    enemy.wardenFieldTimer = Math.max(0, Number(enemy.wardenFieldTimer || TOPDOWN_BALANCE.wardenFieldOnDuration));
+                }
+                if (enemy.eliteType === "repulsor") {
+                    enemy.repulseCooldown = Math.max(0, Number(enemy.repulseCooldown || TOPDOWN_BALANCE.repulsorCooldown));
+                }
             }
         });
         syncTopdownShieldCapacity(session);
@@ -6898,4108 +4872,1142 @@
         return pool;
     }
 
-    function mountTopdownShooter(savedPayload) {
-        let session = normalizeTopdownShooterSession(savedPayload.state || {});
-        let metaState = normalizeTopdownMetaState(savedPayload.metaState || {});
-        const topdownHelpConfig = {
-            title: "俯视射击",
-            subtitle: "先稳住护盾和走位，再围绕元素方向滚出能成型的一套构筑。",
-            bullets: [
-                "操作：移动和射击控制现已拆分，可分别切换。WASD / 方向键负责键盘移动；鼠标模式会自动朝指针位置移动。",
-                "射击可切成手动或自动：手动时按住鼠标左键或 J 开火；自动时会持续索敌并自动射击最近敌人。",
-                "技能键也可切换，当前支持 Q / E / 空格；闪现、导弹矩阵和绝对无敌都会走同一个技能键。",
-                "火会灼烧叠层并周期性打出火系范围叠层弹；电是瞬发激光并固定折射最近敌人；冰会减速叠层直到冰冻；核会生成绿色范围爆发圈。",
-                "主武器满级后：火可传染燃烧，电可附加感电增伤，冰冻敌人有概率碎裂秒杀，核会概率留下持续辐射区。",
-                "僚机会共享当前僚机数量对应的弹种等级，但不触发主武器的满级终极效果。",
-                "首个首领必定掉技能。闪现会朝当前移动方向触发；若当前没有移动则无法发动。所有技能冷却均为 60 秒。",
-                "普通小怪也有 1% 概率掉落随机补给，可能是升级球，也可能是随机道具。",
-                "后期精英和首领会使用单发、散射、环形弹幕或线性光束；黑手会抓钩，噩梦会致盲，良子会吞怪回血。",
-                "护盾被打空后，再吃到一次伤害就会直接结束，本局没有额外命数。"
-            ],
-            hint: "优先决定元素方向，再补攻击、射速、护盾、僚机和弹道。高连杀会给道具，首领会掉技能或整局装备，局外积分可用于抽取颜色和图标外观。"
-        };
-        const arcade = createArcadeShell(
-            "俯视射击",
-            "WASD 或方向键移动，鼠标瞄准，按住鼠标左键或 J 射击，P 暂停。",
-            "单屏展示，右侧只保留战局属性。护盾会按冷却与进度自动恢复。"
-        );
-        arcade.shell.classList.add("game-arcade-shell--topdown");
-        if (arcade.head) {
-            arcade.head.hidden = true;
+    const topdownMetaUi = {
+        modal: null,
+        view: "draw",
+        showLocked: true,
+        equipGame: "topdown",
+        equipCategory: "color",
+        flashMessage: "",
+        revealTimer: 0,
+        paymentBusy: false,
+        rollMetrics: {
+            itemWidth: 112,
+            itemGap: 8,
+            sequenceCount: 24,
+            durationMs: 3200
+        },
+        rollState: {
+            color: { rolling: false, sequenceKeys: [], winnerKey: "", winnerIndex: 0, frameId: 0, offsetPx: 0 },
+            icon: { rolling: false, sequenceKeys: [], winnerKey: "", winnerIndex: 0, frameId: 0, offsetPx: 0 },
+            background: { rolling: false, sequenceKeys: [], winnerKey: "", winnerIndex: 0, frameId: 0, offsetPx: 0 }
         }
-        if (arcade.guideMeta) {
-            arcade.guideMeta.hidden = true;
-        }
-        if (arcade.accentMeta) {
-            arcade.accentMeta.hidden = true;
-        }
-        if (arcade.controlsCard) {
-            arcade.controlsCard.hidden = true;
-        }
-        const ctx = arcade.canvas.getContext("2d");
-        const arenaWidth = TOPDOWN_BALANCE.arenaWidth;
-        const arenaHeight = TOPDOWN_BALANCE.arenaHeight;
-        const arenaPadding = TOPDOWN_BALANCE.arenaPadding;
-        const arenaPlayerMargin = TOPDOWN_BALANCE.arenaPlayerMargin;
-        arcade.canvas.width = arenaWidth;
-        arcade.canvas.height = arenaHeight;
-        const pointer = { x: arenaWidth / 2, y: arenaHeight / 2, down: false };
-        const pressed = Object.create(null);
-        const blockedKeys = { Space: true, ArrowUp: true, ArrowDown: true, ArrowLeft: true, ArrowRight: true, KeyW: true, KeyA: true, KeyS: true, KeyD: true, KeyJ: true, KeyQ: true, KeyE: true, KeyR: true, KeyP: true, Digit0: true, Digit1: true, Digit2: true, Digit3: true };
-        let animationId = 0;
-        let lastFrame = 0;
-        let persistStamp = 0;
-        let upgradeRects = [];
-        let pickupChoiceRects = [];
-        let introShownAt = Date.now();
-        let introActive = true;
-        let metaModal = null;
+    };
 
-        addStageButton("重新开局", function () {
-            finalizeRunRewardIfNeeded();
-            finalizeScoreIfNeeded().finally(function () {
-                session = createTopdownShooterSession({
-                    moveControl: session.moveControl,
-                    fireControl: session.fireControl,
-                    skillTriggerKey: session.skillTriggerKey
-                });
-                updateControlButtons();
-                updateHud();
-                persist();
+    function topdownMetaState() {
+        return getTopdownSharedMetaState();
+    }
+
+    function persistTopdownMetaState() {
+        const metaState = topdownMetaState();
+        scheduleGameStateSave("topdown-shooter-meta", serializeTopdownMetaState(metaState), summarizeTopdownMetaState(metaState));
+        notifyTopdownMetaRefresh();
+    }
+
+    function topdownMetaAnyRollActive() {
+        return topdownMetaUi.paymentBusy || topdownMetaUi.rollState.color.rolling || topdownMetaUi.rollState.icon.rolling || topdownMetaUi.rollState.background.rolling;
+    }
+
+    function topdownMetaAvailablePoints() {
+        const profileTotalScore = Math.max(0, Math.floor(parseTopdownMetaNumber((state.profile && state.profile.total_score) || 0)));
+        return Math.max(0, Math.floor(profileTotalScore));
+    }
+
+    function topdownMetaTodayKey() {
+        const now = new Date();
+        const month = String(now.getMonth() + 1).padStart(2, "0");
+        const day = String(now.getDate()).padStart(2, "0");
+        return now.getFullYear() + "-" + month + "-" + day;
+    }
+
+    function topdownMetaFreePulls(kind) {
+        const metaState = topdownMetaState();
+        if (kind === "color") {
+            return Math.max(0, Number(metaState.freeColorPulls) || 0);
+        }
+        if (kind === "background") {
+            return Math.max(0, Number(metaState.freeBackgroundPulls) || 0);
+        }
+        return Math.max(0, Number(metaState.freeIconPulls) || 0);
+    }
+
+    function topdownMetaSetFreePulls(kind, value) {
+        const metaState = topdownMetaState();
+        const nextValue = Math.max(0, Math.floor(Number(value || 0)));
+        if (kind === "color") {
+            metaState.freeColorPulls = nextValue;
+        } else if (kind === "background") {
+            metaState.freeBackgroundPulls = nextValue;
+        } else {
+            metaState.freeIconPulls = nextValue;
+        }
+    }
+
+    function topdownMetaPityCount(kind) {
+        const metaState = topdownMetaState();
+        if (kind === "color") {
+            return Math.max(0, Number(metaState.colorPity) || 0);
+        }
+        if (kind === "background") {
+            return Math.max(0, Number(metaState.backgroundPity) || 0);
+        }
+        return Math.max(0, Number(metaState.iconPity) || 0);
+    }
+
+    function topdownMetaSetPityCount(kind, value) {
+        const metaState = topdownMetaState();
+        const nextValue = Math.max(0, Math.floor(Number(value || 0)));
+        if (kind === "color") {
+            metaState.colorPity = nextValue;
+        } else if (kind === "background") {
+            metaState.backgroundPity = nextValue;
+        } else {
+            metaState.iconPity = nextValue;
+        }
+    }
+
+    function topdownMetaDailyFreeTenAvailable(kind) {
+        const metaState = topdownMetaState();
+        const daily = metaState.dailyFreeTen || (metaState.dailyFreeTen = { color: "", icon: "", background: "" });
+        return String(daily[kind] || "") !== topdownMetaTodayKey();
+    }
+
+    function topdownMetaMarkDailyFreeTenUsed(kind) {
+        const metaState = topdownMetaState();
+        const daily = metaState.dailyFreeTen || (metaState.dailyFreeTen = { color: "", icon: "", background: "" });
+        daily[kind] = topdownMetaTodayKey();
+    }
+
+    function topdownMetaDrawCost(kind) {
+        if (kind === "color") {
+            return TOPDOWN_BALANCE.metaColorDrawCost;
+        }
+        if (kind === "background") {
+            return TOPDOWN_BALANCE.metaBackgroundDrawCost;
+        }
+        return TOPDOWN_BALANCE.metaIconDrawCost;
+    }
+
+    function topdownMetaKindLabel(kind) {
+        if (kind === "color") {
+            return "颜色";
+        }
+        if (kind === "background") {
+            return "背景";
+        }
+        return "图标";
+    }
+
+    function topdownMetaDuplicateRefundRate(tier) {
+        if (tier === "superrare") {
+            return 0.8;
+        }
+        if (tier === "rare") {
+            return 0.5;
+        }
+        return 0.2;
+    }
+
+    function topdownMetaApplyLoginGiftIfNeeded() {
+        const metaState = topdownMetaState();
+        const giftVersion = 2;
+        if (Number(metaState.loginGiftVersion || 0) >= giftVersion) {
+            return;
+        }
+        metaState.freeColorPulls += TOPDOWN_BALANCE.metaLoginGiftPulls;
+        metaState.freeIconPulls += TOPDOWN_BALANCE.metaLoginGiftPulls;
+        metaState.loginGiftVersion = giftVersion;
+        topdownMetaUi.flashMessage = "赠送机会已重置：颜色抽奖券 +" + TOPDOWN_BALANCE.metaLoginGiftPulls + " 抽，图标抽奖券 +" + TOPDOWN_BALANCE.metaLoginGiftPulls + " 抽。";
+        persistTopdownMetaState();
+    }
+
+    async function recordTopdownMetaScoreDelta(delta, mode, meta) {
+        const amount = Math.trunc(Number(delta || 0));
+        if (!amount) {
+            return;
+        }
+        await requestJson(config.scoreUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                game_id: "topdown-meta",
+                score: amount,
+                mode: mode || "lottery",
+                session_key: "topdown-meta-" + Date.now() + "-" + Math.random().toString(36).slice(2),
+                meta: meta || {}
+            })
+        });
+        await loadProfile();
+        await refreshScorePanels();
+    }
+
+    async function prepareTopdownMetaDrawPayment(kind, drawCount, useDailyFreeTen) {
+        const metaState = topdownMetaState();
+        const count = Math.max(1, Math.floor(Number(drawCount || 1)));
+        const unitCost = topdownMetaDrawCost(kind);
+        const payment = {
+            kind: kind,
+            count: count,
+            unitCost: unitCost,
+            paidCost: 0,
+            freePullsUsed: 0,
+            dailyFreeTen: false,
+            unitCosts: []
+        };
+        if (useDailyFreeTen && count === TOPDOWN_BALANCE.metaDailyFreeTenCount && topdownMetaDailyFreeTenAvailable(kind)) {
+            payment.dailyFreeTen = true;
+            payment.unitCosts = new Array(count).fill(0);
+            topdownMetaMarkDailyFreeTenUsed(kind);
+            persistTopdownMetaState();
+            return payment;
+        }
+        const availableTickets = topdownMetaFreePulls(kind);
+        payment.freePullsUsed = Math.min(availableTickets, count);
+        for (let index = 0; index < count; index += 1) {
+            payment.unitCosts.push(index < payment.freePullsUsed ? 0 : unitCost);
+        }
+        payment.paidCost = payment.unitCosts.reduce(function (sum, item) {
+            return sum + Math.max(0, Number(item || 0));
+        }, 0);
+        if (topdownMetaAvailablePoints() < payment.paidCost) {
+            return null;
+        }
+        if (payment.paidCost > 0) {
+            await recordTopdownMetaScoreDelta(-payment.paidCost, "lottery-spend", {
+                pool: kind,
+                draw_count: count,
+                paid_cost: payment.paidCost,
+                free_pulls_used: payment.freePullsUsed
             });
-        }, true);
-        addStageButton("暂停 / 继续", function () {
-            togglePause();
-        }, false);
-        const moveControlButton = addStageButton("", function () {
-            session.moveControl = session.moveControl === "mouse" ? "keyboard" : "mouse";
-            pointer.down = false;
-            updateControlButtons();
-            updateHud();
-            persist();
-        }, false);
-        const fireControlButton = addStageButton("", function () {
-            session.fireControl = session.fireControl === "auto" ? "manual" : "auto";
-            pointer.down = false;
-            updateControlButtons();
-            updateHud();
-            persist();
-        }, false);
-        const skillKeyButton = addStageButton("", function () {
-            const options = topdownSkillTriggerKeyOptions();
-            const currentIndex = options.indexOf(session.skillTriggerKey);
-            session.skillTriggerKey = options[(currentIndex + 1 + options.length) % options.length];
-            updateControlButtons();
-            updateHud();
-            persist();
-        }, false);
-        addStageButton("帮助", function () {
-            openGameInfoOverlay(arcade.canvasWrap, topdownHelpConfig);
-        }, false);
-        addStageButton("局外养成", function () {
-            openMetaModal();
-        }, false);
-
-        function updateControlButtons() {
-            if (moveControlButton) {
-                moveControlButton.textContent = session.moveControl === "mouse" ? "移动: 鼠标" : "移动: 键盘";
-            }
-            if (fireControlButton) {
-                fireControlButton.textContent = session.fireControl === "auto" ? "射击: 自动" : "射击: 手动";
-            }
-            if (skillKeyButton) {
-                skillKeyButton.textContent = "技能键: " + topdownSkillTriggerKeyLabel(session.skillTriggerKey);
-            }
         }
-        updateControlButtons();
-
-        function persistMeta() {
-            scheduleGameStateSave("topdown-shooter-meta", serializeTopdownMetaState(metaState), summarizeTopdownMetaState(metaState));
+        if (payment.freePullsUsed > 0) {
+            topdownMetaSetFreePulls(kind, availableTickets - payment.freePullsUsed);
         }
+        metaState.totalSpent += payment.paidCost;
+        persistTopdownMetaState();
+        return payment;
+    }
 
-        function persist() {
-            scheduleGameStateSave("topdown-shooter", serializeTopdownShooterSession(session), summarizeTopdownShooterSession(session));
-            persistMeta();
-        }
-
-        function finalizeRunRewardIfNeeded() {
-            if (session.metaRewardGranted || session.status !== "over") {
-                return 0;
-            }
-            const reward = topdownMetaRewardAmount(session);
-            session.metaRewardGranted = true;
-            metaState.points += reward;
-            metaState.totalEarned += reward;
-            persistMeta();
-            return reward;
-        }
-
-        const metaRollMetrics = {
-            itemWidth: 148,
-            itemGap: 10,
-            sequenceCount: 42,
-            durationMs: 4600
-        };
-        let metaView = "draw";
-        let metaFlashMessage = "";
-        const metaRollState = {
-            color: { rolling: false, sequenceKeys: [], winnerKey: "", winnerIndex: 0, frameId: 0, offsetPx: 0, refund: 0 },
-            icon: { rolling: false, sequenceKeys: [], winnerKey: "", winnerIndex: 0, frameId: 0, offsetPx: 0, refund: 0 }
-        };
-
-        function topdownAnyMetaRollActive() {
-            return metaRollState.color.rolling || metaRollState.icon.rolling;
-        }
-
-        function topdownMetaPreviewStyle(item) {
-            if (item.gradient && item.gradient.length) {
-                return 'background:linear-gradient(135deg,' + item.gradient.join(",") + ');border-color:' + escapeHtml(item.stroke || "#ffffff") + ';';
-            }
-            if (item.fill || item.stroke) {
-                return '--skin-fill:' + escapeHtml(item.fill || "#38bdf8") + ';--skin-stroke:' + escapeHtml(item.stroke || "#bae6fd") + ';';
-            }
+    function topdownMetaPaymentText(payment) {
+        if (!payment) {
             return "";
         }
-
-        function topdownMetaColorCardHtml(key, color) {
-            const owned = metaState.ownedColors.indexOf(key) !== -1;
-            const equipped = metaState.equippedColor === key;
-            return [
-                '<button type="button" class="topdown-meta-skin ' + topdownMetaTierClass(color.tier) + (owned ? " is-owned" : "") + (equipped ? " is-equipped" : "") + '" data-topdown-equip-color="' + escapeHtml(key) + '"' + (owned ? "" : " disabled") + '>',
-                '  <span class="topdown-meta-skin-icon" style="' + topdownMetaPreviewStyle(color) + '"></span>',
-                '  <span class="topdown-meta-skin-name">' + escapeHtml(color.label) + '</span>',
-                '  <span class="topdown-meta-skin-state">' + escapeHtml(topdownMetaTierLabel(color.tier, "color")) + ' / ' + (equipped ? "已装备" : (owned ? "已拥有" : "未拥有")) + '</span>',
-                "</button>"
-            ].join("");
+        if (payment.dailyFreeTen) {
+            return "今日免费十连";
         }
-
-        function topdownMetaIconCardHtml(key, icon) {
-            const owned = metaState.ownedIcons.indexOf(key) !== -1;
-            const equipped = metaState.equippedIcon === key;
-            return [
-                '<button type="button" class="topdown-meta-skin ' + topdownMetaTierClass(icon.tier) + (owned ? " is-owned" : "") + (equipped ? " is-equipped" : "") + '" data-topdown-equip-icon="' + escapeHtml(key) + '"' + (owned ? "" : " disabled") + '>',
-                '  <span class="topdown-meta-skin-icon">' + escapeHtml(topdownIconPreviewGlyph(icon)) + '</span>',
-                '  <span class="topdown-meta-skin-name">' + escapeHtml(icon.label) + '</span>',
-                '  <span class="topdown-meta-skin-state">' + escapeHtml(topdownMetaTierLabel(icon.tier, "icon")) + ' / ' + (equipped ? "已装备" : (owned ? "已拥有" : "未拥有")) + '</span>',
-                "</button>"
-            ].join("");
+        const parts = [];
+        if (payment.freePullsUsed > 0) {
+            parts.push("赠券 " + payment.freePullsUsed + " 抽");
         }
-
-        function topdownMetaRollItemHtml(kind, key) {
-            const catalog = kind === "color" ? topdownColorCatalog() : topdownIconCatalog();
-            const item = catalog[key];
-            if (!item) {
-                return "";
-            }
-            return [
-                '<div class="topdown-meta-roll-item ' + topdownMetaTierClass(item.tier) + '" data-roll-key="' + escapeHtml(key) + '">',
-                '  <span class="topdown-meta-roll-icon"' + (kind === "color" ? (' style="' + topdownMetaPreviewStyle(item) + '"') : "") + '>' + (kind === "icon" ? escapeHtml(topdownIconPreviewGlyph(item)) : "") + '</span>',
-                '  <span class="topdown-meta-roll-name">' + escapeHtml(item.label) + '</span>',
-                '  <span class="topdown-meta-roll-tier">' + escapeHtml(topdownMetaTierLabel(item.tier, kind)) + '</span>',
-                '</div>'
-            ].join("");
+        if (payment.paidCost > 0) {
+            parts.push("扣除总积分 " + payment.paidCost);
         }
-
-        function topdownMetaStaticRollKeys(kind) {
-            const baseKeys = topdownRollRowBaseKeys(kind);
-            const sequence = [];
-            for (let cycle = 0; cycle < 4; cycle += 1) {
-                baseKeys.forEach(function (key) {
-                    sequence.push(key);
-                });
-            }
-            return sequence;
-        }
-
-        function topdownMetaEnsureIdleSequence(kind) {
-            const state = metaRollState[kind];
-            if (state.rolling) {
-                return;
-            }
-            state.sequenceKeys = topdownMetaStaticRollKeys(kind);
-            state.offsetPx = 0;
-        }
-
-        function topdownMetaRollRowHtml(kind) {
-            const isColor = kind === "color";
-            const cost = isColor ? TOPDOWN_BALANCE.metaColorDrawCost : TOPDOWN_BALANCE.metaIconDrawCost;
-            const rowTitle = isColor ? "颜色奖池" : "图标奖池";
-            const buttonLabel = isColor ? "抽颜色" : "抽图标";
-            const rowState = metaRollState[kind];
-            const trackItems = (rowState.sequenceKeys && rowState.sequenceKeys.length ? rowState.sequenceKeys : topdownMetaStaticRollKeys(kind))
-                .map(function (key) { return topdownMetaRollItemHtml(kind, key); })
-                .join("");
-            return [
-                '<div class="topdown-meta-roll-row" data-topdown-roll-row="' + kind + '">',
-                '  <div class="topdown-meta-roll-head">',
-                '    <div>',
-                '      <div class="games-section-title">' + rowTitle + '</div>',
-                '      <div class="games-stage-meta">单次消耗 ' + escapeHtml(String(cost)) + ' 积分，抽到重复返还 20%。</div>',
-                '    </div>',
-                '    <button type="button" class="games-btn' + (isColor ? " games-btn--primary" : "") + '" data-topdown-draw-' + kind + '="1"' + (rowState.rolling ? " disabled" : "") + '>' + buttonLabel + '</button>',
-                '  </div>',
-                '  <div class="topdown-meta-roll-viewport" data-topdown-roll-viewport="' + kind + '">',
-                '    <div class="topdown-meta-roll-marker"></div>',
-                '    <div class="topdown-meta-roll-track' + (rowState.rolling ? " is-rolling" : " is-auto") + '" data-topdown-roll-track="' + kind + '">' + trackItems + '</div>',
-                '  </div>',
-                '</div>'
-            ].join("");
-        }
-
-        function topdownMetaDrawViewHtml() {
-            const appearance = topdownEquippedAppearance(metaState);
-            const rareUnlocked = topdownAllCommonColorsOwned(metaState);
-            const colorCatalog = topdownColorCatalog();
-            const iconCatalog = topdownIconCatalog();
-            return [
-                '<div class="topdown-meta-shell">',
-                '  <div class="games-insight-panel topdown-meta-overview">',
-                '    <div class="topdown-meta-overview-main">',
-                '      <div>',
-                '        <div class="games-section-title">抽奖总览</div>',
-                '        <div class="games-stage-meta">颜色与图标分开抽取，命中重复返还 20% 积分。</div>',
-                '      </div>',
-                '      <div class="topdown-meta-active-loadout">',
-                '        <span class="topdown-meta-active-color" style="' + topdownMetaPreviewStyle(appearance.color) + '"></span>',
-                '        <span class="topdown-meta-active-icon">' + escapeHtml(topdownIconPreviewGlyph(appearance.icon)) + '</span>',
-                '        <div class="topdown-meta-active-text">',
-                '          <strong>' + escapeHtml(appearance.color.label) + '</strong>',
-                '          <span>' + escapeHtml(appearance.icon.label) + '</span>',
-                '        </div>',
-                '      </div>',
-                '    </div>',
-                '    <div class="topdown-meta-stat-grid">',
-                '      <div class="topdown-meta-stat"><span>当前积分</span><strong>' + escapeHtml(String(metaState.points)) + '</strong></div>',
-                '      <div class="topdown-meta-stat"><span>累计抽奖</span><strong>' + escapeHtml(String(metaState.pulls)) + '</strong></div>',
-                '      <div class="topdown-meta-stat"><span>颜色收藏</span><strong>' + escapeHtml(String(metaState.ownedColors.length)) + ' / ' + escapeHtml(String(Object.keys(colorCatalog).length)) + '</strong></div>',
-                '      <div class="topdown-meta-stat"><span>图标收藏</span><strong>' + escapeHtml(String(metaState.ownedIcons.length)) + ' / ' + escapeHtml(String(Object.keys(iconCatalog).length)) + '</strong></div>',
-                '    </div>',
-                '    <div class="games-stage-meta topdown-meta-tip">' + (rareUnlocked ? "普通颜色已集齐，颜色池已开放极低概率的稀有色。" : "先收集完全部普通颜色，再开放极低概率的稀有颜色。") + '</div>',
-                (metaFlashMessage ? ('    <div class="games-stage-meta topdown-meta-flash">' + escapeHtml(metaFlashMessage) + '</div>') : ''),
-                '  </div>',
-                '  <div class="topdown-meta-roll-stack">',
-                topdownMetaRollRowHtml("color"),
-                topdownMetaRollRowHtml("icon"),
-                '  </div>',
-                '</div>'
-            ].join("");
-        }
-
-        function topdownMetaEquipViewHtml() {
-            const colorCatalog = topdownColorCatalog();
-            const iconCatalog = topdownIconCatalog();
-            return [
-                '<div class="topdown-meta-shell">',
-                '  <div class="games-insight-panel topdown-meta-overview">',
-                '    <div class="topdown-meta-overview-main">',
-                '      <div>',
-                '        <div class="games-section-title">装备仓库</div>',
-                '        <div class="games-stage-meta">已拥有的可直接点击装备，未拥有的会以灰色锁定展示。</div>',
-                '      </div>',
-                '    </div>',
-                '    <div class="topdown-meta-stat-grid">',
-                '      <div class="topdown-meta-stat"><span>颜色拥有</span><strong>' + escapeHtml(String(metaState.ownedColors.length)) + ' / ' + escapeHtml(String(Object.keys(colorCatalog).length)) + '</strong></div>',
-                '      <div class="topdown-meta-stat"><span>图标拥有</span><strong>' + escapeHtml(String(metaState.ownedIcons.length)) + ' / ' + escapeHtml(String(Object.keys(iconCatalog).length)) + '</strong></div>',
-                '      <div class="topdown-meta-stat"><span>已装备颜色</span><strong>' + escapeHtml(((colorCatalog[metaState.equippedColor] || {}).label || "默认")) + '</strong></div>',
-                '      <div class="topdown-meta-stat"><span>已装备图标</span><strong>' + escapeHtml(((iconCatalog[metaState.equippedIcon] || {}).label || "默认")) + '</strong></div>',
-                '    </div>',
-                (metaFlashMessage ? ('    <div class="games-stage-meta topdown-meta-flash">' + escapeHtml(metaFlashMessage) + '</div>') : ''),
-                '  </div>',
-                '  <div class="games-insight-panel topdown-meta-panel topdown-meta-panel--wide">',
-                '    <div class="topdown-meta-section-head"><div class="games-section-title">颜色装备</div><div class="games-stage-meta">点击已拥有项即可切换</div></div>',
-                '    <div class="topdown-meta-skins">' + Object.keys(colorCatalog).map(function (key) { return topdownMetaColorCardHtml(key, colorCatalog[key]); }).join("") + '</div>',
-                '  </div>',
-                '  <div class="games-insight-panel topdown-meta-panel topdown-meta-panel--wide">',
-                '    <div class="topdown-meta-section-head"><div class="games-section-title">图标装备</div><div class="games-stage-meta">未拥有项保留展示，方便预览奖池</div></div>',
-                '    <div class="topdown-meta-skins">' + Object.keys(iconCatalog).map(function (key) { return topdownMetaIconCardHtml(key, iconCatalog[key]); }).join("") + '</div>',
-                '  </div>',
-                '</div>'
-            ].join("");
-        }
-
-        function topdownMetaPanelHtml() {
-            return [
-                '<div class="topdown-meta-root">',
-                '  <div class="topdown-meta-tabs">',
-                '    <button type="button" class="topdown-meta-tab' + (metaView === "draw" ? " is-active" : "") + '" data-topdown-meta-view="draw">抽奖</button>',
-                '    <button type="button" class="topdown-meta-tab' + (metaView === "equip" ? " is-active" : "") + '" data-topdown-meta-view="equip">装备</button>',
-                '  </div>',
-                '  <div class="topdown-meta-view">',
-                (metaView === "draw" ? topdownMetaDrawViewHtml() : topdownMetaEquipViewHtml()),
-                '  </div>',
-                '</div>'
-            ].join("");
-        }
-
-        function ensureMetaModal() {
-            if (metaModal) {
-                return metaModal;
-            }
-            metaModal = document.createElement("div");
-            metaModal.className = "games-modal";
-            metaModal.hidden = true;
-            metaModal.innerHTML = [
-                '<div class="games-modal-backdrop" data-topdown-meta-close="1"></div>',
-                '<div class="games-modal-dialog games-modal-dialog--wide topdown-meta-dialog">',
-                '  <div class="games-modal-head">',
-                '    <div>',
-                '      <div class="games-section-title">Topdown 局外养成</div>',
-                '      <div class="games-stage-meta">抽到的颜色与图标可永久保留并在本地访客档案中复用。</div>',
-                "    </div>",
-                '    <button type="button" class="games-modal-close" data-topdown-meta-close="1">关闭</button>',
-                "  </div>",
-                '  <div class="games-modal-body topdown-meta-body" data-topdown-meta-body="1"></div>',
-                '  <div class="games-modal-actions">',
-                '    <button type="button" class="games-btn" data-topdown-meta-close="1">关闭</button>',
-                "  </div>",
-                "</div>"
-            ].join("");
-            document.body.appendChild(metaModal);
-            metaModal.addEventListener("click", function (event) {
-                const target = event.target;
-                if (!(target instanceof HTMLElement)) {
-                    return;
-                }
-                if (target.hasAttribute("data-topdown-meta-close")) {
-                    closeMetaModal();
-                    return;
-                }
-                const nextView = target.getAttribute("data-topdown-meta-view");
-                if (nextView === "draw" || nextView === "equip") {
-                    if (topdownAnyMetaRollActive()) {
-                        metaFlashMessage = "当前正在开奖，请等待滚动结束。";
-                        renderMetaModal();
-                        return;
-                    }
-                    metaView = nextView;
-                    renderMetaModal();
-                    return;
-                }
-                const equipColorKey = target.getAttribute("data-topdown-equip-color");
-                if (equipColorKey) {
-                    if (topdownAnyMetaRollActive()) {
-                        metaFlashMessage = "当前正在开奖，请等待滚动结束后再切换装备。";
-                        renderMetaModal();
-                        return;
-                    }
-                    if (metaState.ownedColors.indexOf(equipColorKey) !== -1) {
-                        metaState.equippedColor = equipColorKey;
-                        persistMeta();
-                        metaFlashMessage = "已装备颜色：" + ((topdownColorCatalog()[equipColorKey] || {}).label || "");
-                        renderMetaModal();
-                    }
-                    return;
-                }
-                const equipIconKey = target.getAttribute("data-topdown-equip-icon");
-                if (equipIconKey) {
-                    if (topdownAnyMetaRollActive()) {
-                        metaFlashMessage = "当前正在开奖，请等待滚动结束后再切换装备。";
-                        renderMetaModal();
-                        return;
-                    }
-                    if (metaState.ownedIcons.indexOf(equipIconKey) !== -1) {
-                        metaState.equippedIcon = equipIconKey;
-                        persistMeta();
-                        metaFlashMessage = "已装备图标：" + ((topdownIconCatalog()[equipIconKey] || {}).label || "");
-                        renderMetaModal();
-                    }
-                    return;
-                }
-                if (target.hasAttribute("data-topdown-draw-color")) {
-                    drawTopdownColor();
-                    return;
-                }
-                if (target.hasAttribute("data-topdown-draw-icon")) {
-                    drawTopdownIcon();
-                }
-            });
-            return metaModal;
-        }
-
-        function syncMetaRollTracks() {
-            if (!metaModal || metaView !== "draw") {
-                return;
-            }
-            ["color", "icon"].forEach(function (kind) {
-                const rowState = metaRollState[kind];
-                const viewport = metaModal.querySelector('[data-topdown-roll-viewport="' + kind + '"]');
-                const track = metaModal.querySelector('[data-topdown-roll-track="' + kind + '"]');
-                if (!viewport || !track) {
-                    return;
-                }
-                if (!rowState.sequenceKeys.length) {
-                    topdownMetaEnsureIdleSequence(kind);
-                    track.innerHTML = rowState.sequenceKeys.map(function (key) {
-                        return topdownMetaRollItemHtml(kind, key);
-                    }).join("");
-                }
-                const cycleWidth = topdownRollRowBaseKeys(kind).length * (metaRollMetrics.itemWidth + metaRollMetrics.itemGap);
-                track.style.setProperty("--roll-cycle-width", cycleWidth + "px");
-                track.style.transform = 'translateX(-' + rowState.offsetPx + 'px)';
-            });
-        }
-
-        function renderMetaModal() {
-            const modal = ensureMetaModal();
-            const body = modal.querySelector("[data-topdown-meta-body='1']");
-            if (body) {
-                body.innerHTML = topdownMetaPanelHtml();
-            }
-            syncMetaRollTracks();
-        }
-
-        function openMetaModal() {
-            if (session.status === "playing" && !session.pendingUpgrade && !session.pendingPickupChoice) {
-                togglePause();
-            }
-            const modal = ensureMetaModal();
-            renderMetaModal();
-            modal.hidden = false;
-        }
-
-        function closeMetaModal() {
-            if (metaModal) {
-                metaModal.hidden = true;
-            }
-        }
-
-        function topdownResolveRollReward(kind, winnerKey) {
-            if (kind === "color") {
-                const color = topdownColorCatalog()[winnerKey];
-                if (metaState.ownedColors.indexOf(winnerKey) !== -1) {
-                    const refund = Math.round(TOPDOWN_BALANCE.metaColorDrawCost * TOPDOWN_BALANCE.metaDuplicateRefundRate);
-                    metaState.points += refund;
-                    metaFlashMessage = "抽中重复颜色 " + color.label + "，已返还 " + refund + " 积分。";
-                } else {
-                    metaState.ownedColors.push(winnerKey);
-                    metaState.equippedColor = winnerKey;
-                    metaFlashMessage = "获得新颜色：" + color.label + "。已自动装备。";
-                }
-                return;
-            }
-            const icon = topdownIconCatalog()[winnerKey];
-            if (metaState.ownedIcons.indexOf(winnerKey) !== -1) {
-                const refund = Math.round(TOPDOWN_BALANCE.metaIconDrawCost * TOPDOWN_BALANCE.metaDuplicateRefundRate);
-                metaState.points += refund;
-                metaFlashMessage = "抽中重复图标 " + icon.label + "，已返还 " + refund + " 积分。";
-            } else {
-                metaState.ownedIcons.push(winnerKey);
-                metaState.equippedIcon = winnerKey;
-                metaFlashMessage = "获得新图标：" + icon.label + "。已自动装备。";
-            }
-        }
-
-        function topdownStartRoll(kind, cost, winnerKey) {
-            const rowState = metaRollState[kind];
-            if (rowState.rolling) {
-                return;
-            }
-            metaView = "draw";
-            metaFlashMessage = "";
-            metaState.points -= cost;
-            metaState.totalSpent += cost;
-            metaState.pulls += 1;
-            if (kind === "color") {
-                metaState.colorPulls += 1;
-            } else {
-                metaState.iconPulls += 1;
-            }
-            const rollSequence = topdownRollSequence(kind, winnerKey, metaRollMetrics.sequenceCount, topdownAllCommonColorsOwned(metaState));
-            rowState.sequenceKeys = rollSequence.keys;
-            rowState.winnerKey = winnerKey;
-            rowState.winnerIndex = rollSequence.winnerIndex;
-            rowState.offsetPx = 0;
-            rowState.rolling = true;
-            renderMetaModal();
-            const viewport = metaModal ? metaModal.querySelector('[data-topdown-roll-viewport="' + kind + '"]') : null;
-            const track = metaModal ? metaModal.querySelector('[data-topdown-roll-track="' + kind + '"]') : null;
-            if (!viewport || !track) {
-                rowState.rolling = false;
-                topdownResolveRollReward(kind, winnerKey);
-                persistMeta();
-                renderMetaModal();
-                return;
-            }
-            const itemSpan = metaRollMetrics.itemWidth + metaRollMetrics.itemGap;
-            const targetOffset = Math.max(0, rowState.winnerIndex * itemSpan - (viewport.clientWidth / 2 - metaRollMetrics.itemWidth / 2));
-            const startedAt = performance.now();
-            function frame(now) {
-                const progress = clamp((now - startedAt) / metaRollMetrics.durationMs, 0, 1);
-                const eased = Math.sin(progress * Math.PI * 0.5);
-                rowState.offsetPx = targetOffset * eased;
-                track.style.transform = 'translateX(-' + rowState.offsetPx + 'px)';
-                if (progress < 1) {
-                    rowState.frameId = window.requestAnimationFrame(frame);
-                    return;
-                }
-                rowState.frameId = 0;
-                rowState.rolling = false;
-                topdownResolveRollReward(kind, winnerKey);
-                persistMeta();
-                renderMetaModal();
-            }
-            rowState.frameId = window.requestAnimationFrame(frame);
-        }
-
-        function drawTopdownColor() {
-            if (topdownAnyMetaRollActive()) {
-                metaFlashMessage = "当前已有一条奖池正在开奖，请稍候。";
-                renderMetaModal();
-                return;
-            }
-            if (metaState.points < TOPDOWN_BALANCE.metaColorDrawCost) {
-                metaFlashMessage = "积分不足，当前无法抽取新颜色。";
-                renderMetaModal();
-                return;
-            }
-            const commonPool = topdownCommonColorKeys().filter(function (key) { return key !== "classic"; });
-            const rareUnlocked = topdownAllCommonColorsOwned(metaState);
-            const useRare = rareUnlocked && Math.random() < TOPDOWN_BALANCE.metaRareColorChance;
-            const pool = useRare ? topdownRareColorKeys() : commonPool;
-            const rolledKey = pool[Math.floor(Math.random() * pool.length)];
-            topdownStartRoll("color", TOPDOWN_BALANCE.metaColorDrawCost, rolledKey);
-        }
-
-        function drawTopdownIcon() {
-            if (topdownAnyMetaRollActive()) {
-                metaFlashMessage = "当前已有一条奖池正在开奖，请稍候。";
-                renderMetaModal();
-                return;
-            }
-            if (metaState.points < TOPDOWN_BALANCE.metaIconDrawCost) {
-                metaFlashMessage = "积分不足，当前无法抽取新图标。";
-                renderMetaModal();
-                return;
-            }
-            const pool = Object.keys(topdownIconCatalog()).filter(function (key) { return key !== "triangle"; });
-            const rolledKey = topdownWeightedPick(pool, function (key) {
-                return topdownIconDrawWeight(topdownIconCatalog()[key]);
-            });
-            topdownStartRoll("icon", TOPDOWN_BALANCE.metaIconDrawCost, rolledKey);
-        }
-
-        function updateHud() {
-            syncTopdownClock(session);
-            const shieldStats = syncTopdownShieldCapacity(session);
-            const wingmanLines = topdownWingmanDetailLines(session);
-            const activeBuffSummary = topdownActiveBuffSummary(session);
-            const sideLines = [
-                "状态：" + (session.status === "over" ? "已失败" : (session.status === "paused" ? "已暂停" : (session.pendingUpgrade ? "正在选强化" : (session.pendingPickupChoice ? "正在选择道具" : "战斗中")))),
-                "构筑：" + topdownBuildSummary(session),
-                "技能：" + topdownSkillSummary(session),
-                "技能键：" + topdownSkillTriggerKeyLabel(session.skillTriggerKey),
-                "首领装备：" + topdownBossRelicSummary(session),
-                renderTopdownAttributeCards(session),
-                wingmanLines[0],
-                "局外积分：" + metaState.points + " / 颜色：" + topdownEquippedAppearance(metaState).color.label + " / 图标：" + topdownEquippedAppearance(metaState).icon.label
-            ];
-            if (activeBuffSummary && activeBuffSummary !== "无") {
-                sideLines.push("临时增益：" + activeBuffSummary);
-            }
-            if (session.score >= TOPDOWN_SCORE_SOFT_CAP) {
-                sideLines.push("得分软上限已生效：后续击杀基础分降为 1，连杀奖励保留。");
-            }
-            if (topdownBuffRemaining(session, "enemySilenceUntil") > 0) {
-                sideLines.push("敌方哑火：" + topdownBuffRemaining(session, "enemySilenceUntil").toFixed(1) + " 秒");
-            }
-            setArcadeStats(arcade.statGrid, [
-                { label: "分数", value: String(session.score) },
-                { label: "击败", value: String(session.kills) },
-                { label: "连杀", value: String(session.combo) },
-                { label: "波次", value: String(session.wave) },
-                { label: "护盾", value: session.shield.current + "/" + shieldStats.max },
-                { label: "技能", value: topdownSkillReady(session) ? "就绪" : (topdownSkillCooldownRemaining(session).toFixed(0) + "s") },
-                { label: "用时", value: formatSeconds(session.elapsedSeconds) }
-            ]);
-            setArcadeList(arcade.status, sideLines, "game-arcade-status-card");
-            syncPresence(session.status === "over" ? "俯视射击 已失败" : (session.status === "paused" ? "俯视射击 已暂停" : ("俯视射击 第 " + session.wave + " 波")), "");
-        }
-
-        function togglePause() {
-            if (session.status === "over" || session.pendingUpgrade || session.pendingPickupChoice) {
-                return;
-            }
-            if (session.status === "paused") {
-                session.startedAt = Date.now();
-                session.status = "playing";
-            } else {
-                syncTopdownClock(session);
-                session.pausedElapsed = session.elapsedSeconds;
-                session.status = "paused";
-                pointer.down = false;
-            }
-            persist();
-        }
-
-        function selectUpgrade(index) {
-            if (!session.pendingUpgrade || !session.pendingUpgrade.choices[index]) {
-                return;
-            }
-            if (applyTopdownUpgrade(session, session.pendingUpgrade.choices[index])) {
-                persist();
-            }
-        }
-
-        function resolvePendingPickupChoice(index) {
-            if (!session.pendingPickupChoice) {
-                return;
-            }
-            const choice = session.pendingPickupChoice.choices[index];
-            if (!choice) {
-                return;
-            }
-            if (session.pendingPickupChoice.type === "element-swap" && applyTopdownElementSwap(session, choice.key)) {
-                setStatus("元素已切换为：" + choice.label, false);
-            } else if (session.pendingPickupChoice.type === "wingman-element" && applyTopdownWingmanElementChoice(session, choice.key)) {
-                setStatus("僚机已装配：" + choice.label, false);
-            } else if (session.pendingPickupChoice.type === "skill" && applySkillChoice(choice.key)) {
-                setStatus("已获得技能：" + choice.label, false);
-            } else if (session.pendingPickupChoice.type === "boss-relic" && applyTopdownBossRelic(session, choice.key)) {
-                setStatus("首领装备已装配：" + choice.label + " Lv." + topdownRelicStacks(session, choice.key), false);
-            }
-            session.pendingPickupChoice = null;
-            persist();
-        }
-
-        function declinePendingPickupChoice() {
-            if (!session.pendingPickupChoice || session.pendingPickupChoice.allowDecline === false) {
-                return;
-            }
-            const itemKey = session.pendingPickupChoice.itemKey;
-            session.pendingPickupChoice = null;
-            if (itemKey === "element-swap") {
-                applyTopdownRandomUpgrade(session);
-            }
-            persist();
-        }
-
-        function rerollUpgradeChoices() {
-            if (!session.pendingUpgrade || session.rerollsRemaining <= 0 || session.pendingUpgrade.rerolled) {
-                return;
-            }
-            const choices = buildTopdownUpgradeChoices(session);
-            if (!choices.length) {
-                return;
-            }
-            session.pendingUpgrade.choices = choices;
-            session.pendingUpgrade.rerolled = true;
-            session.rerollsRemaining -= 1;
-            persist();
-        }
-
-        function applySkillChoice(key) {
-            const skill = topdownSkillCatalog()[key];
-            if (!skill) {
-                return false;
-            }
-            session.skill.key = key;
-            session.skill.readyAt = session.tick;
-            return true;
-        }
-
-        function topdownSkillTargetFrom(x, y) {
-            let target = null;
-            let bestRank = Infinity;
-            let bestDistance = Infinity;
-            session.enemies.forEach(function (enemy) {
-                if (!enemy || enemy.hp <= 0 || enemy.remnantActive) {
-                    return;
-                }
-                const rank = enemy.isBoss ? 0 : (enemy.isElite ? 1 : 2);
-                const distance = Math.pow(enemy.x - x, 2) + Math.pow(enemy.y - y, 2);
-                if (rank < bestRank || (rank === bestRank && distance < bestDistance)) {
-                    bestRank = rank;
-                    bestDistance = distance;
-                    target = enemy;
-                }
-            });
-            return target;
-        }
-
-        function spawnTopdownSkillMissile(x, y, damage, targetId) {
-            const target = topdownFindEnemyById(session, targetId) || topdownSkillTargetFrom(x, y);
-            if (!target) {
-                return false;
-            }
-            session.skillProjectiles.push({
-                id: session.nextId,
-                x: x,
-                y: y,
-                vx: 0,
-                vy: 0,
-                radius: TOPDOWN_BALANCE.missileRadius,
-                damage: damage,
-                targetId: target.id,
-                life: 6
-            });
-            session.nextId += 1;
-            return true;
-        }
-
-        function activateTopdownSkill() {
-            if (!session.skill || !session.skill.key || session.skill.key === "none") {
-                return false;
-            }
-            if (!topdownSkillReady(session)) {
-                setStatus("技能冷却中，还需 " + topdownSkillCooldownRemaining(session).toFixed(0) + " 秒。", true);
-                return false;
-            }
-            if (session.pendingUpgrade || session.pendingPickupChoice || session.status !== "playing") {
-                return false;
-            }
-            if (session.skill.key === "blink") {
-                const moveX = Number(session.player.moveDirX || 0);
-                const moveY = Number(session.player.moveDirY || 0);
-                const moveLen = Math.sqrt(moveX * moveX + moveY * moveY);
-                if (moveLen < 0.01) {
-                    setStatus("当前没有移动方向，无法触发闪现。", true);
-                    return false;
-                }
-                session.player.dashLeft = TOPDOWN_BALANCE.blinkDuration;
-                session.player.dashVx = moveX / moveLen * TOPDOWN_BALANCE.blinkDistance / TOPDOWN_BALANCE.blinkDuration;
-                session.player.dashVy = moveY / moveLen * TOPDOWN_BALANCE.blinkDistance / TOPDOWN_BALANCE.blinkDuration;
-                session.player.invulnerableUntil = Math.max(Number(session.player.invulnerableUntil || 0), session.tick + TOPDOWN_BALANCE.blinkDuration);
-                session.player.pullLeft = 0;
-                session.player.pullEnemyId = 0;
-                session.player.controlLock = 0;
-                session.skill.readyAt = session.tick + TOPDOWN_BALANCE.skillCooldown;
-                setStatus("已触发闪现。", false);
-                return true;
-            }
-            if (session.skill.key === "missile") {
-                const playerStats = getTopdownDerivedStats(session, false);
-                const sources = [];
-                session.bullets.forEach(function (bullet) {
-                    sources.push({ x: bullet.x, y: bullet.y, damage: Math.max(playerStats.damage * TOPDOWN_BALANCE.missileDamageFactor, Number(bullet.damage || 0) * 2) });
-                });
-                session.enemyBullets.forEach(function (bullet) {
-                    sources.push({ x: bullet.x, y: bullet.y, damage: playerStats.damage * TOPDOWN_BALANCE.missileDamageFactor });
-                });
-                if (!sources.length) {
-                    const nearest = topdownNearestEnemy(session);
-                    if (!nearest) {
-                        setStatus("场上没有可锁定目标，导弹矩阵未触发。", true);
-                        return false;
-                    }
-                    for (let index = 0; index < 8; index += 1) {
-                        sources.push({ x: session.player.x, y: session.player.y, damage: playerStats.damage * TOPDOWN_BALANCE.missileDamageFactor });
-                    }
-                }
-                session.bullets = [];
-                session.enemyBullets = [];
-                session.enemyBeams = [];
-                sources.slice(0, TOPDOWN_BALANCE.maxSkillProjectiles).forEach(function (source) {
-                    spawnTopdownSkillMissile(source.x, source.y, source.damage, 0);
-                });
-                session.skill.readyAt = session.tick + TOPDOWN_BALANCE.skillCooldown;
-                setStatus("已发动导弹矩阵。", false);
-                return true;
-            }
-            if (session.skill.key === "invincible") {
-                session.player.invulnerableUntil = Math.max(Number(session.player.invulnerableUntil || 0), session.tick + TOPDOWN_BALANCE.invincibleDuration);
-                session.skill.readyAt = session.tick + TOPDOWN_BALANCE.skillCooldown;
-                setStatus("已进入 10 秒无敌状态。", false);
-                return true;
-            }
-            return false;
-        }
-
-        function maybeShoot() {
-            if (session.status !== "playing" || session.pendingUpgrade || session.pendingPickupChoice || session.player.fireCooldown > 0) {
-                return;
-            }
-            if (Number(session.player.frenzyUntil || 0) > Number(session.tick || 0)) {
-                return;
-            }
-            if (Number(session.player.frenzyExhaustUntil || 0) > Number(session.tick || 0)) {
-                return;
-            }
-            const angle = topdownCurrentAimAngle(session, pointer);
-            const playerStats = getTopdownDerivedStats(session, false);
-            spawnTopdownVolley(session, session.player, angle, playerStats, "player");
-            session.player.fireCooldown = playerStats.fireInterval;
-            getWingmanSlots(session).forEach(function (wingman, index) {
-                while (session.player.wingmanCooldowns.length <= index) {
-                    session.player.wingmanCooldowns.push(0);
-                }
-                if (session.player.wingmanCooldowns[index] > 0) {
-                    return;
-                }
-                const wingStats = getTopdownDerivedStats(session, true);
-                spawnTopdownVolley(session, wingman, angle, wingStats, "wingman");
-                session.player.wingmanCooldowns[index] = wingStats.fireInterval;
-            });
-        }
-
-        function finalizeScoreIfNeeded() {
-            syncTopdownClock(session);
-            if (session.submittedScore || session.score <= 0) {
-                return Promise.resolve();
-            }
-            finalizeRunRewardIfNeeded();
-            session.submittedScore = true;
-            return submitScore("topdown-shooter", session.score, "standard", session.sessionKey, {
-                mode_key: "topdown-shooter-standard",
-                elapsed_seconds: session.elapsedSeconds,
-                kills: session.kills,
-                wave: session.wave,
-                build: topdownBuildSummary(session),
-                best_combo: session.bestCombo
-            }).catch(function (error) {
-                session.submittedScore = false;
-                setStatus(error.message || "俯视射击成绩提交失败", true);
-            });
-        }
-
-        function updateSession(dt) {
-            session.tick += dt;
-            syncTopdownClock(session);
-            const shieldStats = syncTopdownShieldCapacity(session);
-            session.player.radius = topdownCurrentPlayerRadius(session);
-            session.enemies = (session.enemies || []).filter(function (enemy) { return enemy && enemy.hp > 0; });
-            session.bullets = trimTopdownArray(session.bullets || [], TOPDOWN_BALANCE.maxPlayerBullets);
-            session.enemyBullets = trimTopdownArray(session.enemyBullets || [], TOPDOWN_BALANCE.maxEnemyBullets);
-            session.beams = trimTopdownArray(session.beams || [], TOPDOWN_BALANCE.maxFriendlyBeams);
-            session.enemyBeams = trimTopdownArray(session.enemyBeams || [], TOPDOWN_BALANCE.maxEnemyBeams);
-            session.aoeBursts = trimTopdownArray(session.aoeBursts || [], TOPDOWN_BALANCE.maxAoeBursts);
-            session.skillProjectiles = trimTopdownArray(session.skillProjectiles || [], TOPDOWN_BALANCE.maxSkillProjectiles);
-            session.pickups = trimTopdownArray(session.pickups || [], TOPDOWN_BALANCE.maxPickups);
-            if (session.combo > 0 && session.status === "playing" && !session.pendingUpgrade && !session.pendingPickupChoice) {
-                session.comboTimer = Math.max(0, session.comboTimer - dt);
-                if (session.comboTimer <= 0) {
-                    resetTopdownCombo(session);
-                }
-            }
-            session.player.fireCooldown = Math.max(0, session.player.fireCooldown - dt);
-            session.player.hitCooldown = Math.max(0, session.player.hitCooldown - dt);
-            session.player.damageFlash = Math.max(0, Number(session.player.damageFlash || 0) - dt);
-            session.player.controlLock = Math.max(0, Number(session.player.controlLock || 0) - dt);
-            session.player.pullLeft = Math.max(0, Number(session.player.pullLeft || 0) - dt);
-            session.player.dashLeft = Math.max(0, Number(session.player.dashLeft || 0) - dt);
-            if (Number(session.player.frenzyUntil || 0) > 0 && session.player.frenzyUntil <= session.tick) {
-                session.player.frenzyUntil = 0;
-                session.player.frenzyExhaustUntil = Math.max(Number(session.player.frenzyExhaustUntil || 0), Number(session.player.frenzyExhaustQueuedUntil || 0));
-                session.player.frenzyExhaustQueuedUntil = 0;
-                setStatus("压制弹幕结束，机体进入 5 秒虚弱，无法射击且移速减半。", true);
-            }
-            session.player.wingmanCooldowns = session.player.wingmanCooldowns.map(function (value) { return Math.max(0, value - dt); }).slice(0, session.build.wingmanLevel);
-            session.beams = session.beams.filter(function (beam) { beam.life -= dt; return beam.life > 0; });
-            session.enemyBeams = session.enemyBeams.filter(function (beam) { beam.life -= dt; return beam.life > 0 && !beam.hitApplied; });
-            session.aoeBursts = session.aoeBursts.filter(function (burst) { burst.life -= dt; return burst.life > 0; });
-            session.skillProjectiles = session.skillProjectiles.filter(function (projectile) {
-                projectile.life -= dt;
-                return projectile.life > 0;
-            });
-            session.aoeBursts.forEach(function (burst) {
-                if (burst.type === "radiation") {
-                    burst.tickLeft -= dt;
-                    while (burst.tickLeft <= 0) {
-                        burst.tickLeft += burst.tickInterval;
-                        session.enemies.forEach(function (enemy) {
-                            if (distanceBetween(enemy, burst) <= burst.radius + enemy.radius) {
-                                damageTopdownEnemy(session, enemy, burst.damage);
-                            }
-                        });
-                    }
-                }
-            });
-
-            if (session.status !== "playing") {
-                return;
-            }
-
-            if (session.shield.cooldownLeft > 0) {
-                session.shield.cooldownLeft = Math.max(0, session.shield.cooldownLeft - dt);
-                session.shield.rechargeProgress = 0;
-            } else if (session.shield.current < shieldStats.max) {
-                session.shield.rechargeProgress = Math.min(1, session.shield.rechargeProgress + dt / shieldStats.rechargeDuration);
-                if (session.shield.rechargeProgress >= 1) {
-                    session.shield.current += 1;
-                    session.shield.rechargeProgress = 0;
-                }
-            }
-
-            if (session.pendingUpgrade || session.pendingPickupChoice) {
-                return;
-            }
-
-            if (Number(session.player.frenzyUntil || 0) > Number(session.tick || 0) && Number(session.player.frenzyNextShotAt || 0) <= Number(session.tick || 0)) {
-                spawnTopdownPlayerFrenzyVolley(session, topdownCurrentAimAngle(session, pointer));
-                session.player.frenzyNextShotAt = session.tick + TOPDOWN_BALANCE.frenzyVolleyInterval;
-            }
-
-            const playerStats = getTopdownDerivedStats(session, false);
-            let moveX = 0;
-            let moveY = 0;
-            let actualMoveDirX = 0;
-            let actualMoveDirY = 0;
-            const playerMoveFactor = topdownPlayerMoveSpeedFactor(session);
-            if (session.moveControl !== "mouse") {
-                if (pressed.KeyW || pressed.ArrowUp) { moveY -= 1; }
-                if (pressed.KeyS || pressed.ArrowDown) { moveY += 1; }
-                if (pressed.KeyA || pressed.ArrowLeft) { moveX -= 1; }
-                if (pressed.KeyD || pressed.ArrowRight) { moveX += 1; }
-            }
-            const moveMagnitude = Math.sqrt(moveX * moveX + moveY * moveY);
-            const moveLen = moveMagnitude || 1;
-            if (session.player.pullLeft > 0) {
-                const pullEnemy = topdownFindEnemyById(session, session.player.pullEnemyId);
-                if (pullEnemy) {
-                    const pullDx = pullEnemy.x - session.player.x;
-                    const pullDy = pullEnemy.y - session.player.y;
-                    const pullLen = Math.max(1, Math.sqrt(pullDx * pullDx + pullDy * pullDy));
-                    actualMoveDirX = pullDx / pullLen;
-                    actualMoveDirY = pullDy / pullLen;
-                    session.player.x = clamp(session.player.x + pullDx / pullLen * session.player.pullSpeed * dt, arenaPlayerMargin, arenaWidth - arenaPlayerMargin);
-                    session.player.y = clamp(session.player.y + pullDy / pullLen * session.player.pullSpeed * dt, arenaPlayerMargin, arenaHeight - arenaPlayerMargin);
-                } else {
-                    session.player.pullLeft = 0;
-                    session.player.pullEnemyId = 0;
-                }
-            } else if (session.player.dashLeft > 0) {
-                actualMoveDirX = Number(session.player.dashVx || 0);
-                actualMoveDirY = Number(session.player.dashVy || 0);
-                session.player.x = clamp(session.player.x + Number(session.player.dashVx || 0) * dt, arenaPlayerMargin, arenaWidth - arenaPlayerMargin);
-                session.player.y = clamp(session.player.y + Number(session.player.dashVy || 0) * dt, arenaPlayerMargin, arenaHeight - arenaPlayerMargin);
-                if (session.player.dashLeft <= 0.001) {
-                    session.player.dashVx = 0;
-                    session.player.dashVy = 0;
-                }
-            } else if (session.player.controlLock > 0) {
-                actualMoveDirX = Number(session.player.knockbackVx || 0);
-                actualMoveDirY = Number(session.player.knockbackVy || 0);
-                session.player.x = clamp(session.player.x + Number(session.player.knockbackVx || 0) * dt, arenaPlayerMargin, arenaWidth - arenaPlayerMargin);
-                session.player.y = clamp(session.player.y + Number(session.player.knockbackVy || 0) * dt, arenaPlayerMargin, arenaHeight - arenaPlayerMargin);
-                if (session.player.controlLock <= 0.001) {
-                    session.player.knockbackVx = 0;
-                    session.player.knockbackVy = 0;
-                }
-            } else {
-                session.player.knockbackVx = 0;
-                session.player.knockbackVy = 0;
-                if (session.moveControl === "mouse") {
-                    const autoDx = pointer.x - session.player.x;
-                    const autoDy = pointer.y - session.player.y;
-                    const autoLen = Math.sqrt(autoDx * autoDx + autoDy * autoDy) || 0;
-                    if (autoLen > 6) {
-                        actualMoveDirX = autoDx / autoLen;
-                        actualMoveDirY = autoDy / autoLen;
-                        const travel = Math.min(autoLen, playerStats.moveSpeed * playerMoveFactor * dt);
-                        session.player.x = clamp(session.player.x + autoDx / autoLen * travel, arenaPlayerMargin, arenaWidth - arenaPlayerMargin);
-                        session.player.y = clamp(session.player.y + autoDy / autoLen * travel, arenaPlayerMargin, arenaHeight - arenaPlayerMargin);
-                    }
-                } else {
-                    if (moveMagnitude > 0) {
-                        actualMoveDirX = moveX / moveLen;
-                        actualMoveDirY = moveY / moveLen;
-                    }
-                    session.player.x = clamp(session.player.x + (moveX / moveLen) * playerStats.moveSpeed * playerMoveFactor * dt, arenaPlayerMargin, arenaWidth - arenaPlayerMargin);
-                    session.player.y = clamp(session.player.y + (moveY / moveLen) * playerStats.moveSpeed * playerMoveFactor * dt, arenaPlayerMargin, arenaHeight - arenaPlayerMargin);
-                }
-            }
-            session.player.moveDirX = actualMoveDirX;
-            session.player.moveDirY = actualMoveDirY;
-            if ((session.fireControl === "auto" && topdownNearestEnemy(session)) || ((session.fireControl !== "auto") && (pointer.down || pressed.KeyJ))) {
-                maybeShoot();
-            }
-
-            session.enemies.forEach(function (enemy) {
-                enemy.magneticTrapCooldown = Math.max(0, Number(enemy.magneticTrapCooldown || 0) - dt);
-            });
-            topdownMagneticTrapOrbs(session).forEach(function (orb) {
-                session.enemies.forEach(function (enemy) {
-                    if (!enemy || enemy.hp <= 0 || Number(enemy.magneticTrapCooldown || 0) > 0) {
-                        return;
-                    }
-                    if (distanceBetween(enemy, orb) <= enemy.radius + orb.radius) {
-                        damageTopdownEnemy(session, enemy, playerStats.damage * TOPDOWN_BALANCE.magneticTrapDamageFactor);
-                        enemy.magneticTrapCooldown = Math.max(0.08, playerStats.fireInterval * TOPDOWN_BALANCE.magneticTrapHitIntervalFactor);
-                    }
-                });
-            });
-
-            session.bullets.forEach(function (bullet) {
-                bullet.prevX = bullet.x;
-                bullet.prevY = bullet.y;
-                bullet.x += bullet.vx * dt;
-                bullet.y += bullet.vy * dt;
-                bullet.life -= dt;
-            });
-            session.enemyBullets.forEach(function (bullet) {
-                bullet.x += bullet.vx * dt;
-                bullet.y += bullet.vy * dt;
-            });
-            session.pickups.forEach(function (pickup) {
-                pickup.ttl -= dt;
-            });
-
-            session.bullets = session.bullets.filter(function (bullet) { return bullet.life > 0 && bullet.x >= -arenaPadding && bullet.x <= arenaWidth + arenaPadding && bullet.y >= -arenaPadding && bullet.y <= arenaHeight + arenaPadding; });
-            session.enemyBullets = session.enemyBullets.filter(function (bullet) { return bullet.x >= -arenaPadding && bullet.x <= arenaWidth + arenaPadding && bullet.y >= -arenaPadding && bullet.y <= arenaHeight + arenaPadding; });
-            session.pickups = session.pickups.filter(function (pickup) { return pickup.ttl > 0; });
-
-            session.spawnClock += dt;
-            const targetEnemies = topdownTargetEnemyCount(session);
-            const spawnInterval = topdownSpawnInterval(session);
-            if (session.enemies.length < targetEnemies && session.spawnClock >= spawnInterval) {
-                spawnTopdownEnemy(session);
-                session.spawnClock = 0;
-            }
-
-            session.enemies.forEach(function (enemy) {
-                if (!enemy || enemy.hp <= 0) {
-                    return;
-                }
-                enemy.fireCooldown -= dt;
-                enemy.specialAttackCooldown = Math.max(0, Number(enemy.specialAttackCooldown || 0) - dt);
-                enemy.hookCooldown = Math.max(0, Number(enemy.hookCooldown || 0) - dt);
-                enemy.touchCooldown = Math.max(0, Number(enemy.touchCooldown || 0) - dt);
-                enemy.consumeCooldown = Math.max(0, Number(enemy.consumeCooldown || 0) - dt);
-                enemy.eliteType = topdownCanonicalEliteType(enemy.eliteType);
-                const eliteType = enemy.eliteType;
-                if (enemy.remnantActive) {
-                    enemy.explodeDelay = Math.max(0, Number(enemy.explodeDelay || 0) - dt);
-                    const targetDx = enemy.suicideTargetX - enemy.x;
-                    const targetDy = enemy.suicideTargetY - enemy.y;
-                    const targetLen = Math.max(1, Math.sqrt(targetDx * targetDx + targetDy * targetDy));
-                    enemy.x += targetDx / targetLen * enemy.speed * dt;
-                    enemy.y += targetDy / targetLen * enemy.speed * dt;
-                    if (enemy.explodeDelay <= 0 || targetLen <= 14) {
-                        spawnTopdownEnemyExplosion(session, enemy.x, enemy.y, TOPDOWN_BALANCE.selfDestructRadius);
-                        enemy.hp = 0;
-                    }
-                    return;
-                }
-                if (enemy.burnTime > 0) {
-                    enemy.burnTime = Math.max(0, enemy.burnTime - dt);
-                    enemy.burnTick += dt;
-                    while (enemy.burnTick >= TOPDOWN_BALANCE.burnTickInterval) {
-                        enemy.burnTick -= TOPDOWN_BALANCE.burnTickInterval;
-                        damageTopdownEnemy(session, enemy, enemy.burnDamage);
-                    }
-                } else {
-                    enemy.burnStacks = 0;
-                    enemy.burnDamage = 0;
-                    enemy.burnTick = 0;
-                }
-                if (enemy.frozenTime > 0) {
-                    enemy.frozenTime = Math.max(0, enemy.frozenTime - dt);
-                }
-                if (enemy.isElite && eliteType === "buffer") {
-                    enemy.auraTimer = Math.max(0, Number(enemy.auraTimer || 0) - dt);
-                    if (enemy.auraTimer <= 0) {
-                        enemy.auraActive = !enemy.auraActive;
-                        enemy.auraTimer = enemy.auraActive ? TOPDOWN_BALANCE.bufferAuraOnDuration : TOPDOWN_BALANCE.bufferAuraOffDuration;
-                    }
-                }
-                if (enemy.isElite && eliteType === "nightmare" && Number(enemy.touchCooldown || 0) <= 0 && distanceBetween(enemy, session.player) <= TOPDOWN_BALANCE.nightmareAuraRange + session.player.radius) {
-                    applyTopdownPlayerBlind(session, TOPDOWN_BALANCE.nightmareBlindDuration);
-                    enemy.touchCooldown = TOPDOWN_BALANCE.nightmareTouchCooldown;
-                    setStatus("噩梦领域触发：视野受限 5 秒。", true);
-                }
-                const startX = enemy.x;
-                const startY = enemy.y;
-                const dx = session.player.x - enemy.x;
-                const dy = session.player.y - enemy.y;
-                const len = Math.max(1, Math.sqrt(dx * dx + dy * dy));
-                const slowFactor = enemy.frozenTime > 0 ? 0 : Math.max(0.22, 1 - Math.min(TOPDOWN_BALANCE.iceMaxSlow, enemy.iceStacks * TOPDOWN_BALANCE.iceSlowPerStack));
-                const auraBoost = topdownEnemyAuraBoost(session, enemy);
-                let desiredSpeed = enemy.speed * slowFactor * auraBoost.speedMultiplier;
-                let fireRange = TOPDOWN_BALANCE.enemyFireRange;
-                let bulletSpeed = TOPDOWN_BALANCE.enemyBulletSpeed;
-                if (Number(enemy.enrageUntil || 0) > Number(session.tick || 0)) {
-                    desiredSpeed *= 1.48;
-                    fireRange = 0;
-                }
-                if (enemy.isElite && eliteType === "dash") {
-                    enemy.dashCooldown = Math.max(0, enemy.dashCooldown - dt);
-                    if (enemy.dashTime > 0) {
-                        enemy.dashTime = Math.max(0, enemy.dashTime - dt);
-                        enemy.x += enemy.dashVx * dt;
-                        enemy.y += enemy.dashVy * dt;
-                    } else {
-                        if (enemy.dashCooldown <= 0 && len < 260) {
-                            enemy.dashTime = TOPDOWN_BALANCE.eliteDashDuration;
-                            enemy.dashCooldown = TOPDOWN_BALANCE.eliteDashCooldown;
-                            enemy.dashVx = dx / len * TOPDOWN_BALANCE.eliteDashSpeed;
-                            enemy.dashVy = dy / len * TOPDOWN_BALANCE.eliteDashSpeed;
-                        }
-                        enemy.x += dx / len * desiredSpeed * 1.18 * dt;
-                        enemy.y += dy / len * desiredSpeed * 1.18 * dt;
-                    }
-                } else {
-                    if (enemy.isElite && eliteType === "sniper") {
-                        fireRange = TOPDOWN_BALANCE.eliteSniperRange;
-                        bulletSpeed = TOPDOWN_BALANCE.eliteSniperBulletSpeed;
-                        desiredSpeed *= len < 220 ? 0.55 : 0.88;
-                    } else if (enemy.isElite && eliteType === "buffer") {
-                        desiredSpeed *= enemy.auraActive ? (len < 180 ? 0.28 : 0.62) : 0.9;
-                    } else if (enemy.isElite && eliteType === "splitter") {
-                        desiredSpeed *= 1.06;
-                    } else if (enemy.isElite && eliteType === "self-destruct") {
-                        desiredSpeed *= 0.94;
-                    } else if (enemy.isElite && eliteType === "blackhand") {
-                        desiredSpeed *= len < 160 ? 0.72 : 0.94;
-                    } else if (enemy.isElite && eliteType === "nightmare") {
-                        desiredSpeed *= 1.18;
-                    } else if (enemy.isElite && eliteType === "liangzi") {
-                        desiredSpeed *= len < 150 ? 0.86 : 1.02;
-                    } else if (enemy.isElite && eliteType === "luse") {
-                        fireRange = 0;
-                        if (!enemy.luseTriggered && len <= TOPDOWN_BALANCE.luseTriggerRange) {
-                            spawnTopdownLuseBurst(session, enemy, Math.atan2(dy, dx), bulletSpeed * topdownRelicEnemyBulletSpeedMultiplier(session));
-                            enemy.luseTriggered = true;
-                            enemy.fireCooldown = 999;
-                            setStatus("撸瑟开火：前方弹幕已铺开。", true);
-                        }
-                        desiredSpeed = enemy.luseTriggered ? 0 : desiredSpeed * 0.86;
-                    } else if (enemy.isElite && eliteType === "succubus") {
-                        desiredSpeed *= len < 220 ? 0.72 : 0.92;
-                        enemy.succubusVictimIds = [];
-                        session.enemies.forEach(function (candidate) {
-                            if (!candidate || candidate.id === enemy.id || candidate.hp <= 0 || candidate.remnantActive || candidate.isBoss) {
-                                return;
-                            }
-                            const pullDx = enemy.x - candidate.x;
-                            const pullDy = enemy.y - candidate.y;
-                            const pullLen = Math.sqrt(pullDx * pullDx + pullDy * pullDy) || 0;
-                            if (pullLen <= TOPDOWN_BALANCE.succubusAuraRange + candidate.radius) {
-                                enemy.succubusVictimIds.push(candidate.id);
-                                if (pullLen > 2) {
-                                    const pullStep = Math.min(TOPDOWN_BALANCE.succubusPullStrength * dt, Math.max(0, pullLen - 2));
-                                    candidate.x += pullDx / Math.max(1, pullLen) * pullStep;
-                                    candidate.y += pullDy / Math.max(1, pullLen) * pullStep;
-                                }
-                            }
-                        });
-                    }
-                    enemy.x += dx / len * desiredSpeed * dt;
-                    enemy.y += dy / len * desiredSpeed * dt;
-                }
-                if (enemy.isElite && eliteType === "luse" && enemy.luseTriggered) {
-                    damageTopdownEnemy(session, enemy, TOPDOWN_BALANCE.luseDecayPerSecond * dt);
-                }
-                if (enemy.isElite && eliteType === "liangzi" && enemy.consumeCooldown <= 0) {
-                    for (let eatIndex = 0; eatIndex < session.enemies.length; eatIndex += 1) {
-                        const prey = session.enemies[eatIndex];
-                        if (!prey || prey.id === enemy.id || prey.hp <= 0 || prey.isBoss || prey.isElite || prey.remnantActive) {
-                            continue;
-                        }
-                        const eatDistance = Math.pow(enemy.radius + prey.radius + 8, 2);
-                        if (distanceToSegmentSquared(prey.x, prey.y, startX, startY, enemy.x, enemy.y) <= eatDistance) {
-                            const hpGain = Math.max(1, Number(prey.hp || 0) * TOPDOWN_BALANCE.liangziConsumeHpFactor);
-                            prey.hp = 0;
-                            enemy.hp += hpGain;
-                            enemy.maxHp += hpGain;
-                            enemy.consumeCooldown = TOPDOWN_BALANCE.liangziConsumeCooldown;
-                            break;
-                        }
-                    }
-                }
-                if (enemy.isElite && eliteType === "summoner") {
-                    enemy.summonCooldown = Math.max(0, enemy.summonCooldown - dt);
-                    if (enemy.summonCooldown <= 0 && session.enemies.length < TOPDOWN_BALANCE.targetEnemyCap) {
-                        for (let summonIndex = 0; summonIndex < TOPDOWN_BALANCE.eliteSummonCount; summonIndex += 1) {
-                            const spawnAngle = randomBetween(0, Math.PI * 2);
-                            const minionHp = Math.max(3, topdownEnemyHp(session) * 0.5);
-                            session.enemies.push({
-                                id: session.nextId,
-                                x: enemy.x + Math.cos(spawnAngle) * 34,
-                                y: enemy.y + Math.sin(spawnAngle) * 34,
-                                radius: 11,
-                                speed: TOPDOWN_BALANCE.enemyBaseSpeed + session.wave * 4,
-                                fireCooldown: randomBetween(TOPDOWN_BALANCE.enemyFireMin, TOPDOWN_BALANCE.enemyFireMax),
-                                hp: minionHp,
-                                maxHp: minionHp,
-                                bossShield: 0,
-                                bossShieldMax: 0,
-                                burnTime: 0,
-                                burnStacks: 0,
-                                burnDamage: 0,
-                                burnTick: 0,
-                                iceStacks: 0,
-                                frozenTime: 0,
-                                shocked: false,
-                                isElite: false,
-                                isBoss: false,
-                                bulletCount: 1,
-                                fireRateMultiplier: 1,
-                                bulletSpeedMultiplier: 1,
-                                eliteType: "",
-                                dashCooldown: 0,
-                                dashTime: 0,
-                                dashVx: 0,
-                                dashVy: 0,
-                                summonCooldown: 0,
-                                auraActive: false,
-                                auraTimer: 0,
-                                auraRadius: 0,
-                                hasSplit: false,
-                                remnantActive: false,
-                                explodeDelay: 0,
-                                suicideTargetX: 0,
-                                suicideTargetY: 0,
-                                specialAttackCooldown: randomBetween(TOPDOWN_BALANCE.enemySpecialCooldownMin, TOPDOWN_BALANCE.enemySpecialCooldownMax),
-                                repulseCooldown: 0,
-                                hookCooldown: 0,
-                                touchCooldown: 0,
-                                consumeCooldown: 0,
-                                luseTriggered: false,
-                                succubusVictimIds: [],
-                                enrageUntil: 0
-                            });
-                            session.nextId += 1;
-                        }
-                        enemy.summonCooldown = TOPDOWN_BALANCE.eliteSummonCooldown;
-                    }
-                }
-                if (enemy.hp <= 0) {
-                    return;
-                }
-                if (topdownBuffRemaining(session, "enemySilenceUntil") <= 0 && enemy.fireCooldown <= 0 && len < fireRange) {
-                    const aimAngle = Math.atan2(dy, dx);
-                    const effectiveBulletSpeed = bulletSpeed
-                        * Math.max(1, Number(enemy.bulletSpeedMultiplier || 1))
-                        * topdownRelicEnemyBulletSpeedMultiplier(session);
-                    topdownFireEnemyAttack(session, enemy, aimAngle, effectiveBulletSpeed, auraBoost);
-                }
-            });
-
-            session.skillProjectiles = session.skillProjectiles.filter(function (projectile) {
-                const target = topdownFindEnemyById(session, projectile.targetId) || topdownSkillTargetFrom(projectile.x, projectile.y);
-                if (!target) {
-                    return false;
-                }
-                projectile.targetId = target.id;
-                const dx = target.x - projectile.x;
-                const dy = target.y - projectile.y;
-                const len = Math.max(1, Math.sqrt(dx * dx + dy * dy));
-                const desiredVx = dx / len * TOPDOWN_BALANCE.missileSpeed;
-                const desiredVy = dy / len * TOPDOWN_BALANCE.missileSpeed;
-                const steer = Math.min(1, dt * TOPDOWN_BALANCE.missileTurnRate);
-                projectile.vx = Number(projectile.vx || 0) + (desiredVx - Number(projectile.vx || 0)) * steer;
-                projectile.vy = Number(projectile.vy || 0) + (desiredVy - Number(projectile.vy || 0)) * steer;
-                projectile.x += projectile.vx * dt;
-                projectile.y += projectile.vy * dt;
-                if (distanceBetween(projectile, target) <= projectile.radius + target.radius + 2) {
-                    damageTopdownEnemy(session, target, projectile.damage);
-                    return false;
-                }
-                return true;
-            });
-
-            const removedEnemyIds = [];
-            const aliveBullets = [];
-            session.bullets.forEach(function (bullet) {
-                let hit = false;
-                if (topdownBulletBlockedByRepulsor(session, bullet)) {
-                    hit = true;
-                }
-                for (let index = 0; index < session.enemies.length; index += 1) {
-                    const enemy = session.enemies[index];
-                    if (hit) {
-                        break;
-                    }
-                    if (removedEnemyIds.indexOf(enemy.id) !== -1) {
-                        continue;
-                    }
-                    if (distanceBetween(bullet, enemy) <= bullet.radius + enemy.radius) {
-                        hit = true;
-                        if (bullet.element === "electric") {
-                            session.beams.push({
-                                fromX: bullet.prevX,
-                                fromY: bullet.prevY,
-                                toX: enemy.x,
-                                toY: enemy.y,
-                                color: "#fde047",
-                                life: TOPDOWN_BALANCE.electricBeamLife,
-                                width: 2.4 + bullet.elementLevel * 0.35
-                            });
-                        }
-                        if (damageTopdownEnemy(session, enemy, bullet.damage)) {
-                            removedEnemyIds.push(enemy.id);
-                        }
-                        applyTopdownElement(session, bullet, enemy, removedEnemyIds);
-                        break;
-                    }
-                }
-                if (!hit) {
-                    aliveBullets.push(bullet);
-                }
-            });
-            session.bullets = aliveBullets;
-            session.enemies = session.enemies.filter(function (enemy) { return removedEnemyIds.indexOf(enemy.id) === -1 && enemy.hp > 0; });
-
-            session.pickups = session.pickups.filter(function (pickup) {
-                if (distanceBetween(pickup, session.player) <= pickup.radius + session.player.radius + 4) {
-                    if (pickup.kind === "item") {
-                        applyTopdownItemEffect(session, pickup.itemKey);
-                    } else {
-                        const choices = buildTopdownUpgradeChoices(session);
-                        if (choices.length) {
-                            session.pendingUpgrade = { choices: choices, rerolled: false };
-                        } else {
-                            awardTopdownScore(session, TOPDOWN_BALANCE.killScore);
-                        }
-                    }
-                    return false;
-                }
-                return true;
-            });
-
-            if (session.player.hitCooldown <= 0 || session.player.pullLeft > 0) {
-                let gotHit = false;
-                const ignoreInvulnerability = session.player.pullLeft > 0;
-                session.enemyBullets = session.enemyBullets.filter(function (bullet) {
-                    if (!gotHit && distanceBetween(bullet, session.player) <= bullet.radius + session.player.radius) {
-                        if (bullet.kind === "hook") {
-                            const hookEnemy = topdownFindEnemyById(session, bullet.sourceEnemyId);
-                            gotHit = damageTopdownPlayer(session, Number(bullet.damage || 1), {
-                                ignoreInvulnerability: ignoreInvulnerability,
-                                hitCooldown: 0
-                            });
-                            if (hookEnemy) {
-                                applyTopdownPlayerPull(session, hookEnemy);
-                            }
-                            return false;
-                        }
-                        gotHit = damageTopdownPlayer(session, Number(bullet.damage || 1), {
-                            ignoreInvulnerability: ignoreInvulnerability,
-                            hitCooldown: ignoreInvulnerability ? 0 : 0.9
-                        });
-                        return gotHit ? false : true;
-                    }
-                    return true;
-                });
-                if (!gotHit) {
-                    session.enemyBeams = session.enemyBeams.filter(function (beam) {
-                        if (!gotHit && distanceToSegmentSquared(session.player.x, session.player.y, beam.fromX, beam.fromY, beam.toX, beam.toY) <= Math.pow(session.player.radius + beam.width * 0.5, 2)) {
-                            gotHit = damageTopdownPlayer(session, Number(beam.damage || 1), {
-                                ignoreInvulnerability: ignoreInvulnerability,
-                                hitCooldown: ignoreInvulnerability ? 0 : 0.9
-                            });
-                            return !gotHit;
-                        }
-                        return true;
-                    });
-                }
-                if (!gotHit) {
-                    session.aoeBursts.forEach(function (burst) {
-                        if (!gotHit && burst.hostile && !burst.hitApplied && distanceBetween(burst, session.player) <= burst.radius + session.player.radius) {
-                            burst.hitApplied = true;
-                            gotHit = damageTopdownPlayer(session, Number(burst.damage || 1), {
-                                ignoreInvulnerability: ignoreInvulnerability,
-                                hitCooldown: ignoreInvulnerability ? 0 : 0.9
-                            });
-                        }
-                    });
-                }
-                if (!gotHit) {
-                    session.enemies.forEach(function (enemy) {
-                        if (gotHit || !enemy || enemy.hp <= 0 || enemy.remnantActive) {
-                            return;
-                        }
-                        if (distanceBetween(enemy, session.player) > enemy.radius + session.player.radius + 2) {
-                            return;
-                        }
-                        gotHit = damageTopdownPlayer(session, TOPDOWN_BALANCE.enemyContactDamage, {
-                            ignoreInvulnerability: ignoreInvulnerability,
-                            hitCooldown: ignoreInvulnerability ? 0 : 0.9
-                        });
-                    });
-                }
-                if (session.status === "over") {
-                    finalizeScoreIfNeeded();
-                    persist();
-                }
-            }
-        }
-
-        function renderUpgradeOverlay() {
-            upgradeRects = [];
-            if (!session.pendingUpgrade || !session.pendingUpgrade.choices.length) {
-                return;
-            }
-            ctx.fillStyle = "rgba(2, 6, 23, 0.78)";
-            ctx.fillRect(0, 0, arenaWidth, arenaHeight);
-            ctx.textAlign = "center";
-            ctx.fillStyle = "#f8fafc";
-            ctx.font = "700 28px Segoe UI";
-            ctx.fillText("选择强化", arenaWidth / 2, 116);
-            ctx.font = "500 16px Segoe UI";
-            ctx.fillStyle = "#cbd5e1";
-            ctx.fillText("按 1 / 2 / 3 或直接点击卡片", arenaWidth / 2, 146);
-            ctx.fillText("当前剩余刷新 " + session.rerollsRemaining + " 次，本轮" + (session.pendingUpgrade.rerolled ? "已使用刷新" : "可按 R 刷新一次"), arenaWidth / 2, 172);
-            session.pendingUpgrade.choices.forEach(function (choice, index) {
-                const box = { x: 90 + index * 260, y: 196, w: 240, h: 176 };
-                upgradeRects.push(box);
-                ctx.fillStyle = "rgba(15, 23, 42, 0.92)";
-                ctx.strokeStyle = "#38bdf8";
-                ctx.lineWidth = 2;
-                ctx.fillRect(box.x, box.y, box.w, box.h);
-                ctx.strokeRect(box.x, box.y, box.w, box.h);
-                ctx.fillStyle = "#38bdf8";
-                ctx.font = "700 18px Segoe UI";
-                ctx.fillText(String(index + 1), box.x + 26, box.y + 28);
-                ctx.fillStyle = "#f8fafc";
-                ctx.textAlign = "left";
-                ctx.font = "700 20px Segoe UI";
-                ctx.fillText(choice.label, box.x + 18, box.y + 54);
-                ctx.fillStyle = "#cbd5e1";
-                ctx.font = "500 15px Segoe UI";
-                const chars = choice.description.split("");
-                let line = "";
-                let lineIndex = 0;
-                chars.forEach(function (char, charIndex) {
-                    const attempt = line + char;
-                    if (ctx.measureText(attempt).width > box.w - 36 || charIndex === chars.length - 1) {
-                        const text = charIndex === chars.length - 1 ? attempt : line;
-                        ctx.fillText(text, box.x + 18, box.y + 92 + lineIndex * 24);
-                        lineIndex += 1;
-                        line = charIndex === chars.length - 1 ? "" : char;
-                    } else {
-                        line = attempt;
-                    }
-                });
-                ctx.textAlign = "center";
-            });
-            if (!session.pendingUpgrade.rerolled && session.rerollsRemaining > 0) {
-                const rerollBox = { x: arenaWidth / 2 - 110, y: arenaHeight - 84, w: 220, h: 44, action: "reroll" };
-                upgradeRects.push(rerollBox);
-                ctx.fillStyle = "rgba(15, 23, 42, 0.92)";
-                ctx.strokeStyle = "#facc15";
-                ctx.lineWidth = 2;
-                ctx.fillRect(rerollBox.x, rerollBox.y, rerollBox.w, rerollBox.h);
-                ctx.strokeRect(rerollBox.x, rerollBox.y, rerollBox.w, rerollBox.h);
-                ctx.fillStyle = "#facc15";
-                ctx.font = "700 18px Segoe UI";
-                ctx.fillText("R 刷新本轮强化", rerollBox.x + rerollBox.w / 2, rerollBox.y + 28);
-            }
-        }
-
-        function renderPickupChoiceOverlay() {
-            pickupChoiceRects = [];
-            if (!session.pendingPickupChoice || !session.pendingPickupChoice.choices.length) {
-                return;
-            }
-            const detailLines = Array.isArray(session.pendingPickupChoice.detailLines) ? session.pendingPickupChoice.detailLines : [];
-            const detailBlockHeight = detailLines.length ? (detailLines.length * 20 + 16) : 0;
-            const centerX = arenaWidth / 2;
-            ctx.fillStyle = "rgba(2, 6, 23, 0.82)";
-            ctx.fillRect(0, 0, arenaWidth, arenaHeight);
-            ctx.textAlign = "center";
-            ctx.fillStyle = "#f8fafc";
-            ctx.font = "700 28px Segoe UI";
-            ctx.fillText(session.pendingPickupChoice.title || "选择道具", centerX, 104);
-            ctx.font = "500 16px Segoe UI";
-            ctx.fillStyle = "#cbd5e1";
-            ctx.fillText(session.pendingPickupChoice.subtitle || "选择后继续战斗", centerX, 134);
-            if (detailLines.length) {
-                ctx.textAlign = "left";
-                ctx.fillStyle = "#e2e8f0";
-                ctx.font = "500 14px Segoe UI";
-                detailLines.forEach(function (line, index) {
-                    ctx.fillText(line, 128, 162 + index * 20);
-                });
-                ctx.textAlign = "center";
-            }
-            session.pendingPickupChoice.choices.forEach(function (choice, index) {
-                let box = null;
-                if (session.pendingPickupChoice.choices.length === 4) {
-                    box = {
-                        x: 108 + (index % 2) * 374,
-                        y: 184 + detailBlockHeight + Math.floor(index / 2) * 176,
-                        w: 340,
-                        h: 152
-                    };
-                } else {
-                    box = { x: 110 + index * 250, y: 186 + detailBlockHeight, w: 220, h: 176 };
-                }
-                pickupChoiceRects.push(box);
-                ctx.fillStyle = "rgba(15, 23, 42, 0.94)";
-                ctx.strokeStyle = "#f472b6";
-                ctx.lineWidth = 2;
-                ctx.fillRect(box.x, box.y, box.w, box.h);
-                ctx.strokeRect(box.x, box.y, box.w, box.h);
-                ctx.fillStyle = "#f472b6";
-                ctx.font = "700 18px Segoe UI";
-                ctx.fillText(String(index + 1), box.x + 26, box.y + 28);
-                ctx.textAlign = "left";
-                ctx.fillStyle = "#f8fafc";
-                ctx.font = "700 22px Segoe UI";
-                ctx.fillText(choice.label, box.x + 18, box.y + 56);
-                ctx.fillStyle = "#cbd5e1";
-                ctx.font = "500 15px Segoe UI";
-                const chars = choice.description.split("");
-                let line = "";
-                let lineIndex = 0;
-                chars.forEach(function (char, charIndex) {
-                    const attempt = line + char;
-                    if (ctx.measureText(attempt).width > box.w - 36 || charIndex === chars.length - 1) {
-                        const text = charIndex === chars.length - 1 ? attempt : line;
-                        ctx.fillText(text, box.x + 18, box.y + 96 + lineIndex * 24);
-                        lineIndex += 1;
-                        line = charIndex === chars.length - 1 ? "" : char;
-                    } else {
-                        line = attempt;
-                    }
-                });
-                ctx.textAlign = "center";
-            });
-            if (session.pendingPickupChoice.allowDecline !== false) {
-                const declineBox = { x: centerX - 150, y: arenaHeight - 84, w: 300, h: 46, action: "decline" };
-                pickupChoiceRects.push(declineBox);
-                ctx.fillStyle = "rgba(15, 23, 42, 0.94)";
-                ctx.strokeStyle = "#94a3b8";
-                ctx.lineWidth = 2;
-                ctx.fillRect(declineBox.x, declineBox.y, declineBox.w, declineBox.h);
-                ctx.strokeRect(declineBox.x, declineBox.y, declineBox.w, declineBox.h);
-                ctx.fillStyle = "#e2e8f0";
-                ctx.font = "700 18px Segoe UI";
-                ctx.fillText("0 放弃并改为随机增强", declineBox.x + declineBox.w / 2, declineBox.y + 29);
-            }
-        }
-
-        function drawTopdownPlayerCore(ctx, appearance, playerScale, damageFlash) {
-            const color = appearance.color;
-            const baseRadius = 14 * playerScale;
-            const iconBoxSize = baseRadius * 1.48;
-            const iconFontSize = Math.round(baseRadius * 1.12);
-            topdownApplyFillStyle(ctx, color, 0, 0, 18 * playerScale, session.tick);
-            if (damageFlash) {
-                ctx.fillStyle = "#fb7185";
-            }
-            if (appearance.icon.kind === "glyph") {
-                ctx.beginPath();
-                ctx.moveTo(18 * playerScale, 0);
-                ctx.lineTo(-12 * playerScale, -12 * playerScale);
-                ctx.lineTo(-6 * playerScale, 0);
-                ctx.lineTo(-12 * playerScale, 12 * playerScale);
-                ctx.closePath();
-                ctx.fill();
-                ctx.strokeStyle = color.stroke || "#e2e8f0";
-                ctx.lineWidth = 2;
-                ctx.stroke();
-                ctx.fillStyle = color.accent || "#67e8f9";
-                ctx.beginPath();
-                ctx.arc(-2 * playerScale, 0, 3.2 * playerScale, 0, Math.PI * 2);
-                ctx.fill();
-            } else {
-                ctx.beginPath();
-                ctx.arc(0, 0, baseRadius * 1.45, 0, Math.PI * 2);
-                ctx.fill();
-                ctx.strokeStyle = color.stroke || "#e2e8f0";
-                ctx.lineWidth = 2;
-                ctx.stroke();
-                ctx.fillStyle = color.accent || "#67e8f9";
-                ctx.beginPath();
-                ctx.arc(0, 0, baseRadius * 0.42, 0, Math.PI * 2);
-                ctx.fill();
-            }
-
-            ctx.save();
-            const icon = appearance.icon;
-            if (icon.kind === "svg") {
-                const image = topdownGetIconImage(icon);
-                if (image && image.complete && image.naturalWidth > 0) {
-                    ctx.globalAlpha = damageFlash ? 0.88 : 0.98;
-                    ctx.drawImage(image, -iconBoxSize / 2, -iconBoxSize / 2, iconBoxSize, iconBoxSize);
-                } else {
-                    ctx.fillStyle = "#f8fafc";
-                    ctx.font = "700 " + iconFontSize + "px Segoe UI Symbol";
-                    ctx.textAlign = "center";
-                    ctx.textBaseline = "middle";
-                    ctx.fillText(topdownIconPreviewGlyph(icon), 0, 0);
-                }
-            } else {
-                ctx.fillStyle = "#f8fafc";
-                ctx.font = (icon.kind === "emoji" ? "700 " : "800 ") + iconFontSize + "px Segoe UI Emoji, Segoe UI Symbol, Segoe UI";
-                ctx.textAlign = "center";
-                ctx.textBaseline = "middle";
-                ctx.fillText(topdownIconPreviewGlyph(icon), 0, 0);
-            }
-            ctx.restore();
-        }
-
-        function renderSession() {
-            const appearance = topdownEquippedAppearance(metaState);
-            drawStarfield(ctx, arenaWidth, arenaHeight, session.tick);
-            ctx.strokeStyle = "rgba(148,163,184,0.08)";
-            for (let x = 0; x < arenaWidth; x += 64) {
-                ctx.beginPath();
-                ctx.moveTo(x, 0);
-                ctx.lineTo(x, arenaHeight);
-                ctx.stroke();
-            }
-            for (let y = 0; y < arenaHeight; y += 64) {
-                ctx.beginPath();
-                ctx.moveTo(0, y);
-                ctx.lineTo(arenaWidth, y);
-                ctx.stroke();
-            }
-
-            getWingmanSlots(session).forEach(function (wingman) {
-                ctx.fillStyle = "#67e8f9";
-                ctx.beginPath();
-                ctx.arc(wingman.x, wingman.y, 8, 0, Math.PI * 2);
-                ctx.fill();
-            });
-
-            topdownMagneticTrapOrbs(session).forEach(function (orb) {
-                ctx.save();
-                ctx.fillStyle = "#a3e635";
-                ctx.shadowColor = "#84cc16";
-                ctx.shadowBlur = 10;
-                ctx.beginPath();
-                ctx.arc(orb.x, orb.y, orb.radius, 0, Math.PI * 2);
-                ctx.fill();
-                ctx.restore();
-            });
-
-            ctx.save();
-            ctx.translate(session.player.x, session.player.y);
-            ctx.rotate(topdownCurrentAimAngle(session, pointer));
-            const playerScale = session.player.radius / TOPDOWN_BALANCE.playerRadius;
-            drawTopdownPlayerCore(ctx, appearance, playerScale, session.player.damageFlash > 0);
-            {
-                const shieldStats = syncTopdownShieldCapacity(session);
-                for (let shieldIndex = 0; shieldIndex < shieldStats.max; shieldIndex += 1) {
-                    const ringRadius = (22 + shieldIndex * 6) * (0.92 + playerScale * 0.08);
-                    ctx.lineWidth = 2.2;
-                    ctx.strokeStyle = "rgba(71, 85, 105, 0.48)";
-                    ctx.beginPath();
-                    ctx.arc(0, 0, ringRadius, -Math.PI / 2, Math.PI * 1.5);
-                    ctx.stroke();
-                    if (shieldIndex < session.shield.current) {
-                        ctx.strokeStyle = "#67e8f9";
-                        ctx.beginPath();
-                        ctx.arc(0, 0, ringRadius, -Math.PI / 2, Math.PI * 1.5);
-                        ctx.stroke();
-                    } else if (shieldIndex === session.shield.current && session.shield.current < shieldStats.max && session.shield.cooldownLeft <= 0 && session.shield.rechargeProgress > 0) {
-                        ctx.strokeStyle = "#34d399";
-                        ctx.beginPath();
-                        ctx.arc(0, 0, ringRadius, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * session.shield.rechargeProgress);
-                        ctx.stroke();
-                    }
-                }
-            }
-            ctx.restore();
-
-            session.bullets.forEach(function (bullet) {
-                if (bullet.element === "electric") {
-                    ctx.save();
-                    ctx.strokeStyle = "#facc15";
-                    ctx.lineWidth = 2.5;
-                    ctx.shadowColor = "#fde047";
-                    ctx.shadowBlur = 8;
-                    ctx.beginPath();
-                    ctx.moveTo(bullet.prevX, bullet.prevY);
-                    ctx.lineTo(bullet.x, bullet.y);
-                    ctx.stroke();
-                    ctx.restore();
-                    return;
-                }
-                ctx.fillStyle = bullet.element === "fire" ? "#fb923c" : (bullet.element === "ice" ? "#93c5fd" : (bullet.element === "nuclear" ? "#4ade80" : "#f8fafc"));
-                ctx.beginPath();
-                ctx.arc(bullet.x, bullet.y, bullet.radius, 0, Math.PI * 2);
-                ctx.fill();
-            });
-
-            session.skillProjectiles.forEach(function (projectile) {
-                ctx.save();
-                ctx.fillStyle = "#fbbf24";
-                ctx.shadowColor = "#fde68a";
-                ctx.shadowBlur = 10;
-                ctx.beginPath();
-                ctx.arc(projectile.x, projectile.y, projectile.radius, 0, Math.PI * 2);
-                ctx.fill();
-                ctx.restore();
-            });
-
-            session.enemyBullets.forEach(function (bullet) {
-                if (bullet.kind === "hook") {
-                    const sourceEnemy = topdownFindEnemyById(session, bullet.sourceEnemyId);
-                    if (sourceEnemy) {
-                        ctx.save();
-                        ctx.strokeStyle = "rgba(244, 114, 182, 0.72)";
-                        ctx.lineWidth = 2.2;
-                        ctx.beginPath();
-                        ctx.moveTo(sourceEnemy.x, sourceEnemy.y);
-                        ctx.lineTo(bullet.x, bullet.y);
-                        ctx.stroke();
-                        ctx.restore();
-                    }
-                }
-                ctx.fillStyle = bullet.color || (bullet.kind === "sniper" ? "#fca5a5" : (bullet.kind === "ring" ? "#fb7185" : "#f87171"));
-                ctx.beginPath();
-                ctx.arc(bullet.x, bullet.y, bullet.radius, 0, Math.PI * 2);
-                ctx.fill();
-            });
-
-            session.enemyBeams.forEach(function (beam) {
-                ctx.save();
-                ctx.strokeStyle = beam.color || "#fb7185";
-                ctx.lineWidth = beam.width || TOPDOWN_BALANCE.enemyBeamWidth;
-                ctx.globalAlpha = Math.max(0.25, beam.life / TOPDOWN_BALANCE.enemyBeamLife);
-                ctx.beginPath();
-                ctx.moveTo(beam.fromX, beam.fromY);
-                ctx.lineTo(beam.toX, beam.toY);
-                ctx.stroke();
-                ctx.restore();
-            });
-
-            session.beams.forEach(function (beam) {
-                ctx.save();
-                ctx.strokeStyle = beam.color || "#facc15";
-                ctx.lineWidth = beam.width || 3;
-                ctx.globalAlpha = Math.max(0.25, beam.life / TOPDOWN_BALANCE.electricBeamLife);
-                ctx.beginPath();
-                ctx.moveTo(beam.fromX, beam.fromY);
-                ctx.lineTo(beam.toX, beam.toY);
-                ctx.stroke();
-                ctx.restore();
-            });
-
-            session.aoeBursts.forEach(function (burst) {
-                ctx.save();
-                if (burst.type === "enemy-explosion") {
-                    ctx.strokeStyle = "#fb7185";
-                    ctx.fillStyle = "rgba(251, 113, 133, 0.16)";
-                    ctx.lineWidth = 3.5;
-                    ctx.globalAlpha = Math.max(0.24, burst.life / TOPDOWN_BALANCE.selfDestructBurstLife);
-                    ctx.beginPath();
-                    ctx.arc(burst.x, burst.y, burst.radius * (1 - burst.life / TOPDOWN_BALANCE.selfDestructBurstLife * 0.2), 0, Math.PI * 2);
-                    ctx.fill();
-                    ctx.stroke();
-                } else {
-                    ctx.strokeStyle = "#4ade80";
-                    ctx.lineWidth = 3;
-                    ctx.globalAlpha = Math.max(0.18, burst.life / TOPDOWN_BALANCE.nuclearBurstLife);
-                    ctx.beginPath();
-                    ctx.arc(burst.x, burst.y, burst.radius * (1 - burst.life / TOPDOWN_BALANCE.nuclearBurstLife * 0.25), 0, Math.PI * 2);
-                    ctx.stroke();
-                }
-                ctx.restore();
-            });
-
-            session.pickups.forEach(function (pickup) {
-                const visual = topdownPickupVisual(pickup);
-                ctx.save();
-                ctx.translate(pickup.x, pickup.y);
-                ctx.rotate(session.tick * 1.6);
-                ctx.fillStyle = "rgba(2, 6, 23, 0.92)";
-                ctx.strokeStyle = visual.color;
-                ctx.lineWidth = pickup.kind === "item" ? 2.4 : 2;
-                ctx.beginPath();
-                ctx.moveTo(0, -12);
-                ctx.lineTo(12, 0);
-                ctx.lineTo(0, 12);
-                ctx.lineTo(-12, 0);
-                ctx.closePath();
-                ctx.fill();
-                ctx.stroke();
-                ctx.rotate(-session.tick * 1.6);
-                ctx.fillStyle = visual.accent;
-                ctx.font = "700 11px Consolas";
-                ctx.textAlign = "center";
-                ctx.fillText(visual.label, 0, 4);
-                ctx.restore();
-            });
-
-            session.enemies.forEach(function (enemy) {
-                const bossShieldRatio = enemy.isBoss ? Math.max(0, Math.min(1, Number(enemy.bossShield || 0) / Math.max(1, Number(enemy.bossShieldMax || 1)))) : 0;
-                const hpRatio = Math.max(0, enemy.hp / Math.max(1, enemy.maxHp));
-                const burnRatio = Math.max(0, Math.min(1, Number(enemy.burnStacks || 0) / TOPDOWN_BALANCE.burnStackMax));
-                const iceRatio = Math.max(0, Math.min(1, Number(enemy.iceStacks || 0) / TOPDOWN_BALANCE.iceFreezeStacks));
-                const baseRed = 248 - Math.round(30 * iceRatio);
-                const baseGreen = 113 + Math.round(28 * burnRatio) - Math.round(54 * iceRatio);
-                const baseBlue = 113 + Math.round(88 * iceRatio) - Math.round(24 * burnRatio);
-                ctx.fillStyle = enemy.remnantActive
-                    ? "#fb7185"
-                    : "rgb(" + clamp(baseRed, 120, 255) + ", " + clamp(baseGreen, 80, 210) + ", " + clamp(baseBlue, 80, 255) + ")";
-                ctx.beginPath();
-                ctx.arc(enemy.x, enemy.y, enemy.radius, 0, Math.PI * 2);
-                ctx.fill();
-                if (enemy.isElite && enemy.eliteType === "buffer" && enemy.auraActive) {
-                    ctx.save();
-                    ctx.strokeStyle = "rgba(250, 204, 21, 0.7)";
-                    ctx.setLineDash([10, 6]);
-                    ctx.lineWidth = 2;
-                    ctx.beginPath();
-                    ctx.arc(enemy.x, enemy.y, enemy.auraRadius, 0, Math.PI * 2);
-                    ctx.stroke();
-                    ctx.restore();
-                }
-                if (enemy.isElite && enemy.eliteType === "repulsor") {
-                    ctx.save();
-                    ctx.strokeStyle = "rgba(125, 211, 252, 0.42)";
-                    ctx.setLineDash([8, 8]);
-                    ctx.lineWidth = 2;
-                    ctx.beginPath();
-                    ctx.arc(enemy.x, enemy.y, TOPDOWN_BALANCE.repulsorRange, 0, Math.PI * 2);
-                    ctx.stroke();
-                    ctx.restore();
-                }
-                if (enemy.isElite && enemy.eliteType === "nightmare") {
-                    ctx.save();
-                    ctx.strokeStyle = "rgba(30, 41, 59, 0.72)";
-                    ctx.lineWidth = 2.6;
-                    ctx.setLineDash([10, 8]);
-                    ctx.beginPath();
-                    ctx.arc(enemy.x, enemy.y, TOPDOWN_BALANCE.nightmareAuraRange, 0, Math.PI * 2);
-                    ctx.stroke();
-                    ctx.setLineDash([]);
-                    ctx.lineWidth = 5;
-                    ctx.beginPath();
-                    ctx.arc(enemy.x, enemy.y, enemy.radius + 8 + Math.sin(session.tick * 7) * 2, 0, Math.PI * 2);
-                    ctx.stroke();
-                    ctx.restore();
-                }
-                if (enemy.isElite && enemy.eliteType === "liangzi") {
-                    ctx.save();
-                    ctx.strokeStyle = "rgba(74, 222, 128, 0.7)";
-                    ctx.lineWidth = 2.4;
-                    ctx.beginPath();
-                    ctx.arc(enemy.x, enemy.y, enemy.radius + 6, 0, Math.PI * 2);
-                    ctx.stroke();
-                    ctx.restore();
-                }
-                if (enemy.isElite && enemy.eliteType === "luse") {
-                    ctx.save();
-                    ctx.strokeStyle = "rgba(251, 191, 36, 0.76)";
-                    ctx.lineWidth = 2;
-                    ctx.beginPath();
-                    ctx.arc(enemy.x, enemy.y, TOPDOWN_BALANCE.luseTriggerRange, 0, Math.PI * 2);
-                    ctx.stroke();
-                    ctx.restore();
-                }
-                if (enemy.isElite && enemy.eliteType === "succubus") {
-                    ctx.save();
-                    ctx.strokeStyle = "rgba(244, 114, 182, 0.66)";
-                    ctx.lineWidth = 2.6;
-                    ctx.setLineDash([12, 6]);
-                    ctx.beginPath();
-                    ctx.arc(enemy.x, enemy.y, TOPDOWN_BALANCE.succubusAuraRange, 0, Math.PI * 2);
-                    ctx.stroke();
-                    ctx.restore();
-                }
-                if (enemy.remnantActive) {
-                    ctx.strokeStyle = "rgba(251, 113, 133, 0.9)";
-                    ctx.lineWidth = 2.2;
-                    ctx.beginPath();
-                    ctx.arc(enemy.x, enemy.y, enemy.radius + 8 + Math.sin(session.tick * 12) * 2, 0, Math.PI * 2);
-                    ctx.stroke();
-                }
-                if (enemy.burnStacks > 0) {
-                    drawTopdownStatusRing(ctx, enemy, enemy.burnStacks, TOPDOWN_BALANCE.burnStackMax, "#ef4444", -3);
-                }
-                if (enemy.iceStacks > 0) {
-                    drawTopdownStatusRing(ctx, enemy, enemy.iceStacks, TOPDOWN_BALANCE.iceFreezeStacks, "#60a5fa", 5);
-                }
-                if (enemy.isElite) {
-                    ctx.strokeStyle = enemy.isBoss ? "#a78bfa" : "#facc15";
-                    ctx.lineWidth = enemy.isBoss ? 4 : 3;
-                    ctx.beginPath();
-                    ctx.arc(enemy.x, enemy.y, enemy.radius + (enemy.isBoss ? 7 : 4), 0, Math.PI * 2);
-                    ctx.stroke();
-                    if (enemy.isBoss) {
-                        ctx.strokeStyle = "#67e8f9";
-                        ctx.lineWidth = 2.4;
-                        ctx.beginPath();
-                        ctx.arc(enemy.x, enemy.y, enemy.radius + 12, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * bossShieldRatio);
-                        ctx.stroke();
-                    } else {
-                        ctx.fillStyle = "#fecaca";
-                        ctx.beginPath();
-                        ctx.arc(enemy.x, enemy.y, 4, 0, Math.PI * 2);
-                        ctx.fill();
-                    }
-                }
-                ctx.fillStyle = "rgba(15,23,42,0.92)";
-                ctx.fillRect(enemy.x - enemy.radius, enemy.y - enemy.radius - 12, enemy.radius * 2, 5);
-                ctx.fillStyle = "#22c55e";
-                ctx.fillRect(enemy.x - enemy.radius, enemy.y - enemy.radius - 12, enemy.radius * 2 * hpRatio, 5);
-                if (enemy.isBoss) {
-                    ctx.fillStyle = "rgba(15,23,42,0.92)";
-                    ctx.fillRect(enemy.x - enemy.radius, enemy.y - enemy.radius - 20, enemy.radius * 2, 4);
-                    ctx.fillStyle = "#67e8f9";
-                    ctx.fillRect(enemy.x - enemy.radius, enemy.y - enemy.radius - 20, enemy.radius * 2 * bossShieldRatio, 4);
-                }
-                ctx.fillStyle = "#f8fafc";
-                ctx.font = "700 12px Consolas";
-                ctx.textAlign = "center";
-                ctx.fillText(String(Math.max(1, Math.ceil(enemy.hp))), enemy.x, enemy.y + 4);
-                if ((enemy.isElite && enemy.eliteType) || enemy.remnantActive) {
-                    ctx.fillStyle = enemy.isBoss ? "#c4b5fd" : "#fde68a";
-                    ctx.font = "700 " + (enemy.isBoss ? "11" : "10") + "px Segoe UI";
-                    ctx.fillText(topdownEliteLabel(enemy), enemy.x, enemy.y + enemy.radius + 14);
-                }
-            });
-            ctx.textAlign = "start";
-
-            ctx.fillStyle = "#f8fafc";
-            ctx.textAlign = "left";
-            ctx.font = "700 15px Segoe UI";
-            ctx.fillText("连杀 " + session.combo + " / 最佳 " + session.bestCombo, 22, 28);
-            ctx.font = "500 13px Segoe UI";
-            ctx.fillStyle = session.combo > 0 ? "#facc15" : "#94a3b8";
-            ctx.fillText(session.combo > 0 ? ("剩余连杀时间 " + session.comboTimer.toFixed(1) + "s / 当前击杀得分 " + (topdownKillBaseScore(session) + topdownComboBonus(session))) : ("连续击败敌人可叠加连杀得分，当前道具阈值 " + topdownCurrentComboItemEvery(session) + " 连"), 22, 49);
-            if (topdownHasLivingBoss(session)) {
-                ctx.fillStyle = "#c4b5fd";
-                ctx.fillText("首领已进场：先拆护盾，再压血量。", 22, 70);
-            }
-            if (session.player.blindUntil > session.tick) {
-                const blindRemaining = Math.max(0, session.player.blindUntil - session.tick);
-                ctx.save();
-                ctx.fillStyle = "rgba(2, 6, 23, 0.88)";
-                ctx.fillRect(0, 0, arenaWidth, arenaHeight);
-                ctx.globalCompositeOperation = "destination-out";
-                const blindGradient = ctx.createRadialGradient(
-                    session.player.x,
-                    session.player.y,
-                    26,
-                    session.player.x,
-                    session.player.y,
-                    TOPDOWN_BALANCE.nightmareVisionRadius
-                );
-                blindGradient.addColorStop(0, "rgba(0,0,0,1)");
-                blindGradient.addColorStop(0.72, "rgba(0,0,0,0.82)");
-                blindGradient.addColorStop(1, "rgba(0,0,0,0)");
-                ctx.fillStyle = blindGradient;
-                ctx.beginPath();
-                ctx.arc(session.player.x, session.player.y, TOPDOWN_BALANCE.nightmareVisionRadius, 0, Math.PI * 2);
-                ctx.fill();
-                ctx.restore();
-                ctx.fillStyle = "#e2e8f0";
-                ctx.fillText("致盲剩余 " + blindRemaining.toFixed(1) + " 秒", 22, topdownHasLivingBoss(session) ? 92 : 70);
-            }
-            if (session.player.invulnerableUntil > session.tick) {
-                ctx.fillStyle = "#86efac";
-                ctx.fillText("无敌剩余 " + (session.player.invulnerableUntil - session.tick).toFixed(1) + " 秒", 22, session.player.blindUntil > session.tick ? 114 : (topdownHasLivingBoss(session) ? 92 : 70));
-            }
-            ctx.textAlign = "start";
-
-            if (session.pendingUpgrade) {
-                renderUpgradeOverlay();
-            } else if (session.pendingPickupChoice) {
-                renderPickupChoiceOverlay();
-            }
-            if (session.status === "paused") {
-                ctx.fillStyle = "rgba(2,6,23,0.6)";
-                ctx.fillRect(0, 0, arenaWidth, arenaHeight);
-                ctx.fillStyle = "#f8fafc";
-                ctx.textAlign = "center";
-                ctx.font = "700 40px Segoe UI";
-                ctx.fillText("已暂停", arenaWidth / 2, arenaHeight / 2 - 14);
-                ctx.font = "500 18px Segoe UI";
-                ctx.fillText("WASD / 方向键移动，鼠标瞄准，左键 / J 射击", arenaWidth / 2, arenaHeight / 2 + 20);
-                ctx.fillText("1 / 2 / 3 选择强化或道具，R 刷新本轮强化，P 继续游戏", arenaWidth / 2, arenaHeight / 2 + 50);
-            } else if (session.status === "over") {
-                ctx.fillStyle = "rgba(2,6,23,0.72)";
-                ctx.fillRect(0, 0, arenaWidth, arenaHeight);
-                ctx.fillStyle = "#f8fafc";
-                ctx.textAlign = "center";
-                ctx.font = "700 42px Segoe UI";
-                ctx.fillText("本局失败", arenaWidth / 2, arenaHeight / 2 - 38);
-                ctx.font = "500 20px Segoe UI";
-                ctx.fillText("分数 " + session.score + " / 击败 " + session.kills + " / 波次 " + session.wave, arenaWidth / 2, arenaHeight / 2 + 12);
-                ctx.fillText(topdownBuildSummary(session), arenaWidth / 2, arenaHeight / 2 + 44);
-                ctx.fillText("本局结算局外积分 +" + topdownMetaRewardAmount(session), arenaWidth / 2, arenaHeight / 2 + 78);
-                ctx.fillText("点击“重新开局”立即再来一局", arenaWidth / 2, arenaHeight / 2 + 108);
-            }
-        }
-
-        function loop(ts) {
-            if (!lastFrame) {
-                lastFrame = ts;
-            }
-            const dt = Math.min(0.04, (ts - lastFrame) / 1000);
-            lastFrame = ts;
-            if (!introActive) {
-                updateSession(dt);
-            }
-            renderSession();
-            updateHud();
-            if (session.elapsedSeconds !== persistStamp || session.status === "paused") {
-                persistStamp = session.elapsedSeconds;
-                persist();
-            }
-            animationId = window.requestAnimationFrame(loop);
-        }
-
-        function canvasPoint(event) {
-            const rect = arcade.canvas.getBoundingClientRect();
-            pointer.x = ((event.clientX - rect.left) / rect.width) * arenaWidth;
-            pointer.y = ((event.clientY - rect.top) / rect.height) * arenaHeight;
-        }
-
-        function keydown(event) {
-            if (introActive) {
-                if (blockedKeys[event.code]) {
-                    event.preventDefault();
-                }
-                return;
-            }
-            if (blockedKeys[event.code]) {
-                event.preventDefault();
-            }
-            pressed[event.code] = true;
-            if (session.pendingUpgrade && event.code.indexOf("Digit") === 0) {
-                selectUpgrade(Number(event.code.slice(5)) - 1);
-            } else if (session.pendingUpgrade && event.code === "KeyR") {
-                rerollUpgradeChoices();
-            } else if (session.pendingPickupChoice && session.pendingPickupChoice.allowDecline !== false && (event.code === "Digit0" || event.code === "Numpad0")) {
-                declinePendingPickupChoice();
-            } else if (session.pendingPickupChoice && event.code.indexOf("Digit") === 0) {
-                resolvePendingPickupChoice(Number(event.code.slice(5)) - 1);
-            } else if (event.code === session.skillTriggerKey) {
-                if (activateTopdownSkill()) {
-                    persist();
-                }
-            } else if (event.code === "KeyP") {
-                togglePause();
-            }
-        }
-
-        function keyup(event) {
-            if (introActive) {
-                if (blockedKeys[event.code]) {
-                    event.preventDefault();
-                }
-                return;
-            }
-            if (blockedKeys[event.code]) {
-                event.preventDefault();
-            }
-            pressed[event.code] = false;
-        }
-
-        function pointerMove(event) {
-            if (introActive) {
-                return;
-            }
-            canvasPoint(event);
-        }
-
-        function pointerDown(event) {
-            if (introActive) {
-                return;
-            }
-            canvasPoint(event);
-            if (session.pendingUpgrade) {
-                const rect = arcade.canvas.getBoundingClientRect();
-                const x = ((event.clientX - rect.left) / rect.width) * arenaWidth;
-                const y = ((event.clientY - rect.top) / rect.height) * arenaHeight;
-                upgradeRects.some(function (box, index) {
-                    if (x >= box.x && x <= box.x + box.w && y >= box.y && y <= box.y + box.h) {
-                        if (box.action === "reroll") {
-                            rerollUpgradeChoices();
-                            return true;
-                        }
-                        selectUpgrade(index);
-                        return true;
-                    }
-                    return false;
-                });
-                return;
-            }
-            if (session.pendingPickupChoice) {
-                const rect = arcade.canvas.getBoundingClientRect();
-                const x = ((event.clientX - rect.left) / rect.width) * arenaWidth;
-                const y = ((event.clientY - rect.top) / rect.height) * arenaHeight;
-                pickupChoiceRects.some(function (box, index) {
-                    if (x >= box.x && x <= box.x + box.w && y >= box.y && y <= box.y + box.h) {
-                        if (box.action === "decline") {
-                            declinePendingPickupChoice();
-                            return true;
-                        }
-                        resolvePendingPickupChoice(index);
-                        return true;
-                    }
-                    return false;
-                });
-                return;
-            }
-            pointer.down = true;
-        }
-
-        function pointerUp() {
-            pointer.down = false;
-        }
-
-        document.addEventListener("keydown", keydown);
-        document.addEventListener("keyup", keyup);
-        arcade.canvas.addEventListener("mousemove", pointerMove);
-        arcade.canvas.addEventListener("mousedown", pointerDown);
-        window.addEventListener("mouseup", pointerUp);
-
-        createGameStartOverlay(arcade.canvasWrap, Object.assign({}, topdownHelpConfig, {
-            buttonLabel: session.score > 0 || session.kills > 0 || session.elapsedSeconds > 0 ? "继续出击" : "开始出击",
-            useStageActionButton: true,
-            onStart: function () {
-                introActive = false;
-                if (session.status === "paused") {
-                    session.startedAt = Date.now();
-                    session.status = "playing";
-                } else if (session.status !== "over") {
-                    session.startedAt += Date.now() - introShownAt;
-                }
-                updateHud();
-                persist();
-            }
-        }));
-
-        updateHud();
-        persist();
-        animationId = window.requestAnimationFrame(loop);
-
-        return function cleanup() {
-            window.cancelAnimationFrame(animationId);
-            document.removeEventListener("keydown", keydown);
-            document.removeEventListener("keyup", keyup);
-            arcade.canvas.removeEventListener("mousemove", pointerMove);
-            arcade.canvas.removeEventListener("mousedown", pointerDown);
-            window.removeEventListener("mouseup", pointerUp);
-            syncTopdownClock(session);
-            persist();
-        };
+        return parts.join("，") || "免费";
     }
 
-    function createSpaceRocksSession() {
-        return {
-            sessionKey: "spr-" + Date.now() + "-" + Math.random().toString(36).slice(2, 8),
-            startedAt: Date.now(),
-            elapsedSeconds: 0,
-            nextId: 1,
-            ship: { x: 480, y: 300, angle: -Math.PI / 2, vx: 0, vy: 0, fireCooldown: 0, hitCooldown: 0 },
-            bullets: [],
-            asteroids: [],
-            score: 0,
-            level: 1,
-            lives: 3,
-            tick: 0,
-            status: "playing",
-            submittedScore: false
-        };
+    function topdownMetaPreviewStyle(item) {
+        if (item && item.pattern) {
+            return topdownBackgroundPreviewStyle(item);
+        }
+        if (item && item.gradient && item.gradient.length) {
+            return 'background:linear-gradient(135deg,' + item.gradient.join(",") + ');border-color:' + escapeHtml(item.stroke || "#ffffff") + ';';
+        }
+        if (item && (item.fill || item.stroke)) {
+            return '--skin-fill:' + escapeHtml(item.fill || "#38bdf8") + ';--skin-stroke:' + escapeHtml(item.stroke || "#bae6fd") + ';';
+        }
+        return "";
     }
 
-    function normalizeSpaceRocksSession(raw) {
-        const session = !raw || !raw.sessionKey ? createSpaceRocksSession() : {
-            sessionKey: String(raw.sessionKey || ("spr-" + Date.now())),
-            startedAt: Number(raw.startedAt || Date.now()),
-            elapsedSeconds: Number(raw.elapsedSeconds || 0),
-            nextId: Number(raw.nextId || 1),
-            ship: Object.assign({ x: 480, y: 300, angle: -Math.PI / 2, vx: 0, vy: 0, fireCooldown: 0, hitCooldown: 0 }, raw.ship || {}),
-            bullets: Array.isArray(raw.bullets) ? raw.bullets.slice() : [],
-            asteroids: Array.isArray(raw.asteroids) ? raw.asteroids.slice() : [],
-            score: Number(raw.score || 0),
-            level: Math.max(1, Number(raw.level || 1)),
-            lives: Math.max(0, Number(raw.lives || 3)),
-            tick: Number(raw.tick || 0),
-            status: raw.status === "over" ? "over" : "playing",
-            submittedScore: Boolean(raw.submittedScore)
-        };
-        if (!session.asteroids.length && session.status === "playing") {
-            spawnSpaceRocksWave(session);
+    function topdownMetaColorCssVars(color) {
+        const safeColor = color || topdownColorCatalog().classic;
+        if (safeColor.gradient && safeColor.gradient.length) {
+            return '--icon-fill:' + escapeHtml(safeColor.gradient[0] || "#38bdf8") + ';--icon-accent:' + escapeHtml(safeColor.gradient[safeColor.gradient.length - 1] || safeColor.accent || "#67e8f9") + ';--icon-gradient:linear-gradient(135deg,' + safeColor.gradient.join(",") + ');--icon-stroke:' + escapeHtml(safeColor.stroke || "#ffffff") + ';';
         }
-        return session;
+        return '--icon-fill:' + escapeHtml(safeColor.fill || "#38bdf8") + ';--icon-accent:' + escapeHtml(safeColor.accent || safeColor.stroke || "#67e8f9") + ';--icon-gradient:linear-gradient(135deg,' + escapeHtml(safeColor.fill || "#38bdf8") + ',' + escapeHtml(safeColor.accent || safeColor.stroke || "#67e8f9") + ');--icon-stroke:' + escapeHtml(safeColor.stroke || "#e2e8f0") + ';';
     }
 
-    function syncSpaceRocksClock(session) {
-        if (session.status !== "over") {
-            session.elapsedSeconds = Math.max(0, Math.floor((Date.now() - session.startedAt) / 1000));
+    function topdownMetaIconPreviewHtml(icon, className, color) {
+        const classes = className + (icon && icon.kind === "svg" ? " is-svg-emblem" : "");
+        if (icon && icon.kind === "svg" && icon.src) {
+            return '<span class="' + classes + '" style="' + topdownMetaColorCssVars(color) + '--icon-url:url(&quot;' + escapeHtml(icon.src) + '&quot;);"></span>';
         }
+        return '<span class="' + classes + '">' + escapeHtml(topdownIconPreviewGlyph(icon)) + '</span>';
     }
 
-    function serializeSpaceRocksSession(session) {
-        syncSpaceRocksClock(session);
-        return JSON.parse(JSON.stringify(session));
-    }
-
-    function summarizeSpaceRocksSession(session) {
-        syncSpaceRocksClock(session);
-        return {
-            score: session.score,
-            level: session.level,
-            lives: session.lives,
-            elapsed_seconds: session.elapsedSeconds,
-            status: session.status
-        };
-    }
-
-    function spawnAsteroid(session, size, x, y, angle, speed) {
-        session.asteroids.push({
-            id: session.nextId,
-            x: x,
-            y: y,
-            vx: Math.cos(angle) * speed,
-            vy: Math.sin(angle) * speed,
-            size: size,
-            radius: size === 3 ? 42 : (size === 2 ? 26 : 16),
-            spin: randomBetween(-1.2, 1.2),
-            rotation: randomBetween(0, Math.PI * 2)
-        });
-        session.nextId += 1;
-    }
-
-    function spawnSpaceRocksWave(session) {
-        const count = Math.min(3 + session.level, 8);
-        for (let i = 0; i < count; i += 1) {
-            const angle = randomBetween(0, Math.PI * 2);
-            const edge = i % 4;
-            const x = edge === 0 ? -30 : (edge === 1 ? 990 : randomBetween(20, 940));
-            const y = edge === 2 ? -30 : (edge === 3 ? 630 : randomBetween(20, 580));
-            spawnAsteroid(session, 3, x, y, angle, randomBetween(30, 70) + session.level * 6);
-        }
-    }
-
-    function wrapPoint(entity, width, height, margin) {
-        if (entity.x < -margin) { entity.x = width + margin; }
-        if (entity.x > width + margin) { entity.x = -margin; }
-        if (entity.y < -margin) { entity.y = height + margin; }
-        if (entity.y > height + margin) { entity.y = -margin; }
-    }
-
-    function mountSpaceRocks(savedPayload) {
-        let session = normalizeSpaceRocksSession(savedPayload.state || {});
-        const arcade = createArcadeShell(
-            "Space Rocks",
-            "左/右旋转，向前推进，空格射击。陨石会分裂，关卡和分数自动保存。",
-            "积分按陨石击毁、关卡和剩余生存状态累计，结算后自动进入榜单。"
-        );
-        const ctx = arcade.canvas.getContext("2d");
-        const pressed = Object.create(null);
-        let animationId = 0;
-        let lastFrame = 0;
-        let persistStamp = 0;
-
-        addStageButton("重新开始", function () {
-            finalizeScoreIfNeeded().finally(function () {
-                session = createSpaceRocksSession();
-                spawnSpaceRocksWave(session);
-                persist();
-            });
-        }, true);
-
-        function persist() {
-            scheduleGameStateSave("space-rocks", serializeSpaceRocksSession(session), summarizeSpaceRocksSession(session));
-        }
-
-        function updateHud() {
-            syncSpaceRocksClock(session);
-            setArcadeStats(arcade.statGrid, [
-                { label: "积分", value: String(session.score) },
-                { label: "关卡", value: String(session.level) },
-                { label: "陨石", value: String(session.asteroids.length) },
-                { label: "用时", value: formatSeconds(session.elapsedSeconds) }
-            ]);
-            setArcadeList(arcade.controls, [
-                '<span class="game-arcade-kbd">← / →</span> 旋转飞船',
-                '<span class="game-arcade-kbd">↑</span> 推进',
-                '<span class="game-arcade-kbd">Space</span> 发射激光'
-            ]);
-            setArcadeList(arcade.status, [
-                "当前状态：" + (session.status === "over" ? "已结束" : "飞行中"),
-                "清空当前陨石波次后进入下一关。",
-                session.status === "over" ? "本局已尝试提交成绩。" : "支持随时关闭，回来继续。"
-            ]);
-            syncPresence(session.status === "over" ? "Space Rocks 已结束" : ("Space Rocks Level " + session.level), "");
-        }
-
-        function shoot() {
-            if (session.status !== "playing" || session.ship.fireCooldown > 0) {
-                return;
-            }
-            session.bullets.push({
-                id: session.nextId,
-                x: session.ship.x + Math.cos(session.ship.angle) * 18,
-                y: session.ship.y + Math.sin(session.ship.angle) * 18,
-                vx: Math.cos(session.ship.angle) * 430 + session.ship.vx,
-                vy: Math.sin(session.ship.angle) * 430 + session.ship.vy,
-                life: 1.2,
-                radius: 3
-            });
-            session.nextId += 1;
-            session.ship.fireCooldown = 0.22;
-        }
-
-        function finalizeScoreIfNeeded() {
-            syncSpaceRocksClock(session);
-            if (session.submittedScore || session.score <= 0) {
-                return Promise.resolve();
-            }
-            session.submittedScore = true;
-            return submitScore("space-rocks", session.score, "standard", session.sessionKey, {
-                mode_key: "space-rocks-standard",
-                elapsed_seconds: session.elapsedSeconds,
-                level: session.level,
-                lives: session.lives
-            }).catch(function (error) {
-                session.submittedScore = false;
-                setStatus(error.message || "Space Rocks 鎴愮哗鎻愪氦澶辫触", true);
-            });
-        }
-
-        function splitAsteroid(asteroid) {
-            if (asteroid.size <= 1) {
-                return;
-            }
-            for (let i = 0; i < 2; i += 1) {
-                spawnAsteroid(
-                    session,
-                    asteroid.size - 1,
-                    asteroid.x,
-                    asteroid.y,
-                    randomBetween(0, Math.PI * 2),
-                    randomBetween(60, 120) + (3 - asteroid.size) * 20
-                );
-            }
-        }
-
-        function updateSession(dt) {
-            session.tick += dt;
-            syncSpaceRocksClock(session);
-            if (session.status !== "playing") {
-                return;
-            }
-            session.ship.fireCooldown = Math.max(0, session.ship.fireCooldown - dt);
-            session.ship.hitCooldown = Math.max(0, session.ship.hitCooldown - dt);
-
-            if (pressed.ArrowLeft || pressed.KeyA) { session.ship.angle -= 3.2 * dt; }
-            if (pressed.ArrowRight || pressed.KeyD) { session.ship.angle += 3.2 * dt; }
-            if (pressed.ArrowUp || pressed.KeyW) {
-                session.ship.vx += Math.cos(session.ship.angle) * 170 * dt;
-                session.ship.vy += Math.sin(session.ship.angle) * 170 * dt;
-            }
-            if (pressed.Space) {
-                shoot();
-            }
-
-            session.ship.vx *= 0.993;
-            session.ship.vy *= 0.993;
-            session.ship.x += session.ship.vx * dt;
-            session.ship.y += session.ship.vy * dt;
-            wrapPoint(session.ship, 960, 600, 24);
-
-            session.bullets.forEach(function (bullet) {
-                bullet.x += bullet.vx * dt;
-                bullet.y += bullet.vy * dt;
-                bullet.life -= dt;
-                wrapPoint(bullet, 960, 600, 8);
-            });
-            session.bullets = session.bullets.filter(function (bullet) {
-                return bullet.life > 0;
-            });
-
-            session.asteroids.forEach(function (asteroid) {
-                asteroid.x += asteroid.vx * dt;
-                asteroid.y += asteroid.vy * dt;
-                asteroid.rotation += asteroid.spin * dt;
-                wrapPoint(asteroid, 960, 600, asteroid.radius + 10);
-            });
-
-            const remainingBullets = [];
-            session.bullets.forEach(function (bullet) {
-                let hit = false;
-                session.asteroids = session.asteroids.filter(function (asteroid) {
-                    if (!hit && distanceBetween(bullet, asteroid) <= bullet.radius + asteroid.radius) {
-                        hit = true;
-                        session.score += asteroid.size === 3 ? 50 : (asteroid.size === 2 ? 90 : 140);
-                        splitAsteroid(asteroid);
-                        return false;
-                    }
-                    return true;
-                });
-                if (!hit) {
-                    remainingBullets.push(bullet);
-                }
-            });
-            session.bullets = remainingBullets;
-
-            if (session.ship.hitCooldown <= 0) {
-                const collided = session.asteroids.some(function (asteroid) {
-                    return distanceBetween(session.ship, asteroid) <= asteroid.radius + 14;
-                });
-                if (collided) {
-                    session.lives -= 1;
-                    session.ship.x = 480;
-                    session.ship.y = 300;
-                    session.ship.vx = 0;
-                    session.ship.vy = 0;
-                    session.ship.hitCooldown = 2;
-                    if (session.lives <= 0) {
-                        session.status = "over";
-                        session.score += session.level * 120;
-                        finalizeScoreIfNeeded();
-                        persist();
-                    }
-                }
-            }
-
-            if (!session.asteroids.length && session.status === "playing") {
-                session.level += 1;
-                session.score += session.level * 70 + session.lives * 20;
-                spawnSpaceRocksWave(session);
-            }
-        }
-
-        function renderSession() {
-            drawStarfield(ctx, 960, 600, session.tick * 0.8);
-            ctx.strokeStyle = "rgba(96,165,250,0.15)";
-            ctx.lineWidth = 1;
-
-            session.asteroids.forEach(function (asteroid) {
-                ctx.save();
-                ctx.translate(asteroid.x, asteroid.y);
-                ctx.rotate(asteroid.rotation);
-                ctx.strokeStyle = asteroid.size === 3 ? "#fbbf24" : (asteroid.size === 2 ? "#fb923c" : "#f87171");
-                ctx.beginPath();
-                for (let i = 0; i < 7; i += 1) {
-                    const angle = (Math.PI * 2 / 7) * i;
-                    const radius = asteroid.radius * (0.76 + ((i % 2) * 0.22));
-                    const px = Math.cos(angle) * radius;
-                    const py = Math.sin(angle) * radius;
-                    if (i === 0) {
-                        ctx.moveTo(px, py);
-                    } else {
-                        ctx.lineTo(px, py);
-                    }
-                }
-                ctx.closePath();
-                ctx.stroke();
-                ctx.restore();
-            });
-
-            ctx.fillStyle = "#f8fafc";
-            session.bullets.forEach(function (bullet) {
-                ctx.beginPath();
-                ctx.arc(bullet.x, bullet.y, bullet.radius, 0, Math.PI * 2);
-                ctx.fill();
-            });
-
-            ctx.save();
-            ctx.translate(session.ship.x, session.ship.y);
-            ctx.rotate(session.ship.angle);
-            ctx.strokeStyle = session.ship.hitCooldown > 0 ? "#fca5a5" : "#38bdf8";
-            ctx.lineWidth = 2;
-            ctx.beginPath();
-            ctx.moveTo(18, 0);
-            ctx.lineTo(-14, -10);
-            ctx.lineTo(-6, 0);
-            ctx.lineTo(-14, 10);
-            ctx.closePath();
-            ctx.stroke();
-            if (pressed.ArrowUp || pressed.KeyW) {
-                ctx.beginPath();
-                ctx.moveTo(-10, -5);
-                ctx.lineTo(-20, 0);
-                ctx.lineTo(-10, 5);
-                ctx.strokeStyle = "#f97316";
-                ctx.stroke();
-            }
-            ctx.restore();
-
-            if (session.status === "over") {
-                ctx.fillStyle = "rgba(2,6,23,0.7)";
-                ctx.fillRect(0, 0, 960, 600);
-                ctx.fillStyle = "#f8fafc";
-                ctx.textAlign = "center";
-                ctx.font = "700 42px Segoe UI";
-                ctx.fillText("Ship Lost", 480, 270);
-                ctx.font = "500 20px Segoe UI";
-                ctx.fillText("积分 " + session.score + " / 关卡 " + session.level + " / 用时 " + formatSeconds(session.elapsedSeconds), 480, 320);
-                ctx.fillText("鐐瑰嚮鈥滈噸鏂板紑灞€鈥濈户缁", 480, 355);
-            }
-        }
-
-        function loop(ts) {
-            if (!lastFrame) {
-                lastFrame = ts;
-            }
-            const dt = Math.min(0.04, (ts - lastFrame) / 1000);
-            lastFrame = ts;
-            updateSession(dt);
-            renderSession();
-            updateHud();
-            if (session.elapsedSeconds !== persistStamp) {
-                persistStamp = session.elapsedSeconds;
-                persist();
-            }
-            animationId = window.requestAnimationFrame(loop);
-        }
-
-        function keydown(event) { pressed[event.code] = true; }
-        function keyup(event) { pressed[event.code] = false; }
-
-        document.addEventListener("keydown", keydown);
-        document.addEventListener("keyup", keyup);
-
-        updateHud();
-        persist();
-        if (!session.asteroids.length && session.status === "playing") {
-            spawnSpaceRocksWave(session);
-        }
-        animationId = window.requestAnimationFrame(loop);
-
-        return function cleanup() {
-            window.cancelAnimationFrame(animationId);
-            document.removeEventListener("keydown", keydown);
-            document.removeEventListener("keyup", keyup);
-            syncSpaceRocksClock(session);
-            persist();
-        };
-    }
-
-    function mountSpaceRocks(savedPayload) {
-        let session = normalizeSpaceRocksSession(savedPayload.state || {});
-        const spaceRocksHelpConfig = {
-            title: "Space Rocks",
-            subtitle: "在惯性与环绕边界中闪避陨石，尽量稳住节奏持续清场。",
-            bullets: [
-                "操作：左右方向键控制转向，上方向键推进，J 键开火。",
-                "大陨石会裂成更小的碎块，清掉整波后进入下一关。",
-                "分数和进度会自动保存，中途离开后也能继续。"
-            ],
-            hint: "不要一直猛推，先活下来比盲目抢分更重要。"
-        };
-        const arcade = createArcadeShell(
-            "Space Rocks",
-            "左右方向键旋转，向上推进，J 射击。陨石会裂变，关卡和分数自动保存。",
-            "积分按击碎陨石、推进关卡和生存时间累计，结算后自动入榜。"
-        );
-        const ctx = arcade.canvas.getContext("2d");
-        const pressed = Object.create(null);
-        const blockedKeys = { Space: true, ArrowUp: true, ArrowDown: true, ArrowLeft: true, ArrowRight: true, KeyW: true, KeyA: true, KeyD: true, KeyJ: true };
-        let animationId = 0;
-        let lastFrame = 0;
-        let persistStamp = 0;
-        let introShownAt = Date.now();
-        let introActive = true;
-
-        addStageButton("重新开局", function () {
-            finalizeScoreIfNeeded().finally(function () {
-                session = createSpaceRocksSession();
-                spawnSpaceRocksWave(session);
-                persist();
-            });
-        }, true);
-        addStageButton("帮助", function () {
-            openGameInfoOverlay(arcade.canvasWrap, spaceRocksHelpConfig);
-        }, false);
-
-        function persist() {
-            scheduleGameStateSave("space-rocks", serializeSpaceRocksSession(session), summarizeSpaceRocksSession(session));
-        }
-
-        function updateHud() {
-            syncSpaceRocksClock(session);
-            setArcadeStats(arcade.statGrid, [
-                { label: "分数", value: String(session.score) },
-                { label: "关卡", value: String(session.level) },                { label: "陨石", value: String(session.asteroids.length) },
-                { label: "用时", value: formatSeconds(session.elapsedSeconds) }
-            ]);
-            setArcadeList(arcade.status, [
-                "当前状态：" + (session.status === "over" ? "已结束" : "飞行中"),
-                "清空当前陨石波次后进入下一关。",
-                session.status === "over" ? "本局已尝试提交成绩。" : "支持随时关闭，回来继续。"
-            ]);
-            syncPresence(session.status === "over" ? "Space Rocks 已结束" : ("Space Rocks Level " + session.level), "");
-        }
-
-        function shoot() {
-            if (session.status !== "playing" || session.ship.fireCooldown > 0) {
-                return;
-            }
-            session.bullets.push({
-                id: session.nextId,
-                x: session.ship.x + Math.cos(session.ship.angle) * 18,
-                y: session.ship.y + Math.sin(session.ship.angle) * 18,
-                vx: Math.cos(session.ship.angle) * 430 + session.ship.vx,
-                vy: Math.sin(session.ship.angle) * 430 + session.ship.vy,
-                life: 1.2,
-                radius: 3
-            });
-            session.nextId += 1;
-            session.ship.fireCooldown = 0.22;
-        }
-
-        function finalizeScoreIfNeeded() {
-            syncSpaceRocksClock(session);
-            if (session.submittedScore || session.score <= 0) {
-                return Promise.resolve();
-            }
-            session.submittedScore = true;
-            return submitScore("space-rocks", session.score, "standard", session.sessionKey, {
-                mode_key: "space-rocks-standard",
-                elapsed_seconds: session.elapsedSeconds,
-                level: session.level,
-                lives: session.lives
-            }).catch(function (error) {
-                session.submittedScore = false;
-                setStatus(error.message || "Space Rocks 成绩提交失败", true);
-            });
-        }
-
-        function splitAsteroid(asteroid) {
-            if (asteroid.size <= 1) {
-                return;
-            }
-            for (let i = 0; i < 2; i += 1) {
-                spawnAsteroid(
-                    session,
-                    asteroid.size - 1,
-                    asteroid.x,
-                    asteroid.y,
-                    randomBetween(0, Math.PI * 2),
-                    randomBetween(60, 120) + (3 - asteroid.size) * 20
-                );
-            }
-        }
-
-        function updateSession(dt) {
-            session.tick += dt;
-            syncSpaceRocksClock(session);
-            if (session.status !== "playing") {
-                return;
-            }
-            session.ship.fireCooldown = Math.max(0, session.ship.fireCooldown - dt);
-            session.ship.hitCooldown = Math.max(0, session.ship.hitCooldown - dt);
-
-            if (pressed.ArrowLeft || pressed.KeyA) { session.ship.angle -= 3.2 * dt; }
-            if (pressed.ArrowRight || pressed.KeyD) { session.ship.angle += 3.2 * dt; }
-            if (pressed.ArrowUp || pressed.KeyW) {
-                session.ship.vx += Math.cos(session.ship.angle) * 170 * dt;
-                session.ship.vy += Math.sin(session.ship.angle) * 170 * dt;
-            }
-            if (pressed.KeyJ) {
-                shoot();
-            }
-
-            session.ship.vx *= 0.993;
-            session.ship.vy *= 0.993;
-            session.ship.x += session.ship.vx * dt;
-            session.ship.y += session.ship.vy * dt;
-            wrapPoint(session.ship, 960, 600, 24);
-
-            session.bullets.forEach(function (bullet) {
-                bullet.x += bullet.vx * dt;
-                bullet.y += bullet.vy * dt;
-                bullet.life -= dt;
-                wrapPoint(bullet, 960, 600, 8);
-            });
-            session.bullets = session.bullets.filter(function (bullet) {
-                return bullet.life > 0;
-            });
-
-            session.asteroids.forEach(function (asteroid) {
-                asteroid.x += asteroid.vx * dt;
-                asteroid.y += asteroid.vy * dt;
-                asteroid.rotation += asteroid.spin * dt;
-                wrapPoint(asteroid, 960, 600, asteroid.radius + 10);
-            });
-
-            const remainingBullets = [];
-            session.bullets.forEach(function (bullet) {
-                let hit = false;
-                session.asteroids = session.asteroids.filter(function (asteroid) {
-                    if (!hit && distanceBetween(bullet, asteroid) <= bullet.radius + asteroid.radius) {
-                        hit = true;
-                        session.score += asteroid.size === 3 ? 50 : (asteroid.size === 2 ? 90 : 140);
-                        splitAsteroid(asteroid);
-                        return false;
-                    }
-                    return true;
-                });
-                if (!hit) {
-                    remainingBullets.push(bullet);
-                }
-            });
-            session.bullets = remainingBullets;
-
-            if (session.ship.hitCooldown <= 0) {
-                const collided = session.asteroids.some(function (asteroid) {
-                    return distanceBetween(session.ship, asteroid) <= asteroid.radius + 14;
-                });
-                if (collided) {
-                    session.lives -= 1;
-                    session.ship.x = 480;
-                    session.ship.y = 300;
-                    session.ship.vx = 0;
-                    session.ship.vy = 0;
-                    session.ship.hitCooldown = 2;
-                    if (session.lives <= 0) {
-                        session.status = "over";
-                        session.score += session.level * 120;
-                        finalizeScoreIfNeeded();
-                        persist();
-                    }
-                }
-            }
-
-            if (!session.asteroids.length && session.status === "playing") {
-                session.level += 1;
-                session.score += session.level * 70 + session.lives * 20;
-                spawnSpaceRocksWave(session);
-            }
-        }
-
-        function renderSession() {
-            drawStarfield(ctx, 960, 600, session.tick * 0.8);
-            ctx.strokeStyle = "rgba(96,165,250,0.15)";
-            ctx.lineWidth = 1;
-
-            session.asteroids.forEach(function (asteroid) {
-                ctx.save();
-                ctx.translate(asteroid.x, asteroid.y);
-                ctx.rotate(asteroid.rotation);
-                ctx.strokeStyle = asteroid.size === 3 ? "#fbbf24" : (asteroid.size === 2 ? "#fb923c" : "#f87171");
-                ctx.beginPath();
-                for (let i = 0; i < 7; i += 1) {
-                    const angle = (Math.PI * 2 / 7) * i;
-                    const radius = asteroid.radius * (0.76 + ((i % 2) * 0.22));
-                    const px = Math.cos(angle) * radius;
-                    const py = Math.sin(angle) * radius;
-                    if (i === 0) {
-                        ctx.moveTo(px, py);
-                    } else {
-                        ctx.lineTo(px, py);
-                    }
-                }
-                ctx.closePath();
-                ctx.stroke();
-                ctx.restore();
-            });
-
-            ctx.fillStyle = "#f8fafc";
-            session.bullets.forEach(function (bullet) {
-                ctx.beginPath();
-                ctx.arc(bullet.x, bullet.y, bullet.radius, 0, Math.PI * 2);
-                ctx.fill();
-            });
-
-            ctx.save();
-            ctx.translate(session.ship.x, session.ship.y);
-            ctx.rotate(session.ship.angle);
-            ctx.strokeStyle = session.ship.hitCooldown > 0 ? "#fca5a5" : "#38bdf8";
-            ctx.lineWidth = 2;
-            ctx.beginPath();
-            ctx.moveTo(18, 0);
-            ctx.lineTo(-14, -10);
-            ctx.lineTo(-6, 0);
-            ctx.lineTo(-14, 10);
-            ctx.closePath();
-            ctx.stroke();
-            if (pressed.ArrowUp || pressed.KeyW) {
-                ctx.beginPath();
-                ctx.moveTo(-10, -5);
-                ctx.lineTo(-20, 0);
-                ctx.lineTo(-10, 5);
-                ctx.strokeStyle = "#f97316";
-                ctx.stroke();
-            }
-            ctx.restore();
-
-            if (session.status === "over") {
-                ctx.fillStyle = "rgba(2,6,23,0.7)";
-                ctx.fillRect(0, 0, 960, 600);
-                ctx.fillStyle = "#f8fafc";
-                ctx.textAlign = "center";
-                ctx.font = "700 42px Segoe UI";
-                ctx.fillText("Ship Lost", 480, 270);
-                ctx.font = "500 20px Segoe UI";
-                ctx.fillText("分数 " + session.score + " / 关卡 " + session.level + " / 用时 " + formatSeconds(session.elapsedSeconds), 480, 320);
-                ctx.fillText("点击“重新开局”继续飞行", 480, 355);
-            }
-        }
-
-        function loop(ts) {
-            if (!lastFrame) {
-                lastFrame = ts;
-            }
-            const dt = Math.min(0.04, (ts - lastFrame) / 1000);
-            lastFrame = ts;
-            if (!introActive) {
-                updateSession(dt);
-            }
-            renderSession();
-            updateHud();
-            if (session.elapsedSeconds !== persistStamp) {
-                persistStamp = session.elapsedSeconds;
-                persist();
-            }
-            animationId = window.requestAnimationFrame(loop);
-        }
-
-        function keydown(event) {
-            if (introActive) {
-                if (blockedKeys[event.code]) {
-                    event.preventDefault();
-                }
-                return;
-            }
-            if (blockedKeys[event.code]) {
-                event.preventDefault();
-            }
-            pressed[event.code] = true;
-        }
-
-        function keyup(event) {
-            if (introActive) {
-                if (blockedKeys[event.code]) {
-                    event.preventDefault();
-                }
-                return;
-            }
-            if (blockedKeys[event.code]) {
-                event.preventDefault();
-            }
-            pressed[event.code] = false;
-        }
-
-        document.addEventListener("keydown", keydown);
-        document.addEventListener("keyup", keyup);
-
-        createGameStartOverlay(arcade.canvasWrap, Object.assign({}, spaceRocksHelpConfig, {
-            buttonLabel: session.score > 0 || session.level > 1 || session.elapsedSeconds > 0 ? "继续飞行" : "开始飞行",
-            useStageActionButton: true,
-            onStart: function () {
-                introActive = false;
-                if (session.status !== "over") {
-                    session.startedAt += Date.now() - introShownAt;
-                }
-                updateHud();
-                persist();
-            }
-        }));
-
-        updateHud();
-        persist();
-        if (!session.asteroids.length && session.status === "playing") {
-            spawnSpaceRocksWave(session);
-        }
-        animationId = window.requestAnimationFrame(loop);
-
-        return function cleanup() {
-            window.cancelAnimationFrame(animationId);
-            document.removeEventListener("keydown", keydown);
-            document.removeEventListener("keyup", keyup);
-            syncSpaceRocksClock(session);
-            persist();
-        };
-    }
-
-    function getDrawphonePlayerId() {
-        const key = "gamesHub.drawphone.playerId";
-        let value = "";
-        try {
-            value = window.localStorage.getItem(key) || "";
-            if (!value) {
-                value = "dp-" + Date.now() + "-" + Math.random().toString(36).slice(2, 10);
-                window.localStorage.setItem(key, value);
-            }
-        } catch (error) {
-            value = "dp-" + Date.now() + "-" + Math.random().toString(36).slice(2, 10);
-        }
-        return value;
-    }
-
-    function drawphoneDraftKey(playerId, roomCode, phase) {
-        return ["gamesHub", "drawphone", "draft", playerId || "anon", roomCode || "lobby", phase || "unknown"].join(".");
-    }
-
-    function loadDrawphoneDraft(playerId, roomCode, phase) {
-        try {
-            return window.localStorage.getItem(drawphoneDraftKey(playerId, roomCode, phase)) || "";
-        } catch (error) {
-            return "";
-        }
-    }
-
-    function saveDrawphoneDraft(playerId, roomCode, phase, value) {
-        try {
-            if (!value) {
-                window.localStorage.removeItem(drawphoneDraftKey(playerId, roomCode, phase));
-                return;
-            }
-            window.localStorage.setItem(drawphoneDraftKey(playerId, roomCode, phase), value);
-        } catch (error) {
-            void error;
-        }
-    }
-
-    function clearDrawphoneDrafts(playerId, roomCode) {
-        ["prompt", "draw", "caption"].forEach(function (phase) {
-            saveDrawphoneDraft(playerId, roomCode, phase, "");
-        });
-    }
-
-    function getRememberedDrawphoneRoomCode() {
-        try {
-            return window.localStorage.getItem("gamesHub.drawphone.roomCode") || "";
-        } catch (error) {
-            return "";
-        }
-    }
-
-    function rememberDrawphoneRoomCode(roomCode) {
-        try {
-            if (!roomCode) {
-                window.localStorage.removeItem("gamesHub.drawphone.roomCode");
-                return;
-            }
-            window.localStorage.setItem("gamesHub.drawphone.roomCode", roomCode);
-        } catch (error) {
-            void error;
-        }
-    }
-
-    function mountDrawphone() {
-        if (typeof window.io !== "function") {
-            renderEmptyStage("缺少 Socket.IO 客户端，无法启动本地 Drawphone。");
-            return function cleanup() {
-                return undefined;
-            };
-        }
-
-        const playerId = getDrawphonePlayerId();
-        const socket = window.io(DRAWHONE_NAMESPACE, {
-            transports: ["websocket", "polling"]
-        });
-        let room = null;
-        let roomList = [];
-        let currentCanvas = null;
-        let isDrawing = false;
-        let draftSaveTimer = null;
-        const drawphoneHelpConfig = {
-            title: "你画我猜",
-            subtitle: "低实时性的本地房间玩法，适合随时离开再回来继续。",
-            bullets: [
-                "1. 每个人先各自提交一个提示词，而且每轮只能提交一次。",
-                "2. 系统把提示词传给下一位玩家去画图，草稿会自动保存。",
-                "3. 再把图转给下一位玩家去猜一句描述。",
-                "4. 全部完成后统一查看 提示词 -> 绘图 -> 猜测 的整条结果链。"
-            ],
-            hint: "更适合短、具体、容易画的题目，例如“会飞的土豆”或“在月球钓鱼的人”。"
-        };
-
-        if (!state.drawphoneRoomCode) {
-            state.drawphoneRoomCode = getRememberedDrawphoneRoomCode();
-        }
-        syncPresence(state.drawphoneRoomCode ? ("Drawphone 房间 " + state.drawphoneRoomCode) : "Drawphone 大厅", state.drawphoneRoomCode);
-        postPresence();
-
-        const shell = document.createElement("div");
-        shell.className = "game-drawphone-shell";
-        shell.innerHTML = [
-            '<div class="game-drawphone-toolbar">',
-            "  <div>",
-            '    <div class="games-section-title">本地房间</div>',
-            '    <div class="games-stage-meta" id="drawphoneMeta">创建房间后，可让同一局域网内的朋友直接加入。</div>',
-            "  </div>",
-            '  <div class="game-stat-grid">',
-            '    <div class="game-stat-card"><div class="game-stat-label">房间</div><div class="game-stat-value" id="drawphoneRoomValue">----</div></div>',
-            '    <div class="game-stat-card"><div class="game-stat-label">阶段</div><div class="game-stat-value" id="drawphoneStageValue">等待中</div></div>',
-            "  </div>",
-            "</div>",
-            '<div class="game-drawphone-card" id="drawphoneControlCard"></div>',
-            '<div class="game-drawphone-card" id="drawphoneGuideCard"></div>',
-            '<div class="game-drawphone-card" id="drawphoneActionCard"></div>',
-            '<div class="game-drawphone-card" id="drawphoneRevealCard"></div>'
+    function topdownMetaColorCardHtml(key, color) {
+        const metaState = topdownMetaState();
+        const owned = metaState.ownedColors.indexOf(key) !== -1;
+        const equipped = metaState.equippedColor === key;
+        return [
+            '<button type="button" class="topdown-meta-skin ' + topdownMetaTierClass(color.tier) + (owned ? " is-owned" : "") + (equipped ? " is-equipped" : "") + '" data-topdown-equip-color="' + escapeHtml(key) + '"' + (owned ? "" : " disabled") + '>',
+            '  <span class="topdown-meta-skin-icon" style="' + topdownMetaPreviewStyle(color) + '"></span>',
+            '  <span class="topdown-meta-skin-name">' + escapeHtml(color.label) + '</span>',
+            '  <span class="topdown-meta-skin-state">' + escapeHtml(topdownMetaTierLabel(color.tier, "color")) + ' / ' + (equipped ? "已装备" : (owned ? "已拥有" : "未拥有")) + '</span>',
+            "</button>"
         ].join("");
-        els.stageBody.appendChild(shell);
-        addStageButton("帮助", function () {
-            openGameInfoOverlay(shell, drawphoneHelpConfig);
-        }, false);
+    }
 
-        const localStatGrid = shell.querySelector(".game-stat-grid");
-        const roomValueEl = shell.querySelector("#drawphoneRoomValue");
-        const stageValueEl = shell.querySelector("#drawphoneStageValue");
-        const metaEl = shell.querySelector("#drawphoneMeta");
-        const controlCardEl = shell.querySelector("#drawphoneControlCard");
-        const guideCardEl = shell.querySelector("#drawphoneGuideCard");
-        const actionCardEl = shell.querySelector("#drawphoneActionCard");
-        const revealCardEl = shell.querySelector("#drawphoneRevealCard");
+    function topdownMetaIconCardHtml(key, icon) {
+        const metaState = topdownMetaState();
+        const owned = metaState.ownedIcons.indexOf(key) !== -1;
+        const equipped = metaState.equippedIcon === key;
+        const appearance = topdownEquippedAppearance(metaState);
+        return [
+            '<button type="button" class="topdown-meta-skin ' + topdownMetaTierClass(icon.tier) + (owned ? " is-owned" : "") + (equipped ? " is-equipped" : "") + '" data-topdown-equip-icon="' + escapeHtml(key) + '"' + (owned ? "" : " disabled") + '>',
+            '  ' + topdownMetaIconPreviewHtml(icon, "topdown-meta-skin-icon", appearance.color),
+            '  <span class="topdown-meta-skin-name">' + escapeHtml(icon.label) + '</span>',
+            '  <span class="topdown-meta-skin-state">' + escapeHtml(topdownMetaTierLabel(icon.tier, "icon")) + ' / ' + (equipped ? "已装备" : (owned ? "已拥有" : "未拥有")) + '</span>',
+            "</button>"
+        ].join("");
+    }
 
-        if (localStatGrid) {
-            localStatGrid.hidden = true;
+    function topdownMetaBackgroundCardHtml(key, background) {
+        const metaState = topdownMetaState();
+        const owned = metaState.ownedBackgrounds.indexOf(key) !== -1;
+        const equipped = metaState.equippedBackground === key;
+        return [
+            '<button type="button" class="topdown-meta-skin topdown-meta-skin--background ' + topdownMetaTierClass(background.tier) + (owned ? " is-owned" : "") + (equipped ? " is-equipped" : "") + '" data-topdown-equip-background="' + escapeHtml(key) + '"' + (owned ? "" : " disabled") + '>',
+            '  <span class="topdown-meta-skin-icon topdown-meta-background-preview" style="' + topdownBackgroundPreviewStyle(background) + '"></span>',
+            '  <span class="topdown-meta-skin-name">' + escapeHtml(background.label) + '</span>',
+            '  <span class="topdown-meta-skin-state">' + escapeHtml(topdownMetaTierLabel(background.tier, "background")) + ' / ' + (equipped ? "已装备" : (owned ? "已拥有" : "未拥有")) + '</span>',
+            "</button>"
+        ].join("");
+    }
+
+    function topdownMetaRollItemHtml(kind, key) {
+        const catalog = topdownCatalogForKind(kind);
+        const item = catalog[key];
+        if (!item) {
+            return "";
         }
+        const appearance = topdownEquippedAppearance(topdownMetaState());
+        return [
+            '<div class="topdown-meta-roll-item ' + topdownMetaTierClass(item.tier) + '" data-roll-key="' + escapeHtml(key) + '">',
+            kind === "icon"
+                ? ('  ' + topdownMetaIconPreviewHtml(item, "topdown-meta-roll-icon", appearance.color))
+                : ('  <span class="topdown-meta-roll-icon' + (kind === "background" ? " topdown-meta-background-preview" : "") + '" style="' + topdownMetaPreviewStyle(item) + '"></span>'),
+            '  <span class="topdown-meta-roll-name">' + escapeHtml(item.label) + '</span>',
+            '  <span class="topdown-meta-roll-tier">' + escapeHtml(topdownMetaTierLabel(item.tier, kind)) + '</span>',
+            '</div>'
+        ].join("");
+    }
 
-        function emitWithIdentity(eventName, payload) {
-            socket.emit(eventName, Object.assign({ player_id: playerId }, payload || {}));
+    function topdownMetaRevealCardHtml(kind, result) {
+        const catalog = topdownCatalogForKind(kind);
+        const item = catalog[result && result.key];
+        if (!item) {
+            return "";
         }
+        const appearance = topdownEquippedAppearance(topdownMetaState());
+        const stateText = result.duplicate ? ("重复 +" + String(result.refund || 0)) : "新获得";
+        return [
+            '<div class="topdown-meta-reveal-card ' + topdownMetaTierClass(item.tier) + (result.duplicate ? " is-duplicate" : " is-new") + '">',
+            kind === "icon"
+                ? ('  ' + topdownMetaIconPreviewHtml(item, "topdown-meta-reveal-icon", appearance.color))
+                : ('  <span class="topdown-meta-reveal-icon' + (kind === "background" ? " topdown-meta-background-preview" : "") + '" style="' + topdownMetaPreviewStyle(item) + '"></span>'),
+            '  <span class="topdown-meta-reveal-name">' + escapeHtml(item.label) + '</span>',
+            '  <span class="topdown-meta-reveal-tier">' + escapeHtml(topdownMetaTierLabel(item.tier, kind)) + ' / ' + escapeHtml(stateText) + '</span>',
+            '</div>'
+        ].join("");
+    }
 
-        function inviteLink(code) {
-            const url = new URL(window.location.href);
-            url.searchParams.set("game", "drawphone");
-            url.searchParams.set("room", code);
-            return url.toString();
+    function showTopdownRewardReveal(kind, results) {
+        const modal = ensureTopdownMetaModal();
+        const dialog = modal ? modal.querySelector(".topdown-meta-dialog") : null;
+        const list = (Array.isArray(results) ? results : []).filter(Boolean);
+        if (!dialog || !list.length) {
+            return;
         }
-
-        function scheduleDraftSave(roomCode, phase, value) {
-            if (draftSaveTimer) {
-                window.clearTimeout(draftSaveTimer);
-            }
-            draftSaveTimer = window.setTimeout(function () {
-                saveDrawphoneDraft(playerId, roomCode, phase, value);
-            }, 120);
+        const oldReveal = dialog.querySelector(".topdown-meta-reveal");
+        if (oldReveal) {
+            oldReveal.remove();
         }
-
-        function playerDisplay(player) {
-            const tags = [];
-            if (player.player_id === room.host_player_id) {
-                tags.push("房主");
-            }
-            if (player.is_ready) {
-                tags.push("已准备");
-            }
-            if (!player.is_online) {
-                tags.push("离线");
-            }
-            return escapeHtml(player.display_name) + (tags.length ? (" / " + tags.join(" / ")) : "");
+        if (topdownMetaUi.revealTimer) {
+            window.clearTimeout(topdownMetaUi.revealTimer);
+            topdownMetaUi.revealTimer = 0;
         }
-
-        function stageLabel(stage) {
-            if (stage === "prompt") {
-                return "出题中";
-            }
-            if (stage === "draw") {
-                return "绘画中";
-            }
-            if (stage === "caption") {
-                return "猜图中";
-            }
-            if (stage === "reveal") {
-                return "已完成";
-            }
-            return "等待中";
-        }
-
-        function syncDrawphoneStageStats() {
-            if (!room) {
-                setStageStats([
-                    { label: "房间", value: "大厅" },
-                    { label: "阶段", value: "等待中" },
-                    { label: "可加入", value: String(roomList.length) }
-                ]);
-                return;
-            }
-            const players = Array.isArray(room.players) ? room.players : [];
-            const onlineCount = players.filter(function (player) { return player && player.is_online; }).length;
-            setStageStats([
-                { label: "房间", value: String(room.room_code || "----") },
-                { label: "阶段", value: stageLabel(room.stage || "lobby") },
-                { label: "玩家", value: String(players.length) },
-                { label: "在线", value: String(onlineCount) }
-            ]);
-        }
-
-        function renderRoomDirectory() {
-            if (room) {
-                return "";
-            }
-            if (!roomList.length) {
-                return '<div class="games-empty-list">当前还没有可加入的房间。</div>';
-            }
-            return '<div class="game-drawphone-room-list">' + roomList.map(function (item) {
-                const names = (item.players || []).map(function (player) {
-                    return escapeHtml(player.display_name) + (player.is_online ? "" : " / 离线");
-                }).join(" / ");
-                const resumeText = item.can_resume ? " / 可继续" : "";
-                return [
-                    '<div class="game-drawphone-room-item">',
-                    '  <div>',
-                    '    <div class="games-ranking-main">房间 ' + escapeHtml(item.room_code) + " / " + stageLabel(item.stage) + resumeText + "</div>",
-                    '    <div class="games-online-meta">玩家 ' + escapeHtml(item.player_count) + ' 人，在线 ' + escapeHtml(item.online_count) + ' 人</div>',
-                    '    <div class="games-online-meta">' + names + "</div>",
-                    "  </div>",
-                    '  <button class="games-btn games-btn--primary" type="button" data-join-room="' + escapeHtml(item.room_code) + '">加入</button>',
-                    "</div>"
-                ].join("");
-            }).join("") + "</div>";
-        }
-
-        function renderHistoryPanel() {
-            revealCardEl.innerHTML = "";
-            if (!room) {
-                return;
-            }
-            const history = (room.round_history || []).slice().reverse();
-            if (!history.length) {
-                revealCardEl.appendChild(emptyNode("还没有回合历史。"));
-                return;
-            }
-            history.forEach(function (round) {
-                const block = document.createElement("div");
-                block.className = "game-drawphone-result";
-                const results = round.results || [];
-                block.innerHTML = [
-                    '<div class="games-section-title">第 ' + escapeHtml(round.round_index) + ' 轮</div>',
-                    '<div class="games-stage-meta">完成时间：' + escapeHtml(round.completed_at || "") + "</div>"
-                ].join("");
-                results.forEach(function (item) {
-                    const line = document.createElement("div");
-                    line.className = "game-drawphone-history-item";
-                    line.innerHTML = [
-                        "<p><strong>提示词：</strong>" + escapeHtml(item.prompt || "") + " / " + escapeHtml(item.prompt_owner_name || "") + "</p>",
-                        '<img class="game-drawphone-preview" src="' + escapeHtml(item.drawing || "") + '" alt="">',
-                        "<p><strong>最终描述：</strong>" + escapeHtml(item.caption || "") + " / " + escapeHtml(item.caption_player_name || "") + "</p>"
-                    ].join("");
-                    block.appendChild(line);
-                });
-                revealCardEl.appendChild(block);
-            });
-        }
-
-        function renderGuideCard() {
-            if (!guideCardEl) {
-                return;
-            }
-            const phaseGuide = room && room.stage === "prompt"
-                ? "当前是出题阶段：每个人写一个简短提示词，并且只能提交一次。"
-                : room && room.stage === "draw"
-                    ? "当前是绘画阶段：你要画的是别人的提示词，草稿会自动保存在本地，本轮可以随时回来继续。"
-                    : room && room.stage === "caption"
-                        ? "当前是猜图阶段：看别人提交的图，用一句话猜这画的是什么。"
-                        : room && room.stage === "reveal"
-                            ? "当前是结算阶段：全部完成后，按每条链路展示 提示词 -> 绘图 -> 猜测。"
-                            : "大厅阶段：加入一个房间，所有人准备后由房主开始。";
-            guideCardEl.innerHTML = [
-                '<div class="games-section-title">游戏流程</div>',
-                '<div class="games-stage-meta">1. 每个人先各自写一个提示词。</div>',
-                '<div class="games-stage-meta">2. 系统把题传给下一位玩家去画。</div>',
-                '<div class="games-stage-meta">3. 再把图转给下一位玩家去猜。</div>',
-                '<div class="games-stage-meta">4. 全部完成后统一查看所有人的结果链。</div>',
-                '<div class="games-stage-meta">5. 进行中的房间支持中途离开，之后可以回来继续。</div>',
-                '<div class="games-stage-meta">提示词建议：短、具体、容易画。例如“会飞的土豆”“穿西装的熊猫”“在月球钓鱼的人”。</div>',
-                '<div class="games-stage-meta">' + phaseGuide + "</div>"
-            ].join("");
-        }
-
-        function renderControlCard() {
-            controlCardEl.innerHTML = "";
-            if (!room) {
-                controlCardEl.innerHTML = [
-                    '<div class="games-stage-meta">直接加入现有房间更适合当前玩法；你也可以自己新建一局。</div>',
-                    '<div class="games-inline-form">',
-                    '  <button class="games-btn games-btn--primary" type="button" id="drawphoneCreateBtn">创建房间</button>',
-                    "</div>"
-                    + renderRoomDirectory()
-                ].join("");
-                controlCardEl.querySelector("#drawphoneCreateBtn").addEventListener("click", function () {
-                    emitWithIdentity("drawphone_join", {});
-                });
-                controlCardEl.querySelectorAll("[data-join-room]").forEach(function (btn) {
-                    btn.addEventListener("click", function () {
-                        emitWithIdentity("drawphone_join", { room_code: btn.getAttribute("data-join-room") || "" });
-                    });
-                });
-                return;
-            }
-
-            const players = room.players || [];
-            const isHost = room.host_player_id === room.self_player_id;
-            const selfPlayer = (room.players || []).find(function (item) {
-                return item.player_id === room.self_player_id;
-            });
-            const readyLabel = selfPlayer && selfPlayer.is_ready ? "取消准备" : "准备";
-            controlCardEl.innerHTML = [
-                '<div class="games-stage-meta">当前房间状态：</div>',
-                '<div class="game-drawphone-room-inline">房间号：<strong>' + escapeHtml(room.room_code) + '</strong></div>',
-                '<div class="game-drawphone-players">' + players.map(function (player) {
-                    const kickButton = isHost && player.player_id !== room.self_player_id
-                        ? '<button class="games-btn game-drawphone-chip-btn" type="button" data-kick-player="' + escapeHtml(player.player_id) + '">踢出</button>'
-                        : "";
-                    return '<span class="game-drawphone-player-chip">' + playerDisplay(player) + kickButton + "</span>";
-                }).join("") + "</div>",
-                '<div class="game-drawphone-actions">',
-                '<button class="games-btn" type="button" id="drawphoneReadyBtn">' + readyLabel + "</button>",
-                (isHost ? '<button class="games-btn games-btn--primary" type="button" id="drawphoneStartBtn">开始一轮</button>' : ""),
-                '<button class="games-btn" type="button" id="drawphoneLeaveBtn">离开房间</button>',
-                "</div>"
-            ].join("");
-
-            controlCardEl.querySelector("#drawphoneReadyBtn").addEventListener("click", function () {
-                emitWithIdentity("drawphone_toggle_ready", { room_code: room.room_code });
-            });
-            const startBtn = controlCardEl.querySelector("#drawphoneStartBtn");
-            if (startBtn) {
-                startBtn.addEventListener("click", function () {
-                    emitWithIdentity("drawphone_start", { room_code: room.room_code });
-                });
-            }
-            controlCardEl.querySelector("#drawphoneLeaveBtn").addEventListener("click", function () {
-                emitWithIdentity("drawphone_leave", { room_code: room.room_code });
-                clearDrawphoneDrafts(playerId, room.room_code);
-                room = null;
-                state.drawphoneRoomCode = "";
-                rememberDrawphoneRoomCode("");
-                syncPresence("Drawphone 大厅", "");
-                renderAll();
-            });
-            controlCardEl.querySelectorAll("[data-kick-player]").forEach(function (btn) {
-                btn.addEventListener("click", function () {
-                    emitWithIdentity("drawphone_kick", {
-                        room_code: room.room_code,
-                        target_player_id: btn.getAttribute("data-kick-player") || ""
-                    });
-                });
-            });
-        }
-
-        function buildCanvas(container, initialImageUrl, onChange) {
-            const canvas = document.createElement("canvas");
-            canvas.className = "game-drawphone-canvas";
-            canvas.width = 640;
-            canvas.height = 480;
-            const ctx = canvas.getContext("2d");
-            ctx.fillStyle = "#ffffff";
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
-            ctx.lineWidth = 4;
-            ctx.lineCap = "round";
-            ctx.strokeStyle = "#111827";
-            if (initialImageUrl) {
-                const img = new Image();
-                img.onload = function () {
-                    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-                };
-                img.src = initialImageUrl;
-            }
-
-            function point(evt) {
-                const rect = canvas.getBoundingClientRect();
-                const source = evt.touches ? evt.touches[0] : evt;
-                return {
-                    x: ((source.clientX - rect.left) / rect.width) * canvas.width,
-                    y: ((source.clientY - rect.top) / rect.height) * canvas.height
-                };
-            }
-
-            function start(evt) {
-                isDrawing = true;
-                const p = point(evt);
-                ctx.beginPath();
-                ctx.moveTo(p.x, p.y);
-                evt.preventDefault();
-            }
-
-            function move(evt) {
-                if (!isDrawing) {
-                    return;
-                }
-                const p = point(evt);
-                ctx.lineTo(p.x, p.y);
-                ctx.stroke();
-                evt.preventDefault();
-            }
-
-            function end() {
-                isDrawing = false;
-                if (typeof onChange === "function") {
-                    onChange(canvas.toDataURL("image/png"));
+        const durationMs = list.length > 1 ? 10000 : 5000;
+        const reveal = document.createElement("div");
+        reveal.className = "topdown-meta-reveal" + (list.length > 1 ? " topdown-meta-reveal--batch" : "");
+        reveal.style.setProperty("--reveal-duration", durationMs + "ms");
+        reveal.innerHTML = [
+            '<div class="topdown-meta-reveal-burst"></div>',
+            '<div class="topdown-meta-reveal-title">' + (list.length > 1 ? "十连获得" : "获得奖励") + '</div>',
+            '<div class="topdown-meta-reveal-grid">',
+            list.map(function (result) { return topdownMetaRevealCardHtml(kind, result); }).join(""),
+            '</div>'
+        ].join("");
+        function closeReveal() {
+            const event = arguments[0];
+            if (event && typeof event.stopPropagation === "function") {
+                event.preventDefault();
+                event.stopPropagation();
+                if (typeof event.stopImmediatePropagation === "function") {
+                    event.stopImmediatePropagation();
                 }
             }
-
-            canvas.addEventListener("mousedown", start);
-            canvas.addEventListener("mousemove", move);
-            canvas.addEventListener("mouseup", end);
-            canvas.addEventListener("mouseleave", end);
-            canvas.addEventListener("touchstart", start, { passive: false });
-            canvas.addEventListener("touchmove", move, { passive: false });
-            canvas.addEventListener("touchend", end);
-            container.appendChild(canvas);
-            return canvas;
+            if (topdownMetaUi.revealTimer) {
+                window.clearTimeout(topdownMetaUi.revealTimer);
+                topdownMetaUi.revealTimer = 0;
+            }
+            reveal.remove();
+            document.removeEventListener("pointerdown", closeReveal, true);
         }
+        dialog.appendChild(reveal);
+        window.setTimeout(function () {
+            document.addEventListener("pointerdown", closeReveal, true);
+        }, 0);
+        topdownMetaUi.revealTimer = window.setTimeout(closeReveal, durationMs);
+    }
 
-        function renderActionCard() {
-            actionCardEl.innerHTML = "";
-            if (!room) {
-                actionCardEl.appendChild(emptyNode("还未进入房间。"));
-                renderHistoryPanel();
-                return;
-            }
-
-            roomValueEl.textContent = room.room_code;
-            stageValueEl.textContent = stageLabel(room.stage || "lobby");
-            metaEl.textContent =
-                "第 " + String(room.round_index || 0) + " 轮 / " +
-                (room.stage === "lobby" ? "等待所有玩家准备后开始。" :
-                    room.stage === "prompt" ? "每个人只能提交一次提示词，随后交给别人来画。" :
-                    room.stage === "draw" ? "画别人的提示词；提交前草稿会自动保存在本地。" :
-                    room.stage === "caption" ? "根据别人提交的图写一句最终描述。" :
-                    "本轮结果已锁定，可以查看历史并准备下一轮。");
-            const selfTurn = room.self_turn || {};
-            syncPresence("Drawphone " + String(room.stage || "lobby"), room.room_code);
-            postPresence();
-
-            if (room.stage === "lobby") {
-                actionCardEl.appendChild(emptyNode("等待房主开始。"));
-                renderHistoryPanel();
-                return;
-            }
-
-            if (room.stage === "prompt") {
-                if (selfTurn.submitted_prompt) {
-                    actionCardEl.innerHTML = [
-                        '<div class="games-stage-meta">你的提示词已提交，等待其他玩家完成。</div>',
-                        '<div class="game-drawphone-card"><strong>已提交：</strong>' + escapeHtml(selfTurn.prompt || "") + "</div>"
-                    ].join("");
-                    renderHistoryPanel();
-                    return;
-                }
-                const draft = loadDrawphoneDraft(playerId, room.room_code, "prompt");
-                actionCardEl.innerHTML = [
-                    '<div class="games-stage-meta">阶段 1：给下一位玩家出一个简短提示词。</div>',
-                    '<textarea class="game-drawphone-textarea" id="drawphonePromptInput" placeholder="例如：会飞的土豆"></textarea>',
-                    '<div class="game-drawphone-actions"><button class="games-btn games-btn--primary" type="button" id="drawphonePromptSubmitBtn">提交提示词</button></div>'
-                ].join("");
-                const input = actionCardEl.querySelector("#drawphonePromptInput");
-                input.value = draft;
-                input.addEventListener("input", function () {
-                    scheduleDraftSave(room.room_code, "prompt", input.value);
-                });
-                actionCardEl.querySelector("#drawphonePromptSubmitBtn").addEventListener("click", function () {
-                    const value = input.value.trim();
-                    if (!value) {
-                        setStatus("提示词不能为空。", true);
-                        return;
-                    }
-                    saveDrawphoneDraft(playerId, room.room_code, "prompt", "");
-                    emitWithIdentity("drawphone_submit_prompt", { room_code: room.room_code, prompt: value });
-                });
-                renderHistoryPanel();
-                return;
-            }
-
-            if (room.stage === "draw") {
-                if (selfTurn.submitted_drawing) {
-                    actionCardEl.innerHTML = [
-                        '<div class="games-stage-meta">你的绘图已提交，等待其他玩家完成。</div>',
-                        '<img class="game-drawphone-preview" src="' + escapeHtml(selfTurn.drawing || "") + '" alt="">'
-                    ].join("");
-                    renderHistoryPanel();
-                    return;
-                }
-                const draftDrawing = loadDrawphoneDraft(playerId, room.room_code, "draw");
-                actionCardEl.innerHTML = [
-                    '<div class="games-stage-meta">阶段 2：根据收到的提示词作画。</div>',
-                    '<div class="game-drawphone-card">收到的提示词：<strong>' + escapeHtml(selfTurn.draw_for_prompt || "") + "</strong></div>",
-                    '<div class="game-drawphone-canvas-wrap" id="drawphoneCanvasWrap"></div>',
-                    '<div class="game-drawphone-actions"><button class="games-btn" type="button" id="drawphoneCanvasClearBtn">清空画布</button><button class="games-btn games-btn--primary" type="button" id="drawphoneDrawingSubmitBtn">提交绘图</button></div>'
-                ].join("");
-                const wrap = actionCardEl.querySelector("#drawphoneCanvasWrap");
-                currentCanvas = buildCanvas(wrap, draftDrawing || selfTurn.drawing || "", function (imageData) {
-                    saveDrawphoneDraft(playerId, room.room_code, "draw", imageData);
-                });
-                actionCardEl.querySelector("#drawphoneCanvasClearBtn").addEventListener("click", function () {
-                    const ctx = currentCanvas.getContext("2d");
-                    ctx.fillStyle = "#ffffff";
-                    ctx.fillRect(0, 0, currentCanvas.width, currentCanvas.height);
-                    saveDrawphoneDraft(playerId, room.room_code, "draw", currentCanvas.toDataURL("image/png"));
-                });
-                actionCardEl.querySelector("#drawphoneDrawingSubmitBtn").addEventListener("click", function () {
-                    const imageData = currentCanvas.toDataURL("image/png");
-                    saveDrawphoneDraft(playerId, room.room_code, "draw", "");
-                    emitWithIdentity("drawphone_submit_drawing", { room_code: room.room_code, drawing: imageData });
-                });
-                renderHistoryPanel();
-                return;
-            }
-
-            if (room.stage === "caption") {
-                if (selfTurn.submitted_caption) {
-                    actionCardEl.innerHTML = [
-                        '<div class="games-stage-meta">你的描述已提交，等待其他玩家完成。</div>',
-                        '<img class="game-drawphone-preview" src="' + escapeHtml(selfTurn.caption_for_drawing || "") + '" alt="">',
-                        '<div class="game-drawphone-card"><strong>已提交：</strong>' + escapeHtml(selfTurn.caption || "") + "</div>"
-                    ].join("");
-                    renderHistoryPanel();
-                    return;
-                }
-                const draftCaption = loadDrawphoneDraft(playerId, room.room_code, "caption");
-                actionCardEl.innerHTML = [
-                    '<div class="games-stage-meta">阶段 3：看图写一句描述。</div>',
-                    '<img class="game-drawphone-preview" src="' + escapeHtml(selfTurn.caption_for_drawing || "") + '" alt="">',
-                    '<textarea class="game-drawphone-textarea" id="drawphoneCaptionInput" placeholder="你看到了什么？"></textarea>',
-                    '<div class="game-drawphone-actions"><button class="games-btn games-btn--primary" type="button" id="drawphoneCaptionSubmitBtn">提交描述</button></div>'
-                ].join("");
-                const captionInput = actionCardEl.querySelector("#drawphoneCaptionInput");
-                captionInput.value = draftCaption;
-                captionInput.addEventListener("input", function () {
-                    scheduleDraftSave(room.room_code, "caption", captionInput.value);
-                });
-                actionCardEl.querySelector("#drawphoneCaptionSubmitBtn").addEventListener("click", function () {
-                    const value = captionInput.value.trim();
-                    if (!value) {
-                        setStatus("描述不能为空。", true);
-                        return;
-                    }
-                    saveDrawphoneDraft(playerId, room.room_code, "caption", "");
-                    emitWithIdentity("drawphone_submit_caption", { room_code: room.room_code, caption: value });
-                });
-                renderHistoryPanel();
-                return;
-            }
-
-            if (room.stage === "reveal") {
-                actionCardEl.appendChild(emptyNode("本轮已完成，结果和历史见下方。"));
-                renderHistoryPanel();
-            }
+    function topdownMetaStaticRollKeys(kind) {
+        const sequence = [];
+        for (let index = 0; index < 14; index += 1) {
+            sequence.push(topdownDisplayRollKey(kind));
         }
+        return sequence.concat(sequence);
+    }
 
-        function renderAll() {
-            if (!room) {
-                roomValueEl.textContent = "----";
-                stageValueEl.textContent = "等待中";
-                metaEl.textContent = "查看现有房间直接加入，或者自己新建一局。";
-            }
-            syncDrawphoneStageStats();
-            renderControlCard();
-            renderGuideCard();
-            renderActionCard();
+    function topdownMetaEnsureIdleSequence(kind) {
+        const rollState = topdownMetaUi.rollState[kind];
+        if (rollState.rolling) {
+            return;
         }
+        rollState.sequenceKeys = topdownMetaStaticRollKeys(kind);
+        rollState.offsetPx = 0;
+    }
 
-        socket.on("drawphone_room", function (payload) {
-            room = payload;
-            state.drawphoneRoomCode = payload.room_code || "";
-            rememberDrawphoneRoomCode(state.drawphoneRoomCode);
-            renderAll();
-        });
+    function topdownMetaRollRowHtml(kind) {
+        const cost = topdownMetaDrawCost(kind);
+        const label = topdownMetaKindLabel(kind);
+        const dailyFree = topdownMetaDailyFreeTenAvailable(kind);
+        const freePulls = topdownMetaFreePulls(kind);
+        const pity = topdownMetaPityCount(kind);
+        const rowState = topdownMetaUi.rollState[kind];
+        const trackItems = (rowState.sequenceKeys && rowState.sequenceKeys.length ? rowState.sequenceKeys : topdownMetaStaticRollKeys(kind))
+            .map(function (key) { return topdownMetaRollItemHtml(kind, key); })
+            .join("");
+        return [
+            '<div class="topdown-meta-roll-row" data-topdown-roll-row="' + kind + '">',
+            '  <div class="topdown-meta-roll-head">',
+            '    <div>',
+            '      <div class="games-section-title">' + label + '奖池</div>',
+            '      <div class="games-stage-meta">单次消耗 ' + escapeHtml(String(cost)) + ' 总积分；赠券剩余 ' + escapeHtml(String(freePulls)) + ' 抽；保底 ' + escapeHtml(String(Math.min(9, pity))) + '/9；' + (dailyFree ? "今日免费十连可用" : "今日免费十连已使用") + '。</div>',
+            '    </div>',
+            '    <div class="topdown-meta-roll-actions">',
+            '      <button type="button" class="games-btn' + (kind === "color" ? " games-btn--primary" : "") + '" data-topdown-draw-' + kind + '="1"' + (rowState.rolling || topdownMetaUi.paymentBusy ? " disabled" : "") + '>抽' + label + '</button>',
+            '      <button type="button" class="games-btn" data-topdown-draw-' + kind + '-ten="1"' + (rowState.rolling || topdownMetaUi.paymentBusy ? " disabled" : "") + '>' + (dailyFree ? "今日免费十连" : "十连抽" + label) + '</button>',
+            '    </div>',
+            '  </div>',
+            '  <div class="topdown-meta-roll-viewport" data-topdown-roll-viewport="' + kind + '">',
+            '    <div class="topdown-meta-roll-marker"></div>',
+            '    <div class="topdown-meta-roll-track' + (rowState.rolling ? " is-rolling" : " is-auto") + '" data-topdown-roll-track="' + kind + '">' + trackItems + '</div>',
+            '  </div>',
+            '</div>'
+        ].join("");
+    }
 
-        socket.on("drawphone_rooms", function (payload) {
-            roomList = Array.isArray(payload) ? payload : [];
-            if (!room) {
-                syncDrawphoneStageStats();
+    function topdownMetaDrawViewHtml() {
+        const metaState = topdownMetaState();
+        const appearance = topdownEquippedAppearance(metaState);
+        const rareUnlocked = topdownAllCommonColorsOwned(metaState);
+        const superRareUnlocked = topdownAllRareColorsOwned(metaState);
+        const colorCatalog = topdownColorCatalog();
+        const iconCatalog = topdownIconCatalog();
+        const backgroundCatalog = topdownBackgroundCatalog();
+        return [
+            '<div class="topdown-meta-shell">',
+            '  <div class="topdown-meta-layout">',
+            '    <div class="topdown-meta-overview-section">',
+            '      <div class="games-insight-panel topdown-meta-overview">',
+            '        <div class="topdown-meta-overview-main">',
+            '          <div>',
+            '            <div class="games-section-title">抽奖总览</div>',
+            '            <div class="games-stage-meta">优先消耗免费十连和赠券，付费抽奖会直接扣总积分；重复返还按稀有度最高 80%。</div>',
+            '          </div>',
+            '          <div class="topdown-meta-active-loadout">',
+            '            <span class="topdown-meta-active-color" style="' + topdownMetaPreviewStyle(appearance.color) + '"></span>',
+            '            ' + topdownMetaIconPreviewHtml(appearance.icon, "topdown-meta-active-icon", appearance.color),
+            '            <div class="topdown-meta-active-text">',
+            '              <strong>' + escapeHtml(appearance.color.label) + '</strong>',
+            '              <span>' + escapeHtml(appearance.icon.label) + ' / ' + escapeHtml(appearance.background.label) + '</span>',
+            '            </div>',
+            '          </div>',
+            '        </div>',
+            '        <div class="topdown-meta-stat-grid">',
+            '          <div class="topdown-meta-stat"><span>可用总积分</span><strong>' + escapeHtml(String(topdownMetaAvailablePoints())) + '</strong></div>',
+            '          <div class="topdown-meta-stat"><span>已扣总积分</span><strong>' + escapeHtml(String(metaState.totalSpent)) + '</strong></div>',
+            '          <div class="topdown-meta-stat"><span>颜色赠券</span><strong>' + escapeHtml(String(topdownMetaFreePulls("color"))) + '</strong></div>',
+            '          <div class="topdown-meta-stat"><span>图标赠券</span><strong>' + escapeHtml(String(topdownMetaFreePulls("icon"))) + '</strong></div>',
+            '          <div class="topdown-meta-stat"><span>背景赠券</span><strong>' + escapeHtml(String(topdownMetaFreePulls("background"))) + '</strong></div>',
+            '          <div class="topdown-meta-stat"><span>颜色保底</span><strong>' + escapeHtml(String(Math.min(9, topdownMetaPityCount("color")))) + ' / 9</strong></div>',
+            '          <div class="topdown-meta-stat"><span>图标保底</span><strong>' + escapeHtml(String(Math.min(9, topdownMetaPityCount("icon")))) + ' / 9</strong></div>',
+            '          <div class="topdown-meta-stat"><span>背景保底</span><strong>' + escapeHtml(String(Math.min(9, topdownMetaPityCount("background")))) + ' / 9</strong></div>',
+            '          <div class="topdown-meta-stat"><span>颜色收藏</span><strong>' + escapeHtml(String(metaState.ownedColors.length)) + ' / ' + escapeHtml(String(Object.keys(colorCatalog).length)) + '</strong></div>',
+            '          <div class="topdown-meta-stat"><span>图标收藏</span><strong>' + escapeHtml(String(metaState.ownedIcons.length)) + ' / ' + escapeHtml(String(Object.keys(iconCatalog).length)) + '</strong></div>',
+            '          <div class="topdown-meta-stat"><span>背景收藏</span><strong>' + escapeHtml(String(metaState.ownedBackgrounds.length)) + ' / ' + escapeHtml(String(Object.keys(backgroundCatalog).length)) + '</strong></div>',
+            '        </div>',
+            '        <div class="games-stage-meta topdown-meta-tip">' + (superRareUnlocked ? "稀有色已集齐，颜色池已开放超级稀有小概率掉落。" : (rareUnlocked ? "普通颜色已集齐，颜色池已开放稀有混色；集齐稀有色后开放超级稀有。" : "先收集完全部普通颜色，再开放极低概率的稀有混色。")) + '</div>',
+            (topdownMetaUi.flashMessage ? ('        <div class="games-stage-meta topdown-meta-flash">' + escapeHtml(topdownMetaUi.flashMessage) + '</div>') : ''),
+            '      </div>',
+            '    </div>',
+            '    <div class="topdown-meta-roll-section">',
+            '      <div class="topdown-meta-roll-grid">',
+            topdownMetaRollRowHtml("color"),
+            topdownMetaRollRowHtml("icon"),
+            topdownMetaRollRowHtml("background"),
+            '      </div>',
+            '    </div>',
+            '  </div>',
+            '</div>'
+        ].join("");
+    }
+
+    function topdownMetaEquipCategoryConfig() {
+        const metaState = topdownMetaState();
+        const game = topdownMetaEquipGameDefinitions()[topdownMetaUi.equipGame] || topdownMetaEquipGameDefinitions().topdown;
+        const hints = {
+            color: game.colorHint || "统一颜色外观；支持所有已经接入局外养成的游戏读取。",
+            icon: game.iconHint || "统一图标外观；支持角色、棋子或头像型游戏元素复用。",
+            background: game.backgroundHint || "统一背景接口；支持棋盘、战场或游戏舞台复用。"
+        };
+        return {
+            color: {
+                label: "颜色",
+                hint: hints.color,
+                owned: metaState.ownedColors.length,
+                total: Object.keys(topdownColorCatalog()).length,
+                equipped: (topdownColorCatalog()[metaState.equippedColor] || {}).label || "默认"
+            },
+            icon: {
+                label: "图标",
+                hint: hints.icon,
+                owned: metaState.ownedIcons.length,
+                total: Object.keys(topdownIconCatalog()).length,
+                equipped: (topdownIconCatalog()[metaState.equippedIcon] || {}).label || "默认"
+            },
+            background: {
+                label: "背景",
+                hint: hints.background,
+                owned: metaState.ownedBackgrounds.length,
+                total: Object.keys(topdownBackgroundCatalog()).length,
+                equipped: (topdownBackgroundCatalog()[metaState.equippedBackground] || {}).label || "默认"
             }
-            renderControlCard();
-        });
-
-        socket.on("drawphone_kicked", function (payload) {
-            if (payload && payload.target_player_id === playerId) {
-                room = null;
-                state.drawphoneRoomCode = "";
-                rememberDrawphoneRoomCode("");
-                clearDrawphoneDrafts(playerId, payload.room_code || "");
-                renderAll();
-                setStatus("你已被房主移出房间。", true);
-            }
-        });
-
-        socket.on("drawphone_error", function (payload) {
-            setStatus((payload && payload.error) || "Drawphone 操作失败", true);
-        });
-
-        socket.on("connect", function () {
-            setStatus("Drawphone 已连接本地房间服务。", false);
-            if (state.drawphoneRoomCode) {
-                emitWithIdentity("drawphone_join", { room_code: state.drawphoneRoomCode });
-            }
-        });
-
-        socket.on("disconnect", function () {
-            setStatus("Drawphone 连接已断开。", true);
-        });
-
-        renderAll();
-
-        return function cleanup() {
-            if (draftSaveTimer) {
-                window.clearTimeout(draftSaveTimer);
-            }
-            socket.disconnect();
         };
     }
 
-    function mountGomoku() {
-        const roomKey = "gamesHub.gomoku.roomCode";
-        const playerId = getGamesDeviceId();
-        const socket = window.io(GOMOKU_NAMESPACE, { transports: ["websocket", "polling"] });
-        let room = null;
-        let roomList = [];
-        let rememberedRoomCode = "";
-
-        function loadRememberedRoomCode() {
-            try {
-                return window.localStorage.getItem(roomKey) || "";
-            } catch (error) {
-                return "";
+    function topdownMetaEquipGameDefinitions() {
+        return {
+            topdown: {
+                label: "Topdown",
+                summary: "角色 / 战场 / 子弹视觉",
+                categories: ["color", "icon", "background"],
+                colorHint: "Topdown 角色颜色，也会影响可染色徽记。",
+                iconHint: "Topdown 角色图标，超级稀有徽记会直接吃颜色效果。",
+                backgroundHint: "Topdown 战场背景使用统一背景接口。"
+            },
+            gomoku: {
+                label: "五子棋",
+                summary: "棋子 / 棋盘",
+                categories: ["color", "icon", "background"],
+                colorHint: "五子棋棋子颜色双方可见，对局内双方不能使用同一个颜色。",
+                iconHint: "五子棋棋子图标双方可见，可复用 Topdown 已抽到的图标。",
+                backgroundHint: "五子棋棋盘背景自己可见，使用统一背景接口。"
+            },
+            sudoku: {
+                label: "数独",
+                summary: "盘面背景 / 高亮色",
+                categories: ["background", "color"],
+                colorHint: "数独会优先复用颜色作为盘面高亮和完成特效的主题色。",
+                backgroundHint: "数独盘面底纹接入统一背景接口，适合稀有背景展示。"
+            },
+            "2048": {
+                label: "2048",
+                summary: "棋盘背景 / 方块主题",
+                categories: ["background", "color"],
+                colorHint: "2048 可复用颜色作为棋盘边框和高分方块主题。",
+                backgroundHint: "2048 外层舞台接入统一背景接口，让收藏背景不只在射击游戏里可见。"
+            },
+            frontline: {
+                label: "前线",
+                summary: "战场背景 / 阵营色",
+                categories: ["background", "color"],
+                colorHint: "前线可复用颜色作为玩家阵营强调色。",
+                backgroundHint: "前线地图外层舞台接入统一背景接口。"
             }
-        }
+        };
+    }
 
-        function saveRememberedRoomCode(value) {
-            rememberedRoomCode = String(value || "").trim().toUpperCase();
-            try {
-                if (!rememberedRoomCode) {
-                    window.localStorage.removeItem(roomKey);
-                } else {
-                    window.localStorage.setItem(roomKey, rememberedRoomCode);
-                }
-            } catch (error) {
-                // ignore
-            }
+    function topdownMetaEquipItemsHtml(category) {
+        const metaState = topdownMetaState();
+        if (category === "icon") {
+            const iconCatalog = topdownIconCatalog();
+            const iconKeys = topdownSortCatalogKeysByTier(iconCatalog).filter(function (key) {
+                return topdownMetaUi.showLocked || metaState.ownedIcons.indexOf(key) !== -1;
+            });
+            return '<div class="topdown-meta-skins">' + iconKeys.map(function (key) { return topdownMetaIconCardHtml(key, iconCatalog[key]); }).join("") + '</div>';
         }
-
-        function playerDisplay(player) {
-            return escapeHtml((player && player.display_name) || "玩家");
+        if (category === "background") {
+            const backgroundCatalog = topdownBackgroundCatalog();
+            const backgroundKeys = topdownSortCatalogKeysByTier(backgroundCatalog).filter(function (key) {
+                return topdownMetaUi.showLocked || metaState.ownedBackgrounds.indexOf(key) !== -1;
+            });
+            return '<div class="topdown-meta-skins topdown-meta-skins--backgrounds">' + backgroundKeys.map(function (key) { return topdownMetaBackgroundCardHtml(key, backgroundCatalog[key]); }).join("") + '</div>';
         }
+        const colorCatalog = topdownColorCatalog();
+        const colorKeys = topdownSortCatalogKeysByTier(colorCatalog).filter(function (key) {
+            return topdownMetaUi.showLocked || metaState.ownedColors.indexOf(key) !== -1;
+        });
+        return '<div class="topdown-meta-skins">' + colorKeys.map(function (key) { return topdownMetaColorCardHtml(key, colorCatalog[key]); }).join("") + '</div>';
+    }
 
-        function stoneLabel(stone) {
-            return stone === 1 ? "黑子" : (stone === 2 ? "白子" : "未分配");
+    function topdownMetaEquipViewHtml() {
+        const games = topdownMetaEquipGameDefinitions();
+        const game = games[topdownMetaUi.equipGame] || games.topdown;
+        if (!games[topdownMetaUi.equipGame]) {
+            topdownMetaUi.equipGame = "topdown";
         }
+        if (game.categories.indexOf(topdownMetaUi.equipCategory) === -1) {
+            topdownMetaUi.equipCategory = game.categories[0] || "color";
+        }
+        const categories = topdownMetaEquipCategoryConfig();
+        const category = categories[topdownMetaUi.equipCategory] ? topdownMetaUi.equipCategory : "color";
+        const current = categories[category];
+        return [
+            '<div class="topdown-meta-shell">',
+            '  <div class="topdown-meta-equip-layout">',
+            '    <aside class="games-insight-panel topdown-meta-equip-sidebar">',
+            '      <div class="topdown-meta-list-title">游戏</div>',
+            Object.keys(games).map(function (key) {
+                const item = games[key];
+                return '<button type="button" class="topdown-meta-game-item' + (key === topdownMetaUi.equipGame ? " is-active" : "") + '" data-topdown-equip-game="' + escapeHtml(key) + '"><strong>' + escapeHtml(item.label) + '</strong><span>' + escapeHtml(item.summary) + '</span></button>';
+            }).join(""),
+            '      <div class="topdown-meta-list-title">装备类型</div>',
+            '      <div class="topdown-meta-category-list">',
+            game.categories.map(function (key) {
+                const item = categories[key];
+                return '<button type="button" class="topdown-meta-category-item' + (key === category ? " is-active" : "") + '" data-topdown-equip-category="' + key + '"><strong>' + escapeHtml(item.label) + '</strong><span>' + escapeHtml(String(item.owned)) + ' / ' + escapeHtml(String(item.total)) + '</span></button>';
+            }).join(""),
+            '      </div>',
+            '      <label class="topdown-meta-toggle">',
+            '        <input type="checkbox" data-topdown-show-locked="1"' + (topdownMetaUi.showLocked ? " checked" : "") + '>',
+            '        <span>显示未拥有</span>',
+            '      </label>',
+            (topdownMetaUi.flashMessage ? ('      <div class="games-stage-meta topdown-meta-flash">' + escapeHtml(topdownMetaUi.flashMessage) + '</div>') : ''),
+            '    </aside>',
+            '    <section class="games-insight-panel topdown-meta-equip-content">',
+            '      <div class="topdown-meta-section-head">',
+            '        <div>',
+            '          <div class="games-section-title">' + escapeHtml(current.label) + '装备</div>',
+            '          <div class="games-stage-meta">' + escapeHtml(current.hint) + '</div>',
+            '        </div>',
+            '        <div class="topdown-meta-equipped-pill">已装备：' + escapeHtml(current.equipped) + '</div>',
+            '      </div>',
+            '      <div class="topdown-meta-stat-grid topdown-meta-stat-grid--compact">',
+            '        <div class="topdown-meta-stat"><span>当前游戏</span><strong>' + escapeHtml(game.label) + '</strong></div>',
+            '        <div class="topdown-meta-stat"><span>' + escapeHtml(current.label) + '收藏</span><strong>' + escapeHtml(String(current.owned)) + ' / ' + escapeHtml(String(current.total)) + '</strong></div>',
+            '      </div>',
+            topdownMetaEquipItemsHtml(category),
+            '    </section>',
+            '  </div>',
+            '</div>'
+        ].join("");
+    }
 
-        const shell = document.createElement("div");
-        shell.className = "game-gomoku-shell";
-        shell.innerHTML = [
-            '<div class="game-drawphone-toolbar">',
-            '  <div>',
-            '    <div class="games-section-title">联机五子棋</div>',
-            '    <div class="games-stage-meta" id="gomokuMeta">支持局域网房间、准备同步与实时落子。</div>',
+    function topdownMetaPanelHtml() {
+        return [
+            '<div class="topdown-meta-root">',
+            '  <div class="topdown-meta-tabs">',
+            '    <button type="button" class="topdown-meta-tab' + (topdownMetaUi.view === "draw" ? " is-active" : "") + '" data-topdown-meta-view="draw">抽奖</button>',
+            '    <button type="button" class="topdown-meta-tab' + (topdownMetaUi.view === "equip" ? " is-active" : "") + '" data-topdown-meta-view="equip">装备</button>',
+            '  </div>',
+            '  <div class="topdown-meta-view">',
+            (topdownMetaUi.view === "draw" ? topdownMetaDrawViewHtml() : topdownMetaEquipViewHtml()),
+            '  </div>',
+            '</div>'
+        ].join("");
+    }
+
+    function ensureTopdownMetaModal() {
+        if (topdownMetaUi.modal) {
+            return topdownMetaUi.modal;
+        }
+        const modal = document.createElement("div");
+        topdownMetaUi.modal = modal;
+        modal.className = "games-modal";
+        modal.hidden = true;
+        modal.innerHTML = [
+            '<div class="games-modal-backdrop" data-topdown-meta-close="1"></div>',
+            '<div class="games-modal-dialog games-modal-dialog--wide topdown-meta-dialog">',
+            '  <div class="games-modal-head">',
+            '    <div>',
+            '      <div class="games-section-title">局外养成</div>',
+            '      <div class="games-stage-meta">统一管理抽到的颜色、图标与背景；Topdown、五子棋、数独、2048 和前线都会从这里选择外观。</div>',
+            "    </div>",
+            '    <button type="button" class="games-modal-close" data-topdown-meta-close="1">关闭</button>',
             "  </div>",
-            '  <div class="game-stat-grid">',
-            '    <div class="game-stat-card"><div class="game-stat-label">房间</div><div class="game-stat-value" id="gomokuRoomValue">----</div></div>',
-            '    <div class="game-stat-card"><div class="game-stat-label">状态</div><div class="game-stat-value" id="gomokuStageValue">大厅</div></div>',
-            '    <div class="game-stat-card"><div class="game-stat-label">手数</div><div class="game-stat-value" id="gomokuMovesValue">0</div></div>',
-            "  </div>",
-            "</div>",
-            '<div class="game-gomoku-stage">',
-            '  <div class="games-panel game-gomoku-panel" id="gomokuControlCard"></div>',
-            '  <div class="games-panel game-gomoku-panel game-gomoku-panel--board">',
-            '    <div class="games-section-title">棋盘</div>',
-            '    <div class="game-gomoku-board-wrap" id="gomokuBoardWrap"></div>',
-            '    <div class="games-stage-meta" id="gomokuTurnMeta">创建或加入房间后即可开始。</div>',
+            '  <div class="games-modal-body topdown-meta-body" data-topdown-meta-body="1"></div>',
+            '  <div class="games-modal-actions">',
+            '    <button type="button" class="games-btn" data-topdown-meta-close="1">关闭</button>',
             "  </div>",
             "</div>"
         ].join("");
-        els.stageBody.appendChild(shell);
-
-        const roomValueEl = shell.querySelector("#gomokuRoomValue");
-        const stageValueEl = shell.querySelector("#gomokuStageValue");
-        const movesValueEl = shell.querySelector("#gomokuMovesValue");
-        const controlCardEl = shell.querySelector("#gomokuControlCard");
-        const boardWrapEl = shell.querySelector("#gomokuBoardWrap");
-        const turnMetaEl = shell.querySelector("#gomokuTurnMeta");
-
-        rememberedRoomCode = loadRememberedRoomCode();
-
-        function emitWithIdentity(eventName, payload) {
-            socket.emit(eventName, Object.assign({ player_id: playerId }, payload || {}));
-        }
-
-        function renderLobbyCard() {
-            controlCardEl.innerHTML = [
-                '<div class="games-section-title">房间大厅</div>',
-                '<div class="games-stage-meta">可以自己创建一局，也可以加入别人已经开的房间。</div>',
-                '<div class="game-drawphone-actions">',
-                '  <button class="games-btn games-btn--primary" type="button" id="gomokuCreateBtn">创建房间</button>',
-                (rememberedRoomCode ? ('  <button class="games-btn" type="button" id="gomokuRejoinBtn">重连 ' + escapeHtml(rememberedRoomCode) + "</button>") : ""),
-                "</div>",
-                '<div class="game-drawphone-room-list">' + roomList.map(function (item) {
-                    return [
-                        '<div class="game-drawphone-room-item">',
-                        '  <div><strong>' + escapeHtml(item.room_code || "----") + "</strong> · " + escapeHtml(item.status === "playing" ? "对局中" : (item.status === "finished" ? "已结束" : "等待中")) + "</div>",
-                        '  <div class="games-stage-meta">人数 ' + escapeHtml(String(item.player_count || 0)) + ' / 2 · 在线 ' + escapeHtml(String(item.online_count || 0)) + '</div>',
-                        '  <button class="games-btn" type="button" data-join-gomoku-room="' + escapeHtml(item.room_code || "") + '">加入</button>',
-                        "</div>"
-                    ].join("");
-                }).join("") + "</div>"
-            ].join("");
-            controlCardEl.querySelector("#gomokuCreateBtn").addEventListener("click", function () {
-                emitWithIdentity("gomoku_join", {});
-            });
-            const rejoinBtn = controlCardEl.querySelector("#gomokuRejoinBtn");
-            if (rejoinBtn) {
-                rejoinBtn.addEventListener("click", function () {
-                    emitWithIdentity("gomoku_join", { room_code: rememberedRoomCode });
-                });
-            }
-            controlCardEl.querySelectorAll("[data-join-gomoku-room]").forEach(function (button) {
-                button.addEventListener("click", function () {
-                    emitWithIdentity("gomoku_join", { room_code: button.getAttribute("data-join-gomoku-room") || "" });
-                });
-            });
-        }
-
-        function renderRoomCard() {
-            const players = Array.isArray(room.players) ? room.players : [];
-            const isHost = room.host_player_id === playerId;
-            const canStart = Boolean(room.can_start);
-            controlCardEl.innerHTML = [
-                '<div class="games-section-title">房间 ' + escapeHtml(room.room_code || "----") + "</div>",
-                '<div class="games-stage-meta">房主可在双方准备后开局，对局结束后可继续再来一盘。</div>',
-                '<div class="game-drawphone-players">' + players.map(function (player) {
-                    return '<span class="game-drawphone-player-chip">' + playerDisplay(player) + ' · ' + stoneLabel(Number(player.stone || 0)) + (player.is_ready ? " · 已准备" : "") + "</span>";
-                }).join("") + "</div>",
-                '<div class="game-drawphone-actions">',
-                '  <button class="games-btn" type="button" id="gomokuReadyBtn">' + ((players.find(function (player) { return player.player_id === playerId; }) || {}).is_ready ? "取消准备" : "准备") + "</button>",
-                (isHost ? '<button class="games-btn games-btn--primary" type="button" id="gomokuStartBtn" ' + (canStart ? "" : "disabled") + '>开始对局</button>' : ""),
-                '  <button class="games-btn" type="button" id="gomokuLeaveBtn">离开房间</button>',
-                "</div>",
-                '<div class="games-stage-meta">历史：' + escapeHtml(((room.history || []).slice(-3).map(function (item) { return "第 " + item.match_index + " 局 " + item.winner_label; }).join(" / ")) || "暂无") + "</div>"
-            ].join("");
-            controlCardEl.querySelector("#gomokuReadyBtn").addEventListener("click", function () {
-                emitWithIdentity("gomoku_toggle_ready", { room_code: room.room_code });
-            });
-            const startBtn = controlCardEl.querySelector("#gomokuStartBtn");
-            if (startBtn) {
-                startBtn.addEventListener("click", function () {
-                    emitWithIdentity("gomoku_start", { room_code: room.room_code });
-                });
-            }
-            controlCardEl.querySelector("#gomokuLeaveBtn").addEventListener("click", function () {
-                emitWithIdentity("gomoku_leave", { room_code: room.room_code });
-                room = null;
-                saveRememberedRoomCode("");
-                renderAll();
-            });
-        }
-
-        function renderBoard() {
-            const board = room && Array.isArray(room.board) ? room.board : [];
-            const isMyTurn = room && room.status === "playing" && room.turn_player_id === playerId;
-            boardWrapEl.innerHTML = '<div class="game-gomoku-board">' + new Array(15).fill(0).map(function (_, row) {
-                return new Array(15).fill(0).map(function (_, col) {
-                    const cell = board[row] && board[row][col] ? Number(board[row][col]) : 0;
-                    return '<button type="button" class="game-gomoku-cell' + (cell === 1 ? " is-black" : (cell === 2 ? " is-white" : "")) + '" data-row="' + row + '" data-col="' + col + '"' + ((cell || !isMyTurn) ? " disabled" : "") + "></button>";
-                }).join("");
-            }).join("") + "</div>";
-            boardWrapEl.querySelectorAll(".game-gomoku-cell").forEach(function (cell) {
-                cell.addEventListener("click", function () {
-                    if (!room || room.status !== "playing") {
-                        return;
-                    }
-                    emitWithIdentity("gomoku_place", {
-                        room_code: room.room_code,
-                        row: Number(cell.getAttribute("data-row")),
-                        col: Number(cell.getAttribute("data-col"))
-                    });
-                });
-            });
-        }
-
-        function renderAll() {
-            if (!room) {
-                roomValueEl.textContent = "----";
-                stageValueEl.textContent = "大厅";
-                movesValueEl.textContent = "0";
-                turnMetaEl.textContent = "创建或加入房间后即可开始。";
-                renderLobbyCard();
-                boardWrapEl.innerHTML = '<div class="games-stage-meta">当前尚未加入房间。</div>';
+        document.body.appendChild(modal);
+        modal.addEventListener("click", function (event) {
+            const target = event.target;
+            if (!(target instanceof HTMLElement)) {
                 return;
             }
-            roomValueEl.textContent = room.room_code || "----";
-            stageValueEl.textContent = room.status === "playing" ? "对局中" : (room.status === "finished" ? "已结束" : "等待");
-            movesValueEl.textContent = String(room.move_count || 0);
-            if (room.status === "playing") {
-                turnMetaEl.textContent = room.turn_player_id === playerId ? "轮到你落子。" : "等待对手落子。";
-            } else if (room.status === "finished") {
-                turnMetaEl.textContent = room.winner_label ? ("本局结果：" + room.winner_label) : "本局已结束。";
+            const actionTarget = target.closest([
+                "[data-topdown-meta-close]",
+                "[data-topdown-meta-view]",
+                "[data-topdown-equip-category]",
+                "[data-topdown-equip-game]",
+                "[data-topdown-equip-color]",
+                "[data-topdown-equip-icon]",
+                "[data-topdown-equip-background]",
+                "[data-topdown-draw-color]",
+                "[data-topdown-draw-color-ten]",
+                "[data-topdown-draw-icon]",
+                "[data-topdown-draw-icon-ten]",
+                "[data-topdown-draw-background]",
+                "[data-topdown-draw-background-ten]"
+            ].join(","));
+            if (!(actionTarget instanceof HTMLElement) || !modal.contains(actionTarget)) {
+                return;
+            }
+            if (actionTarget.hasAttribute("data-topdown-meta-close")) {
+                closeTopdownMetaModal();
+                return;
+            }
+            const nextView = actionTarget.getAttribute("data-topdown-meta-view");
+            if (nextView === "draw" || nextView === "equip") {
+                if (topdownMetaAnyRollActive()) {
+                    topdownMetaUi.flashMessage = "当前正在开奖，请等待滚动结束。";
+                    renderTopdownMetaModal();
+                    return;
+                }
+                topdownMetaUi.view = nextView;
+                renderTopdownMetaModal();
+                return;
+            }
+            const nextCategory = actionTarget.getAttribute("data-topdown-equip-category");
+            if (nextCategory === "color" || nextCategory === "icon" || nextCategory === "background") {
+                topdownMetaUi.equipCategory = nextCategory;
+                renderTopdownMetaModal();
+                return;
+            }
+            const nextGame = actionTarget.getAttribute("data-topdown-equip-game");
+            if (nextGame) {
+                const games = topdownMetaEquipGameDefinitions();
+                topdownMetaUi.equipGame = games[nextGame] ? nextGame : "topdown";
+                const game = games[topdownMetaUi.equipGame] || games.topdown;
+                if (game.categories.indexOf(topdownMetaUi.equipCategory) === -1) {
+                    topdownMetaUi.equipCategory = game.categories[0] || "color";
+                }
+                renderTopdownMetaModal();
+                return;
+            }
+            handleTopdownMetaEquipClick(actionTarget);
+            handleTopdownMetaDrawClick(actionTarget);
+        });
+        modal.addEventListener("change", function (event) {
+            const target = event.target;
+            if (!(target instanceof HTMLInputElement)) {
+                return;
+            }
+            if (target.hasAttribute("data-topdown-show-locked")) {
+                topdownMetaUi.showLocked = target.checked;
+                renderTopdownMetaModal();
+            }
+        });
+        return modal;
+    }
+
+    function handleTopdownMetaEquipClick(target) {
+        const metaState = topdownMetaState();
+        const equipColorKey = target.getAttribute("data-topdown-equip-color");
+        if (equipColorKey) {
+            if (topdownMetaAnyRollActive()) {
+                topdownMetaUi.flashMessage = "当前正在开奖，请等待滚动结束后再切换装备。";
+            } else if (metaState.ownedColors.indexOf(equipColorKey) !== -1) {
+                metaState.equippedColor = equipColorKey;
+                topdownMetaUi.flashMessage = "已装备颜色：" + ((topdownColorCatalog()[equipColorKey] || {}).label || "");
+                persistTopdownMetaState();
+            }
+            renderTopdownMetaModal();
+            return;
+        }
+        const equipIconKey = target.getAttribute("data-topdown-equip-icon");
+        if (equipIconKey) {
+            if (topdownMetaAnyRollActive()) {
+                topdownMetaUi.flashMessage = "当前正在开奖，请等待滚动结束后再切换装备。";
+            } else if (metaState.ownedIcons.indexOf(equipIconKey) !== -1) {
+                metaState.equippedIcon = equipIconKey;
+                topdownMetaUi.flashMessage = "已装备图标：" + ((topdownIconCatalog()[equipIconKey] || {}).label || "");
+                persistTopdownMetaState();
+            }
+            renderTopdownMetaModal();
+            return;
+        }
+        const equipBackgroundKey = target.getAttribute("data-topdown-equip-background");
+        if (equipBackgroundKey) {
+            if (topdownMetaAnyRollActive()) {
+                topdownMetaUi.flashMessage = "当前正在开奖，请等待滚动结束后再切换装备。";
+            } else if (metaState.ownedBackgrounds.indexOf(equipBackgroundKey) !== -1) {
+                metaState.equippedBackground = equipBackgroundKey;
+                topdownMetaUi.flashMessage = "已装备背景：" + ((topdownBackgroundCatalog()[equipBackgroundKey] || {}).label || "");
+                persistTopdownMetaState();
+            }
+            renderTopdownMetaModal();
+        }
+    }
+
+    function handleTopdownMetaDrawClick(target) {
+        if (target.hasAttribute("data-topdown-draw-color")) {
+            drawTopdownMetaSingle("color");
+            return;
+        }
+        if (target.hasAttribute("data-topdown-draw-color-ten")) {
+            drawTopdownMetaBatch("color", 10);
+            return;
+        }
+        if (target.hasAttribute("data-topdown-draw-icon")) {
+            drawTopdownMetaSingle("icon");
+            return;
+        }
+        if (target.hasAttribute("data-topdown-draw-icon-ten")) {
+            drawTopdownMetaBatch("icon", 10);
+            return;
+        }
+        if (target.hasAttribute("data-topdown-draw-background")) {
+            drawTopdownMetaSingle("background");
+            return;
+        }
+        if (target.hasAttribute("data-topdown-draw-background-ten")) {
+            drawTopdownMetaBatch("background", 10);
+        }
+    }
+
+    function syncTopdownMetaRollTracks() {
+        const modal = topdownMetaUi.modal;
+        if (!modal || topdownMetaUi.view !== "draw") {
+            return;
+        }
+        ["color", "icon", "background"].forEach(function (kind) {
+            const rowState = topdownMetaUi.rollState[kind];
+            const viewport = modal.querySelector('[data-topdown-roll-viewport="' + kind + '"]');
+            const track = modal.querySelector('[data-topdown-roll-track="' + kind + '"]');
+            if (!viewport || !track) {
+                return;
+            }
+            if (!rowState.sequenceKeys.length) {
+                topdownMetaEnsureIdleSequence(kind);
+                track.innerHTML = rowState.sequenceKeys.map(function (key) { return topdownMetaRollItemHtml(kind, key); }).join("");
+            }
+            const cycleItemCount = rowState.rolling ? rowState.sequenceKeys.length : Math.max(1, Math.floor(rowState.sequenceKeys.length / 2));
+            const cycleWidth = cycleItemCount * (topdownMetaUi.rollMetrics.itemWidth + topdownMetaUi.rollMetrics.itemGap);
+            track.style.setProperty("--roll-cycle-width", cycleWidth + "px");
+            track.style.transform = 'translateX(-' + rowState.offsetPx + 'px)';
+        });
+    }
+
+    function renderTopdownMetaModal() {
+        const modal = ensureTopdownMetaModal();
+        const body = modal.querySelector("[data-topdown-meta-body='1']");
+        if (body) {
+            body.innerHTML = topdownMetaPanelHtml();
+        }
+        syncTopdownMetaRollTracks();
+    }
+
+    async function openTopdownMetaModal() {
+        if (typeof state.topdownMetaBeforeOpen === "function") {
+            state.topdownMetaBeforeOpen();
+        }
+        if (!state.topdownMetaState) {
+            const payload = await loadGameState("topdown-shooter-meta").catch(function () { return { state: {} }; });
+            setTopdownSharedMetaState((payload && payload.state) || {});
+        }
+        if (!state.profile) {
+            await loadProfile().catch(function () {});
+        }
+        topdownMetaApplyLoginGiftIfNeeded();
+        const modal = ensureTopdownMetaModal();
+        renderTopdownMetaModal();
+        modal.hidden = false;
+    }
+
+    function closeTopdownMetaModal() {
+        if (topdownMetaUi.modal) {
+            topdownMetaUi.modal.hidden = true;
+        }
+    }
+
+    function topdownRollOneMetaColorKey() {
+        const metaState = topdownMetaState();
+        const commonPool = topdownCommonColorKeys().filter(function (key) { return key !== "classic"; });
+        const rarePool = topdownRareColorKeys();
+        const superRarePool = topdownSuperRareColorKeys();
+        const rareUnlocked = topdownAllCommonColorsOwned(metaState);
+        const superRareUnlocked = topdownAllRareColorsOwned(metaState);
+        const useSuperRare = superRareUnlocked && Math.random() < TOPDOWN_BALANCE.metaSuperRareColorChance;
+        const useRare = rareUnlocked && !useSuperRare && Math.random() < TOPDOWN_BALANCE.metaRareColorChance;
+        const pool = useSuperRare ? superRarePool : (useRare ? rarePool : commonPool);
+        return pool[Math.floor(Math.random() * pool.length)];
+    }
+
+    function topdownRollOneMetaRewardKey(kind) {
+        if (kind === "color") {
+            return topdownRollOneMetaColorKey();
+        }
+        if (kind === "background") {
+            return topdownWeightedPick(topdownRollRowBaseKeys("background").filter(function (key) { return key !== "dojo"; }), function (key) {
+                return topdownBackgroundDrawWeight(topdownBackgroundCatalog()[key]);
+            });
+        }
+        return topdownWeightedPick(topdownRollRowBaseKeys("icon").filter(function (key) { return key !== "triangle"; }), function (key) {
+            return topdownIconDrawWeight(topdownIconCatalog()[key]);
+        });
+    }
+
+    function topdownOwnedMetaRewardKeys(kind) {
+        const metaState = topdownMetaState();
+        if (kind === "color") {
+            return metaState.ownedColors;
+        }
+        if (kind === "background") {
+            return metaState.ownedBackgrounds;
+        }
+        return metaState.ownedIcons;
+    }
+
+    function topdownForceNewMetaRewardKey(kind) {
+        const catalog = topdownCatalogForKind(kind);
+        const owned = topdownOwnedMetaRewardKeys(kind);
+        const tiers = ["common", "rare", "superrare"];
+        for (let index = 0; index < tiers.length; index += 1) {
+            const pool = topdownSortCatalogKeysByTier(catalog).filter(function (key) {
+                return catalog[key] && catalog[key].tier === tiers[index] && owned.indexOf(key) === -1;
+            });
+            if (pool.length) {
+                return pool[Math.floor(Math.random() * pool.length)];
+            }
+        }
+        return "";
+    }
+
+    function topdownRollNextMetaRewardKey(kind) {
+        if (topdownMetaPityCount(kind) >= 9) {
+            return topdownForceNewMetaRewardKey(kind) || topdownRollOneMetaRewardKey(kind);
+        }
+        return topdownRollOneMetaRewardKey(kind);
+    }
+
+    function topdownTrackMetaPity(kind, result) {
+        if (result && !result.duplicate) {
+            topdownMetaSetPityCount(kind, 0);
+            return;
+        }
+        topdownMetaSetPityCount(kind, topdownMetaPityCount(kind) + 1);
+    }
+
+    function topdownApplyMetaRollReward(kind, winnerKey, paidUnitCost) {
+        const metaState = topdownMetaState();
+        const catalog = topdownCatalogForKind(kind);
+        const item = catalog[winnerKey];
+        const owned = topdownOwnedMetaRewardKeys(kind);
+        if (!item) {
+            return { key: winnerKey, label: "未知奖励", tier: "common", duplicate: true, refund: 0 };
+        }
+        if (owned.indexOf(winnerKey) !== -1) {
+            const refund = Math.round(Math.max(0, Number(paidUnitCost || 0)) * topdownMetaDuplicateRefundRate(item.tier));
+            return { key: winnerKey, label: item.label, tier: item.tier, duplicate: true, refund: refund };
+        }
+        owned.push(winnerKey);
+        if (kind === "color") {
+            metaState.equippedColor = winnerKey;
+        } else if (kind === "background") {
+            metaState.equippedBackground = winnerKey;
+        } else {
+            metaState.equippedIcon = winnerKey;
+        }
+        return { key: winnerKey, label: item.label, tier: item.tier, duplicate: false, refund: 0 };
+    }
+
+    function topdownSettleMetaRefunds(kind, results) {
+        const refundTotal = (Array.isArray(results) ? results : []).reduce(function (sum, item) {
+            return sum + Math.max(0, Number((item && item.refund) || 0));
+        }, 0);
+        if (refundTotal <= 0) {
+            return;
+        }
+        recordTopdownMetaScoreDelta(refundTotal, "lottery-refund", {
+            pool: kind,
+            refund_total: refundTotal,
+            duplicate_count: results.filter(function (item) { return item && item.duplicate; }).length
+        }).catch(function (error) {
+            setStatus(error.message || "重复奖励返还积分失败", true);
+        }).finally(function () {
+            renderTopdownMetaModal();
+            notifyTopdownMetaRefresh();
+        });
+    }
+
+    function topdownResolveMetaRollReward(kind, winnerKey, paidUnitCost) {
+        const result = topdownApplyMetaRollReward(kind, winnerKey, paidUnitCost);
+        const label = topdownMetaKindLabel(kind);
+        topdownTrackMetaPity(kind, result);
+        topdownMetaUi.flashMessage = result.duplicate
+            ? (result.refund > 0 ? ("抽中重复" + label + " " + result.label + "，已返还 " + result.refund + " 总积分。") : ("抽中重复" + label + " " + result.label + "，免费抽取不返还积分。"))
+            : ("获得新" + label + "：" + result.label + "。已自动装备。");
+        showTopdownRewardReveal(kind, [result]);
+        topdownSettleMetaRefunds(kind, [result]);
+        return result;
+    }
+
+    function topdownStartMetaRoll(kind, payment, winnerKey) {
+        const metaState = topdownMetaState();
+        const rowState = topdownMetaUi.rollState[kind];
+        if (rowState.rolling) {
+            return;
+        }
+        topdownMetaUi.view = "draw";
+        topdownMetaUi.flashMessage = "";
+        metaState.pulls += 1;
+        if (kind === "color") {
+            metaState.colorPulls += 1;
+        } else if (kind === "background") {
+            metaState.backgroundPulls = Math.max(0, Number(metaState.backgroundPulls || 0)) + 1;
+        } else {
+            metaState.iconPulls += 1;
+        }
+        const rollSequence = topdownRollSequence(kind, winnerKey, topdownMetaUi.rollMetrics.sequenceCount, topdownAllCommonColorsOwned(metaState), topdownAllRareColorsOwned(metaState));
+        rowState.sequenceKeys = rollSequence.keys;
+        rowState.winnerKey = winnerKey;
+        rowState.winnerIndex = rollSequence.winnerIndex;
+        rowState.offsetPx = 0;
+        rowState.rolling = true;
+        renderTopdownMetaModal();
+        const viewport = topdownMetaUi.modal ? topdownMetaUi.modal.querySelector('[data-topdown-roll-viewport="' + kind + '"]') : null;
+        const track = topdownMetaUi.modal ? topdownMetaUi.modal.querySelector('[data-topdown-roll-track="' + kind + '"]') : null;
+        if (!viewport || !track) {
+            rowState.rolling = false;
+            topdownResolveMetaRollReward(kind, winnerKey, payment && payment.unitCosts ? payment.unitCosts[0] : 0);
+            persistTopdownMetaState();
+            renderTopdownMetaModal();
+            return;
+        }
+        const itemSpan = topdownMetaUi.rollMetrics.itemWidth + topdownMetaUi.rollMetrics.itemGap;
+        const targetOffset = Math.max(0, rowState.winnerIndex * itemSpan - (viewport.clientWidth / 2 - topdownMetaUi.rollMetrics.itemWidth / 2));
+        const startedAt = performance.now();
+        function frame(now) {
+            const progress = clamp((now - startedAt) / topdownMetaUi.rollMetrics.durationMs, 0, 1);
+            const eased = Math.sin(progress * Math.PI * 0.5);
+            rowState.offsetPx = targetOffset * eased;
+            track.style.transform = 'translateX(-' + rowState.offsetPx + 'px)';
+            if (progress < 1) {
+                rowState.frameId = window.requestAnimationFrame(frame);
+                return;
+            }
+            rowState.frameId = 0;
+            rowState.rolling = false;
+            topdownResolveMetaRollReward(kind, winnerKey, payment && payment.unitCosts ? payment.unitCosts[0] : 0);
+            persistTopdownMetaState();
+            renderTopdownMetaModal();
+        }
+        rowState.frameId = window.requestAnimationFrame(frame);
+    }
+
+    async function drawTopdownMetaSingle(kind) {
+        const cost = topdownMetaDrawCost(kind);
+        const label = topdownMetaKindLabel(kind);
+        if (topdownMetaAnyRollActive()) {
+            topdownMetaUi.flashMessage = "当前已有一条奖池正在开奖，请稍候。";
+            renderTopdownMetaModal();
+            return;
+        }
+        topdownMetaUi.paymentBusy = true;
+        renderTopdownMetaModal();
+        try {
+            const payment = await prepareTopdownMetaDrawPayment(kind, 1, false);
+            if (!payment) {
+                topdownMetaUi.flashMessage = "积分不足，当前 " + topdownMetaAvailablePoints() + "，单抽" + label + "需要 " + cost + "。";
+                return;
+            }
+            topdownMetaUi.flashMessage = topdownMetaPaymentText(payment);
+            topdownStartMetaRoll(kind, payment, topdownRollNextMetaRewardKey(kind));
+        } catch (error) {
+            topdownMetaUi.flashMessage = error.message || "扣除抽奖积分失败，请稍后重试。";
+        } finally {
+            topdownMetaUi.paymentBusy = false;
+            renderTopdownMetaModal();
+        }
+    }
+
+    async function drawTopdownMetaBatch(kind, count) {
+        const metaState = topdownMetaState();
+        const drawCount = Math.max(1, Number(count || 1));
+        const cost = topdownMetaDrawCost(kind);
+        const totalCost = cost * drawCount;
+        const label = topdownMetaKindLabel(kind);
+        if (topdownMetaAnyRollActive()) {
+            topdownMetaUi.flashMessage = "当前已有一条奖池正在开奖，请稍候。";
+            renderTopdownMetaModal();
+            return;
+        }
+        topdownMetaUi.paymentBusy = true;
+        renderTopdownMetaModal();
+        let payment = null;
+        try {
+            payment = await prepareTopdownMetaDrawPayment(kind, drawCount, drawCount === TOPDOWN_BALANCE.metaDailyFreeTenCount);
+            if (!payment) {
+                topdownMetaUi.flashMessage = "积分不足，当前 " + topdownMetaAvailablePoints() + "，十连抽" + label + "需要 " + totalCost + "。";
+                return;
+            }
+        } catch (error) {
+            topdownMetaUi.flashMessage = error.message || "扣除抽奖积分失败，请稍后重试。";
+            return;
+        } finally {
+            topdownMetaUi.paymentBusy = false;
+        }
+        topdownMetaUi.view = "draw";
+        metaState.pulls += drawCount;
+        if (kind === "color") {
+            metaState.colorPulls += drawCount;
+        } else if (kind === "background") {
+            metaState.backgroundPulls = Math.max(0, Number(metaState.backgroundPulls || 0)) + drawCount;
+        } else {
+            metaState.iconPulls += drawCount;
+        }
+        const results = [];
+        let newCount = 0;
+        let duplicateCount = 0;
+        let refundTotal = 0;
+        for (let index = 0; index < drawCount; index += 1) {
+            const result = topdownApplyMetaRollReward(kind, topdownRollNextMetaRewardKey(kind), payment.unitCosts[index] || 0);
+            topdownTrackMetaPity(kind, result);
+            results.push(result);
+            if (result.duplicate) {
+                duplicateCount += 1;
+                refundTotal += result.refund;
             } else {
-                turnMetaEl.textContent = "双方准备后由房主开始。";
+                newCount += 1;
             }
-            renderRoomCard();
-            renderBoard();
         }
-
-        socket.on("gomoku_room", function (payload) {
-            room = payload;
-            saveRememberedRoomCode((payload && payload.room_code) || "");
-            renderAll();
-        });
-
-        socket.on("gomoku_rooms", function (payload) {
-            roomList = Array.isArray(payload) ? payload : [];
-            if (!room) {
-                renderAll();
-            }
-        });
-
-        socket.on("gomoku_error", function (payload) {
-            setStatus((payload && payload.error) || "五子棋操作失败", true);
-        });
-
-        socket.on("connect", function () {
-            setStatus("联机五子棋已连接房间服务。", false);
-            if (rememberedRoomCode) {
-                emitWithIdentity("gomoku_join", { room_code: rememberedRoomCode });
-            }
-        });
-
-        socket.on("disconnect", function () {
-            setStatus("联机五子棋连接已断开。", true);
-        });
-
-        renderAll();
-
-        return function cleanup() {
-            socket.disconnect();
-        };
+        const names = results.slice(0, 6).map(function (item) {
+            return item.label + (item.duplicate ? "(重复)" : "");
+        }).join("、");
+        topdownMetaUi.flashMessage = "十连抽" + label + "完成：" + topdownMetaPaymentText(payment) + "；新获得 " + newCount + "，重复 " + duplicateCount + "，返还 " + refundTotal + " 总积分。结果：" + names + (results.length > 6 ? " 等。" : "。");
+        persistTopdownMetaState();
+        renderTopdownMetaModal();
+        showTopdownRewardReveal(kind, results);
+        topdownSettleMetaRefunds(kind, results);
     }
 
-    function mountAngryBirdsLite(savedPayload) {
-        function buildAngryLevel(index) {
-            const levels = [
-                {
-                    pigs: [
-                        { x: 710, y: 470, r: 18, hp: 18 },
-                        { x: 760, y: 428, r: 18, hp: 18 }
-                    ],
-                    blocks: [
-                        { x: 680, y: 490, w: 24, h: 70, hp: 18 },
-                        { x: 738, y: 490, w: 24, h: 70, hp: 18 },
-                        { x: 704, y: 446, w: 74, h: 18, hp: 16 },
-                        { x: 730, y: 392, w: 24, h: 58, hp: 14 }
-                    ]
-                },
-                {
-                    pigs: [
-                        { x: 700, y: 470, r: 18, hp: 18 },
-                        { x: 770, y: 470, r: 18, hp: 18 },
-                        { x: 735, y: 420, r: 18, hp: 18 }
-                    ],
-                    blocks: [
-                        { x: 670, y: 490, w: 28, h: 72, hp: 18 },
-                        { x: 770, y: 490, w: 28, h: 72, hp: 18 },
-                        { x: 720, y: 490, w: 28, h: 72, hp: 18 },
-                        { x: 694, y: 440, w: 102, h: 18, hp: 16 },
-                        { x: 694, y: 390, w: 102, h: 18, hp: 16 }
-                    ]
-                }
-            ];
-            return JSON.parse(JSON.stringify(levels[index] || levels[0]));
-        }
-
-        function createAngrySession(raw) {
-            const levelIndex = Math.max(0, Math.min(1, Number((raw || {}).levelIndex || 0)));
-            const layout = buildAngryLevel(levelIndex);
-            return {
-                sessionKey: String((raw && raw.sessionKey) || ("angry-" + Date.now() + "-" + Math.random().toString(36).slice(2, 8))),
-                levelIndex: levelIndex,
-                score: Math.max(0, Number((raw || {}).score || 0)),
-                birdsLeft: Math.max(0, Number((raw || {}).birdsLeft == null ? 2 : raw.birdsLeft)),
-                status: (raw && raw.status) === "over" ? "over" : ((raw && raw.status) === "victory" ? "victory" : "playing"),
-                pigs: Array.isArray((raw || {}).pigs) ? raw.pigs : layout.pigs,
-                blocks: Array.isArray((raw || {}).blocks) ? raw.blocks : layout.blocks,
-                projectile: (raw && raw.projectile) || { x: 150, y: 480, vx: 0, vy: 0, r: 18, launched: false, resting: 0 },
-                submittedScore: Boolean(raw && raw.submittedScore),
-                elapsedSeconds: Math.max(0, Number((raw || {}).elapsedSeconds || 0)),
-                startedAt: Number((raw && raw.startedAt) || Date.now())
-            };
-        }
-
-        function serializeAngrySession(session) {
-            session.elapsedSeconds = Math.max(0, Math.floor((Date.now() - session.startedAt) / 1000));
-            return JSON.parse(JSON.stringify(session));
-        }
-
-        function summarizeAngrySession(session) {
-            return {
-                level: session.levelIndex + 1,
-                score: session.score,
-                birds_left: session.birdsLeft,
-                pigs_left: session.pigs.length,
-                status: session.status
-            };
-        }
-
-        let session = createAngrySession(savedPayload && savedPayload.state);
-        const arcade = createArcadeShell(
-            "愤怒的小鸟",
-            "按住小鸟向后拖动，松手发射。尽量用更少的小鸟摧毁全部小猪。",
-            "这是轻量原型版，主打弹射、碰撞和续玩。"
-        );
-        const canvas = arcade.canvas;
-        const ctx = canvas.getContext("2d");
-        const groundY = 542;
-        const sling = { x: 150, y: 480 };
-        const pointer = { down: false, x: 0, y: 0 };
-        let dragging = false;
-        let animationId = 0;
-        let lastFrame = 0;
-        let persistTimer = 0;
-
-        setArcadeList(arcade.controls, [
-            "鼠标按住小鸟向后拖拽，松开后发射。",
-            "击中木架或小猪会造成伤害，清空全部小猪即可过关。",
-            "小鸟耗尽且场上仍有小猪时，本局结束。"
-        ]);
-
-        function persist() {
-            scheduleGameStateSave("angry-birds-lite", serializeAngrySession(session), summarizeAngrySession(session));
-        }
-
-        function pointFromEvent(event) {
-            const rect = canvas.getBoundingClientRect();
-            const scaleX = canvas.width / Math.max(1, rect.width);
-            const scaleY = canvas.height / Math.max(1, rect.height);
-            return {
-                x: (event.clientX - rect.left) * scaleX,
-                y: (event.clientY - rect.top) * scaleY
-            };
-        }
-
-        function resetProjectile() {
-            session.projectile = { x: sling.x, y: sling.y, vx: 0, vy: 0, r: 18, launched: false, resting: 0 };
-        }
-
-        function circleRectCollision(circle, rect) {
-            const nearestX = clamp(circle.x, rect.x, rect.x + rect.w);
-            const nearestY = clamp(circle.y, rect.y - rect.h, rect.y);
-            const dx = circle.x - nearestX;
-            const dy = circle.y - nearestY;
-            const distSq = dx * dx + dy * dy;
-            if (distSq > circle.r * circle.r) {
-                return null;
-            }
-            const dist = Math.sqrt(distSq) || 1;
-            return { nx: dx / dist, ny: dy / dist, overlap: circle.r - dist };
-        }
-
-        function hitBlock(block, damage) {
-            block.hp -= damage;
-            if (block.hp <= 0) {
-                session.score += 180;
-            }
-        }
-
-        function hitPig(pig, damage) {
-            pig.hp -= damage;
-            if (pig.hp <= 0) {
-                session.score += 500;
-            }
-        }
-
-        function finalizeScoreIfNeeded() {
-            if (session.submittedScore || session.status === "playing" || session.score <= 0) {
-                return Promise.resolve();
-            }
-            session.submittedScore = true;
-            session.elapsedSeconds = Math.max(0, Math.floor((Date.now() - session.startedAt) / 1000));
-            return submitScore("angry-birds-lite", session.score, "standard", session.sessionKey, {
-                level_reached: session.levelIndex + 1,
-                birds_left: session.birdsLeft,
-                elapsed_seconds: session.elapsedSeconds,
-                status: session.status
-            }).catch(function (error) {
-                session.submittedScore = false;
-                setStatus(error.message || "愤怒的小鸟成绩提交失败", true);
-            });
-        }
-
-        function nextBird() {
-            if (!session.pigs.length) {
-                if (session.levelIndex < 1) {
-                    session.levelIndex += 1;
-                    const nextLayout = buildAngryLevel(session.levelIndex);
-                    session.pigs = nextLayout.pigs;
-                    session.blocks = nextLayout.blocks;
-                    resetProjectile();
-                    session.birdsLeft = Math.max(session.birdsLeft, 2);
-                    setStatus("第 " + (session.levelIndex + 1) + " 关开始。", false);
-                } else {
-                    session.status = "victory";
-                    setStatus("全部关卡完成。", false);
-                    finalizeScoreIfNeeded();
-                }
-                persist();
-                return;
-            }
-            if (session.birdsLeft <= 0) {
-                session.status = "over";
-                setStatus("小鸟已用尽，本局结束。", true);
-                finalizeScoreIfNeeded();
-                persist();
-                return;
-            }
-            session.birdsLeft -= 1;
-            resetProjectile();
-            persist();
-        }
-
-        function updateHud() {
-            setArcadeStats(arcade.statGrid, [
-                { label: "关卡", value: String(session.levelIndex + 1) },
-                { label: "分数", value: String(session.score) },
-                { label: "剩余小鸟", value: String(session.birdsLeft + (session.status === "playing" ? 1 : 0)) },
-                { label: "小猪", value: String(session.pigs.length) }
-            ]);
-            setArcadeList(arcade.status, [
-                "状态：" + (session.status === "victory" ? "通关" : (session.status === "over" ? "失败" : "进行中")),
-                "当前弹体：" + (dragging ? "拉弓中" : (session.projectile.launched ? "飞行中" : "待发射")),
-                "提示：尽量利用木架倒塌连锁砸猪。"
-            ], "game-arcade-status-card");
-        }
-
-        function draw() {
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            ctx.fillStyle = "#dbeafe";
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
-            ctx.fillStyle = "#9bd36a";
-            ctx.fillRect(0, groundY, canvas.width, canvas.height - groundY);
-
-            ctx.strokeStyle = "#7c2d12";
-            ctx.lineWidth = 8;
-            ctx.beginPath();
-            ctx.moveTo(sling.x - 18, sling.y + 38);
-            ctx.lineTo(sling.x - 8, sling.y - 18);
-            ctx.moveTo(sling.x + 18, sling.y + 38);
-            ctx.lineTo(sling.x + 8, sling.y - 18);
-            ctx.stroke();
-
-            session.blocks.forEach(function (block) {
-                ctx.fillStyle = block.hp > 10 ? "#b45309" : "#d97706";
-                ctx.fillRect(block.x, block.y - block.h, block.w, block.h);
-            });
-            session.pigs.forEach(function (pig) {
-                ctx.fillStyle = "#65a30d";
-                ctx.beginPath();
-                ctx.arc(pig.x, pig.y, pig.r, 0, Math.PI * 2);
-                ctx.fill();
-            });
-
-            ctx.fillStyle = "#ef4444";
-            ctx.beginPath();
-            ctx.arc(session.projectile.x, session.projectile.y, session.projectile.r, 0, Math.PI * 2);
-            ctx.fill();
-        }
-
-        function update(dt) {
-            if (session.status !== "playing") {
-                updateHud();
-                draw();
-                return;
-            }
-            const bird = session.projectile;
-            if (bird.launched) {
-                bird.vy += 640 * dt;
-                bird.x += bird.vx * dt;
-                bird.y += bird.vy * dt;
-
-                const speed = Math.sqrt(bird.vx * bird.vx + bird.vy * bird.vy);
-                if (bird.y + bird.r >= groundY) {
-                    bird.y = groundY - bird.r;
-                    bird.vy *= -0.18;
-                    bird.vx *= 0.84;
-                    bird.resting += dt;
-                } else {
-                    bird.resting = 0;
-                }
-
-                session.blocks.forEach(function (block) {
-                    const hit = circleRectCollision(bird, block);
-                    if (!hit) {
-                        return;
-                    }
-                    bird.x += hit.nx * hit.overlap;
-                    bird.y += hit.ny * hit.overlap;
-                    const impact = Math.max(0, speed * 0.06);
-                    bird.vx *= -0.42;
-                    bird.vy *= -0.42;
-                    hitBlock(block, impact);
-                });
-
-                session.pigs.forEach(function (pig) {
-                    const distance = distanceBetween(bird, pig);
-                    if (distance > bird.r + pig.r) {
-                        return;
-                    }
-                    const impact = Math.max(0, speed * 0.08);
-                    hitPig(pig, impact);
-                    const dx = pig.x - bird.x;
-                    const dy = pig.y - bird.y;
-                    const len = Math.sqrt(dx * dx + dy * dy) || 1;
-                    bird.vx -= dx / len * 46;
-                    bird.vy -= dy / len * 46;
-                });
-
-                session.blocks = session.blocks.filter(function (block) { return block.hp > 0; });
-                session.pigs = session.pigs.filter(function (pig) { return pig.hp > 0; });
-
-                if (!session.pigs.length || bird.resting > 0.6 || bird.x > canvas.width + 60 || bird.y > canvas.height + 80 || Math.abs(bird.vx) + Math.abs(bird.vy) < 14) {
-                    nextBird();
-                }
-            }
-            updateHud();
-            draw();
-        }
-
-        function loop(now) {
-            const dt = Math.min(0.033, (now - (lastFrame || now)) / 1000);
-            lastFrame = now;
-            update(dt);
-            animationId = window.requestAnimationFrame(loop);
-        }
-
-        function pointerDown(event) {
-            if (session.status !== "playing") {
-                return;
-            }
-            const point = pointFromEvent(event);
-            if (distanceBetween(point, session.projectile) <= session.projectile.r + 6 && !session.projectile.launched) {
-                dragging = true;
-                pointer.down = true;
-                pointer.x = point.x;
-                pointer.y = point.y;
-            }
-        }
-
-        function pointerMove(event) {
-            if (!dragging) {
-                return;
-            }
-            const point = pointFromEvent(event);
-            pointer.x = point.x;
-            pointer.y = point.y;
-            session.projectile.x = clamp(point.x, sling.x - 90, sling.x + 40);
-            session.projectile.y = clamp(point.y, sling.y - 90, sling.y + 60);
-            draw();
-        }
-
-        function pointerUp() {
-            if (!dragging) {
-                return;
-            }
-            dragging = false;
-            pointer.down = false;
-            const dx = sling.x - session.projectile.x;
-            const dy = sling.y - session.projectile.y;
-            session.projectile.vx = dx * 4.2;
-            session.projectile.vy = dy * 4.2;
-            session.projectile.launched = true;
-            session.projectile.resting = 0;
-            persist();
-        }
-
-        canvas.addEventListener("pointerdown", pointerDown);
-        window.addEventListener("pointermove", pointerMove);
-        window.addEventListener("pointerup", pointerUp);
-
-        resetProjectile();
-        if (savedPayload && savedPayload.state) {
-            session = createAngrySession(savedPayload.state);
-        }
-        updateHud();
-        draw();
-        animationId = window.requestAnimationFrame(loop);
-        persistTimer = window.setInterval(function () {
-            if (state.activeGameId === "angry-birds-lite") {
-                persist();
-            }
-        }, 2000);
-
-        return function cleanup() {
-            if (animationId) {
-                window.cancelAnimationFrame(animationId);
-            }
-            if (persistTimer) {
-                window.clearInterval(persistTimer);
-            }
-            canvas.removeEventListener("pointerdown", pointerDown);
-            window.removeEventListener("pointermove", pointerMove);
-            window.removeEventListener("pointerup", pointerUp);
-            persist();
-            finalizeScoreIfNeeded();
-        };
-    }
 
     function bindStaticEvents() {
+        ensureProfileMetaEntryButton();
         if (els.profileSaveBtn) {
             els.profileSaveBtn.addEventListener("click", function () {
                 saveProfile().catch(function (error) {

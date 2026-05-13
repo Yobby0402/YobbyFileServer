@@ -34,7 +34,6 @@ from .shared_serial_hub import (
 )
 from .paths import project_base_dir
 from .paths import get_data_dir, get_logs_dir as get_runtime_logs_dir, resolve_path
-from .game_drawphone import init_drawphone_socketio
 from .game_gomoku import init_gomoku_socketio
 from .game_hub import GameHubStore
 
@@ -495,10 +494,6 @@ def create_app(debug=False):
                       ping_timeout=60,
                       ping_interval=25)
     init_serial_socketio(socketio)
-    init_drawphone_socketio(
-        socketio,
-        profile_resolver=lambda req: routes.resolve_game_profile_payload(req),
-    )
     init_gomoku_socketio(
         socketio,
         profile_resolver=lambda req: routes.resolve_game_profile_payload(req),

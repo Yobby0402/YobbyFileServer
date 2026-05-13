@@ -18,14 +18,6 @@
       "tags": ["单机", "逻辑", "进度保存"]
     },
     {
-      "id": "drawphone",
-      "title": "Drawphone",
-      "summary": "站内本地房间版 Drawphone，支持房间列表、续局和回合历史。",
-      "engine": "builtin",
-      "status": "ready",
-      "tags": ["联机", "绘画", "聚会"]
-    },
-    {
       "id": "gomoku",
       "title": "联机五子棋",
       "summary": "局域网房间式五子棋，支持创建房间、准备、同步落子与历史对局结果。",
@@ -48,22 +40,6 @@
       "engine": "builtin",
       "status": "ready",
       "tags": ["单机", "动作", "射击"]
-    },
-    {
-      "id": "space-rocks",
-      "title": "Space Rocks",
-      "summary": "太空陨石射击，支持关卡推进、续玩和积分入库。",
-      "engine": "builtin",
-      "status": "ready",
-      "tags": ["单机", "动作", "街机"]
-    },
-    {
-      "id": "angry-birds-lite",
-      "title": "愤怒的小鸟",
-      "summary": "弹弓抛射小鸟击倒障碍与猪的轻量街机版，支持自动续玩和分数记录。",
-      "engine": "builtin",
-      "status": "beta",
-      "tags": ["单机", "物理", "弹射"]
     }
   ]
 }

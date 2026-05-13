@@ -1261,14 +1261,11 @@ def init_app(app):
             game_profile=profile,
             games_safe_file_url=url_for('file_browser'),
             topdown_score_soft_cap=app.config.get('TOPDOWN_SCORE_SOFT_CAP', 100000),
+            topdown_meta_color_draw_cost=app.config.get('TOPDOWN_META_COLOR_DRAW_COST', 4800),
+            topdown_meta_icon_draw_cost=app.config.get('TOPDOWN_META_ICON_DRAW_COST', 3200),
+            topdown_meta_background_draw_cost=app.config.get('TOPDOWN_META_BACKGROUND_DRAW_COST', 4000),
         ))
         return _attach_games_identity(response, identity)
-
-    @app.route('/games/drawphone')
-    def games_drawphone_page():
-        if not is_logged_in():
-            return redirect(url_for('login'))
-        return redirect(url_for('games_page', game='drawphone'))
 
     @app.route('/api/games/manifest', methods=['GET'])
     def games_manifest_api():

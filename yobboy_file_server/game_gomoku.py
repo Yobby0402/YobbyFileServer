@@ -45,6 +45,7 @@ class GomokuManager:
                 player["is_online"] = False
                 player.setdefault("is_ready", False)
                 player.setdefault("stone", 0)
+                player["cosmetics"] = self._sanitize_cosmetics(player.get("cosmetics"))
                 player.setdefault("joined_at", now_iso())
                 player.setdefault("last_seen", now_iso())
             self._rooms[room_code] = state
@@ -75,6 +76,7 @@ class GomokuManager:
         room["turn_player_id"] = ""
         room["winner_player_id"] = ""
         room["winner_label"] = ""
+        room["last_move"] = {}
         room["move_count"] = 0
         if not preserve_history:
             room["history"] = []
@@ -82,6 +84,42 @@ class GomokuManager:
         for player in self._active_players(room):
             player["is_ready"] = False
             player["stone"] = 0
+
+    def _sanitize_cosmetics(self, cosmetics: Any) -> Dict[str, str]:
+        payload = cosmetics if isinstance(cosmetics, dict) else {}
+        return {
+            "color_key": str(payload.get("color_key") or payload.get("colorKey") or "classic").strip()[:64] or "classic",
+            "icon_key": str(payload.get("icon_key") or payload.get("iconKey") or "triangle").strip()[:64] or "triangle",
+            "background_key": str(payload.get("background_key") or payload.get("backgroundKey") or "dojo").strip()[:64] or "dojo",
+        }
+
+    def _resolve_cosmetic_color_conflict(self, room: Dict[str, Any], player_id: str) -> None:
+        player = self._find_player(room, player_id)
+        if not player:
+            return
+        cosmetics = self._sanitize_cosmetics(player.get("cosmetics"))
+        taken = {
+            self._sanitize_cosmetics(other.get("cosmetics")).get("color_key")
+            for other in self._active_players(room)
+            if other.get("player_id") != player_id
+        }
+        if cosmetics["color_key"] in taken:
+            for fallback in ("ember", "classic", "frost", "nuclear", "void"):
+                if fallback not in taken:
+                    cosmetics["color_key"] = fallback
+                    break
+        player["cosmetics"] = cosmetics
+
+    def _begin_match(self, room: Dict[str, Any], players: List[Dict[str, Any]]) -> None:
+        room["match_index"] = int(room.get("match_index") or 0) + 1
+        self._reset_match_state(room, preserve_history=True)
+        room["status"] = "playing"
+        black_index = (int(room.get("match_index") or 1) - 1) % 2
+        black_player = players[black_index]
+        white_player = players[1 - black_index]
+        black_player["stone"] = 1
+        white_player["stone"] = 2
+        room["turn_player_id"] = black_player["player_id"]
 
     def _remove_player_from_room(self, room: Dict[str, Any], player_id: str, mark_removed: bool) -> bool:
         player = self._find_player(room, player_id)
@@ -140,6 +178,7 @@ class GomokuManager:
                     "is_online": bool(player.get("is_online")),
                     "is_ready": bool(player.get("is_ready")),
                     "stone": int(player.get("stone") or 0),
+                    "cosmetics": self._sanitize_cosmetics(player.get("cosmetics")),
                     "joined_at": player.get("joined_at", ""),
                 }
             )
@@ -152,6 +191,7 @@ class GomokuManager:
             "winner_label": room.get("winner_label", ""),
             "move_count": int(room.get("move_count") or 0),
             "match_index": int(room.get("match_index") or 0),
+            "last_move": room.get("last_move") or {},
             "board": room.get("board") or [[0 for _ in range(BOARD_SIZE)] for _ in range(BOARD_SIZE)],
             "history": list(room.get("history") or []),
             "players": players,
@@ -196,6 +236,7 @@ class GomokuManager:
                                 "display_name": player["display_name"],
                                 "is_online": bool(player.get("is_online")),
                                 "is_ready": bool(player.get("is_ready")),
+                                "cosmetics": self._sanitize_cosmetics(player.get("cosmetics")),
                             }
                             for player in players
                         ],
@@ -214,6 +255,7 @@ class GomokuManager:
         display_name: str,
         avatar_url: str = "",
         room_code: str | None = None,
+        cosmetics: Dict[str, Any] | None = None,
     ) -> Dict[str, Any]:
         player_id_value = str(player_id or "").strip()[:64]
         if not player_id_value:
@@ -235,6 +277,7 @@ class GomokuManager:
                     "turn_player_id": "",
                     "winner_player_id": "",
                     "winner_label": "",
+                    "last_move": {},
                     "move_count": 0,
                     "match_index": 0,
                     "history": [],
@@ -266,6 +309,7 @@ class GomokuManager:
                         "is_online": True,
                         "is_ready": False,
                         "stone": 0,
+                        "cosmetics": self._sanitize_cosmetics(cosmetics),
                     }
                 )
             else:
@@ -275,6 +319,8 @@ class GomokuManager:
                 player["avatar_url"] = avatar_url
                 player["last_seen"] = now_iso()
                 player["is_online"] = True
+                player["cosmetics"] = self._sanitize_cosmetics(cosmetics or player.get("cosmetics"))
+            self._resolve_cosmetic_color_conflict(room, player_id_value)
             self._save_room(room)
             return self._public_room(room, player_id_value)
 
@@ -325,6 +371,18 @@ class GomokuManager:
             player["is_ready"] = not bool(player.get("is_ready"))
             self._save_room(room)
 
+    def update_cosmetics(self, room_code: str, player_id: str, cosmetics: Dict[str, Any] | None) -> None:
+        with self._lock:
+            room = self._rooms.get(str(room_code or "").strip().upper())
+            if not room:
+                raise ValueError("房间不存在")
+            player = self._find_player(room, player_id)
+            if not player:
+                raise ValueError("玩家不在房间中")
+            player["cosmetics"] = self._sanitize_cosmetics(cosmetics)
+            self._resolve_cosmetic_color_conflict(room, player_id)
+            self._save_room(room)
+
     def _check_win(self, board: List[List[int]], row: int, col: int, stone: int) -> bool:
         directions = [(1, 0), (0, 1), (1, 1), (1, -1)]
         for dx, dy in directions:
@@ -354,12 +412,22 @@ class GomokuManager:
                 raise ValueError("五子棋需要 2 名玩家")
             if not all(player.get("is_ready") for player in players):
                 raise ValueError("两名玩家都准备后才能开始")
-            room["match_index"] = int(room.get("match_index") or 0) + 1
-            self._reset_match_state(room, preserve_history=True)
-            room["status"] = "playing"
-            room["turn_player_id"] = players[0]["player_id"]
-            players[0]["stone"] = 1
-            players[1]["stone"] = 2
+            self._begin_match(room, players)
+            self._save_room(room)
+
+    def restart_match(self, room_code: str, player_id: str) -> None:
+        with self._lock:
+            room = self._rooms.get(str(room_code or "").strip().upper())
+            if not room:
+                raise ValueError("房间不存在")
+            if room.get("host_player_id") != player_id:
+                raise ValueError("只有房主可以重开")
+            if room.get("status") == "playing":
+                raise ValueError("对局进行中，无法重开")
+            players = self._active_players(room)
+            if len(players) != 2:
+                raise ValueError("五子棋需要 2 名玩家")
+            self._begin_match(room, players)
             self._save_room(room)
 
     def place_stone(self, room_code: str, player_id: str, row: int, col: int) -> None:
@@ -385,6 +453,7 @@ class GomokuManager:
             board[row][col] = stone
             room["board"] = board
             room["move_count"] = int(room.get("move_count") or 0) + 1
+            room["last_move"] = {"row": row, "col": col, "stone": stone, "player_id": player_id}
             players = self._active_players(room)
             if self._check_win(board, row, col, stone):
                 room["status"] = "finished"
@@ -449,6 +518,7 @@ def init_gomoku_socketio(socketio, profile_resolver):
         profile = profile_resolver(request)
         previous_rooms = gomoku_manager.rooms_for_player(profile["identity"])
         room_code = str(payload.get("room_code") or "").strip().upper()
+        cosmetics = payload.get("cosmetics") if isinstance(payload.get("cosmetics"), dict) else {}
         try:
             room_payload = gomoku_manager.create_or_join_room(
                 ip=profile["identity"],
@@ -457,6 +527,7 @@ def init_gomoku_socketio(socketio, profile_resolver):
                 display_name=profile["display_name"],
                 avatar_url=profile.get("avatar_url", ""),
                 room_code=room_code or None,
+                cosmetics=cosmetics,
             )
         except Exception as exc:
             emit("gomoku_error", {"error": str(exc)})
@@ -494,12 +565,40 @@ def init_gomoku_socketio(socketio, profile_resolver):
         _emit_room(room_code)
         _emit_rooms()
 
+    @socketio.on("gomoku_update_cosmetics", namespace=ROOM_NAMESPACE)
+    def gomoku_update_cosmetics(data):
+        payload = dict(data or {})
+        room_code = str(payload.get("room_code") or "").strip().upper()
+        try:
+            gomoku_manager.update_cosmetics(
+                room_code,
+                profile_resolver(request)["identity"],
+                payload.get("cosmetics") if isinstance(payload.get("cosmetics"), dict) else {},
+            )
+        except Exception as exc:
+            emit("gomoku_error", {"error": str(exc)})
+            return
+        _emit_room(room_code)
+        _emit_rooms()
+
     @socketio.on("gomoku_start", namespace=ROOM_NAMESPACE)
     def gomoku_start(data):
         payload = dict(data or {})
         room_code = str(payload.get("room_code") or "").strip().upper()
         try:
             gomoku_manager.start_match(room_code, profile_resolver(request)["identity"])
+        except Exception as exc:
+            emit("gomoku_error", {"error": str(exc)})
+            return
+        _emit_room(room_code)
+        _emit_rooms()
+
+    @socketio.on("gomoku_rematch", namespace=ROOM_NAMESPACE)
+    def gomoku_rematch(data):
+        payload = dict(data or {})
+        room_code = str(payload.get("room_code") or "").strip().upper()
+        try:
+            gomoku_manager.restart_match(room_code, profile_resolver(request)["identity"])
         except Exception as exc:
             emit("gomoku_error", {"error": str(exc)})
             return
@@ -521,4 +620,3 @@ def init_gomoku_socketio(socketio, profile_resolver):
             emit("gomoku_error", {"error": str(exc)})
             return
         _emit_room(room_code)
-        _emit_rooms()

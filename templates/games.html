@@ -112,11 +112,6 @@
                 <div class="games-nav-list" id="gamesNavList"></div>
             </section>
 
-            <section class="games-panel games-manifest-card">
-                <div class="games-section-title">本地资源清单</div>
-                <div class="games-manifest-list" id="gamesManifestList"></div>
-            </section>
-
             <div class="games-back-links">
                 <a href="{{ url_for('index') }}" class="games-link"><i class="fa fa-arrow-left"></i> 返回入口页</a>
             </div>
@@ -229,7 +224,10 @@
             fallbackAvatarText: "{{ (game_profile.display_name or 'I')[:1] }}",
             initialGameId: "{{ request.args.get('game', '') }}",
             initialRoomCode: "{{ request.args.get('room', '') }}",
-            topdownScoreSoftCap: {{ topdown_score_soft_cap|int }}
+            topdownScoreSoftCap: {{ topdown_score_soft_cap|int }},
+            topdownMetaColorDrawCost: {{ topdown_meta_color_draw_cost|default(4800)|int }},
+            topdownMetaIconDrawCost: {{ topdown_meta_icon_draw_cost|default(3200)|int }},
+            topdownMetaBackgroundDrawCost: {{ topdown_meta_background_draw_cost|default(4000)|int }}
         };
     </script>
     <script src="{{ url_for('static', filename='js/bootstrap.bundle.min.js') }}"></script>
