@@ -821,11 +821,29 @@
                 if (!(target instanceof HTMLElement)) {
                     return;
                 }
-                if (target.hasAttribute("data-topdown-meta-close")) {
+                const actionTarget = target.closest([
+                    "[data-topdown-meta-close]",
+                    "[data-topdown-meta-view]",
+                    "[data-topdown-equip-category]",
+                    "[data-topdown-equip-game]",
+                    "[data-topdown-equip-color]",
+                    "[data-topdown-equip-icon]",
+                    "[data-topdown-equip-background]",
+                    "[data-topdown-draw-color]",
+                    "[data-topdown-draw-color-ten]",
+                    "[data-topdown-draw-icon]",
+                    "[data-topdown-draw-icon-ten]",
+                    "[data-topdown-draw-background]",
+                    "[data-topdown-draw-background-ten]"
+                ].join(","));
+                if (!(actionTarget instanceof HTMLElement) || !metaModal.contains(actionTarget)) {
+                    return;
+                }
+                if (actionTarget.hasAttribute("data-topdown-meta-close")) {
                     closeMetaModal();
                     return;
                 }
-                const nextView = target.getAttribute("data-topdown-meta-view");
+                const nextView = actionTarget.getAttribute("data-topdown-meta-view");
                 if (nextView === "draw" || nextView === "equip") {
                     if (topdownAnyMetaRollActive()) {
                         metaFlashMessage = "当前正在开奖，请等待滚动结束。";
@@ -836,7 +854,7 @@
                     renderMetaModal();
                     return;
                 }
-                const equipColorKey = target.getAttribute("data-topdown-equip-color");
+                const equipColorKey = actionTarget.getAttribute("data-topdown-equip-color");
                 if (equipColorKey) {
                     if (topdownAnyMetaRollActive()) {
                         metaFlashMessage = "当前正在开奖，请等待滚动结束后再切换装备。";
@@ -851,7 +869,7 @@
                     }
                     return;
                 }
-                const equipIconKey = target.getAttribute("data-topdown-equip-icon");
+                const equipIconKey = actionTarget.getAttribute("data-topdown-equip-icon");
                 if (equipIconKey) {
                     if (topdownAnyMetaRollActive()) {
                         metaFlashMessage = "当前正在开奖，请等待滚动结束后再切换装备。";
@@ -866,7 +884,7 @@
                     }
                     return;
                 }
-                const equipBackgroundKey = target.getAttribute("data-topdown-equip-background");
+                const equipBackgroundKey = actionTarget.getAttribute("data-topdown-equip-background");
                 if (equipBackgroundKey) {
                     if (topdownAnyMetaRollActive()) {
                         metaFlashMessage = "当前正在开奖，请等待滚动结束后再切换装备。";
@@ -882,27 +900,27 @@
                     }
                     return;
                 }
-                if (target.hasAttribute("data-topdown-draw-color")) {
+                if (actionTarget.hasAttribute("data-topdown-draw-color")) {
                     drawTopdownColor();
                     return;
                 }
-                if (target.hasAttribute("data-topdown-draw-color-ten")) {
+                if (actionTarget.hasAttribute("data-topdown-draw-color-ten")) {
                     drawTopdownBatch("color", 10);
                     return;
                 }
-                if (target.hasAttribute("data-topdown-draw-icon")) {
+                if (actionTarget.hasAttribute("data-topdown-draw-icon")) {
                     drawTopdownIcon();
                     return;
                 }
-                if (target.hasAttribute("data-topdown-draw-icon-ten")) {
+                if (actionTarget.hasAttribute("data-topdown-draw-icon-ten")) {
                     drawTopdownBatch("icon", 10);
                     return;
                 }
-                if (target.hasAttribute("data-topdown-draw-background")) {
+                if (actionTarget.hasAttribute("data-topdown-draw-background")) {
                     drawTopdownBackground();
                     return;
                 }
-                if (target.hasAttribute("data-topdown-draw-background-ten")) {
+                if (actionTarget.hasAttribute("data-topdown-draw-background-ten")) {
                     drawTopdownBatch("background", 10);
                 }
             });
