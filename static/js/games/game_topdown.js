@@ -22,8 +22,12 @@
         const refreshScorePanels = hubCtx.refreshScorePanels;
         const openGameInfoOverlay = hubCtx.openGameInfoOverlay;
         const createGameStartOverlay = hubCtx.createGameStartOverlay;
+        const createArcadeShell = hubCtx.createArcadeShell;
+        const setArcadeStats = hubCtx.setArcadeStats;
+        const setArcadeList = hubCtx.setArcadeList;
         const randomBetween = hubCtx.randomBetween;
         const clamp = hubCtx.clamp;
+        const distanceBetween = hubCtx.distanceBetween;
         const {
             TOPDOWN_BALANCE,
             TOPDOWN_SCORE_SOFT_CAP,
@@ -57,6 +61,7 @@
             getTopdownDerivedStats,
             topdownGetIconImage,
             topdownHasLivingBoss,
+            renderTopdownAttributeCards,
             topdownIconCatalog,
             topdownIconDrawWeight,
             topdownIconPreviewGlyph,
