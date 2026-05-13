@@ -165,6 +165,7 @@ def _build_instance_attribute_template(
 class LocalERPManager:
     def __init__(self, db_path: Optional[str] = None) -> None:
         data_dir = get_data_path("local_erp")
+        os.makedirs(data_dir, exist_ok=True)
         self.db_path = db_path or os.path.join(data_dir, "erp.sqlite3")
         self._lock = threading.RLock()
         self._schema_path = self._resolve_schema_path()
@@ -194,6 +195,9 @@ class LocalERPManager:
                 conn.commit()
 
     def _connect(self) -> sqlite3.Connection:
+        parent_dir = os.path.dirname(self.db_path)
+        if parent_dir:
+            os.makedirs(parent_dir, exist_ok=True)
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys = ON")
