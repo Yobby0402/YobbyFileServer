@@ -70,10 +70,12 @@
             drawTopdownElementBeam,
             drawTopdownElementBullet,
             topdownEquippedAppearance,
+            topdownFormatHpValue,
             topdownFindEnemyById,
             topdownFireEnemyAttack,
             getTopdownDerivedStats,
             topdownGetIconImage,
+            topdownHasPickupMagnet,
             topdownHasLivingBoss,
             drawTopdownStatusRing,
             getWingmanSlots,
@@ -96,7 +98,11 @@
             topdownRollRowBaseKeys,
             topdownRollSequence,
             topdownSkillCatalog,
+            topdownSkillCooldownValue,
             topdownSkillCooldownRemaining,
+            topdownSkillBlinkDistance,
+            topdownSkillInvincibleDuration,
+            topdownSkillMissileLifetime,
             topdownSkillReady,
             topdownSkillSummary,
             topdownSkillTriggerKeyLabel,
@@ -108,8 +114,15 @@
             topdownWeightedPick,
             topdownWingmanDetailLines,
             createTopdownShooterSession,
+            awardTopdownScore,
+            buildTopdownUpgradeChoices,
+            damageTopdownEnemy,
+            damageTopdownPlayer,
+            distanceToSegmentSquared,
             getTopdownSharedMetaState,
             normalizeTopdownShooterSession,
+            parseTopdownMetaNumber,
+            resetTopdownCombo,
             serializeTopdownMetaState,
             serializeTopdownShooterSession,
             setTopdownSharedMetaState,
@@ -121,7 +134,8 @@
             summarizeTopdownMetaState,
             summarizeTopdownShooterSession,
             syncTopdownClock,
-            syncTopdownShieldCapacity
+            syncTopdownShieldCapacity,
+            trimTopdownArray
         } = hubCtx.topdown;
         let session = normalizeTopdownShooterSession(savedPayload.state || {});
         let metaState = setTopdownSharedMetaState(savedPayload.metaState || {});
@@ -135,7 +149,7 @@
                 "火会灼烧叠层并周期性打出火系范围叠层弹；电是瞬发激光并固定折射最近敌人；冰会减速叠层直到冰冻；核会生成绿色范围爆发圈。",
                 "主武器满级后：火可传染燃烧，电可附加感电增伤，冰冻敌人有概率碎裂秒杀，核会概率留下持续辐射区。",
                 "僚机会共享当前僚机数量对应的弹种等级，但不触发主武器的满级终极效果。",
-                "首个首领必定掉技能。闪现会朝当前移动方向触发；若当前没有移动则无法发动。所有技能冷却均为 60 秒。",
+                "首个首领必定掉技能。闪现会朝当前移动方向触发；若当前没有移动则无法发动。技能基础冷却为 45 秒，可通过强化缩短；持续强化对闪现改为提升距离。",
                 "普通小怪也有 1% 概率掉落随机补给，可能是升级球，也可能是随机道具。",
                 "后期精英和首领会使用单发、散射、环形弹幕或线性光束；斥力会击飞玩家，典狱长会周期展开阻弹结界并压慢周围敌人。",
                 "黑手会抓钩，噩梦会致盲，良子会吞怪回血，魅魔会吸附并狂暴附近单位。",
@@ -175,6 +189,8 @@
         const arenaPlayerMargin = TOPDOWN_BALANCE.arenaPlayerMargin;
         arcade.canvas.width = arenaWidth;
         arcade.canvas.height = arenaHeight;
+        let topdownLayoutFrame = 0;
+        let topdownLayoutObserver = null;
         const pointer = { x: arenaWidth / 2, y: arenaHeight / 2, down: false };
         const pressed = Object.create(null);
         const blockedKeys = { Space: true, ArrowUp: true, ArrowDown: true, ArrowLeft: true, ArrowRight: true, KeyW: true, KeyA: true, KeyS: true, KeyD: true, KeyJ: true, KeyQ: true, KeyE: true, KeyR: true, KeyP: true, Digit0: true, Digit1: true, Digit2: true, Digit3: true };
@@ -208,14 +224,14 @@
             pointer.down = false;
             updateControlButtons();
             updateHud();
-            persist();
+            persistLocalRuntime();
         }, false);
         const fireControlButton = addStageButton("", function () {
             session.fireControl = session.fireControl === "auto" ? "manual" : "auto";
             pointer.down = false;
             updateControlButtons();
             updateHud();
-            persist();
+            persistLocalRuntime();
         }, false);
         const skillKeyButton = addStageButton("", function () {
             const options = topdownSkillTriggerKeyOptions();
@@ -223,7 +239,7 @@
             session.skillTriggerKey = options[(currentIndex + 1 + options.length) % options.length];
             updateControlButtons();
             updateHud();
-            persist();
+            persistLocalRuntime();
         }, false);
         addStageButton("帮助", function () {
             openGameInfoOverlay(arcade.canvasWrap, topdownHelpConfig);
@@ -242,13 +258,51 @@
         }
         updateControlButtons();
 
+        function topdownContentBoxSize(element) {
+            if (!element) {
+                return { width: arenaWidth, height: arenaHeight };
+            }
+            const styles = window.getComputedStyle(element);
+            const padX = (parseFloat(styles.paddingLeft) || 0) + (parseFloat(styles.paddingRight) || 0);
+            const padY = (parseFloat(styles.paddingTop) || 0) + (parseFloat(styles.paddingBottom) || 0);
+            return {
+                width: Math.max(1, element.clientWidth - padX),
+                height: Math.max(1, element.clientHeight - padY)
+            };
+        }
+
+        function syncTopdownCanvasScale() {
+            topdownLayoutFrame = 0;
+            const contentSize = topdownContentBoxSize(arcade.canvasWrap);
+            const scale = clamp(Math.min(contentSize.width / arenaWidth, contentSize.height / arenaHeight), 0.35, 1);
+            arcade.shell.style.setProperty("--topdown-canvas-scale", scale.toFixed(4));
+        }
+
+        function scheduleTopdownCanvasScale() {
+            if (topdownLayoutFrame) {
+                window.cancelAnimationFrame(topdownLayoutFrame);
+            }
+            topdownLayoutFrame = window.requestAnimationFrame(syncTopdownCanvasScale);
+        }
+
         function persistMeta() {
             scheduleGameStateSave("topdown-shooter-meta", serializeTopdownMetaState(metaState), summarizeTopdownMetaState(metaState));
         }
 
-        function persist() {
+        function persistLocalRuntime() {
+            scheduleGameStateSave(
+                "topdown-shooter",
+                serializeTopdownShooterSession(session),
+                summarizeTopdownShooterSession(session),
+                { localOnly: true }
+            );
+        }
+
+        function persist(forceRemote) {
             scheduleGameStateSave("topdown-shooter", serializeTopdownShooterSession(session), summarizeTopdownShooterSession(session));
-            persistMeta();
+            if (forceRemote !== false) {
+                persistMeta();
+            }
         }
 
         function finalizeRunRewardIfNeeded() {
@@ -266,13 +320,14 @@
         const metaRollMetrics = {
             itemWidth: 112,
             itemGap: 8,
-            sequenceCount: 24,
-            durationMs: 3200
+            sequenceCount: 42,
+            durationMs: 4200
         };
         let metaView = "draw";
         let metaFlashMessage = "";
         let metaShowLocked = true;
         let metaRevealTimer = 0;
+        let metaRevealCloseHandler = null;
         let metaPaymentBusy = false;
         const metaRollState = {
             color: { rolling: false, sequenceKeys: [], winnerKey: "", winnerIndex: 0, frameId: 0, offsetPx: 0, refund: 0 },
@@ -576,6 +631,10 @@
                 window.clearTimeout(metaRevealTimer);
                 metaRevealTimer = 0;
             }
+            if (metaRevealCloseHandler) {
+                document.removeEventListener("pointerdown", metaRevealCloseHandler, true);
+                metaRevealCloseHandler = null;
+            }
             const durationMs = list.length > 1 ? 10000 : 5000;
             const reveal = document.createElement("div");
             reveal.className = "topdown-meta-reveal" + (list.length > 1 ? " topdown-meta-reveal--batch" : "");
@@ -604,11 +663,15 @@
                 }
                 reveal.remove();
                 document.removeEventListener("pointerdown", closeReveal, true);
+                if (metaRevealCloseHandler === closeReveal) {
+                    metaRevealCloseHandler = null;
+                }
             }
             dialog.appendChild(reveal);
             window.setTimeout(function () {
                 document.addEventListener("pointerdown", closeReveal, true);
             }, 0);
+            metaRevealCloseHandler = closeReveal;
             metaRevealTimer = window.setTimeout(closeReveal, durationMs);
         }
 
@@ -1165,20 +1228,37 @@
             return result;
         }
 
-        function topdownStartRoll(kind, payment, winnerKey) {
+        function topdownRollTierRank(tier) {
+            if (tier === "superrare") {
+                return 2;
+            }
+            if (tier === "rare") {
+                return 1;
+            }
+            return 0;
+        }
+
+        function topdownBatchWinnerKey(kind, results) {
+            const best = (Array.isArray(results) ? results : [])
+                .filter(Boolean)
+                .sort(function (a, b) {
+                    if (Boolean(a.duplicate) !== Boolean(b.duplicate)) {
+                        return a.duplicate ? 1 : -1;
+                    }
+                    return topdownRollTierRank(b.tier) - topdownRollTierRank(a.tier);
+                })[0];
+            return best && best.key ? best.key : topdownRollNextRewardKey(kind);
+        }
+
+        function topdownAnimateRoll(kind, winnerKey, onComplete) {
             const rowState = metaRollState[kind];
             if (rowState.rolling) {
                 return;
             }
             metaView = "draw";
-            metaFlashMessage = "";
-            metaState.pulls += 1;
-            if (kind === "color") {
-                metaState.colorPulls += 1;
-            } else if (kind === "background") {
-                metaState.backgroundPulls = Math.max(0, Number(metaState.backgroundPulls || 0)) + 1;
-            } else {
-                metaState.iconPulls += 1;
+            if (rowState.frameId) {
+                window.cancelAnimationFrame(rowState.frameId);
+                rowState.frameId = 0;
             }
             const rollSequence = topdownRollSequence(
                 kind,
@@ -1197,9 +1277,9 @@
             const track = metaModal ? metaModal.querySelector('[data-topdown-roll-track="' + kind + '"]') : null;
             if (!viewport || !track) {
                 rowState.rolling = false;
-                topdownResolveRollReward(kind, winnerKey, payment && payment.unitCosts ? payment.unitCosts[0] : 0);
-                persistMeta();
-                renderMetaModal();
+                if (typeof onComplete === "function") {
+                    onComplete();
+                }
                 return;
             }
             const itemSpan = metaRollMetrics.itemWidth + metaRollMetrics.itemGap;
@@ -1207,8 +1287,10 @@
             const startedAt = performance.now();
             function frame(now) {
                 const progress = clamp((now - startedAt) / metaRollMetrics.durationMs, 0, 1);
-                const eased = Math.sin(progress * Math.PI * 0.5);
-                rowState.offsetPx = targetOffset * eased;
+                const eased = 1 - Math.pow(1 - progress, 3);
+                const wave = Math.sin(progress * Math.PI * 10) * (1 - progress) * itemSpan * 0.24;
+                const sway = Math.sin(progress * Math.PI * 2.5) * (1 - progress) * itemSpan * 0.12;
+                rowState.offsetPx = Math.max(0, targetOffset * eased + wave + sway);
                 const liveTrack = metaModal ? metaModal.querySelector('[data-topdown-roll-track="' + kind + '"]') : track;
                 if (liveTrack) {
                     liveTrack.style.transform = 'translateX(-' + rowState.offsetPx + 'px)';
@@ -1218,12 +1300,30 @@
                     return;
                 }
                 rowState.frameId = 0;
+                rowState.offsetPx = targetOffset;
                 rowState.rolling = false;
+                syncMetaRollTracks();
+                if (typeof onComplete === "function") {
+                    onComplete();
+                }
+            }
+            rowState.frameId = window.requestAnimationFrame(frame);
+        }
+
+        function topdownStartRoll(kind, payment, winnerKey) {
+            metaState.pulls += 1;
+            if (kind === "color") {
+                metaState.colorPulls += 1;
+            } else if (kind === "background") {
+                metaState.backgroundPulls = Math.max(0, Number(metaState.backgroundPulls || 0)) + 1;
+            } else {
+                metaState.iconPulls += 1;
+            }
+            topdownAnimateRoll(kind, winnerKey, function () {
                 topdownResolveRollReward(kind, winnerKey, payment && payment.unitCosts ? payment.unitCosts[0] : 0);
                 persistMeta();
                 renderMetaModal();
-            }
-            rowState.frameId = window.requestAnimationFrame(frame);
+            });
         }
 
         async function drawTopdownColor() {
@@ -1360,10 +1460,12 @@
                 return item.label + (item.duplicate ? "(重复)" : "");
             }).join("、");
             metaFlashMessage = "十连抽" + label + "完成：" + topdownPaymentText(payment) + "；新获得 " + newCount + "，重复 " + duplicateCount + "，返还 " + refundTotal + " 总积分。结果：" + names + (results.length > 6 ? " 等。" : "。");
-            persistMeta();
-            renderMetaModal();
-            showTopdownRewardReveal(kind, results);
-            topdownSettleRefunds(kind, results);
+            topdownAnimateRoll(kind, topdownBatchWinnerKey(kind, results), function () {
+                persistMeta();
+                renderMetaModal();
+                showTopdownRewardReveal(kind, results);
+                topdownSettleRefunds(kind, results);
+            });
         }
 
         function updateHud() {
@@ -1416,7 +1518,7 @@
                 session.status = "paused";
                 pointer.down = false;
             }
-            persist();
+            persistLocalRuntime();
         }
 
         function selectUpgrade(index) {
@@ -1424,7 +1526,7 @@
                 return;
             }
             if (applyTopdownUpgrade(session, session.pendingUpgrade.choices[index])) {
-                persist();
+                persistLocalRuntime();
             }
         }
 
@@ -1446,7 +1548,14 @@
                 setStatus("首领装备已装配：" + choice.label + " Lv." + topdownRelicStacks(session, choice.key), false);
             }
             session.pendingPickupChoice = null;
-            persist();
+            if (session.startUpgradeChoicesRemaining > 0 && !session.pendingUpgrade) {
+                session.pendingUpgrade = {
+                    choices: buildTopdownUpgradeChoices(session),
+                    rerolled: false,
+                    startupRemaining: session.startUpgradeChoicesRemaining
+                };
+            }
+            persistLocalRuntime();
         }
 
         function declinePendingPickupChoice() {
@@ -1458,7 +1567,14 @@
             if (itemKey === "element-swap") {
                 applyTopdownRandomUpgrade(session);
             }
-            persist();
+            if (session.startUpgradeChoicesRemaining > 0 && !session.pendingUpgrade) {
+                session.pendingUpgrade = {
+                    choices: buildTopdownUpgradeChoices(session),
+                    rerolled: false,
+                    startupRemaining: session.startUpgradeChoicesRemaining
+                };
+            }
+            persistLocalRuntime();
         }
 
         function rerollUpgradeChoices() {
@@ -1472,7 +1588,7 @@
             session.pendingUpgrade.choices = choices;
             session.pendingUpgrade.rerolled = true;
             session.rerollsRemaining -= 1;
-            persist();
+            persistLocalRuntime();
         }
 
         function applySkillChoice(key) {
@@ -1518,7 +1634,7 @@
                 radius: TOPDOWN_BALANCE.missileRadius,
                 damage: damage,
                 targetId: target.id,
-                life: 6
+                life: topdownSkillMissileLifetime(session)
             });
             session.nextId += 1;
             return true;
@@ -1544,13 +1660,13 @@
                     return false;
                 }
                 session.player.dashLeft = TOPDOWN_BALANCE.blinkDuration;
-                session.player.dashVx = moveX / moveLen * TOPDOWN_BALANCE.blinkDistance / TOPDOWN_BALANCE.blinkDuration;
-                session.player.dashVy = moveY / moveLen * TOPDOWN_BALANCE.blinkDistance / TOPDOWN_BALANCE.blinkDuration;
+                session.player.dashVx = moveX / moveLen * topdownSkillBlinkDistance(session) / TOPDOWN_BALANCE.blinkDuration;
+                session.player.dashVy = moveY / moveLen * topdownSkillBlinkDistance(session) / TOPDOWN_BALANCE.blinkDuration;
                 session.player.invulnerableUntil = Math.max(Number(session.player.invulnerableUntil || 0), session.tick + TOPDOWN_BALANCE.blinkDuration);
                 session.player.pullLeft = 0;
                 session.player.pullEnemyId = 0;
                 session.player.controlLock = 0;
-                session.skill.readyAt = session.tick + TOPDOWN_BALANCE.skillCooldown;
+                session.skill.readyAt = session.tick + topdownSkillCooldownValue(session);
                 setStatus("已触发闪现。", false);
                 return true;
             }
@@ -1579,14 +1695,14 @@
                 sources.slice(0, TOPDOWN_BALANCE.maxSkillProjectiles).forEach(function (source) {
                     spawnTopdownSkillMissile(source.x, source.y, source.damage, 0);
                 });
-                session.skill.readyAt = session.tick + TOPDOWN_BALANCE.skillCooldown;
+                session.skill.readyAt = session.tick + topdownSkillCooldownValue(session);
                 setStatus("已发动导弹矩阵。", false);
                 return true;
             }
             if (session.skill.key === "invincible") {
-                session.player.invulnerableUntil = Math.max(Number(session.player.invulnerableUntil || 0), session.tick + TOPDOWN_BALANCE.invincibleDuration);
-                session.skill.readyAt = session.tick + TOPDOWN_BALANCE.skillCooldown;
-                setStatus("已进入 10 秒无敌状态。", false);
+                session.player.invulnerableUntil = Math.max(Number(session.player.invulnerableUntil || 0), session.tick + topdownSkillInvincibleDuration(session));
+                session.skill.readyAt = session.tick + topdownSkillCooldownValue(session);
+                setStatus("已进入 " + topdownSkillInvincibleDuration(session).toFixed(1) + " 秒无敌状态。", false);
                 return true;
             }
             return false;
@@ -1819,6 +1935,17 @@
             });
             session.pickups.forEach(function (pickup) {
                 pickup.ttl -= dt;
+                if (topdownHasPickupMagnet(session)) {
+                    const dx = session.player.x - pickup.x;
+                    const dy = session.player.y - pickup.y;
+                    const distance = Math.sqrt(dx * dx + dy * dy) || 0;
+                    if (distance > 0.5) {
+                        const speed = TOPDOWN_BALANCE.pickupMagnetSpeed + distance * TOPDOWN_BALANCE.pickupMagnetCatchupFactor;
+                        const step = Math.min(distance, speed * dt);
+                        pickup.x += dx / distance * step;
+                        pickup.y += dy / distance * step;
+                    }
+                }
             });
 
             session.bullets = session.bullets.filter(function (bullet) { return bullet.life > 0 && bullet.x >= -arenaPadding && bullet.x <= arenaWidth + arenaPadding && bullet.y >= -arenaPadding && bullet.y <= arenaHeight + arenaPadding; });
@@ -2138,22 +2265,30 @@
             session.bullets = aliveBullets;
             session.enemies = session.enemies.filter(function (enemy) { return removedEnemyIds.indexOf(enemy.id) === -1 && enemy.hp > 0; });
 
-            session.pickups = session.pickups.filter(function (pickup) {
-                if (distanceBetween(pickup, session.player) <= pickup.radius + session.player.radius + 4) {
-                    if (pickup.kind === "item") {
-                        applyTopdownItemEffect(session, pickup.itemKey);
-                    } else {
-                        const choices = buildTopdownUpgradeChoices(session);
-                        if (choices.length) {
-                            session.pendingUpgrade = { choices: choices, rerolled: false };
+            (function resolvePickupCollection() {
+                const currentPickups = Array.isArray(session.pickups) ? session.pickups.slice() : [];
+                const remainingPickups = [];
+                currentPickups.forEach(function (pickup) {
+                    if (distanceBetween(pickup, session.player) <= pickup.radius + session.player.radius + 4) {
+                        if (pickup.kind === "item") {
+                            applyTopdownItemEffect(session, pickup.itemKey);
                         } else {
-                            awardTopdownScore(session, TOPDOWN_BALANCE.killScore);
+                            const choices = buildTopdownUpgradeChoices(session);
+                            if (choices.length) {
+                                session.pendingUpgrade = { choices: choices, rerolled: false };
+                            } else {
+                                awardTopdownScore(session, TOPDOWN_BALANCE.killScore);
+                            }
                         }
+                        return;
                     }
-                    return false;
-                }
-                return true;
-            });
+                    remainingPickups.push(pickup);
+                });
+                const spawnedDuringCollection = (session.pickups || []).filter(function (pickup) {
+                    return currentPickups.indexOf(pickup) === -1;
+                });
+                session.pickups = remainingPickups.concat(spawnedDuringCollection);
+            })();
 
             if (session.player.hitCooldown <= 0 || session.player.pullLeft > 0) {
                 let gotHit = false;
@@ -2368,13 +2503,35 @@
             }
         }
 
+        function topdownDamageFlashState(remaining) {
+            const flashLeft = Math.max(0, Number(remaining || 0));
+            if (flashLeft <= 0) {
+                return { active: false, blinkOn: false, alpha: 1, tintAlpha: 0 };
+            }
+            const totalDuration = Number(TOPDOWN_BALANCE.damageFlashDuration || 0.9);
+            const blinkPairs = Math.max(1, Number(TOPDOWN_BALANCE.damageFlashBlinkPairs || 5));
+            const elapsed = Math.max(0, totalDuration - Math.min(totalDuration, flashLeft));
+            const phaseLength = totalDuration / (blinkPairs * 2);
+            const phaseIndex = Math.floor(elapsed / phaseLength);
+            const blinkOn = phaseIndex % 2 === 0;
+            return {
+                active: true,
+                blinkOn: blinkOn,
+                alpha: blinkOn ? 1 : 0.26,
+                tintAlpha: blinkOn ? 0.92 : 0
+            };
+        }
+
         function drawTopdownPlayerCore(ctx, appearance, playerScale, damageFlash) {
             const color = appearance.color;
             const baseRadius = 14 * playerScale;
             const iconBoxSize = baseRadius * 1.48;
             const iconFontSize = Math.round(baseRadius * 1.12);
+            const flashState = topdownDamageFlashState(damageFlash);
+            ctx.save();
+            ctx.globalAlpha = flashState.alpha;
             topdownApplyFillStyle(ctx, color, 0, 0, 18 * playerScale, session.tick);
-            if (damageFlash) {
+            if (flashState.blinkOn) {
                 ctx.fillStyle = "#fb7185";
             }
             if (appearance.icon.kind === "glyph") {
@@ -2413,7 +2570,7 @@
                     ctx.save();
                     ctx.shadowColor = color.accent || color.stroke || "#67e8f9";
                     ctx.shadowBlur = 10 * playerScale;
-                    ctx.globalAlpha = damageFlash ? 0.88 : 0.98;
+                    ctx.globalAlpha = flashState.blinkOn ? 0.88 : 0.98;
                     ctx.drawImage(image, -iconBoxSize / 2, -iconBoxSize / 2, iconBoxSize, iconBoxSize);
                     ctx.globalCompositeOperation = "source-in";
                     topdownApplyFillStyle(ctx, color, -iconBoxSize / 2, -iconBoxSize / 2, iconBoxSize, session.tick);
@@ -2432,6 +2589,14 @@
                 ctx.textAlign = "center";
                 ctx.textBaseline = "middle";
                 ctx.fillText(topdownIconPreviewGlyph(icon), 0, 0);
+            }
+            ctx.restore();
+            if (flashState.tintAlpha > 0) {
+                ctx.fillStyle = "rgba(251, 113, 133, " + flashState.tintAlpha.toFixed(3) + ")";
+                ctx.globalCompositeOperation = "source-atop";
+                ctx.beginPath();
+                ctx.arc(0, 0, baseRadius * 1.55, 0, Math.PI * 2);
+                ctx.fill();
             }
             ctx.restore();
         }
@@ -2475,7 +2640,7 @@
             ctx.translate(session.player.x, session.player.y);
             ctx.rotate(topdownCurrentAimAngle(session, pointer));
             const playerScale = session.player.radius / TOPDOWN_BALANCE.playerRadius;
-            drawTopdownPlayerCore(ctx, appearance, playerScale, session.player.damageFlash > 0);
+            drawTopdownPlayerCore(ctx, appearance, playerScale, session.player.damageFlash);
             {
                 const shieldStats = syncTopdownShieldCapacity(session);
                 for (let shieldIndex = 0; shieldIndex < shieldStats.max; shieldIndex += 1) {
@@ -2721,7 +2886,7 @@
                 ctx.fillStyle = "#f8fafc";
                 ctx.font = "700 12px Consolas";
                 ctx.textAlign = "center";
-                ctx.fillText(String(Math.max(1, Math.ceil(enemy.hp))), enemy.x, enemy.y + 4);
+                ctx.fillText(topdownFormatHpValue(enemy.hp), enemy.x, enemy.y + 4);
                 if ((enemy.isElite && enemy.eliteType) || enemy.remnantActive) {
                     ctx.fillStyle = enemy.isBoss ? "#c4b5fd" : "#fde68a";
                     ctx.font = "700 " + (enemy.isBoss ? "11" : "10") + "px Segoe UI";
@@ -2813,9 +2978,9 @@
             }
             renderSession();
             updateHud();
-            if (session.elapsedSeconds !== persistStamp || session.status === "paused") {
+            if (session.elapsedSeconds !== persistStamp) {
                 persistStamp = session.elapsedSeconds;
-                persist();
+                persistLocalRuntime();
             }
             animationId = window.requestAnimationFrame(loop);
         }
@@ -2847,7 +3012,7 @@
                 resolvePendingPickupChoice(Number(event.code.slice(5)) - 1);
             } else if (event.code === session.skillTriggerKey) {
                 if (activateTopdownSkill()) {
-                    persist();
+                    persistLocalRuntime();
                 }
             } else if (event.code === "KeyP") {
                 togglePause();
@@ -2925,6 +3090,25 @@
         arcade.canvas.addEventListener("mousemove", pointerMove);
         arcade.canvas.addEventListener("mousedown", pointerDown);
         window.addEventListener("mouseup", pointerUp);
+        window.addEventListener("resize", scheduleTopdownCanvasScale);
+        if (window.ResizeObserver) {
+            topdownLayoutObserver = new ResizeObserver(function () {
+                scheduleTopdownCanvasScale();
+            });
+            if (els.stageBody) {
+                topdownLayoutObserver.observe(els.stageBody);
+            }
+            if (els.stageToolbar) {
+                topdownLayoutObserver.observe(els.stageToolbar);
+            }
+            if (els.stageActions) {
+                topdownLayoutObserver.observe(els.stageActions);
+            }
+            if (arcade.canvasWrap) {
+                topdownLayoutObserver.observe(arcade.canvasWrap);
+            }
+        }
+        scheduleTopdownCanvasScale();
 
         createGameStartOverlay(arcade.canvasWrap, Object.assign({}, topdownHelpConfig, {
             buttonLabel: session.score > 0 || session.kills > 0 || session.elapsedSeconds > 0 ? "继续出击" : "开始出击",
@@ -2938,7 +3122,7 @@
                     session.startedAt += Date.now() - introShownAt;
                 }
                 updateHud();
-                persist();
+                persistLocalRuntime();
             }
         }));
 
@@ -2953,13 +3137,21 @@
         };
 
         updateHud();
-        persist();
+        persistLocalRuntime();
         animationId = window.requestAnimationFrame(loop);
 
         return function cleanup() {
             document.body.classList.remove("games-topdown-active");
             state.topdownMetaRefresh = null;
             state.topdownMetaBeforeOpen = null;
+            if (metaRevealTimer) {
+                window.clearTimeout(metaRevealTimer);
+                metaRevealTimer = 0;
+            }
+            if (metaRevealCloseHandler) {
+                document.removeEventListener("pointerdown", metaRevealCloseHandler, true);
+                metaRevealCloseHandler = null;
+            }
             if (els.stageBody) {
                 els.stageBody.classList.remove("games-stage-body--topdown");
             }
@@ -2967,13 +3159,22 @@
                 els.stageActions.classList.remove("games-stage-actions--topdown");
             }
             window.cancelAnimationFrame(animationId);
+            if (topdownLayoutFrame) {
+                window.cancelAnimationFrame(topdownLayoutFrame);
+                topdownLayoutFrame = 0;
+            }
+            if (topdownLayoutObserver) {
+                topdownLayoutObserver.disconnect();
+                topdownLayoutObserver = null;
+            }
             document.removeEventListener("keydown", keydown);
             document.removeEventListener("keyup", keyup);
             arcade.canvas.removeEventListener("mousemove", pointerMove);
             arcade.canvas.removeEventListener("mousedown", pointerDown);
             window.removeEventListener("mouseup", pointerUp);
+            window.removeEventListener("resize", scheduleTopdownCanvasScale);
             syncTopdownClock(session);
-            persist();
+            persist(false);
         };
     }
 

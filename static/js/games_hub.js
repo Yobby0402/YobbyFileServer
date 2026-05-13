@@ -3,6 +3,7 @@
 
     const config = window.gamesHubConfig || {};
     const GAMES_THEME_SCHEME_KEY = "games_theme_scheme";
+    const GAMES_RUNTIME_STATE_PREFIX = "games_runtime_state:";
     const TOPDOWN_SCORE_SOFT_CAP = Math.max(0, Number(config.topdownScoreSoftCap || 100000));
     const GOMOKU_NAMESPACE = "/games-gomoku";
     const GAMES_SCRIPT_BASE_URL = (document.currentScript && document.currentScript.src)
@@ -25,6 +26,7 @@
         activeGameId: null,
         activeCleanup: null,
         saveTimers: Object.create(null),
+        savedFingerprints: Object.create(null),
         presenceTimer: null,
         topdownMetaState: null,
         topdownMetaRefresh: null,
@@ -212,6 +214,41 @@
 
     function getStateUrl(gameId) {
         return String(config.stateUrlTemplate || "").replace("__GAME_ID__", encodeURIComponent(gameId));
+    }
+
+    function getRuntimeStateCacheKey(gameId) {
+        return GAMES_RUNTIME_STATE_PREFIX + String(gameId || "");
+    }
+
+    function cacheRuntimeGameState(gameId, gameState, summary) {
+        try {
+            window.sessionStorage.setItem(getRuntimeStateCacheKey(gameId), JSON.stringify({
+                state: gameState || {},
+                summary: summary || {},
+                savedAt: Date.now()
+            }));
+        } catch (error) {
+            void error;
+        }
+    }
+
+    function loadCachedRuntimeGameState(gameId) {
+        try {
+            const raw = window.sessionStorage.getItem(getRuntimeStateCacheKey(gameId));
+            if (!raw) {
+                return null;
+            }
+            const parsed = JSON.parse(raw);
+            if (!parsed || typeof parsed !== "object") {
+                return null;
+            }
+            return {
+                state: parsed.state || {},
+                summary: parsed.summary || {}
+            };
+        } catch (error) {
+            return null;
+        }
     }
 
     function escapeHtml(value) {
@@ -844,7 +881,19 @@
         setStatus("头像已更新。", false);
     }
 
-    function scheduleGameStateSave(gameId, gameState, summary) {
+    function scheduleGameStateSave(gameId, gameState, summary, options) {
+        const saveOptions = options && typeof options === "object" ? options : {};
+        cacheRuntimeGameState(gameId, gameState, summary);
+        if (saveOptions.localOnly) {
+            return;
+        }
+        const fingerprint = JSON.stringify({
+            state: gameState || {},
+            summary: summary || {}
+        });
+        if (!saveOptions.force && state.savedFingerprints[gameId] === fingerprint) {
+            return;
+        }
         if (state.saveTimers[gameId]) {
             window.clearTimeout(state.saveTimers[gameId]);
         }
@@ -853,6 +902,8 @@
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ state: gameState || {}, summary: summary || {} })
+            }).then(function () {
+                state.savedFingerprints[gameId] = fingerprint;
             }).catch(function (error) {
                 setStatus(error.message || "进度保存失败", true);
             });
@@ -860,6 +911,10 @@
     }
 
     async function loadGameState(gameId) {
+        const cached = loadCachedRuntimeGameState(gameId);
+        if (cached) {
+            return cached;
+        }
         return requestJson(getStateUrl(gameId), { method: "GET" });
     }
 
@@ -944,11 +999,20 @@
                 drawTopdownCosmeticBackground: drawTopdownCosmeticBackground,
                 drawTopdownElementBeam: drawTopdownElementBeam,
                 drawTopdownElementBullet: drawTopdownElementBullet,
+                awardTopdownScore: awardTopdownScore,
+                buildTopdownUpgradeChoices: buildTopdownUpgradeChoices,
+                damageTopdownEnemy: damageTopdownEnemy,
+                damageTopdownPlayer: damageTopdownPlayer,
+                distanceToSegmentSquared: distanceToSegmentSquared,
+                parseTopdownMetaNumber: parseTopdownMetaNumber,
+                resetTopdownCombo: resetTopdownCombo,
                 topdownEquippedAppearance: topdownEquippedAppearance,
+                topdownFormatHpValue: topdownFormatHpValue,
                 topdownFindEnemyById: topdownFindEnemyById,
                 topdownFireEnemyAttack: topdownFireEnemyAttack,
                 getTopdownDerivedStats: getTopdownDerivedStats,
                 topdownGetIconImage: topdownGetIconImage,
+                topdownHasPickupMagnet: topdownHasPickupMagnet,
                 topdownHasLivingBoss: topdownHasLivingBoss,
                 drawTopdownStatusRing: drawTopdownStatusRing,
                 getWingmanSlots: getWingmanSlots,
@@ -971,7 +1035,11 @@
                 topdownRollRowBaseKeys: topdownRollRowBaseKeys,
                 topdownRollSequence: topdownRollSequence,
                 topdownSkillCatalog: topdownSkillCatalog,
+                topdownSkillCooldownValue: topdownSkillCooldownValue,
                 topdownSkillCooldownRemaining: topdownSkillCooldownRemaining,
+                topdownSkillBlinkDistance: topdownSkillBlinkDistance,
+                topdownSkillInvincibleDuration: topdownSkillInvincibleDuration,
+                topdownSkillMissileLifetime: topdownSkillMissileLifetime,
                 topdownSkillReady: topdownSkillReady,
                 topdownSkillSummary: topdownSkillSummary,
                 topdownSkillTriggerKeyLabel: topdownSkillTriggerKeyLabel,
@@ -980,6 +1048,7 @@
                 topdownSpawnInterval: topdownSpawnInterval,
                 topdownSuperRareColorKeys: topdownSuperRareColorKeys,
                 topdownTargetEnemyCount: topdownTargetEnemyCount,
+                trimTopdownArray: trimTopdownArray,
                 topdownWeightedPick: topdownWeightedPick,
                 topdownWingmanDetailLines: topdownWingmanDetailLines,
                 createTopdownShooterSession: createTopdownShooterSession,
@@ -997,7 +1066,16 @@
                 summarizeTopdownShooterSession: summarizeTopdownShooterSession,
                 syncTopdownClock: syncTopdownClock,
                 syncTopdownShieldCapacity: syncTopdownShieldCapacity
+            },
+            /*
+            },
+            "pickup-magnet": {
+                label: "鍚稿惎瑁呯疆",
+                shortLabel: "鍚稿惎",
+                description: "鎵€鏈夊彲鎷惧彇鐗╀細鑷姩鍚稿悜鐜╁銆傚彧鑳芥嫢鏈?1 灞傘€?,
+                maxStacks: 1
             }
+            */
         };
     }
 
@@ -1084,7 +1162,11 @@
             window.clearInterval(state.presenceTimer);
         }
         postPresence();
-        state.presenceTimer = window.setInterval(postPresence, 15000);
+        state.presenceTimer = window.setInterval(function () {
+            loadOnlineVisitors().catch(function () {
+                return null;
+            });
+        }, 60000);
     }
 
     async function launchGame(gameId) {
@@ -1319,59 +1401,67 @@
 
     const TOPDOWN_BALANCE = {
         // 得分与节奏
-        killScore: 2,
-        waveStepKills: 10,
-        waveBonusScore: 4,
-        comboResetWindow: 8,
+        killScore: 2, // base score per kill
+        waveStepKills: 10, // kills required to push one normal wave step
+        waveBonusScore: 4, // bonus score granted when wave count rises
+        comboResetWindow: 8, // base combo timeout in seconds
         comboResetWindowPerLevel: 0.8,
         comboResetWindowMin: 5,
         comboScoreStep: 5,
         comboItemEvery: 60,
         comboItemEveryStep: 5,
         comboItemEveryMin: 25,
-        itemBuffDuration: 30,
-        bonusRerollsAmount: 5,
+        itemBuffDuration: 30, // duration of temporary item buffs in seconds
+        bonusRerollsAmount: 5, // rerolls granted by the reroll pickup
         // 基础生存
-        playerLives: 1,
-        baseShieldLayers: 2,
+        playerLives: 1, // reserved player life count
+        baseShieldLayers: 2, // starting shield layers
         shieldLayerPerLevel: 1,
         shieldCapacityCap: 6,
-        shieldRechargeDelay: 5.4,
+        shieldRechargeDelay: 5.4, // seconds before shield recharge starts
         shieldRechargeDelayStep: 0.7,
         shieldRechargeDelayMin: 1.8,
         shieldRechargeDuration: 4.6,
         shieldRechargeDurationStep: 0.55,
         shieldRechargeDurationMin: 1.5,
         // 玩家基础数值
-        baseMoveSpeed: 236,
+        baseMoveSpeed: 236, // starting move speed
         moveSpeedPerLevel: 18,
         moveSpeedRollMin: 24,
         moveSpeedRollMax: 42,
-        baseFireInterval: 0.22,
-        fireRateStep: 0.07,
+        baseFireInterval: 0.22, // base seconds between shots
+        fireRateStep: 0.1,
         fireRateRollMin: 0.035,
-        fireRateRollMax: 0.07,
-        minFireInterval: 0.085,
-        baseBulletDamage: 3.2,
+        fireRateRollMax: 0.2,
+        minFireInterval: 0.05,
+        baseBulletDamage: 3.2, // starting bullet damage
         attackPerLevel: 0.75,
         attackRollMin: 0.85,
         attackRollMax: 1.65,
-        damageSoftCap: 15.5,
-        damageOverflowFactor: 0.55,
-        bulletSpeed: 480,
+        damageSoftCap: 18.5, // soft cap for player damage
+        damageOverflowFactor: 0.55, // retained efficiency after the soft cap
+        damagePrecision: 1000, // fixed-point precision for damage values
+        hpPrecision: 1000, // fixed-point precision for hp and shield values
+        damageEpsilon: 0.0001, // treat smaller damage as zero
+        killEpsilon: 0.001, // treat smaller remaining hp as zero
+        bulletSpeed: 480, // projectile speed
         bulletRadius: 4,
         bulletLife: 1.4,
         projectileCap: 6,
         projectileRadiusPerLevel: 0.45,
         projectileLifePerLevel: 0.14,
-        moveSpeedSoftCap: 360,
+        moveSpeedSoftCap: 360, // soft cap for move speed
         moveSpeedOverflowFactor: 0.45,
-        fireRateSoftCapPerSecond: 7.2,
-        fireRateHardCapPerSecond: 10.5,
+        fireRateSoftCapPerSecond: 8.4,
+        fireRateHardCapPerSecond: 12.4,
         fireRateOverflowFactor: 0.45,
-        playerRadius: 14,
-        arenaWidth: 960,
-        arenaHeight: 720,
+        playerRadius: 14, // base player collision radius
+        damageFlashDuration: 0.9, // player hit-flash duration in seconds
+        damageFlashBlinkPairs: 3, // blink pairs during the hit flash
+        enemyHpTextDecimalThreshold: 10, // show decimals when hp is low
+        enemyHpTextDecimals: 1, // decimal places shown for low fractional hp
+        arenaWidth: 960, // logical arena width
+        arenaHeight: 720, // logical arena height
         arenaPadding: 20,
         arenaPlayerMargin: 18,
         multishotSpread: 0.18,
@@ -1382,39 +1472,47 @@
         pickupRadius: 13,
         pickupLifetime: 20,
         // 敌人刷新与成长
-        targetEnemyBase: 4,
+        targetEnemyBase: 4, // base desired living enemy count
         targetEnemyPerWave: 1.15,
         targetEnemyCap: 22,
-        spawnBaseInterval: 1.18,
+        spawnBaseInterval: 1.18, // base seconds between spawn attempts
         spawnIntervalWaveStep: 0.16,
         spawnIntervalMin: 0.33,
         enemyBaseRadius: 16,
         enemyRadiusVariance: 8,
-        enemyBaseSpeed: 28,
+        enemyBaseSpeed: 28, // baseline enemy move speed
         enemySpeedPerWave: 1.6,
         enemySpeedVariance: 14,
-        enemyBaseHp: 6,
-        enemyHpPerWave: 1.35,
-        enemyHpPerKill: 0.14,
-        enemyHpPerBoss: 5,
+        enemyBaseHp: 6, // baseline enemy hp
+        enemyHpPerWave: 1.35, // hp gained per wave
+        enemyHpPerKill: 0.14, // hp gained per player kill
+        enemyHpPerBoss: 5, // hp gained per defeated boss
         latePressureStartWave: 9,
         lateEnemyHpPerWave: 1.9,
         lateEnemySpeedPerWave: 1.05,
         enemyFireMin: 1.2,
         enemyFireMax: 2.9,
         enemyFireRange: 340,
-        enemyBulletSpeed: 182,
+        enemyBulletSpeed: 182, // baseline enemy bullet speed
+        enemyPowerPressureSoftCap: 5.2,
+        enemyPowerHpStep: 2.2,
+        enemyPowerHpCurve: 0.82,
+        enemyPowerSpeedStep: 0.05,
+        enemyPowerBulletSpeedStep: 0.045,
+        enemyPowerFireRateStep: 0.03,
+        rareIconStartChoices: 2,
+        superRareIconStartChoices: 2,
         // 精英怪
-        eliteEveryKills: 9,
-        eliteHpMultiplier: 1.55,
+        eliteEveryKills: 9, // spawn an elite after this many kills
+        eliteHpMultiplier: 1.55, // hp multiplier applied to elites
         eliteFireRateMultiplier: 0.78,
         eliteBulletSpread: 0.16,
         eliteBulletCount: 1,
         eliteSpeedMultiplier: 1.16,
         eliteBulletSpeedPerWave: 5,
         bossWaveEvery: 4,
-        bossHpMultiplier: 5.2,
-        bossShieldBase: 24,
+        bossHpMultiplier: 5.2, // hp multiplier applied to bosses
+        bossShieldBase: 24, // starting boss shield amount
         bossShieldPerWave: 5,
         bossShieldPerBoss: 8,
         bossRadius: 30,
@@ -1422,43 +1520,43 @@
         bossBulletCount: 5,
         bossBulletSpeedMultiplier: 1.45,
         bossSpeedMultiplier: 0.78,
-        bossBonusScore: 24,
+        bossBonusScore: 24, // bonus score granted for a boss kill
         bossRelicChoiceCount: 2,
         // 强化上限
         elementCap: 7,
         statCap: 7,
-        multishotCap: 5,
+        multishotCap: 8,
         comboWindowCap: 5,
         comboThresholdCap: 7,
         // 火 / 电 / 冰 / 核
-        burnDuration: 2.2,
-        burnTickInterval: 0.35,
+        burnDuration: 2.2, // seconds fire burn remains active
+        burnTickInterval: 0.35, // seconds between burn ticks
         burnStackMax: 6,
         burnDamageBase: 0.8,
         burnDamagePerLevel: 0.7,
         burnDamagePerStack: 0.4,
-        fireSpreadOverlapPadding: 2,
+        fireSpreadOverlapPadding: 5,
         elementAoeBaseInterval: 10,
         elementAoeIntervalStep: 1,
-        elementAoeMinInterval: 5,
+        elementAoeMinInterval: 3,
         fireAoeBaseRadius: 46,
         fireAoeRadiusPerLevel: 7,
         iceAoeBaseRadius: 50,
         iceAoeRadiusPerLevel: 8,
         electricBaseChains: 1,
         electricRadius: 150,
-        electricDamageFactor: 0.7,
+        electricDamageFactor: 0.7, // chain lightning damage multiplier
         electricBeamLife: 0.1,
-        electricMaxRange: 420,
+        electricMaxRange: 420, // max electric beam travel distance
         electricShockChance: 0.34,
         electricShockBonus: 1.45,
         iceSlowPerStack: 0.11,
         iceMaxSlow: 0.78,
-        iceFreezeStacks: 6,
-        iceFreezeDuration: 1.35,
-        iceShatterChance: 0.24,
-        nuclearBaseRadius: 52,
-        nuclearRadiusPerLevel: 18,
+        iceFreezeStacks: 6, // stacks required to freeze
+        iceFreezeDuration: 5.35,
+        iceShatterChance: 0.5,
+        nuclearBaseRadius: 52, // base nuclear explosion radius
+        nuclearRadiusPerLevel: 20,
         nuclearDamageFactor: 0.8,
         nuclearBurstLife: 0.24,
         nuclearRadiationChance: 0.26,
@@ -1477,8 +1575,8 @@
         enemyRingSpeedFactor: 0.76,
         enemyBarrageBulletCount: 6,
         enemyBarrageSpread: 0.34,
-        enemyContactDamage: 1,
-        enemyDefaultBulletDamage: 1,
+        enemyContactDamage: 1, // damage from touching an enemy
+        enemyDefaultBulletDamage: 1, // default enemy projectile damage
         maxPlayerBullets: 320,
         maxEnemyBullets: 420,
         maxFriendlyBeams: 140,
@@ -1487,7 +1585,7 @@
         maxPickups: 28,
         maxEnemiesHard: 40,
         // 道具与精英
-        totalRerolls: 5,
+        totalRerolls: 5, // rerolls granted at run start
         eliteTypes: ["dash", "sniper", "summoner", "self-destruct", "buffer", "splitter", "repulsor", "warden", "blackhand", "nightmare", "liangzi", "luse", "succubus"],
         eliteDashCooldown: 3.2,
         eliteDashSpeed: 270,
@@ -1507,16 +1605,16 @@
         selfDestructDelay: 1.15,
         selfDestructRadius: 76,
         selfDestructBurstLife: 0.42,
-        repulsorRange: 168,
-        repulsorKnockDistance: 128,
+        repulsorRange: 168, // range where repulsor can knock back player
+        repulsorKnockDistance: 128, // distance of repulsor knockback
         repulsorKnockSpeed: 360,
         repulsorCooldown: 3.1,
-        wardenFieldRange: 168,
+        wardenFieldRange: 168, // radius of warden projectile-block field
         wardenFieldOnDuration: 2.8,
         wardenFieldOffDuration: 1.7,
         wardenEnemySlowMultiplier: 0.58,
         blackhandHookRange: 430,
-        blackhandHookSpeed: 226,
+        blackhandHookSpeed: 280,
         blackhandPullSpeed: 258,
         blackhandHookCooldown: 2.8,
         nightmareBlindDuration: 5,
@@ -1526,8 +1624,8 @@
         liangziConsumeCooldown: 1,
         liangziConsumeHpFactor: 1.5,
         luseTriggerRange: 330,
-        luseBarrageCount: 34,
-        luseSpreadRadians: 0.0523598776,
+        luseBarrageCount: 84,
+        luseSpreadRadians: 0.0820304748,
         luseDecayPerSecond: 20,
         succubusAuraRange: 178,
         succubusPullStrength: 156,
@@ -1536,8 +1634,8 @@
         frenzyExhaustDuration: 5,
         frenzyMoveMultiplier: 0.5,
         frenzyVolleyInterval: 0.12,
-        frenzyBulletCount: 18,
-        frenzySpreadRadians: 0.0523598776,
+        frenzyBulletCount: 84,
+        frenzySpreadRadians: 0.0820304748,
         // 普通小怪幸运掉落
         luckyDropChance: 0.01,
         luckyDropItemWeight: 0.6,
@@ -1556,33 +1654,38 @@
         magneticTrapDamageFactor: 1.5,
         magneticTrapSpinFactor: 3.1,
         magneticTrapHitIntervalFactor: 0.72,
-        splitterChildCount: 5,
+        pickupMagnetSpeed: 420,
+        pickupMagnetCatchupFactor: 0.42,
+        splitterChildCount: 5, // children spawned by splitter elite
         splitterChildHpFactor: 0.3,
         splitterChildSpeedFactor: 1.18,
         splitterChildRadiusFactor: 0.56,
         // 技能
-        skillCooldown: 60,
+        skillCooldown: 45, // base skill cooldown in seconds
+        skillUpgradeStep: 0.05, // per-level percentage gain for skill upgrades
+        skillUpgradeCap: 6,
         blinkTapWindow: 0.24,
-        blinkDistance: 138,
+        blinkDistance: 138, // base blink travel distance
         blinkDuration: 0.14,
         missileSpeed: 540,
         missileTurnRate: 8.8,
         missileRadius: 6,
-        missileDamageFactor: 1.85,
+        missileLifetime: 6,
+        missileDamageFactor: 1.85, // missile damage multiplier
         invincibleDuration: 10,
         maxSkillProjectiles: 180,
         // 局外养成
-        metaColorDrawCost: Math.max(0, Number(config.topdownMetaColorDrawCost == null ? 4800 : config.topdownMetaColorDrawCost)),
-        metaIconDrawCost: Math.max(0, Number(config.topdownMetaIconDrawCost == null ? 3200 : config.topdownMetaIconDrawCost)),
-        metaBackgroundDrawCost: Math.max(0, Number(config.topdownMetaBackgroundDrawCost == null ? 4000 : config.topdownMetaBackgroundDrawCost)),
-        metaLoginGiftPulls: 100,
-        metaDailyFreeTenCount: 10,
-        metaRareColorChance: 0.035,
-        metaSuperRareColorChance: 0.012,
-        metaPointsBaseReward: 120,
-        metaPointsScoreRate: 1.1,
-        metaPointsBossBonus: 180,
-        metaPointsComboBonus: 4
+        metaColorDrawCost: Math.max(0, Number(config.topdownMetaColorDrawCost == null ? 4800 : config.topdownMetaColorDrawCost)), // point cost per color draw
+        metaIconDrawCost: Math.max(0, Number(config.topdownMetaIconDrawCost == null ? 3200 : config.topdownMetaIconDrawCost)), // point cost per icon draw
+        metaBackgroundDrawCost: Math.max(0, Number(config.topdownMetaBackgroundDrawCost == null ? 4000 : config.topdownMetaBackgroundDrawCost)), // point cost per background draw
+        metaLoginGiftPulls: 100, // login gift pulls granted per pool
+        metaDailyFreeTenCount: 10, // free daily ten-pull count per pool
+        metaRareColorChance: 0.035, // rare color chance after unlock
+        metaSuperRareColorChance: 0.012, // super-rare color chance after unlock
+        metaPointsBaseReward: 120, // base meta points granted per run
+        metaPointsScoreRate: 1.1, // score-to-meta-points conversion rate
+        metaPointsBossBonus: 180, // extra meta points per defeated boss
+        metaPointsComboBonus: 4 // extra meta points per combo breakpoint
     };
 
     function topdownPickupVisual(pickup) {
@@ -1686,6 +1789,12 @@
                 shortLabel: "磁阱",
                 description: "每层新增 1 颗环绕子弹，接触敌人造成当前攻击力 " + TOPDOWN_BALANCE.magneticTrapDamageFactor.toFixed(1) + " 倍伤害。可叠加，最多 " + TOPDOWN_BALANCE.magneticTrapMaxStacks + " 层。",
                 maxStacks: TOPDOWN_BALANCE.magneticTrapMaxStacks
+            },
+            "pickup-magnet": {
+                label: "Pickup Magnet",
+                shortLabel: "Magnet",
+                description: "Pickups automatically fly toward the player. Max 1 stack.",
+                maxStacks: 1
             }
         };
     }
@@ -1711,6 +1820,10 @@
             TOPDOWN_BALANCE.playerRadius * 0.42,
             TOPDOWN_BALANCE.playerRadius * Math.pow(1 - TOPDOWN_BALANCE.shrinkEngineScaleStep, topdownRelicStacks(session, "shrink-engine"))
         );
+    }
+
+    function topdownHasPickupMagnet(session) {
+        return topdownRelicStacks(session, "pickup-magnet") > 0;
     }
 
     function topdownMagneticTrapOrbs(session) {
@@ -1817,27 +1930,33 @@
     function topdownDifficultyScale(session) {
         const wave = Math.max(1, Number(session.wave || 1));
         const latePressure = topdownLatePressure(session);
+        const powerPressure = topdownPlayerPowerPressure(session);
         return 1
             + Math.pow(Math.max(0, wave - 1), 1.16) * 0.09
             + Number(session.bossesDefeated || 0) * 0.28
             + latePressure * 0.18
-            + latePressure * latePressure * 0.015;
+            + latePressure * latePressure * 0.015
+            + powerPressure * 0.2
+            + powerPressure * powerPressure * 0.02;
     }
 
     function topdownTargetEnemyCount(session) {
         const wavePressure = Math.floor(Math.pow(Math.max(1, Number(session.wave || 1)), 1.08) * TOPDOWN_BALANCE.targetEnemyPerWave);
+        const powerPressure = topdownPlayerPowerPressure(session);
         return Math.min(
             TOPDOWN_BALANCE.targetEnemyCap,
-            TOPDOWN_BALANCE.targetEnemyBase + wavePressure + Math.floor(Number(session.bossesDefeated || 0) * 0.8) + Math.floor(topdownLatePressure(session) * 0.45)
+            TOPDOWN_BALANCE.targetEnemyBase + wavePressure + Math.floor(Number(session.bossesDefeated || 0) * 0.8) + Math.floor(topdownLatePressure(session) * 0.45) + Math.floor(powerPressure * 0.6)
         );
     }
 
     function topdownSpawnInterval(session) {
+        const powerPressure = topdownPlayerPowerPressure(session);
         return Math.max(
             TOPDOWN_BALANCE.spawnIntervalMin,
             TOPDOWN_BALANCE.spawnBaseInterval
                 - Math.min(0.72, Math.log1p(Math.max(0, Number(session.wave || 1) - 1)) * TOPDOWN_BALANCE.spawnIntervalWaveStep)
                 - Math.min(0.16, topdownLatePressure(session) * 0.012)
+                - Math.min(0.12, powerPressure * 0.02)
         );
     }
 
@@ -2406,6 +2525,137 @@
         };
     }
 
+    function topdownIconBonusPreset(icon) {
+        const presets = [
+            {
+                key: "arsenal",
+                attackMultiplier: 1.1,
+                damageFlat: 1.2,
+                fireRateMultiplier: 0.94,
+                label: "火力起步"
+            },
+            {
+                key: "wingman",
+                wingmanMaxBonus: 1,
+                moveSpeedMultiplier: 1.06,
+                label: "额外僚机位"
+            },
+            {
+                key: "velocity",
+                fireRateMultiplier: 0.88,
+                moveSpeedMultiplier: 1.08,
+                label: "高机动高速射"
+            }
+        ];
+        const iconKey = String(icon && icon.key || "");
+        const hash = iconKey.split("").reduce(function (sum, ch) {
+            return sum + ch.charCodeAt(0);
+        }, 0);
+        return presets[hash % presets.length];
+    }
+
+    function topdownBackgroundBonusPreset(background) {
+        const key = String(background && background.key || "");
+        if (key === "prism_board") {
+            return {
+                enemyBulletSpeedMultiplier: 0.88,
+                enemyFireCooldownMultiplier: 1.06,
+                label: "敌弹折射减速"
+            };
+        }
+        if (key === "galaxy_board") {
+            return {
+                enemySpeedMultiplier: 0.88,
+                enemyBulletSpeedMultiplier: 0.94,
+                label: "引力减速场"
+            };
+        }
+        if (key === "gold_eclipse") {
+            return {
+                enemyFireCooldownMultiplier: 1.12,
+                enemySpeedMultiplier: 0.94,
+                label: "日蚀压制"
+            };
+        }
+        if (key === "void_lotus") {
+            return {
+                enemySpeedMultiplier: 0.9,
+                enemyBulletSpeedMultiplier: 0.9,
+                label: "虚空迟滞"
+            };
+        }
+        return {
+            enemySpeedMultiplier: 1,
+            enemyBulletSpeedMultiplier: 1,
+            enemyFireCooldownMultiplier: 1,
+            label: ""
+        };
+    }
+
+    function topdownBuildRunCosmeticBonuses(meta) {
+        const appearance = topdownEquippedAppearance(meta);
+        const icon = appearance.icon || {};
+        const background = appearance.background || {};
+        const iconBonus = topdownIconBonusPreset(icon);
+        const backgroundBonus = topdownBackgroundBonusPreset(background);
+        const result = {
+            iconKey: String(icon.key || "triangle"),
+            iconTier: String(icon.tier || "common"),
+            backgroundKey: String(background.key || "dojo"),
+            backgroundTier: String(background.tier || "common"),
+            startUpgradeChoices: 0,
+            attackMultiplier: 1,
+            damageFlat: 0,
+            fireRateMultiplier: 1,
+            moveSpeedMultiplier: 1,
+            wingmanMaxBonus: 0,
+            enemySpeedMultiplier: 1,
+            enemyBulletSpeedMultiplier: 1,
+            enemyFireCooldownMultiplier: 1,
+            iconBonusLabel: "",
+            backgroundBonusLabel: ""
+        };
+        if (icon.tier === "rare") {
+            result.startUpgradeChoices = TOPDOWN_BALANCE.rareIconStartChoices;
+        } else if (icon.tier === "superrare") {
+            result.startUpgradeChoices = TOPDOWN_BALANCE.superRareIconStartChoices;
+            result.attackMultiplier = iconBonus.attackMultiplier || 1;
+            result.damageFlat = iconBonus.damageFlat || 0;
+            result.fireRateMultiplier = iconBonus.fireRateMultiplier || 1;
+            result.moveSpeedMultiplier = iconBonus.moveSpeedMultiplier || 1;
+            result.wingmanMaxBonus = iconBonus.wingmanMaxBonus || 0;
+            result.iconBonusLabel = iconBonus.label || "";
+        }
+        if (background.tier === "superrare") {
+            result.enemySpeedMultiplier = backgroundBonus.enemySpeedMultiplier || 1;
+            result.enemyBulletSpeedMultiplier = backgroundBonus.enemyBulletSpeedMultiplier || 1;
+            result.enemyFireCooldownMultiplier = backgroundBonus.enemyFireCooldownMultiplier || 1;
+            result.backgroundBonusLabel = backgroundBonus.label || "";
+        }
+        return result;
+    }
+
+    function normalizeTopdownRunCosmeticBonuses(raw) {
+        const base = topdownBuildRunCosmeticBonuses(getTopdownSharedMetaState());
+        return Object.assign(base, raw && typeof raw === "object" ? raw : {}, {
+            startUpgradeChoices: Math.max(0, Math.floor(Number(raw && raw.startUpgradeChoices != null ? raw.startUpgradeChoices : base.startUpgradeChoices))),
+            attackMultiplier: Math.max(0.75, Number(raw && raw.attackMultiplier != null ? raw.attackMultiplier : base.attackMultiplier) || 1),
+            damageFlat: Number(raw && raw.damageFlat != null ? raw.damageFlat : base.damageFlat) || 0,
+            fireRateMultiplier: Math.max(0.72, Number(raw && raw.fireRateMultiplier != null ? raw.fireRateMultiplier : base.fireRateMultiplier) || 1),
+            moveSpeedMultiplier: Math.max(0.75, Number(raw && raw.moveSpeedMultiplier != null ? raw.moveSpeedMultiplier : base.moveSpeedMultiplier) || 1),
+            wingmanMaxBonus: Math.max(0, Math.floor(Number(raw && raw.wingmanMaxBonus != null ? raw.wingmanMaxBonus : base.wingmanMaxBonus))),
+            enemySpeedMultiplier: Math.max(0.72, Number(raw && raw.enemySpeedMultiplier != null ? raw.enemySpeedMultiplier : base.enemySpeedMultiplier) || 1),
+            enemyBulletSpeedMultiplier: Math.max(0.72, Number(raw && raw.enemyBulletSpeedMultiplier != null ? raw.enemyBulletSpeedMultiplier : base.enemyBulletSpeedMultiplier) || 1),
+            enemyFireCooldownMultiplier: Math.max(0.72, Number(raw && raw.enemyFireCooldownMultiplier != null ? raw.enemyFireCooldownMultiplier : base.enemyFireCooldownMultiplier) || 1),
+            iconBonusLabel: String(raw && raw.iconBonusLabel != null ? raw.iconBonusLabel : base.iconBonusLabel || ""),
+            backgroundBonusLabel: String(raw && raw.backgroundBonusLabel != null ? raw.backgroundBonusLabel : base.backgroundBonusLabel || "")
+        });
+    }
+
+    function topdownSessionCosmeticBonuses(session) {
+        return normalizeTopdownRunCosmeticBonuses(session && session.cosmeticBonuses);
+    }
+
     function topdownAllCommonColorsOwned(meta) {
         const state = normalizeTopdownMetaState(meta);
         const owned = {};
@@ -2855,19 +3105,19 @@
                 key: "blink",
                 label: "闪现",
                 shortLabel: "闪现",
-                description: "按技能键发动，朝当前移动方向闪现一段距离，闪现期间无敌。每 60 秒可触发一次。"
+                description: "按技能键发动，朝当前移动方向闪现一段距离，闪现期间无敌。基础冷却 45 秒；技能持续强化会改为提升闪现距离。"
             },
             missile: {
                 key: "missile",
                 label: "导弹矩阵",
                 shortLabel: "导弹",
-                description: "按技能键发动。把场上的子弹重定向成追踪导弹，优先锁定首领和精英。每 60 秒一次。"
+                description: "按技能键发动。把场上的子弹重定向成追踪导弹，优先锁定首领和精英。基础冷却 45 秒；技能持续强化会延长导弹存在时间。"
             },
             invincible: {
                 key: "invincible",
                 label: "绝对无敌",
                 shortLabel: "无敌",
-                description: "按技能键发动。立刻获得 10 秒无敌时间。每 60 秒一次。"
+                description: "按技能键发动。立刻获得 10 秒无敌时间。基础冷却 45 秒；可通过强化同时提升持续和冷却。"
             }
         };
     }
@@ -2881,6 +3131,30 @@
                 description: catalog[key].description
             };
         });
+    }
+
+    function topdownSkillCooldownValue(session) {
+        const build = (session && session.build) || normalizeTopdownBuild();
+        const level = Math.max(0, Math.min(TOPDOWN_BALANCE.skillUpgradeCap, Number(build.skillCooldownLevel || 0)));
+        return TOPDOWN_BALANCE.skillCooldown * Math.max(0.2, 1 - level * TOPDOWN_BALANCE.skillUpgradeStep);
+    }
+
+    function topdownSkillEffectMultiplier(session) {
+        const build = (session && session.build) || normalizeTopdownBuild();
+        const level = Math.max(0, Math.min(TOPDOWN_BALANCE.skillUpgradeCap, Number(build.skillDurationLevel || 0)));
+        return 1 + level * TOPDOWN_BALANCE.skillUpgradeStep;
+    }
+
+    function topdownSkillBlinkDistance(session) {
+        return TOPDOWN_BALANCE.blinkDistance * topdownSkillEffectMultiplier(session);
+    }
+
+    function topdownSkillMissileLifetime(session) {
+        return TOPDOWN_BALANCE.missileLifetime * topdownSkillEffectMultiplier(session);
+    }
+
+    function topdownSkillInvincibleDuration(session) {
+        return TOPDOWN_BALANCE.invincibleDuration * topdownSkillEffectMultiplier(session);
     }
 
     function topdownSkillCooldownRemaining(session) {
@@ -3043,7 +3317,9 @@
             multishotLevel: 0,
             projectileLevel: 0,
             comboWindowLevel: 0,
-            comboThresholdLevel: 0
+            comboThresholdLevel: 0,
+            skillCooldownLevel: 0,
+            skillDurationLevel: 0
         }, raw || {});
     }
 
@@ -3061,6 +3337,8 @@
         if (build.projectileLevel) { parts.push("弹体 " + build.projectileLevel); }
         if (build.comboWindowLevel) { parts.push("续连 +" + build.comboWindowLevel); }
         if (build.comboThresholdLevel) { parts.push("连杀阈值 -" + (build.comboThresholdLevel * TOPDOWN_BALANCE.comboItemEveryStep)); }
+        if (build.skillCooldownLevel) { parts.push("技冷 -" + Math.round(build.skillCooldownLevel * TOPDOWN_BALANCE.skillUpgradeStep * 100) + "%"); }
+        if (build.skillDurationLevel) { parts.push((session && session.skill && session.skill.key === "blink" ? "闪距" : "技时") + " +" + Math.round(build.skillDurationLevel * TOPDOWN_BALANCE.skillUpgradeStep * 100) + "%"); }
         return parts.join(" / ") || "基础配置";
     }
 
@@ -3102,24 +3380,112 @@
         return isWingman ? String((build && build.wingmanElement) || "none") : String((build && build.element) || "none");
     }
 
+    function topdownNormalizeElementLevel(level) {
+        return Math.max(0, Math.floor(Number(level || 0)));
+    }
+
+    function topdownQuantizeValue(value, precision) {
+        const numeric = Number(value || 0);
+        const step = Math.max(1, Math.floor(Number(precision || 1)));
+        if (!Number.isFinite(numeric)) {
+            return 0;
+        }
+        return Math.round(numeric * step) / step;
+    }
+
+    function topdownQuantizeHp(value) {
+        return Math.max(0, topdownQuantizeValue(value, TOPDOWN_BALANCE.hpPrecision));
+    }
+
+    function topdownQuantizeDamage(value) {
+        const quantized = Math.max(0, topdownQuantizeValue(value, TOPDOWN_BALANCE.damagePrecision));
+        return quantized <= TOPDOWN_BALANCE.damageEpsilon ? 0 : quantized;
+    }
+
+    function topdownResolveBulletElementLevel(session, owner, element, explicitLevel) {
+        if (String(element || "none") === "none") {
+            return 0;
+        }
+        const directLevel = topdownNormalizeElementLevel(explicitLevel);
+        if (directLevel > 0) {
+            return directLevel;
+        }
+        const build = session && session.build;
+        const isWingman = owner === "wingman";
+        const resolved = topdownBuildElementLevel(build, isWingman, element);
+        if (resolved > 0) {
+            return topdownNormalizeElementLevel(resolved);
+        }
+        if (isWingman && build) {
+            if (element === "fire") {
+                return topdownNormalizeElementLevel(build.wingmanFireLevel);
+            }
+            if (element === "electric") {
+                return topdownNormalizeElementLevel(build.wingmanElectricLevel);
+            }
+            if (element === "ice") {
+                return topdownNormalizeElementLevel(build.wingmanIceLevel);
+            }
+            if (element === "nuclear") {
+                return topdownNormalizeElementLevel(build.wingmanNuclearLevel);
+            }
+            return topdownNormalizeElementLevel(build.wingmanLevel);
+        }
+        return 0;
+    }
+
+    function topdownNormalizeBulletState(session, bullet) {
+        if (!bullet) {
+            return bullet;
+        }
+        bullet.element = String(bullet.element || "none");
+        bullet.elementLevel = topdownResolveBulletElementLevel(session, bullet.owner, bullet.element, bullet.elementLevel);
+        bullet.damage = topdownQuantizeDamage(bullet.damage);
+        bullet.canUltimate = bullet.canUltimate !== false;
+        bullet.ultimate = bullet.canUltimate && bullet.elementLevel >= TOPDOWN_BALANCE.elementCap;
+        return bullet;
+    }
+
+    function topdownFormatHpValue(value) {
+        const hp = topdownQuantizeHp(value);
+        const fractional = Math.abs(hp - Math.round(hp)) > TOPDOWN_BALANCE.killEpsilon;
+        if (fractional && hp <= TOPDOWN_BALANCE.enemyHpTextDecimalThreshold) {
+            return hp.toFixed(TOPDOWN_BALANCE.enemyHpTextDecimals);
+        }
+        return String(Math.max(1, Math.ceil(hp - TOPDOWN_BALANCE.killEpsilon)));
+    }
+
     function topdownBuildElementLevel(build, isWingman, element) {
         const key = element || topdownBuildElementKey(build, isWingman);
         if (isWingman) {
-            return key !== "none" && key === String((build && build.wingmanElement) || "none")
-                ? Math.max(0, Number((build && build.wingmanLevel) || 0))
-                : 0;
+            if (key === "none" || key !== String((build && build.wingmanElement) || "none")) {
+                return 0;
+            }
+            if (key === "fire" && Number((build && build.wingmanFireLevel) || 0) > 0) {
+                return topdownNormalizeElementLevel(build.wingmanFireLevel);
+            }
+            if (key === "electric" && Number((build && build.wingmanElectricLevel) || 0) > 0) {
+                return topdownNormalizeElementLevel(build.wingmanElectricLevel);
+            }
+            if (key === "ice" && Number((build && build.wingmanIceLevel) || 0) > 0) {
+                return topdownNormalizeElementLevel(build.wingmanIceLevel);
+            }
+            if (key === "nuclear" && Number((build && build.wingmanNuclearLevel) || 0) > 0) {
+                return topdownNormalizeElementLevel(build.wingmanNuclearLevel);
+            }
+            return topdownNormalizeElementLevel((build && build.wingmanLevel) || 0);
         }
         if (key === "fire") {
-            return Number(build.fireLevel) || 0;
+            return topdownNormalizeElementLevel(build && build.fireLevel);
         }
         if (key === "electric") {
-            return Number(build.electricLevel) || 0;
+            return topdownNormalizeElementLevel(build && build.electricLevel);
         }
         if (key === "nuclear") {
-            return Number(build.nuclearLevel) || 0;
+            return topdownNormalizeElementLevel(build && build.nuclearLevel);
         }
         if (key === "ice") {
-            return Number(build.iceLevel) || 0;
+            return topdownNormalizeElementLevel(build && build.iceLevel);
         }
         return 0;
     }
@@ -3250,7 +3616,7 @@
             "射速：" + (1 / Math.max(0.01, stats.fireInterval)).toFixed(1) + "/s",
             "移速：" + stats.moveSpeed.toFixed(0),
             "弹道：" + stats.multishot,
-            "僚机：" + session.build.wingmanLevel + "/" + TOPDOWN_BALANCE.wingmanMax,
+            "僚机：" + session.build.wingmanLevel + "/" + topdownMaxWingmanSlots(session),
             "刷新：" + session.rerollsRemaining + "/" + TOPDOWN_BALANCE.totalRerolls,
             "下个精英还需：" + Math.max(0, session.nextEliteAt - session.kills) + " 击败"
         ];
@@ -3267,28 +3633,105 @@
         }).join("") + "</div>";
     }
 
+    function topdownMaxWingmanSlots(session) {
+        return TOPDOWN_BALANCE.wingmanMax + topdownSessionCosmeticBonuses(session).wingmanMaxBonus;
+    }
+
+    function topdownCosmeticBonusSummary(session) {
+        const bonuses = topdownSessionCosmeticBonuses(session);
+        const parts = [];
+        if (bonuses.startUpgradeChoices > 0) {
+            parts.push("开局强化 +" + bonuses.startUpgradeChoices);
+        }
+        if (bonuses.iconTier === "superrare" && bonuses.iconBonusLabel) {
+            parts.push("图标加成:" + bonuses.iconBonusLabel);
+        }
+        if (bonuses.backgroundTier === "superrare" && bonuses.backgroundBonusLabel) {
+            parts.push("背景加成:" + bonuses.backgroundBonusLabel);
+        }
+        return parts.join(" / ");
+    }
+
+    function topdownPlayerPowerScore(session) {
+        const stats = getTopdownDerivedStats(session, false);
+        const wingStats = session.build.wingmanLevel > 0 ? getTopdownDerivedStats(session, true) : null;
+        const shieldStats = getTopdownShieldStats(session);
+        const baseShotsPerSecond = 1 / TOPDOWN_BALANCE.baseFireInterval;
+        const currentShotsPerSecond = 1 / Math.max(0.01, Number(stats.fireInterval || TOPDOWN_BALANCE.baseFireInterval));
+        let score = 1;
+        score += Math.max(0, (Number(stats.damage || TOPDOWN_BALANCE.baseBulletDamage) - TOPDOWN_BALANCE.baseBulletDamage) / 2.8);
+        score += Math.max(0, currentShotsPerSecond - baseShotsPerSecond) * 0.38;
+        score += Math.max(0, Number(stats.moveSpeed || TOPDOWN_BALANCE.baseMoveSpeed) - TOPDOWN_BALANCE.baseMoveSpeed) / 130;
+        score += Math.max(0, Number(stats.multishot || 1) - 1) * 0.55;
+        score += Math.max(0, Number(session.build.projectileLevel || 0)) * 0.16;
+        score += Math.max(0, Number(session.build.skillCooldownLevel || 0)) * 0.14;
+        score += Math.max(0, Number(session.build.skillDurationLevel || 0)) * 0.14;
+        score += Math.max(0, Number(session.build.comboWindowLevel || 0)) * 0.08;
+        score += Math.max(0, Number(session.build.comboThresholdLevel || 0)) * 0.08;
+        score += Math.max(0, Number(shieldStats.max || TOPDOWN_BALANCE.baseShieldLayers) - TOPDOWN_BALANCE.baseShieldLayers) * 0.32;
+        score += Math.max(0, Number(session.build.wingmanLevel || 0)) * 0.58;
+        if (wingStats) {
+            score += Math.max(0, Number(wingStats.damage || 0)) * 0.06;
+            score += Math.max(0, (1 / Math.max(0.01, Number(wingStats.fireInterval || TOPDOWN_BALANCE.baseFireInterval))) - baseShotsPerSecond * 0.7) * 0.16;
+        }
+        score += topdownRelicStacks(session, "field-dampener") * 0.18;
+        score += topdownRelicStacks(session, "fluid-dynamics") * 0.18;
+        score += topdownRelicStacks(session, "rate-disruptor") * 0.18;
+        score += topdownRelicStacks(session, "shrink-engine") * 0.16;
+        score += topdownRelicStacks(session, "magnetic-trap") * 0.22;
+        score += topdownRelicStacks(session, "pickup-magnet") * 0.08;
+        return Math.max(1, score);
+    }
+
+    function topdownPlayerPowerPressure(session) {
+        return Math.min(
+            TOPDOWN_BALANCE.enemyPowerPressureSoftCap,
+            Math.max(0, topdownPlayerPowerScore(session) - 1)
+        );
+    }
+
+    function topdownPrimeStartingUpgradeChoices(session) {
+        const remaining = Math.max(0, Math.floor(Number(session.startUpgradeChoicesRemaining || 0)));
+        if (remaining <= 0 || session.pendingUpgrade || session.pendingPickupChoice) {
+            return;
+        }
+        session.pendingUpgrade = {
+            choices: buildTopdownUpgradeChoices(session),
+            rerolled: false,
+            startupRemaining: remaining
+        };
+    }
+
     function getTopdownDerivedStats(session, isWingman) {
         const factor = isWingman ? TOPDOWN_BALANCE.wingmanDamageFactor : 1;
         const build = session.build;
+        const cosmeticBonuses = topdownSessionCosmeticBonuses(session);
         const rapidFireMultiplier = topdownBuffRemaining(session, "rapidFireUntil") > 0 ? 0.5 : 1;
         const moveSpeedMultiplier = topdownBuffRemaining(session, "moveSpeedUntil") > 0 ? 2 : 1;
         const element = topdownBuildElementKey(build, Boolean(isWingman));
         const elementLevel = topdownBuildElementLevel(build, Boolean(isWingman), element);
-        const rawMoveSpeed = (TOPDOWN_BALANCE.baseMoveSpeed + build.moveSpeedLevel * TOPDOWN_BALANCE.moveSpeedPerLevel + Number(build.moveSpeedBonus || 0)) * moveSpeedMultiplier;
+        const rawMoveSpeed = (TOPDOWN_BALANCE.baseMoveSpeed + build.moveSpeedLevel * TOPDOWN_BALANCE.moveSpeedPerLevel + Number(build.moveSpeedBonus || 0))
+            * moveSpeedMultiplier
+            * (isWingman ? 1 : cosmeticBonuses.moveSpeedMultiplier);
         const rawFireInterval = Math.max(
             0.02,
-            TOPDOWN_BALANCE.baseFireInterval * (1 - build.fireRateLevel * TOPDOWN_BALANCE.fireRateStep - Number(build.fireRateBonus || 0)) * (isWingman ? TOPDOWN_BALANCE.wingmanFireRateFactor : 1) * rapidFireMultiplier
+            TOPDOWN_BALANCE.baseFireInterval
+                * (1 - build.fireRateLevel * TOPDOWN_BALANCE.fireRateStep - Number(build.fireRateBonus || 0))
+                * (isWingman ? TOPDOWN_BALANCE.wingmanFireRateFactor : cosmeticBonuses.fireRateMultiplier)
+                * rapidFireMultiplier
         );
         const rawShotsPerSecond = 1 / rawFireInterval;
         const cappedShotsPerSecond = Math.min(
             TOPDOWN_BALANCE.fireRateHardCapPerSecond,
             topdownApplySoftCap(rawShotsPerSecond, TOPDOWN_BALANCE.fireRateSoftCapPerSecond, TOPDOWN_BALANCE.fireRateOverflowFactor)
         );
-        const rawDamage = TOPDOWN_BALANCE.baseBulletDamage + build.attackLevel * TOPDOWN_BALANCE.attackPerLevel + Number(build.attackBonus || 0);
+        const rawDamage = (TOPDOWN_BALANCE.baseBulletDamage + build.attackLevel * TOPDOWN_BALANCE.attackPerLevel + Number(build.attackBonus || 0))
+            * (isWingman ? 1 : cosmeticBonuses.attackMultiplier)
+            + (isWingman ? 0 : cosmeticBonuses.damageFlat);
         return {
             moveSpeed: topdownApplySoftCap(rawMoveSpeed, TOPDOWN_BALANCE.moveSpeedSoftCap, TOPDOWN_BALANCE.moveSpeedOverflowFactor),
             fireInterval: Math.max(TOPDOWN_BALANCE.minFireInterval, 1 / Math.max(0.01, cappedShotsPerSecond)),
-            damage: topdownApplySoftCap(rawDamage, TOPDOWN_BALANCE.damageSoftCap, TOPDOWN_BALANCE.damageOverflowFactor) * factor,
+            damage: topdownQuantizeDamage(topdownApplySoftCap(rawDamage, TOPDOWN_BALANCE.damageSoftCap, TOPDOWN_BALANCE.damageOverflowFactor) * factor),
             multishot: Math.min(1 + build.multishotLevel, 1 + TOPDOWN_BALANCE.multishotCap),
             element: element,
             elementLevel: elementLevel,
@@ -3351,19 +3794,47 @@
         const config = options || {};
         const excludeKeys = Array.isArray(config.excludeKeys) ? config.excludeKeys.map(function (key) { return String(key); }) : [];
         const fullPool = buildTopdownUpgradePool(session);
-        let selected = [];
-        if (excludeKeys.length) {
-            selected = chooseDistinctEntries(fullPool.filter(function (entry) {
+        const availablePool = excludeKeys.length
+            ? fullPool.filter(function (entry) {
                 return excludeKeys.indexOf(String(entry.key)) === -1;
-            }), 3);
+            })
+            : fullPool.slice();
+        if (availablePool.length <= 3) {
+            return availablePool.map(function (entry) {
+                return { key: entry.key, label: entry.label, description: entry.description, meta: entry.meta || {} };
+            });
+        }
+        const utilityPool = availablePool.filter(function (entry) {
+            return entry.meta && entry.meta.category === "reconfig";
+        });
+        const growthPool = availablePool.filter(function (entry) {
+            return !(entry.meta && entry.meta.category === "reconfig");
+        });
+        let selected = chooseDistinctEntries(growthPool, Math.min(3, growthPool.length));
+        if (utilityPool.length && (selected.length < 3 || Math.random() < 0.4)) {
+            selected = selected.slice(0, Math.min(2, selected.length));
+            selected = selected.concat(chooseDistinctEntries(utilityPool, 1));
         }
         if (selected.length < 3) {
             const selectedKeys = selected.map(function (entry) { return String(entry.key); });
-            const remainder = fullPool.filter(function (entry) {
+            const remainderGrowth = growthPool.filter(function (entry) {
                 return selectedKeys.indexOf(String(entry.key)) === -1;
             });
-            selected = selected.concat(chooseDistinctEntries(remainder, 3 - selected.length));
+            selected = selected.concat(chooseDistinctEntries(remainderGrowth, 3 - selected.length));
         }
+        if (selected.length < 3) {
+            const selectedKeys = selected.map(function (entry) { return String(entry.key); });
+            const hasUtility = selected.some(function (entry) {
+                return entry.meta && entry.meta.category === "reconfig";
+            });
+            if (!hasUtility) {
+                const remainderUtility = utilityPool.filter(function (entry) {
+                    return selectedKeys.indexOf(String(entry.key)) === -1;
+                });
+                selected = selected.concat(chooseDistinctEntries(remainderUtility, 1));
+            }
+        }
+        selected = selected.slice(0, 3);
         return selected.map(function (entry) {
             return { key: entry.key, label: entry.label, description: entry.description, meta: entry.meta || {} };
         });
@@ -3372,12 +3843,14 @@
     function applyTopdownUpgrade(session, upgradeChoice) {
         const upgradeKey = typeof upgradeChoice === "string" ? upgradeChoice : upgradeChoice.key;
         const upgradeMeta = typeof upgradeChoice === "string" ? {} : (upgradeChoice.meta || {});
+        const startupRemaining = Math.max(0, Number(session.pendingUpgrade && session.pendingUpgrade.startupRemaining || 0));
         const entry = buildTopdownUpgradePool(session).find(function (item) { return item.key === upgradeKey; });
         if (!entry) {
             return false;
         }
         entry.apply(upgradeMeta);
         syncTopdownWingmanLoadout(session);
+        session.startUpgradeChoicesRemaining = Math.max(0, startupRemaining - 1);
         session.pendingUpgrade = null;
         session.player.wingmanCooldowns = session.player.wingmanCooldowns.slice(0, session.build.wingmanLevel);
         if (upgradeKey === "wingman") {
@@ -3388,16 +3861,24 @@
                     : "僚机数量已提升。你可以顺手重设当前僚机的子弹类型。"
             );
         }
+        if (session.startUpgradeChoicesRemaining > 0) {
+            topdownPrimeStartingUpgradeChoices(session);
+        }
         return true;
     }
 
     function topdownEnemyHp(session) {
         const latePressure = topdownLatePressure(session);
-        return TOPDOWN_BALANCE.enemyBaseHp
+        const powerPressure = topdownPlayerPowerPressure(session);
+        return topdownQuantizeHp(
+            TOPDOWN_BALANCE.enemyBaseHp
             + Math.pow(Math.max(1, Number(session.wave || 1)), 1.22) * TOPDOWN_BALANCE.enemyHpPerWave
             + Number(session.kills || 0) * TOPDOWN_BALANCE.enemyHpPerKill
             + Number(session.bossesDefeated || 0) * TOPDOWN_BALANCE.enemyHpPerBoss
-            + latePressure * latePressure * TOPDOWN_BALANCE.lateEnemyHpPerWave;
+            + powerPressure * TOPDOWN_BALANCE.enemyPowerHpStep
+            + powerPressure * powerPressure * TOPDOWN_BALANCE.enemyPowerHpCurve
+            + latePressure * latePressure * TOPDOWN_BALANCE.lateEnemyHpPerWave
+        );
     }
 
     function spawnTopdownEnemy(session) {
@@ -3410,13 +3891,21 @@
         const isElite = !spawnBoss && session.kills >= session.nextEliteAt && !session.enemies.some(function (item) { return item.isElite && !item.isBoss; });
         const difficultyScale = topdownDifficultyScale(session);
         const latePressure = topdownLatePressure(session);
+        const powerPressure = topdownPlayerPowerPressure(session);
+        const cosmeticBonuses = topdownSessionCosmeticBonuses(session);
         const hpMultiplier = spawnBoss ? TOPDOWN_BALANCE.bossHpMultiplier : (isElite ? TOPDOWN_BALANCE.eliteHpMultiplier : 1);
-        const hp = (topdownEnemyHp(session) + randomBetween(0, Math.max(1, session.wave) * 0.9) + difficultyScale) * hpMultiplier;
-        const fireRateMultiplier = spawnBoss ? TOPDOWN_BALANCE.bossFireRateMultiplier : (isElite ? TOPDOWN_BALANCE.eliteFireRateMultiplier : 1);
+        const hp = topdownQuantizeHp((topdownEnemyHp(session) + randomBetween(0, Math.max(1, session.wave) * 0.9) + difficultyScale) * hpMultiplier);
+        const fireRateMultiplier = (spawnBoss ? TOPDOWN_BALANCE.bossFireRateMultiplier : (isElite ? TOPDOWN_BALANCE.eliteFireRateMultiplier : 1))
+            * Math.max(0.7, 1 - powerPressure * TOPDOWN_BALANCE.enemyPowerFireRateStep)
+            * cosmeticBonuses.enemyFireCooldownMultiplier;
         const bulletCount = spawnBoss ? TOPDOWN_BALANCE.bossBulletCount : (isElite ? TOPDOWN_BALANCE.eliteBulletCount : 1);
-        const bulletSpeedMultiplier = spawnBoss ? TOPDOWN_BALANCE.bossBulletSpeedMultiplier : (1 + Math.max(0, session.wave - 1) * TOPDOWN_BALANCE.eliteBulletSpeedPerWave / 100);
-        const speedMultiplier = spawnBoss ? TOPDOWN_BALANCE.bossSpeedMultiplier : (isElite ? TOPDOWN_BALANCE.eliteSpeedMultiplier : 1);
-        const bossShield = spawnBoss ? topdownBossShieldValue(session) : 0;
+        const bulletSpeedMultiplier = (spawnBoss ? TOPDOWN_BALANCE.bossBulletSpeedMultiplier : (1 + Math.max(0, session.wave - 1) * TOPDOWN_BALANCE.eliteBulletSpeedPerWave / 100))
+            * (1 + powerPressure * TOPDOWN_BALANCE.enemyPowerBulletSpeedStep)
+            * cosmeticBonuses.enemyBulletSpeedMultiplier;
+        const speedMultiplier = (spawnBoss ? TOPDOWN_BALANCE.bossSpeedMultiplier : (isElite ? TOPDOWN_BALANCE.eliteSpeedMultiplier : 1))
+            * (1 + powerPressure * TOPDOWN_BALANCE.enemyPowerSpeedStep)
+            * cosmeticBonuses.enemySpeedMultiplier;
+        const bossShield = spawnBoss ? topdownQuantizeHp(topdownBossShieldValue(session)) : 0;
         const eliteType = spawnBoss ? "boss" : (isElite ? topdownCanonicalEliteType(TOPDOWN_BALANCE.eliteTypes[Math.floor(Math.random() * TOPDOWN_BALANCE.eliteTypes.length)]) : "");
         const enemySpeedFactor = topdownRelicEnemySpeedMultiplier(session);
         const enemyFireFactor = topdownRelicEnemyFireCooldownMultiplier(session);
@@ -3510,6 +3999,10 @@
             enemy.hp *= 1.24;
             enemy.maxHp = enemy.hp;
         }
+        enemy.hp = topdownQuantizeHp(enemy.hp);
+        enemy.maxHp = topdownQuantizeHp(enemy.maxHp || enemy.hp);
+        enemy.bossShield = topdownQuantizeHp(enemy.bossShield);
+        enemy.bossShieldMax = topdownQuantizeHp(enemy.bossShieldMax || enemy.bossShield);
         session.nextId += 1;
         if (isElite) {
             session.wave += 1;
@@ -3686,6 +4179,9 @@
 
     function createTopdownBullet(session, origin, angle, damage, owner, element, elementLevel, extra) {
         const bulletExtra = extra || {};
+        const resolvedElement = String(element || "none");
+        const resolvedElementLevel = topdownResolveBulletElementLevel(session, owner, resolvedElement, elementLevel);
+        const resolvedDamage = topdownQuantizeDamage(damage);
         session.bullets.push({
             id: session.nextId,
             x: origin.x,
@@ -3696,12 +4192,12 @@
             vy: Math.sin(angle) * TOPDOWN_BALANCE.bulletSpeed,
             radius: topdownCurrentProjectileRadius(session, owner),
             life: topdownCurrentProjectileLife(session),
-            damage: damage,
+            damage: resolvedDamage,
             owner: owner,
-            element: element,
-            elementLevel: elementLevel,
+            element: resolvedElement,
+            elementLevel: resolvedElementLevel,
             canUltimate: bulletExtra.canUltimate !== false,
-            ultimate: bulletExtra.canUltimate !== false && Number(elementLevel || 0) >= TOPDOWN_BALANCE.elementCap,
+            ultimate: bulletExtra.canUltimate !== false && resolvedElementLevel >= TOPDOWN_BALANCE.elementCap,
             ignoreWardenField: Boolean(bulletExtra.ignoreWardenField || bulletExtra.ignoreRepulsorField),
             aoeStacks: Number(bulletExtra.aoeStacks || 0),
             aoeRadius: Number(bulletExtra.aoeRadius || 0),
@@ -3728,7 +4224,7 @@
     }
 
     function getWingmanSlots(session) {
-        const count = Math.min(session.build.wingmanLevel, TOPDOWN_BALANCE.wingmanMax);
+        const count = Math.min(session.build.wingmanLevel, topdownMaxWingmanSlots(session));
         const result = [];
         for (let index = 0; index < count; index += 1) {
             const angle = session.tick * 1.8 + (Math.PI * 2 / Math.max(1, count)) * index;
@@ -4010,7 +4506,7 @@
         session.shield.rechargeProgress = 0;
         session.player.hitCooldown = Math.max(0, Number(settings.hitCooldown || 0));
         if (settings.applyDamageFlash !== false) {
-            session.player.damageFlash = Math.max(Number(session.player.damageFlash || 0), 0.9);
+            session.player.damageFlash = Math.max(Number(session.player.damageFlash || 0), TOPDOWN_BALANCE.damageFlashDuration);
         }
         let damageLeft = Math.max(1, Math.round(Number(amount || 1)));
         while (damageLeft > 0 && session.shield.current > 0) {
@@ -4254,7 +4750,7 @@
                     subtitle: "每局只能带 1 个技能。首领已为你解锁本局唯一的技能栏位。",
                     detailLines: [
                         "闪现：按技能键朝当前移动方向触发，期间无敌。",
-                        "导弹 / 无敌：按 " + topdownSkillTriggerKeyLabel(session.skillTriggerKey) + " 主动施放，冷却 60 秒。"
+                        "导弹 / 无敌：按 " + topdownSkillTriggerKeyLabel(session.skillTriggerKey) + " 主动施放，基础冷却 45 秒。"
                     ],
                     allowDecline: false,
                     choices: buildTopdownSkillChoices()
@@ -4287,7 +4783,7 @@
 
     function spawnTopdownSplitterChildren(session, enemy) {
         const childCount = TOPDOWN_BALANCE.splitterChildCount;
-        const childHp = Math.max(4, enemy.maxHp * TOPDOWN_BALANCE.splitterChildHpFactor);
+        const childHp = topdownQuantizeHp(Math.max(4, enemy.maxHp * TOPDOWN_BALANCE.splitterChildHpFactor));
         const childRadius = Math.max(9, enemy.radius * TOPDOWN_BALANCE.splitterChildRadiusFactor);
         for (let index = 0; index < childCount; index += 1) {
             const angle = (Math.PI * 2 * index / childCount) + randomBetween(-0.14, 0.14);
@@ -4384,26 +4880,31 @@
         if (!enemy || enemy.remnantActive || topdownEnemyProtectedByBuffer(session, enemy)) {
             return false;
         }
-        let damageLeft = Number(amount || 0);
+        let damageLeft = topdownQuantizeDamage(amount);
+        if (damageLeft <= TOPDOWN_BALANCE.damageEpsilon) {
+            return false;
+        }
         if (enemy.isBoss && Number(enemy.bossShield || 0) > 0) {
-            const absorbed = Math.min(Number(enemy.bossShield || 0), damageLeft);
-            enemy.bossShield = Math.max(0, Number(enemy.bossShield || 0) - absorbed);
-            damageLeft -= absorbed;
-            if (damageLeft <= 0) {
+            const currentShield = topdownQuantizeHp(enemy.bossShield);
+            const absorbed = Math.min(currentShield, damageLeft);
+            enemy.bossShield = topdownQuantizeHp(currentShield - absorbed);
+            damageLeft = topdownQuantizeDamage(damageLeft - absorbed);
+            if (damageLeft <= TOPDOWN_BALANCE.damageEpsilon) {
                 return false;
             }
         }
-        enemy.hp -= damageLeft;
-        if (enemy.isElite && enemy.eliteType === "splitter" && !enemy.hasSplit && enemy.hp <= enemy.maxHp * 0.5) {
+        enemy.hp = topdownQuantizeHp(Number(enemy.hp || 0) - damageLeft);
+        if (enemy.isElite && enemy.eliteType === "splitter" && !enemy.hasSplit && enemy.hp <= topdownQuantizeHp(enemy.maxHp * 0.5)) {
             enemy.hasSplit = true;
             spawnTopdownSplitterChildren(session, enemy);
             spawnTopdownPickup(session, enemy.x, enemy.y, "upgrade", "upgrade");
             enemy.hp = 0;
             return false;
         }
-        if (enemy.hp > 0) {
+        if (enemy.hp > TOPDOWN_BALANCE.killEpsilon) {
             return false;
         }
+        enemy.hp = 0;
         if (enemy.eliteType === "self-destruct" && !enemy.remnantActive) {
             transformTopdownSelfDestructEnemy(session, enemy);
             return false;
@@ -4453,6 +4954,7 @@
             }
         }
         if (bullet.element === "ice" && bullet.elementLevel > 0) {
+            const wasFullyFrozen = Number(enemy.frozenTime || 0) > 0;
             enemy.iceStacks += 1 + Math.floor(bullet.elementLevel / 2);
             if (bullet.aoeStacks > 0 && bullet.aoeRadius > 0) {
                 spawnTopdownAoeBurst(session, enemy.x, enemy.y, bullet.aoeRadius, "ice", topdownIsUltimateProjectile(bullet));
@@ -4470,10 +4972,10 @@
             if (enemy.iceStacks >= TOPDOWN_BALANCE.iceFreezeStacks) {
                 enemy.frozenTime = Math.max(enemy.frozenTime, TOPDOWN_BALANCE.iceFreezeDuration + bullet.elementLevel * 0.08);
                 enemy.iceStacks = 0;
-                if (bullet.canUltimate && Math.random() < TOPDOWN_BALANCE.iceShatterChance) {
-                    damageTopdownEnemy(session, enemy, enemy.hp + enemy.maxHp);
-                    killedIds.push(enemy.id);
-                }
+            }
+            if (wasFullyFrozen && topdownIsUltimateProjectile(bullet) && bullet.elementLevel >= TOPDOWN_BALANCE.elementCap && Math.random() < TOPDOWN_BALANCE.iceShatterChance) {
+                damageTopdownEnemy(session, enemy, enemy.hp + enemy.maxHp);
+                killedIds.push(enemy.id);
             }
         }
         if (bullet.element === "electric" && bullet.elementLevel > 0) {
@@ -4533,7 +5035,8 @@
             skillTriggerKey: "KeyQ"
         }, options || {});
         const build = normalizeTopdownBuild();
-        return {
+        const cosmeticBonuses = normalizeTopdownRunCosmeticBonuses(config.cosmeticBonuses || topdownBuildRunCosmeticBonuses(getTopdownSharedMetaState()));
+        const session = {
             sessionKey: "tds-" + Date.now() + "-" + Math.random().toString(36).slice(2, 8),
             startedAt: Date.now(),
             pausedElapsed: 0,
@@ -4599,6 +5102,8 @@
             nextBossEliteGoal: 5,
             bossesDefeated: 0,
             metaRewardGranted: false,
+            cosmeticBonuses: cosmeticBonuses,
+            startUpgradeChoicesRemaining: Math.max(0, Math.floor(Number(cosmeticBonuses.startUpgradeChoices || 0))),
             moveControl: config.moveControl === "mouse" ? "mouse" : "keyboard",
             fireControl: config.fireControl === "auto" ? "auto" : "manual",
             skillTriggerKey: topdownSkillTriggerKeyOptions().indexOf(config.skillTriggerKey) >= 0 ? config.skillTriggerKey : "KeyQ",
@@ -4617,7 +5122,8 @@
                 "fluid-dynamics": 0,
                 "rate-disruptor": 0,
                 "shrink-engine": 0,
-                "magnetic-trap": 0
+                "magnetic-trap": 0,
+                "pickup-magnet": 0
             },
             itemBuffs: {
                 scoreDoubleUntil: 0,
@@ -4626,6 +5132,8 @@
                 enemySilenceUntil: 0
             }
         };
+        topdownPrimeStartingUpgradeChoices(session);
+        return session;
     }
 
     function normalizeTopdownShooterSession(raw) {
@@ -4634,11 +5142,16 @@
         }
         const build = normalizeTopdownBuild(raw.build);
         const comboItemEvery = topdownCurrentComboItemEvery({ build: build });
+        const normalizedStatus = raw.status === "over" ? "over" : (raw.status === "paused" ? "paused" : "playing");
+        const normalizedElapsed = Number(raw.elapsedSeconds || 0);
+        const normalizedPausedElapsed = normalizedStatus === "playing"
+            ? normalizedElapsed
+            : Number(raw.pausedElapsed == null ? normalizedElapsed : raw.pausedElapsed);
         const session = {
             sessionKey: String(raw.sessionKey || ("tds-" + Date.now())),
-            startedAt: Number(raw.startedAt || Date.now()),
-            pausedElapsed: Number(raw.pausedElapsed || 0),
-            elapsedSeconds: Number(raw.elapsedSeconds || 0),
+            startedAt: normalizedStatus === "playing" ? Date.now() : Number(raw.startedAt || Date.now()),
+            pausedElapsed: normalizedPausedElapsed,
+            elapsedSeconds: normalizedElapsed,
             nextId: Number(raw.nextId || 1),
             player: Object.assign({
                 x: TOPDOWN_BALANCE.arenaWidth / 2,
@@ -4690,7 +5203,7 @@
             }, raw.shield || {}),
             spawnClock: Number(raw.spawnClock || 0),
             tick: Number(raw.tick || 0),
-            status: raw.status === "over" ? "over" : (raw.status === "paused" ? "paused" : "playing"),
+            status: normalizedStatus,
             submittedScore: Boolean(raw.submittedScore),
             pendingUpgrade: raw.pendingUpgrade && Array.isArray(raw.pendingUpgrade.choices) ? raw.pendingUpgrade : null,
             pendingPickupChoice: raw.pendingPickupChoice && Array.isArray(raw.pendingPickupChoice.choices) ? raw.pendingPickupChoice : null,
@@ -4700,6 +5213,8 @@
             nextBossEliteGoal: Math.max(1, Number(raw.nextBossEliteGoal || Math.max(1, 5 - Number(raw.bossesDefeated || 0)))),
             bossesDefeated: Math.max(0, Number(raw.bossesDefeated || 0)),
             metaRewardGranted: Boolean(raw.metaRewardGranted),
+            cosmeticBonuses: normalizeTopdownRunCosmeticBonuses(raw.cosmeticBonuses),
+            startUpgradeChoicesRemaining: Math.max(0, Math.floor(Number(raw.startUpgradeChoicesRemaining || 0))),
             moveControl: raw.moveControl === "mouse" ? "mouse" : (raw.controlMode === "mouse-auto" ? "mouse" : "keyboard"),
             fireControl: raw.fireControl === "auto" ? "auto" : (raw.controlMode === "mouse-auto" ? "auto" : "manual"),
             skillTriggerKey: topdownSkillTriggerKeyOptions().indexOf(raw.skillTriggerKey) >= 0 ? raw.skillTriggerKey : "KeyQ",
@@ -4718,7 +5233,8 @@
                 "fluid-dynamics": 0,
                 "rate-disruptor": 0,
                 "shrink-engine": 0,
-                "magnetic-trap": 0
+                "magnetic-trap": 0,
+                "pickup-magnet": 0
             }, raw.bossRelics || {}),
             itemBuffs: Object.assign({
                 scoreDoubleUntil: 0,
@@ -4731,9 +5247,17 @@
             session.player.wingmanCooldowns.push(0);
         }
         session.player.wingmanCooldowns = session.player.wingmanCooldowns.slice(0, session.build.wingmanLevel);
+        session.bullets = session.bullets.map(function (bullet) {
+            return topdownNormalizeBulletState(session, bullet);
+        });
         session.enemies.forEach(function (enemy) {
             if (enemy) {
                 enemy.eliteType = topdownCanonicalEliteType(enemy.eliteType);
+                enemy.hp = topdownQuantizeHp(enemy.hp);
+                enemy.maxHp = topdownQuantizeHp(enemy.maxHp || enemy.hp);
+                enemy.bossShield = topdownQuantizeHp(enemy.bossShield);
+                enemy.bossShieldMax = topdownQuantizeHp(enemy.bossShieldMax || enemy.bossShield);
+                enemy.burnDamage = topdownQuantizeDamage(enemy.burnDamage);
                 if (enemy.eliteType === "warden") {
                     enemy.wardenFieldActive = enemy.wardenFieldActive !== false;
                     enemy.wardenFieldTimer = Math.max(0, Number(enemy.wardenFieldTimer || TOPDOWN_BALANCE.wardenFieldOnDuration));
@@ -4745,6 +5269,7 @@
         });
         syncTopdownShieldCapacity(session);
         session.player.radius = topdownCurrentPlayerRadius(session);
+        topdownPrimeStartingUpgradeChoices(session);
         return session;
     }
 
@@ -4776,7 +5301,7 @@
             { label: "冷却", value: session.shield.cooldownLeft > 0 ? session.shield.cooldownLeft.toFixed(1) + "s" : "就绪", tone: "shield-cd" },
             { label: "恢复", value: Math.round(session.shield.rechargeProgress * 100) + "%", tone: "shield-regen" },
             { label: "弹道", value: String(stats.multishot), tone: "multi" },
-            { label: "僚机", value: build.wingmanLevel + "/" + TOPDOWN_BALANCE.wingmanMax, tone: "wing" },
+            { label: "僚机", value: build.wingmanLevel + "/" + topdownMaxWingmanSlots(session), tone: "wing" },
             { label: "弹体", value: "Lv." + build.projectileLevel, tone: "multi" },
             { label: "续连", value: comboResetWindow.toFixed(1) + "s", tone: "combo" },
             { label: "阈值", value: comboItemEvery + " 连", tone: "item" },
@@ -4830,7 +5355,24 @@
                 build.fireRateBonus = Number(build.fireRateBonus || 0) + Number(meta.rollValue || 0);
             }, { rollValue: fireRateRoll });
         }
-        if (build.wingmanLevel < TOPDOWN_BALANCE.wingmanMax) {
+        if (build.skillCooldownLevel < TOPDOWN_BALANCE.skillUpgradeCap) {
+            addUpgrade("skill-cooldown", "技能冷却", "技能冷却速度 +5%，当前冷却 " + topdownSkillCooldownValue(session).toFixed(1) + "s。", function () {
+                build.skillCooldownLevel += 1;
+            });
+        }
+        if (build.skillDurationLevel < TOPDOWN_BALANCE.skillUpgradeCap) {
+            addUpgrade(
+                "skill-duration",
+                session.skill && session.skill.key === "blink" ? "闪现距离" : "技能持续",
+                session.skill && session.skill.key === "blink"
+                    ? ("闪现距离 +5%，当前 " + Math.round(topdownSkillBlinkDistance(session)) + "。")
+                    : ("技能持续时间 +5%，当前倍率 " + topdownSkillEffectMultiplier(session).toFixed(2) + "x。"),
+                function () {
+                    build.skillDurationLevel += 1;
+                }
+            );
+        }
+        if (build.wingmanLevel < topdownMaxWingmanSlots(session)) {
             addUpgrade("wingman", "僚机", "增加一个跟随机。", function () { build.wingmanLevel += 1; session.player.wingmanCooldowns.push(0); });
         }
         if (build.wingmanLevel > 0 && build.wingmanElement !== "fire") {
@@ -4838,26 +5380,26 @@
                 build.wingmanElement = "fire";
                 session.elementBurstTracker.wingmanFire = 0;
                 syncTopdownWingmanLoadout(session);
-            });
+            }, { category: "reconfig" });
         }
         if (build.wingmanLevel > 0 && build.wingmanElement !== "electric") {
             addUpgrade("wingman-electric", "僚机改装电系", "将全部僚机改为电系激光，仍共享当前僚机数量对应的弹种等级。", function () {
                 build.wingmanElement = "electric";
                 syncTopdownWingmanLoadout(session);
-            });
+            }, { category: "reconfig" });
         }
         if (build.wingmanLevel > 0 && build.wingmanElement !== "ice") {
             addUpgrade("wingman-ice", "僚机改装冰系", "将全部僚机改为冰弹，仍共享当前僚机数量对应的弹种等级。", function () {
                 build.wingmanElement = "ice";
                 session.elementBurstTracker.wingmanIce = 0;
                 syncTopdownWingmanLoadout(session);
-            });
+            }, { category: "reconfig" });
         }
         if (build.wingmanLevel > 0 && build.wingmanElement !== "nuclear") {
             addUpgrade("wingman-nuclear", "僚机改装核系", "将全部僚机改为核弹小爆圈，仍共享当前僚机数量对应的弹种等级。", function () {
                 build.wingmanElement = "nuclear";
                 syncTopdownWingmanLoadout(session);
-            });
+            }, { category: "reconfig" });
         }
         if (build.multishotLevel < TOPDOWN_BALANCE.multishotCap) {
             addUpgrade("multishot", "弹道", "增加齐射数量。", function () { build.multishotLevel += 1; });

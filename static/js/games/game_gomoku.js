@@ -28,6 +28,16 @@
         const topdownBackgroundPreviewStyle = ctx.topdownBackgroundPreviewStyle;
         const roomKey = "gamesHub.gomoku.roomCode";
         const playerId = getGamesDeviceId();
+        if (!window.io || typeof window.io !== "function") {
+            setStatus("联机五子棋加载失败：Socket.IO 未就绪。", true);
+            const fallback = document.createElement("div");
+            fallback.className = "games-empty";
+            fallback.textContent = "联机组件未加载完成，请刷新页面后重试。";
+            els.stageBody.appendChild(fallback);
+            return function cleanup() {
+                state.topdownMetaRefresh = null;
+            };
+        }
         const socket = window.io(GOMOKU_NAMESPACE, { transports: ["websocket", "polling"], upgrade: true });
         let metaState = state.topdownMetaState || setTopdownSharedMetaState((savedPayload && savedPayload.state) || {});
         let room = null;

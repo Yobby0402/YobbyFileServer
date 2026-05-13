@@ -319,6 +319,8 @@
         if (!raw || !Array.isArray(raw.towers) || !raw.towers.length) {
             return createFrontlineSession("normal");
         }
+        const normalizedStatus = raw.status === "victory" || raw.status === "defeat" ? raw.status : "playing";
+        const normalizedElapsed = Number(raw.elapsedSeconds || 0);
         const rawMap = raw.map && Array.isArray(raw.map.nodes) && Array.isArray(raw.map.edges) ? raw.map : createFrontlineMap(String(raw.difficulty || "normal"));
         const currentMap = {
             key: String(rawMap.key || ("frontline-" + Date.now())),
@@ -365,9 +367,11 @@
             sessionKey: String(raw.sessionKey || ("frontline-" + Date.now())),
             mapKey: currentMap.key,
             difficulty: String(raw.difficulty || currentMap.difficulty || "normal"),
-            status: raw.status === "victory" || raw.status === "defeat" ? raw.status : "playing",
-            startedAt: Number(raw.startedAt || Date.now()),
-            elapsedSeconds: Number(raw.elapsedSeconds || 0),
+            status: normalizedStatus,
+            startedAt: normalizedStatus === "playing"
+                ? (Date.now() - normalizedElapsed * 1000)
+                : Number(raw.startedAt || Date.now()),
+            elapsedSeconds: normalizedElapsed,
             nextSquadId: Math.max(1, Number(raw.nextSquadId || 1)),
             selectedTowerId: nodeIds[raw.selectedTowerId] ? raw.selectedTowerId : (currentMap.nodes[0] ? currentMap.nodes[0].id : ""),
             submittedScore: Boolean(raw.submittedScore),

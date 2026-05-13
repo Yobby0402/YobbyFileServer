@@ -28,14 +28,18 @@
         if (!raw || !Array.isArray(raw.tiles) || !raw.tiles.length) {
             return create2048Session();
         }
+        const normalizedStatus = raw.status === "over" ? "over" : "playing";
+        const normalizedElapsed = Math.max(0, Number(raw.elapsedSeconds || 0));
         return {
             sessionKey: String(raw.sessionKey || ("g2048-" + Date.now())),
             score: Math.max(0, Number(raw.score || 0)),
             moves: Math.max(0, Number(raw.moves || 0)),
             maxTile: Math.max(2, Number(raw.maxTile || 2)),
-            status: raw.status === "over" ? "over" : "playing",
-            startedAt: Number(raw.startedAt || Date.now()),
-            elapsedSeconds: Math.max(0, Number(raw.elapsedSeconds || 0)),
+            status: normalizedStatus,
+            startedAt: normalizedStatus === "playing"
+                ? (Date.now() - normalizedElapsed * 1000)
+                : Number(raw.startedAt || Date.now()),
+            elapsedSeconds: normalizedElapsed,
             submittedScore: Boolean(raw.submittedScore),
             nextTileId: Math.max(1, Number(raw.nextTileId || 1)),
             tiles: raw.tiles.map(function (tile) {
