@@ -249,11 +249,20 @@ class GameHubStore:
                         PRIMARY KEY (room_type, room_code)
                     );
 
+                    CREATE TABLE IF NOT EXISTS game_room_records (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        room_type TEXT NOT NULL,
+                        room_code TEXT NOT NULL,
+                        record_json TEXT NOT NULL DEFAULT '{}',
+                        created_at TEXT NOT NULL DEFAULT ''
+                    );
+
                     CREATE INDEX IF NOT EXISTS idx_game_scores_week_key ON game_scores(week_key);
                     CREATE INDEX IF NOT EXISTS idx_game_scores_game_week ON game_scores(game_id, week_key, score DESC);
                     CREATE INDEX IF NOT EXISTS idx_game_scores_ip_created ON game_scores(ip, created_at DESC);
                     CREATE INDEX IF NOT EXISTS idx_online_presence_last_seen ON online_presence(last_seen);
                     CREATE INDEX IF NOT EXISTS idx_game_rooms_type_updated ON game_rooms(room_type, updated_at DESC);
+                    CREATE INDEX IF NOT EXISTS idx_game_room_records_type_created ON game_room_records(room_type, created_at DESC, id DESC);
                     """
                 )
                 self._ensure_column(conn, "ip_profiles", "boss_path", "TEXT NOT NULL DEFAULT ''")
@@ -383,6 +392,117 @@ class GameHubStore:
             )
         return result
 
+    def grant_topdown_meta_pulls_to_all_users(
+        self,
+        color_pulls: int = 0,
+        icon_pulls: int = 0,
+        background_pulls: int = 0,
+    ) -> Dict[str, Any]:
+        def _safe_pull_count(value: Any) -> int:
+            try:
+                return max(0, int(float(value)))
+            except (TypeError, ValueError):
+                return 0
+
+        grant_color = _safe_pull_count(color_pulls)
+        grant_icon = _safe_pull_count(icon_pulls)
+        grant_background = _safe_pull_count(background_pulls)
+        if grant_color <= 0 and grant_icon <= 0 and grant_background <= 0:
+            return {
+                "identity_count": 0,
+                "updated_count": 0,
+                "created_state_count": 0,
+                "color_pulls": grant_color,
+                "icon_pulls": grant_icon,
+                "background_pulls": grant_background,
+            }
+
+        game_id = normalize_game_id("topdown-shooter-meta")
+        updated_at = now_iso()
+        self.ensure_schema()
+        with _db_lock:
+            conn = _connect()
+            try:
+                identities = conn.execute(
+                    """
+                    WITH identities AS (
+                        SELECT ip FROM ip_profiles
+                        UNION
+                        SELECT ip FROM game_scores
+                        UNION
+                        SELECT ip FROM game_states
+                        UNION
+                        SELECT ip FROM online_presence
+                    )
+                    SELECT ip
+                    FROM identities
+                    WHERE COALESCE(TRIM(ip), '') <> ''
+                    ORDER BY ip ASC
+                    """
+                ).fetchall()
+
+                updated_count = 0
+                created_state_count = 0
+                for row in identities:
+                    identity = _sanitize_device_identity(str(row["ip"] or ""))
+                    if not identity:
+                        continue
+                    current = conn.execute(
+                        """
+                        SELECT state_json, summary_json
+                        FROM game_states
+                        WHERE ip = ? AND game_id = ?
+                        """,
+                        (identity, game_id),
+                    ).fetchone()
+                    state = self._decode_json(current["state_json"], {}) if current else {}
+                    summary = self._decode_json(current["summary_json"], {}) if current else {}
+                    if not isinstance(state, dict):
+                        state = {}
+                    if not isinstance(summary, dict):
+                        summary = {}
+
+                    state["freeColorPulls"] = _safe_pull_count(state.get("freeColorPulls")) + grant_color
+                    state["freeIconPulls"] = _safe_pull_count(state.get("freeIconPulls")) + grant_icon
+                    state["freeBackgroundPulls"] = _safe_pull_count(state.get("freeBackgroundPulls")) + grant_background
+
+                    summary["free_color_pulls"] = state["freeColorPulls"]
+                    summary["free_icon_pulls"] = state["freeIconPulls"]
+                    summary["free_background_pulls"] = state["freeBackgroundPulls"]
+
+                    conn.execute(
+                        """
+                        INSERT INTO game_states (ip, game_id, state_json, summary_json, updated_at)
+                        VALUES (?, ?, ?, ?, ?)
+                        ON CONFLICT(ip, game_id) DO UPDATE SET
+                            state_json = excluded.state_json,
+                            summary_json = excluded.summary_json,
+                            updated_at = excluded.updated_at
+                        """,
+                        (
+                            identity,
+                            game_id,
+                            json.dumps(state, ensure_ascii=False),
+                            json.dumps(summary, ensure_ascii=False),
+                            updated_at,
+                        ),
+                    )
+                    updated_count += 1
+                    if current is None:
+                        created_state_count += 1
+                conn.commit()
+            finally:
+                conn.close()
+
+        return {
+            "identity_count": len(identities),
+            "updated_count": updated_count,
+            "created_state_count": created_state_count,
+            "color_pulls": grant_color,
+            "icon_pulls": grant_icon,
+            "background_pulls": grant_background,
+        }
+
     def delete_player_data(self, ip: str) -> Dict[str, Any]:
         identity = _sanitize_device_identity(ip)
         if not identity:
@@ -449,6 +569,49 @@ class GameHubStore:
             "total_score": int((row["total_score"] if row else 0) or 0),
             "play_count": int((row["play_count"] if row else 0) or 0),
         }
+
+    def total_score_summaries(self, ips: List[str]) -> Dict[str, Dict[str, int]]:
+        identity_list = []
+        for item in ips or []:
+            key = str(item or "").strip()
+            if key and key not in identity_list:
+                identity_list.append(key)
+        if not identity_list:
+            return {}
+        placeholders = ",".join(["?"] * len(identity_list))
+        self.ensure_schema()
+        with _db_lock:
+            conn = _connect()
+            try:
+                rows = conn.execute(
+                    f"""
+                    SELECT ip,
+                           COALESCE(SUM(score), 0) AS total_score,
+                           COUNT(*) AS play_count
+                    FROM game_scores
+                    WHERE ip IN ({placeholders})
+                    GROUP BY ip
+                    """,
+                    tuple(identity_list),
+                ).fetchall()
+            finally:
+                conn.close()
+        result = {
+            identity: {
+                "total_score": 0,
+                "play_count": 0,
+            }
+            for identity in identity_list
+        }
+        for row in rows:
+            identity = str(row["ip"] or "").strip()
+            if not identity:
+                continue
+            result[identity] = {
+                "total_score": int((row["total_score"] if row else 0) or 0),
+                "play_count": int((row["play_count"] if row else 0) or 0),
+            }
+        return result
 
     def migrate_identity(self, legacy_ip: str, stable_ip: str) -> bool:
         legacy_value = _sanitize_device_identity(legacy_ip)
@@ -765,7 +928,12 @@ class GameHubStore:
                 conn.commit()
             finally:
                 conn.close()
-        return self.get_room_state(room_type_value, room_code_value)
+        return {
+            "room_type": room_type_value,
+            "room_code": room_code_value,
+            "state": state or {},
+            "updated_at": updated_at,
+        }
 
     def delete_room_state(self, room_type: str, room_code: str) -> None:
         room_type_value = normalize_game_id(room_type)
@@ -805,6 +973,65 @@ class GameHubStore:
                 "room_code": row["room_code"],
                 "state": self._decode_json(row["state_json"], {}),
                 "updated_at": row["updated_at"] or "",
+            }
+            for row in rows
+        ]
+
+    def record_room_record(self, room_type: str, room_code: str, record: Any) -> Dict[str, Any]:
+        room_type_value = normalize_game_id(room_type)
+        room_code_value = str(room_code or "").strip().upper()[:32]
+        payload = record if isinstance(record, dict) else {}
+        created_at = str(payload.get("finished_at") or payload.get("created_at") or now_iso())
+        record_json = json.dumps(payload, ensure_ascii=False)
+        self.ensure_schema()
+        with _db_lock:
+            conn = _connect()
+            try:
+                cursor = conn.execute(
+                    """
+                    INSERT INTO game_room_records (room_type, room_code, record_json, created_at)
+                    VALUES (?, ?, ?, ?)
+                    """,
+                    (room_type_value, room_code_value, record_json, created_at),
+                )
+                conn.commit()
+                record_id = int(cursor.lastrowid or 0)
+            finally:
+                conn.close()
+        return {
+            "record_id": record_id,
+            "room_type": room_type_value,
+            "room_code": room_code_value,
+            "record": payload,
+            "created_at": created_at,
+        }
+
+    def list_room_records(self, room_type: str, limit: int = 100) -> List[Dict[str, Any]]:
+        room_type_value = normalize_game_id(room_type)
+        limit_value = max(1, min(500, int(limit or 100)))
+        self.ensure_schema()
+        with _db_lock:
+            conn = _connect()
+            try:
+                rows = conn.execute(
+                    """
+                    SELECT id, room_type, room_code, record_json, created_at
+                    FROM game_room_records
+                    WHERE room_type = ?
+                    ORDER BY created_at DESC, id DESC
+                    LIMIT ?
+                    """,
+                    (room_type_value, limit_value),
+                ).fetchall()
+            finally:
+                conn.close()
+        return [
+            {
+                "record_id": int(row["id"] or 0),
+                "room_type": row["room_type"],
+                "room_code": row["room_code"],
+                "record": self._decode_json(row["record_json"], {}),
+                "created_at": row["created_at"] or "",
             }
             for row in rows
         ]
@@ -878,6 +1105,56 @@ class GameHubStore:
             }
             for row in rows
         ]
+
+    def _selected_achievement_badge_from_state(self, state: Any) -> Dict[str, Any]:
+        payload = state if isinstance(state, dict) else {}
+        badge = payload.get("selectedAchievementBadgeMeta")
+        if not isinstance(badge, dict):
+            return {}
+        badge_id = str(badge.get("id") or "").strip()
+        glyph = str(badge.get("glyph") or "").strip()
+        if not badge_id or not glyph:
+            return {}
+        return {
+            "id": badge_id,
+            "name": str(badge.get("name") or badge.get("label") or "").strip(),
+            "short_name": str(badge.get("shortName") or "").strip(),
+            "tier": str(badge.get("tier") or "").strip(),
+            "glyph": glyph,
+            "badge_text": str(badge.get("badgeText") or "").strip(),
+            "group": str(badge.get("group") or "").strip(),
+        }
+
+    def achievement_badges_for_identities(self, identities: List[str]) -> Dict[str, Dict[str, Any]]:
+        unique_identities = [str(item or "").strip() for item in identities if str(item or "").strip()]
+        unique_identities = list(dict.fromkeys(unique_identities))
+        if not unique_identities:
+            return {}
+        placeholders = ", ".join("?" for _ in unique_identities)
+        params = ["topdown-shooter-meta", *unique_identities]
+        self.ensure_schema()
+        with _db_lock:
+            conn = _connect()
+            try:
+                rows = conn.execute(
+                    f"""
+                    SELECT ip, state_json
+                    FROM game_states
+                    WHERE game_id = ? AND ip IN ({placeholders})
+                    """,
+                    params,
+                ).fetchall()
+            finally:
+                conn.close()
+        result: Dict[str, Dict[str, Any]] = {}
+        for row in rows:
+            badge = self._selected_achievement_badge_from_state(self._decode_json(row["state_json"], {}))
+            if badge:
+                result[str(row["ip"] or "")] = badge
+        return result
+
+    def achievement_badge_for_identity(self, ip: str) -> Dict[str, Any]:
+        return self.achievement_badges_for_identities([ip]).get(ip, {})
 
     def leaderboards(self, limit: int = 10) -> Dict[str, Any]:
         self.ensure_schema()
@@ -967,6 +1244,12 @@ class GameHubStore:
             finally:
                 conn.close()
 
+        badge_identities = [str(row["ip"] or "") for row in weekly_total_rows]
+        badge_identities.extend(str(row["ip"] or "") for row in all_time_recent_rows)
+        for rows in per_game_weekly.values():
+            badge_identities.extend(str(row.get("ip") or "") for row in rows)
+        achievement_badges = self.achievement_badges_for_identities(badge_identities)
+
         return {
             "week_key": week_key,
             "weekly_total": [
@@ -978,10 +1261,17 @@ class GameHubStore:
                     "play_count": row["play_count"],
                     "lifetime_score": int(row["lifetime_score"] or 0),
                     "rank": rank_info_for_identity(row["ip"], row["lifetime_score"] or 0, top_identity),
+                    "achievement_badge": achievement_badges.get(str(row["ip"] or ""), {}),
                 }
                 for row in weekly_total_rows
             ],
-            "weekly_by_game": per_game_weekly,
+            "weekly_by_game": {
+                game_id: [
+                    dict(entry, achievement_badge=achievement_badges.get(str(entry.get("ip") or ""), {}))
+                    for entry in rows
+                ]
+                for game_id, rows in per_game_weekly.items()
+            },
             "recent_global": [
                 {
                     "id": row["id"],
@@ -991,6 +1281,7 @@ class GameHubStore:
                     "mode": row["mode"],
                     "created_at": row["created_at"],
                     "display_name": row["nickname"] or format_visitor_label(row["ip"]),
+                    "achievement_badge": achievement_badges.get(str(row["ip"] or ""), {}),
                 }
                 for row in all_time_recent_rows
             ],
@@ -1085,6 +1376,7 @@ class GameHubStore:
             result.append(
                 {
                     "ip": row["ip"],
+                    "identity": row["ip"],
                     "display_name": row["nickname"] or format_visitor_label(row["ip"]),
                     "avatar_filename": row["avatar_filename"],
                     "current_game": row["current_game"],

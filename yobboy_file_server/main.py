@@ -34,7 +34,9 @@ from .shared_serial_hub import (
 )
 from .paths import project_base_dir
 from .paths import get_data_dir, get_logs_dir as get_runtime_logs_dir, resolve_path
+from .game_chat import init_games_chat_socketio
 from .game_gomoku import init_gomoku_socketio
+from .game_zhajinhua import init_zhajinhua_socketio
 from .game_hub import GameHubStore
 
 DEFAULT_MAX_UPLOAD_SIZE_MB = 0
@@ -71,7 +73,8 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QH
                                 QPushButton, QTextEdit, QLabel, QGroupBox, QMessageBox,
                                 QSystemTrayIcon, QMenu, QAction, QDialog, QLineEdit,
                                 QFileDialog, QFormLayout, QMenuBar, QInputDialog, QCheckBox,
-                                QListWidget, QListWidgetItem, QComboBox, QTabWidget, QScrollArea)
+                                QListWidget, QListWidgetItem, QComboBox, QTabWidget, QScrollArea,
+                                QSpinBox, QDialogButtonBox)
 from PyQt5.QtCore import QProcess, QTimer, Qt, pyqtSignal, QObject, QThread, QUrl
 from PyQt5.QtCore import QEventLoop
 from PyQt5.QtGui import QIcon, QTextCursor, QDesktopServices
@@ -495,6 +498,14 @@ def create_app(debug=False):
                       ping_interval=25)
     init_serial_socketio(socketio)
     init_gomoku_socketio(
+        socketio,
+        profile_resolver=lambda req: routes.resolve_game_profile_payload(req),
+    )
+    init_games_chat_socketio(
+        socketio,
+        profile_resolver=lambda req: routes.resolve_game_profile_payload(req),
+    )
+    init_zhajinhua_socketio(
         socketio,
         profile_resolver=lambda req: routes.resolve_game_profile_payload(req),
     )
@@ -4211,6 +4222,11 @@ class MainWindow(QMainWindow):
         manage_games_action.triggered.connect(self.open_games_data_admin)
         file_menu.addAction(manage_games_action)
 
+        grant_games_coupons_action = QAction('🎟️ 发 Games Hub 奖券', self)
+        grant_games_coupons_action.setStatusTip('仅管理员可给所有当前 Games Hub 用户发放三个奖池的抽奖券')
+        grant_games_coupons_action.triggered.connect(self.open_games_coupon_admin)
+        file_menu.addAction(grant_games_coupons_action)
+
         file_menu.addSeparator()
 
         # 退出
@@ -4951,6 +4967,134 @@ class MainWindow(QMainWindow):
                 f"资料记录：{result.get('deleted_profile', 0)}\n"
                 f"头像文件：{'已删除' if result.get('avatar_deleted') else '无或未删除'}"
             )
+        )
+
+    def open_games_coupon_admin(self):
+        """管理员入口：给所有当前 Games Hub 用户发放三个奖池的奖券。"""
+        if self.is_server_running:
+            reply = QMessageBox.question(
+                self,
+                "停止服务器",
+                "发放 Games Hub 奖券前建议先停止服务器，是否现在停止？",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.Yes
+            )
+            if reply != QMessageBox.Yes:
+                return
+            self.stop_server()
+            if not self.wait_for_server_state(expected_running=False, timeout_ms=5000):
+                QMessageBox.warning(self, "错误", "服务器停止失败，已取消发券操作。")
+                return
+
+        settings = read_runtime_settings()
+        current_admin_password = settings.get('ADMIN_PASSWORD', 'admin123')
+        admin_pass, ok = QInputDialog.getText(
+            self,
+            "验证管理员密码",
+            "请输入管理员密码：",
+            QLineEdit.Password
+        )
+        if not ok:
+            return
+        if admin_pass != current_admin_password:
+            QMessageBox.critical(self, "错误", "管理员密码错误，无法发放 Games Hub 奖券。")
+            return
+
+        coupon_counts = self._prompt_games_coupon_amounts()
+        if not coupon_counts:
+            return
+        color_count, icon_count, background_count = coupon_counts
+
+        if color_count <= 0 and icon_count <= 0 and background_count <= 0:
+            QMessageBox.information(self, "提示", "三个奖池的发券数量都为 0，未执行任何操作。")
+            return
+
+        confirm = QMessageBox.warning(
+            self,
+            "确认发券",
+            (
+                "将向所有当前 Games Hub 用户发放以下奖券：\n\n"
+                f"颜色奖券：{color_count}\n"
+                f"图标奖券：{icon_count}\n"
+                f"背景奖券：{background_count}\n\n"
+                "此操作会直接写入 topdown-shooter-meta 存档，是否继续？"
+            ),
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+        if confirm != QMessageBox.Yes:
+            return
+
+        try:
+            store = GameHubStore()
+            result = store.grant_topdown_meta_pulls_to_all_users(
+                color_pulls=color_count,
+                icon_pulls=icon_count,
+                background_pulls=background_count,
+            )
+        except Exception as e:
+            QMessageBox.critical(self, "错误", f"发放 Games Hub 奖券失败：{e}")
+            return
+
+        updated_count = int(result.get("updated_count", 0) or 0)
+        if updated_count <= 0:
+            QMessageBox.information(self, "提示", "当前没有可发券的 Games Hub 用户。")
+            return
+
+        QMessageBox.information(
+            self,
+            "发券完成",
+            (
+                f"已向 {updated_count} 个当前用户发放奖券。\n\n"
+                f"颜色奖券：+{int(result.get('color_pulls', 0) or 0)}\n"
+                f"图标奖券：+{int(result.get('icon_pulls', 0) or 0)}\n"
+                f"背景奖券：+{int(result.get('background_pulls', 0) or 0)}\n"
+                f"新建局外养成存档：{int(result.get('created_state_count', 0) or 0)}\n\n"
+                "已打开的游戏页面需要重新打开局外养成弹窗，或重新进入相关游戏，才能看到最新奖券数。"
+            )
+        )
+
+    def _prompt_games_coupon_amounts(self):
+        dialog = QDialog(self)
+        dialog.setWindowTitle("发放 Games Hub 奖券")
+        layout = QVBoxLayout(dialog)
+
+        form_layout = QFormLayout()
+        color_spin = QSpinBox(dialog)
+        color_spin.setRange(0, 1000000)
+        color_spin.setSingleStep(1)
+        color_spin.setValue(0)
+
+        icon_spin = QSpinBox(dialog)
+        icon_spin.setRange(0, 1000000)
+        icon_spin.setSingleStep(1)
+        icon_spin.setValue(0)
+
+        background_spin = QSpinBox(dialog)
+        background_spin.setRange(0, 1000000)
+        background_spin.setSingleStep(1)
+        background_spin.setValue(0)
+
+        form_layout.addRow("颜色奖券：", color_spin)
+        form_layout.addRow("图标奖券：", icon_spin)
+        form_layout.addRow("背景奖券：", background_spin)
+        layout.addLayout(form_layout)
+
+        tips = QLabel("一次性填写三个奖池的发券数量，确认后会统一发放给所有当前 Games Hub 用户。", dialog)
+        tips.setWordWrap(True)
+        layout.addWidget(tips)
+
+        button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, parent=dialog)
+        button_box.accepted.connect(dialog.accept)
+        button_box.rejected.connect(dialog.reject)
+        layout.addWidget(button_box)
+
+        if dialog.exec_() != QDialog.Accepted:
+            return None
+        return (
+            int(color_spin.value()),
+            int(icon_spin.value()),
+            int(background_spin.value()),
         )
 
     def open_settings(self):

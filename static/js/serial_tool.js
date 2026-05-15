@@ -1988,7 +1988,7 @@ class SerialToolApp {
 
                     // 连接到服务器
                     const socket = io('/serial', {
-                        transports: ['websocket', 'polling']
+                        transports: ['polling', 'websocket']
                     });
 
                     this.websocket = socket;

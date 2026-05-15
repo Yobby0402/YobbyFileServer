@@ -385,7 +385,7 @@
 
         await new Promise((resolve, reject) => {
             const socket = io('/serial', {
-                transports: ['websocket', 'polling'],
+                transports: ['polling', 'websocket'],
             });
 
             let settled = false;

@@ -1228,6 +1228,7 @@ def init_app(app):
         profile['identity_label'] = f'设备 {ip[-8:]}'
         profile['total_score'] = totals.get('total_score', 0)
         profile['rank'] = rank_info_for_identity(ip, profile['total_score'], game_hub_store.top_total_score_identity())
+        profile['achievement_badge'] = game_hub_store.achievement_badge_for_identity(ip)
         return profile
 
     def _resolved_games_identity() -> str:
@@ -1295,6 +1296,7 @@ def init_app(app):
         profile['identity_label'] = f'设备 {ip[-8:]}'
         profile['total_score'] = game_hub_store.total_score_summary(ip).get('total_score', 0)
         profile['rank'] = rank_info_for_identity(ip, profile['total_score'], game_hub_store.top_total_score_identity())
+        profile['achievement_badge'] = game_hub_store.achievement_badge_for_identity(ip)
         return _attach_games_identity(make_response(jsonify({'success': True, 'data': profile})), ip)
 
     @app.route('/api/games/state/<game_id>', methods=['GET', 'POST', 'DELETE'])
@@ -1356,11 +1358,11 @@ def init_app(app):
     def games_online_api():
         if not is_logged_in():
             return jsonify({'success': False, 'error': '未登录'}), 401
-        ip = _resolved_games_identity()
+        identity = _resolved_games_identity()
         if request.method == 'POST':
             payload = request.get_json(silent=True) or request.form or {}
             game_hub_store.touch_presence(
-                ip,
+                identity,
                 current_game=payload.get('current_game', ''),
                 play_status=payload.get('play_status', ''),
                 room_code=payload.get('room_code', ''),
@@ -1368,7 +1370,13 @@ def init_app(app):
         visitors = game_hub_store.online_visitors(active_within_seconds=120)
         for visitor in visitors:
             visitor['avatar_url'] = _game_avatar_url(visitor.get('avatar_filename', ''))
-        return _attach_games_identity(make_response(jsonify({'success': True, 'data': visitors})), ip)
+        return _attach_games_identity(
+            make_response(jsonify({'success': True, 'data': {
+                'self_identity': identity,
+                'visitors': visitors,
+            }})),
+            identity,
+        )
 
     @app.route('/api/games/profile/avatar', methods=['POST'])
     def games_profile_avatar_upload():
@@ -1391,6 +1399,7 @@ def init_app(app):
         profile['identity_label'] = f'设备 {ip[-8:]}'
         profile['total_score'] = game_hub_store.total_score_summary(ip).get('total_score', 0)
         profile['rank'] = rank_info_for_identity(ip, profile['total_score'], game_hub_store.top_total_score_identity())
+        profile['achievement_badge'] = game_hub_store.achievement_badge_for_identity(ip)
         return _attach_games_identity(make_response(jsonify({'success': True, 'data': profile})), ip)
 
     @app.route('/games/avatar/<path:filename>', methods=['GET'])

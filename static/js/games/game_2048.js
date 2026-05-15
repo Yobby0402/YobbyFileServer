@@ -244,8 +244,28 @@
 
     function mount2048(savedPayload, ctx) {
         let session = normalize2048Session((savedPayload && savedPayload.state) || {});
+        let metaState = ctx.getTopdownSharedMetaState();
         const tileMap = Object.create(null);
         let timerId = null;
+        function persistAchievementMeta() {
+            metaState = ctx.setTopdownSharedMetaState(metaState);
+            ctx.scheduleGameStateSave("topdown-shooter-meta", ctx.serializeTopdownMetaState(metaState), ctx.summarizeTopdownMetaState(metaState));
+        }
+
+        function record2048Achievements() {
+            if (session.achievementRecorded) {
+                return;
+            }
+            session.achievementRecorded = true;
+            metaState = ctx.topdownApplyAchievementProgress(metaState, {
+                add: { game2048RunTotal: 1 },
+                setMax: {
+                    game2048BestScore: session.score,
+                    game2048MaxTile: session.maxTile
+                }
+            });
+            persistAchievementMeta();
+        }
         const helpConfig2048 = {
             title: "2048",
             subtitle: "合并数字、控制棋盘空间，尽量把局面滚大。",
@@ -379,6 +399,7 @@
             if (session.submittedScore || session.score <= 0) {
                 return Promise.resolve();
             }
+            record2048Achievements();
             session.submittedScore = true;
             return ctx.submitScore("2048", session.score, "standard", session.sessionKey, {
                 mode_key: "2048-standard",

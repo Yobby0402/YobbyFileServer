@@ -292,21 +292,30 @@
         const size = 16;
         const subgrid = 4;
         const solutionChars = [];
-        const bandOrder = shuffleWithSeed([0, 1, 2, 3], (rowShiftSeed || id) + "-bands");
+        const seedBase = rowShiftSeed || id;
+        const bandOrder = shuffleWithSeed([0, 1, 2, 3], seedBase + "-bands");
+        const stackOrder = shuffleWithSeed([0, 1, 2, 3], seedBase + "-stacks");
         const rowSequence = [];
         bandOrder.forEach(function (band) {
-            shuffleWithSeed([0, 1, 2, 3], (rowShiftSeed || id) + "-rows-" + band).forEach(function (rowInBand) {
+            shuffleWithSeed([0, 1, 2, 3], seedBase + "-rows-" + band).forEach(function (rowInBand) {
                 rowSequence.push(band * subgrid + rowInBand);
+            });
+        });
+        const colSequence = [];
+        stackOrder.forEach(function (stack) {
+            shuffleWithSeed([0, 1, 2, 3], seedBase + "-cols-" + stack).forEach(function (colInStack) {
+                colSequence.push(stack * subgrid + colInStack);
             });
         });
         const rowOffsets = rowSequence.map(function (baseRow) {
             return (subgrid * (baseRow % subgrid) + Math.floor(baseRow / subgrid)) % size;
         });
+        const symbolOrder = shuffleWithSeed(HEX_SYMBOLS, seedBase + "-symbols");
 
         for (let row = 0; row < size; row += 1) {
             for (let col = 0; col < size; col += 1) {
-                const index = (rowOffsets[row] + col) % size;
-                const symbol = HEX_SYMBOLS[index];
+                const index = (rowOffsets[row] + colSequence[col]) % size;
+                const symbol = symbolOrder[index];
                 solutionChars.push(symbol);
             }
         }
@@ -653,6 +662,34 @@
             hint: "数独采用高底薪模型，完整手动解出通常就是几千分起步；HEX-16 会更高。"
         };
         const modeButtons = [];
+        let metaState = ctx.getTopdownSharedMetaState();
+
+        function persistAchievementMeta() {
+            metaState = ctx.setTopdownSharedMetaState(metaState);
+            ctx.scheduleGameStateSave("topdown-shooter-meta", ctx.serializeTopdownMetaState(metaState), ctx.summarizeTopdownMetaState(metaState));
+        }
+
+        function recordSudokuAchievements() {
+            if (session.achievementRecorded || session.usedSolver) {
+                return;
+            }
+            session.achievementRecorded = true;
+            const add = {
+                sudokuClearTotal: 1,
+                sudokuSolverlessTotal: 1
+            };
+            if (session.modeKey === "classic-easy") {
+                add.sudokuClassicEasyTotal = 1;
+            } else if (session.modeKey === "classic-medium") {
+                add.sudokuClassicMediumTotal = 1;
+            } else if (session.modeKey === "classic-hard") {
+                add.sudokuClassicHardTotal = 1;
+            } else if (session.modeKey === "hex-16") {
+                add.sudokuHex16Total = 1;
+            }
+            metaState = ctx.topdownApplyAchievementProgress(metaState, { add: add });
+            persistAchievementMeta();
+        }
 
         ctx.addStageButton("提交/校验", function () {
             session.checks += 1;
@@ -1049,6 +1086,7 @@
             }
             syncSudokuClock(session);
             const scoreData = computeSudokuScore(session.modeKey, session.elapsedSeconds);
+            recordSudokuAchievements();
             session.submittedScore = true;
             ctx.submitScore("sudoku", scoreData.total, session.modeKey, session.sessionKey, {
                 mode_key: session.modeKey,

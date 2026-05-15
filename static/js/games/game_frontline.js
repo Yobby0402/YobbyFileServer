@@ -512,6 +512,7 @@
         const neighbors = {};
         let session = normalizeFrontlineSession(savedPayload.state || {});
         let currentMap = session.map;
+        let metaState = ctx.getTopdownSharedMetaState();
         let timerId = null;
         let introActive = true;
         let introShownAt = Date.now();
@@ -519,6 +520,27 @@
         let aiAccumulatorMs = 0;
         let autosaveAccumulatorMs = 0;
         let dragState = null;
+        function persistAchievementMeta() {
+            metaState = ctx.setTopdownSharedMetaState(metaState);
+            ctx.scheduleGameStateSave("topdown-shooter-meta", ctx.serializeTopdownMetaState(metaState), ctx.summarizeTopdownMetaState(metaState));
+        }
+
+        function recordFrontlineAchievements(scoreData) {
+            if (session.achievementRecorded) {
+                return;
+            }
+            session.achievementRecorded = true;
+            metaState = ctx.topdownApplyAchievementProgress(metaState, {
+                add: {
+                    frontlineRunTotal: 1,
+                    frontlineVictoryTotal: session.status === "victory" ? 1 : 0
+                },
+                setMax: {
+                    frontlineBestScore: scoreData.total
+                }
+            });
+            persistAchievementMeta();
+        }
         const frontlineHelpConfig = {
             title: "攻占前线",
             subtitle: "随机地图单机版，包含难度分档、六种功能塔、拖拽派兵和基础 AI。",
@@ -1202,6 +1224,7 @@
             if (session.submittedScore || scoreData.total <= 0 || session.status === "playing") {
                 return Promise.resolve();
             }
+            recordFrontlineAchievements(scoreData);
             if (session.status === "victory" && !session.celebrationPlayed) {
                 session.celebrationPlayed = true;
                 playFrontlineVictoryCelebration(scoreData);

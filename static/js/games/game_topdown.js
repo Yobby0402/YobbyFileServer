@@ -49,6 +49,7 @@
             topdownBackgroundDrawWeight,
             topdownBackgroundPreviewStyle,
             topdownBossRelicSummary,
+            topdownBuildRunCosmeticBonuses,
             topdownBuffRemaining,
             topdownBuildSummary,
             topdownBulletBlockedByWardenField,
@@ -89,20 +90,30 @@
             topdownMetaRewardAmount,
             topdownMetaTierClass,
             topdownMetaTierLabel,
+            topdownResolveAchievements,
+            topdownAchievementSummary,
+            topdownSelectedAchievementBadge,
+            topdownAchievementTierTheme,
+            topdownApplyAchievementProgress,
+            topdownSetSelectedAchievementBadge,
             topdownNearestEnemy,
             topdownPickupVisual,
             topdownPlayerMoveSpeedFactor,
             topdownRareColorKeys,
             topdownRelicEnemyBulletSpeedMultiplier,
             topdownRelicStacks,
+            topdownResolveBurnTickDamage,
+            topdownResolveBurnTickInterval,
+            topdownResolveNuclearHuskBonusDamage,
+            topdownTimeSettlementBonus,
             topdownRollRowBaseKeys,
             topdownRollSequence,
             topdownSkillCatalog,
             topdownSkillCooldownValue,
             topdownSkillCooldownRemaining,
-            topdownSkillBlinkDistance,
             topdownSkillInvincibleDuration,
             topdownSkillMissileLifetime,
+            topdownSkillZeusDuration,
             topdownSkillReady,
             topdownSkillSummary,
             topdownSkillTriggerKeyLabel,
@@ -111,6 +122,7 @@
             topdownSpawnInterval,
             topdownSuperRareColorKeys,
             topdownTargetEnemyCount,
+            topdownTryCreateNuclearHusk,
             topdownWeightedPick,
             topdownWingmanDetailLines,
             createTopdownShooterSession,
@@ -137,19 +149,82 @@
             syncTopdownShieldCapacity,
             trimTopdownArray
         } = hubCtx.topdown;
-        let session = normalizeTopdownShooterSession(savedPayload.state || {});
+        const TOPDOWN_MANUAL_SAVE_KEY = "games-manual-save:topdown-shooter:v1";
+        function loadTopdownManualSave() {
+            try {
+                if (!window.localStorage) {
+                    return null;
+                }
+                const raw = window.localStorage.getItem(TOPDOWN_MANUAL_SAVE_KEY);
+                if (!raw) {
+                    return null;
+                }
+                const parsed = JSON.parse(raw);
+                if (!parsed || typeof parsed !== "object") {
+                    return null;
+                }
+                if (parsed.version !== 1) {
+                    return null;
+                }
+                if (!parsed.state || typeof parsed.state !== "object") {
+                    return null;
+                }
+                return parsed;
+            } catch (error) {
+                return null;
+            }
+        }
+
+        function saveTopdownManualSave() {
+            try {
+                if (!window.localStorage) {
+                    setStatus("浏览器不支持本地存档。", true);
+                    return false;
+                }
+                const payload = {
+                    version: 1,
+                    savedAt: Date.now(),
+                    state: serializeTopdownShooterSession(session),
+                    summary: summarizeTopdownShooterSession(session)
+                };
+                window.localStorage.setItem(TOPDOWN_MANUAL_SAVE_KEY, JSON.stringify(payload));
+                scheduleGameStateSave("topdown-shooter", payload.state, payload.summary, { force: true });
+                setStatus("已存档（本地）：" + new Date(payload.savedAt).toLocaleString(), false);
+                return true;
+            } catch (error) {
+                setStatus("本地存档失败：" + ((error && error.message) || "未知错误"), true);
+                return false;
+            }
+        }
+
+        function clearTopdownManualSave() {
+            try {
+                if (!window.localStorage) {
+                    return;
+                }
+                window.localStorage.removeItem(TOPDOWN_MANUAL_SAVE_KEY);
+            } catch (error) {
+                void error;
+            }
+        }
+
+        const manualSave = loadTopdownManualSave();
+        let session = normalizeTopdownShooterSession((manualSave && manualSave.state) || savedPayload.state || {});
         let metaState = setTopdownSharedMetaState(savedPayload.metaState || {});
+        if (manualSave && manualSave.savedAt) {
+            setStatus("已读取本地存档：" + new Date(manualSave.savedAt).toLocaleString(), false);
+        }
         const topdownHelpConfig = {
             title: "俯视射击",
             subtitle: "先稳住护盾和走位，再围绕元素方向滚出能成型的一套构筑。",
             bullets: [
                 "操作：移动和射击控制现已拆分，可分别切换。WASD / 方向键负责键盘移动；鼠标模式会自动朝指针位置移动。",
                 "射击可切成手动或自动：手动时按住鼠标左键或 J 开火；自动时会持续索敌并自动射击最近敌人。",
-                "技能键也可切换，当前支持 Q / E / 空格；闪现、导弹矩阵和绝对无敌都会走同一个技能键。",
+                "技能键也可切换，当前支持 Q / E / 空格；宙斯权杖、导弹矩阵和绝对无敌都会走同一个技能键。",
                 "火会灼烧叠层并周期性打出火系范围叠层弹；电是瞬发激光并固定折射最近敌人；冰会减速叠层直到冰冻；核会生成绿色范围爆发圈。",
                 "主武器满级后：火可传染燃烧，电可附加感电增伤，冰冻敌人有概率碎裂秒杀，核会概率留下持续辐射区。",
                 "僚机会共享当前僚机数量对应的弹种等级，但不触发主武器的满级终极效果。",
-                "首个首领必定掉技能。闪现会朝当前移动方向触发；若当前没有移动则无法发动。技能基础冷却为 45 秒，可通过强化缩短；持续强化对闪现改为提升距离。",
+                "首个首领必定掉技能。宙斯权杖会放出一道高速反弹的处决光束，基础持续 5 秒；技能基础冷却为 45 秒，可通过强化缩短，持续强化会继续延长光束存在时间。",
                 "普通小怪也有 1% 概率掉落随机补给，可能是升级球，也可能是随机道具。",
                 "后期精英和首领会使用单发、散射、环形弹幕或线性光束；斥力会击飞玩家，典狱长会周期展开阻弹结界并压慢周围敌人。",
                 "黑手会抓钩，噩梦会致盲，良子会吞怪回血，魅魔会吸附并狂暴附近单位。",
@@ -199,13 +274,26 @@
         let persistStamp = 0;
         let upgradeRects = [];
         let pickupChoiceRects = [];
+        let reviveChoiceRects = [];
         let introShownAt = Date.now();
         let introActive = true;
         let metaModal = null;
+        const reviveQrSources = Array.isArray(TOPDOWN_BALANCE.reviveQrAssets) && TOPDOWN_BALANCE.reviveQrAssets.length
+            ? TOPDOWN_BALANCE.reviveQrAssets.slice(0, 2)
+            : [TOPDOWN_BALANCE.reviveQrAsset];
+        const reviveQrLabels = Array.isArray(TOPDOWN_BALANCE.reviveQrLabels) && TOPDOWN_BALANCE.reviveQrLabels.length
+            ? TOPDOWN_BALANCE.reviveQrLabels.slice(0, reviveQrSources.length)
+            : reviveQrSources.map(function (_, index) { return index === 0 ? "微信收款码" : "支付宝收款码"; });
+        const reviveQrImages = reviveQrSources.map(function (src) {
+            const image = new window.Image();
+            image.src = src;
+            return image;
+        });
 
         addStageButton("重新开局", function () {
             finalizeRunRewardIfNeeded();
             finalizeScoreIfNeeded().finally(function () {
+                clearTopdownManualSave();
                 session = createTopdownShooterSession({
                     moveControl: session.moveControl,
                     fireControl: session.fireControl,
@@ -218,6 +306,26 @@
         }, true);
         addStageButton("暂停 / 继续", function () {
             togglePause();
+        }, false);
+        addStageButton("手动结算", function () {
+            if (session.status === "over") {
+                return;
+            }
+            session.manualSettlement = true;
+            session.status = "over";
+            session.pendingUpgrade = null;
+            session.pendingPickupChoice = null;
+            session.pendingReviveChoice = null;
+            pointer.down = false;
+            pressed.KeyJ = false;
+            setStatus("已手动结算，本局结束。", false);
+            updateHud();
+            persist(false);
+            finalizeRunRewardIfNeeded();
+            finalizeScoreIfNeeded();
+        }, false);
+        addStageButton("存档", function () {
+            saveTopdownManualSave();
         }, false);
         const moveControlButton = addStageButton("", function () {
             session.moveControl = session.moveControl === "mouse" ? "keyboard" : "mouse";
@@ -286,7 +394,18 @@
         }
 
         function persistMeta() {
+            metaState = setTopdownSharedMetaState(metaState);
             scheduleGameStateSave("topdown-shooter-meta", serializeTopdownMetaState(metaState), summarizeTopdownMetaState(metaState));
+        }
+
+        function applyAchievementProgress(updates) {
+            metaState = setTopdownSharedMetaState(topdownApplyAchievementProgress(metaState, updates));
+            return metaState;
+        }
+
+        function refreshAchievementBadgeDisplays() {
+            loadProfile().catch(function () {});
+            refreshScorePanels().catch(function () {});
         }
 
         function persistLocalRuntime() {
@@ -317,6 +436,101 @@
             return reward;
         }
 
+        function topdownRevivePromptState() {
+            return session.pendingReviveChoice && typeof session.pendingReviveChoice === "object"
+                ? session.pendingReviveChoice
+                : null;
+        }
+
+        function topdownTryOfferRevive() {
+            if (session.reviveUsed || session.pendingReviveChoice) {
+                return false;
+            }
+            const remaining = topdownRevivesRemainingToday();
+            if (remaining <= 0) {
+                return false;
+            }
+            session.pendingReviveChoice = {
+                remainingBefore: remaining,
+                remainingAfter: Math.max(0, remaining - 1),
+                offeredAt: Date.now()
+            };
+            session.status = "paused";
+            session.pausedElapsed = session.elapsedSeconds;
+            pointer.down = false;
+            setStatus("首败保护已触发。今天还剩 " + remaining + " 次复活机会，想清楚再点。", true);
+            return true;
+        }
+
+        function confirmRevive() {
+            const prompt = topdownRevivePromptState();
+            if (!prompt) {
+                return;
+            }
+            if (!topdownConsumeDailyRevive()) {
+                session.pendingReviveChoice = null;
+                session.status = "over";
+                finalizeScoreIfNeeded();
+                persist();
+                return;
+            }
+            const shieldStats = syncTopdownShieldCapacity(session);
+            session.pendingReviveChoice = null;
+            session.reviveUsed = true;
+            session.status = "playing";
+            session.startedAt = Date.now();
+            session.pausedElapsed = session.elapsedSeconds;
+            session.shield.current = shieldStats.max;
+            session.shield.max = shieldStats.max;
+            session.shield.cooldownLeft = 0;
+            session.shield.rechargeProgress = 0;
+            session.player.hitCooldown = 0;
+            session.player.damageFlash = Math.max(Number(session.player.damageFlash || 0), TOPDOWN_BALANCE.damageFlashDuration);
+            session.player.invulnerableUntil = Math.max(Number(session.player.invulnerableUntil || 0), session.tick + TOPDOWN_BALANCE.reviveInvulnerableDuration);
+            setStatus("已复活。今日剩余复活次数 " + topdownRevivesRemainingToday() + " / " + TOPDOWN_BALANCE.reviveDailyLimit + "，认真对待，这不是无限续杯。", false);
+            updateHud();
+            persist();
+        }
+
+        function cancelRevive() {
+            if (!topdownRevivePromptState()) {
+                return;
+            }
+            session.pendingReviveChoice = null;
+            session.status = "over";
+            setStatus("你放弃了本次复活，战局已结算。", true);
+            updateHud();
+            persist();
+            finalizeScoreIfNeeded();
+        }
+
+        function recordTopdownRunAchievements() {
+            if (session.achievementRecorded) {
+                return;
+            }
+            session.achievementRecorded = true;
+            applyAchievementProgress({
+                add: {
+                    topdownRunCount: 1,
+                    topdownKillTotal: session.kills,
+                    topdownBossTotal: session.bossesDefeated
+                },
+                setMax: {
+                    topdownBestScore: session.score,
+                    topdownBestWave: session.wave,
+                    topdownBestCombo: session.bestCombo
+                }
+            });
+            persistMeta();
+        }
+
+        function recordTopdownSkillUse() {
+            applyAchievementProgress({
+                add: { topdownSkillUseTotal: 1 }
+            });
+            persistMeta();
+        }
+
         const metaRollMetrics = {
             itemWidth: 112,
             itemGap: 8,
@@ -326,6 +540,7 @@
         let metaView = "draw";
         let metaFlashMessage = "";
         let metaShowLocked = true;
+        let metaSortDescending = false;
         let metaRevealTimer = 0;
         let metaRevealCloseHandler = null;
         let metaPaymentBusy = false;
@@ -349,6 +564,36 @@
             const month = String(now.getMonth() + 1).padStart(2, "0");
             const day = String(now.getDate()).padStart(2, "0");
             return now.getFullYear() + "-" + month + "-" + day;
+        }
+
+        function topdownDailyReviveState() {
+            const today = topdownTodayKey();
+            const daily = metaState.dailyRevive && typeof metaState.dailyRevive === "object"
+                ? metaState.dailyRevive
+                : (metaState.dailyRevive = { date: "", used: 0 });
+            daily.date = String(daily.date || "");
+            daily.used = Math.max(0, Math.floor(Number(daily.used || 0)));
+            if (daily.date !== today) {
+                daily.date = today;
+                daily.used = 0;
+            }
+            return daily;
+        }
+
+        function topdownRevivesRemainingToday() {
+            const daily = topdownDailyReviveState();
+            return Math.max(0, TOPDOWN_BALANCE.reviveDailyLimit - daily.used);
+        }
+
+        function topdownConsumeDailyRevive() {
+            const daily = topdownDailyReviveState();
+            if (daily.used >= TOPDOWN_BALANCE.reviveDailyLimit) {
+                return false;
+            }
+            daily.used += 1;
+            daily.date = topdownTodayKey();
+            persistMeta();
+            return true;
         }
 
         function topdownFreePulls(kind) {
@@ -539,6 +784,285 @@
             return '<span class="' + classes + '">' + escapeHtml(topdownIconPreviewGlyph(icon)) + '</span>';
         }
 
+        function topdownMetaEffectPercent(multiplier, invert) {
+            const value = Number(multiplier || 1);
+            if (Math.abs(value - 1) < 0.0001) {
+                return "";
+            }
+            const delta = Math.round(Math.abs(1 - value) * 100);
+            if (delta <= 0) {
+                return "";
+            }
+            return (invert ? (value < 1 ? "+" : "-") : (value > 1 ? "+" : "-")) + delta + "%";
+        }
+
+        function topdownMetaBonusesForPreview(kind, key) {
+            const catalog = topdownCatalogForKind(kind);
+            const item = catalog[key] || {};
+            const bonuses = {
+                startUpgradeChoices: 0,
+                attackMultiplier: 1,
+                damageFlat: 0,
+                fireRateMultiplier: 1,
+                moveSpeedMultiplier: 1,
+                wingmanMaxBonus: 0,
+                enemySpeedMultiplier: 1,
+                enemyBulletSpeedMultiplier: 1,
+                enemyFireCooldownMultiplier: 1,
+                colorBonusLabel: "",
+                iconBonusLabel: "",
+                backgroundBonusLabel: ""
+            };
+            if (kind === "color" && (item.tier === "rare" || item.tier === "superrare")) {
+                const colorBonus = hubCtx.topdown.topdownColorBonusPreset ? hubCtx.topdown.topdownColorBonusPreset(item) : null;
+                if (colorBonus) {
+                    bonuses.attackMultiplier *= Number(colorBonus.attackMultiplier || 1);
+                    bonuses.damageFlat += Number(colorBonus.damageFlat || 0);
+                    bonuses.fireRateMultiplier *= Number(colorBonus.fireRateMultiplier || 1);
+                    bonuses.moveSpeedMultiplier *= Number(colorBonus.moveSpeedMultiplier || 1);
+                    bonuses.wingmanMaxBonus += Math.max(0, Math.floor(Number(colorBonus.wingmanMaxBonus || 0)));
+                    bonuses.colorBonusLabel = colorBonus.label || "";
+                }
+                return bonuses;
+            }
+            if (kind === "icon") {
+                if (item.tier === "rare") {
+                    bonuses.startUpgradeChoices = TOPDOWN_BALANCE.rareIconStartChoices;
+                } else if (item.tier === "superrare") {
+                    const iconBonus = hubCtx.topdown.topdownIconBonusPreset ? hubCtx.topdown.topdownIconBonusPreset(item) : null;
+                    bonuses.startUpgradeChoices = TOPDOWN_BALANCE.superRareIconStartChoices;
+                    if (iconBonus) {
+                        bonuses.attackMultiplier *= Number(iconBonus.attackMultiplier || 1);
+                        bonuses.damageFlat += Number(iconBonus.damageFlat || 0);
+                        bonuses.fireRateMultiplier *= Number(iconBonus.fireRateMultiplier || 1);
+                        bonuses.moveSpeedMultiplier *= Number(iconBonus.moveSpeedMultiplier || 1);
+                        bonuses.wingmanMaxBonus += Math.max(0, Math.floor(Number(iconBonus.wingmanMaxBonus || 0)));
+                        bonuses.iconBonusLabel = iconBonus.label || "";
+                    }
+                }
+                return bonuses;
+            }
+            if (kind === "background" && (item.tier === "rare" || item.tier === "superrare")) {
+                const backgroundBonus = hubCtx.topdown.topdownBackgroundBonusPreset ? hubCtx.topdown.topdownBackgroundBonusPreset(item) : null;
+                if (backgroundBonus) {
+                    bonuses.enemySpeedMultiplier *= Number(backgroundBonus.enemySpeedMultiplier || 1);
+                    bonuses.enemyBulletSpeedMultiplier *= Number(backgroundBonus.enemyBulletSpeedMultiplier || 1);
+                    bonuses.enemyFireCooldownMultiplier *= Number(backgroundBonus.enemyFireCooldownMultiplier || 1);
+                    bonuses.backgroundBonusLabel = backgroundBonus.label || "";
+                }
+            }
+            return bonuses;
+        }
+
+        function topdownMetaSortLabel() {
+            return metaSortDescending ? "稀有度：高 -> 低" : "稀有度：低 -> 高";
+        }
+
+        function topdownMetaEffectLines(kind, key, item) {
+            const bonuses = topdownMetaBonusesForPreview(kind, key);
+            const lines = [];
+            if (kind === "color") {
+                if (bonuses.colorBonusLabel) {
+                    lines.push("局内效果：" + bonuses.colorBonusLabel);
+                }
+                if (Number(bonuses.attackMultiplier || 1) > 1.0001) {
+                    lines.push("攻击倍率 " + topdownMetaEffectPercent(bonuses.attackMultiplier, false));
+                }
+                if (Number(bonuses.damageFlat || 0) > 0) {
+                    lines.push("额外攻击 +" + Number(bonuses.damageFlat).toFixed(1));
+                }
+                if (Number(bonuses.fireRateMultiplier || 1) < 0.9999) {
+                    lines.push("射速 " + topdownMetaEffectPercent(bonuses.fireRateMultiplier, true));
+                }
+                if (Number(bonuses.moveSpeedMultiplier || 1) > 1.0001) {
+                    lines.push("移速 " + topdownMetaEffectPercent(bonuses.moveSpeedMultiplier, false));
+                }
+                if (Number(bonuses.wingmanMaxBonus || 0) > 0) {
+                    lines.push("僚机上限 +" + bonuses.wingmanMaxBonus);
+                }
+                if (!lines.length) {
+                    lines.push("仅改变外观表现，不提供局内数值加成。");
+                }
+                if (item && item.effect) {
+                    lines.push("视觉：" + String(item.effect));
+                }
+                return lines;
+            }
+            if (kind === "icon") {
+                if (bonuses.iconBonusLabel) {
+                    lines.push("局内效果：" + bonuses.iconBonusLabel);
+                }
+                if (bonuses.startUpgradeChoices > 0) {
+                    lines.push("开局强化选择 +" + bonuses.startUpgradeChoices);
+                } else {
+                    lines.push("仅改变图标外观。");
+                }
+                if (Number(bonuses.attackMultiplier || 1) > 1.0001) {
+                    lines.push("攻击倍率 " + topdownMetaEffectPercent(bonuses.attackMultiplier, false));
+                }
+                if (Number(bonuses.damageFlat || 0) > 0) {
+                    lines.push("额外攻击 +" + Number(bonuses.damageFlat).toFixed(1));
+                }
+                if (Number(bonuses.fireRateMultiplier || 1) < 0.9999) {
+                    lines.push("射速 " + topdownMetaEffectPercent(bonuses.fireRateMultiplier, true));
+                }
+                if (Number(bonuses.moveSpeedMultiplier || 1) > 1.0001) {
+                    lines.push("移速 " + topdownMetaEffectPercent(bonuses.moveSpeedMultiplier, false));
+                }
+                if (Number(bonuses.wingmanMaxBonus || 0) > 0) {
+                    lines.push("僚机上限 +" + bonuses.wingmanMaxBonus);
+                }
+                return lines;
+            }
+            if (bonuses.backgroundBonusLabel) {
+                lines.push("局内效果：" + bonuses.backgroundBonusLabel);
+            }
+            if (Number(bonuses.enemySpeedMultiplier || 1) < 0.9999) {
+                lines.push("敌人移速 " + topdownMetaEffectPercent(bonuses.enemySpeedMultiplier, true));
+            }
+            if (Number(bonuses.enemyBulletSpeedMultiplier || 1) < 0.9999) {
+                lines.push("敌弹速度 " + topdownMetaEffectPercent(bonuses.enemyBulletSpeedMultiplier, true));
+            }
+            if (Number(bonuses.enemyFireCooldownMultiplier || 1) > 1.0001) {
+                lines.push("敌人射速 " + topdownMetaEffectPercent(bonuses.enemyFireCooldownMultiplier, false));
+            }
+            if (!lines.length) {
+                lines.push("统一背景外观，可用于 Topdown 与五子棋。");
+            }
+            return lines;
+        }
+
+        function topdownMetaEffectHtml(kind, key, item) {
+            return '<span class="topdown-meta-skin-effect">' + escapeHtml(topdownMetaEffectLines(kind, key, item).join(" / ")) + '</span>';
+        }
+
+        function topdownMetaActiveEffectsHtml() {
+            const appearance = topdownEquippedAppearance(metaState);
+            return [
+                '<div class="topdown-meta-effect-grid">',
+                '  <div class="topdown-meta-effect-card"><strong>当前颜色效果</strong><span>' + escapeHtml(topdownMetaEffectLines("color", appearance.color.key, appearance.color).join(" / ")) + '</span></div>',
+                '  <div class="topdown-meta-effect-card"><strong>当前图标效果</strong><span>' + escapeHtml(topdownMetaEffectLines("icon", appearance.icon.key, appearance.icon).join(" / ")) + '</span></div>',
+                '  <div class="topdown-meta-effect-card"><strong>当前背景效果</strong><span>' + escapeHtml(topdownMetaEffectLines("background", appearance.background.key, appearance.background).join(" / ")) + '</span></div>',
+                '</div>'
+            ].join("");
+        }
+
+        function topdownAchievementGroupLabel(groupKey) {
+            if (groupKey === "sudoku") {
+                return "数独";
+            }
+            if (groupKey === "game2048") {
+                return "2048";
+            }
+            if (groupKey === "frontline") {
+                return "前线";
+            }
+            if (groupKey === "gomoku") {
+                return "五子棋";
+            }
+            if (groupKey === "gacha") {
+                return "抽奖收藏";
+            }
+            if (groupKey === "collection") {
+                return "收藏总览";
+            }
+            return "俯视射击";
+        }
+
+        function topdownAchievementBadgeChipHtml(badge, className) {
+            const safeBadge = badge || {};
+            const tierKey = topdownAchievementTierTheme(safeBadge.tier).key;
+            return [
+                '<span class="' + escapeHtml(className || "topdown-achievement-badge-chip") + ' topdown-achievement-badge-chip--' + escapeHtml(tierKey) + '">',
+                '  <span class="topdown-achievement-badge-glyph">' + escapeHtml(safeBadge.glyph || "✦") + '</span>',
+                '  <span class="topdown-achievement-badge-text">' + escapeHtml(safeBadge.badgeText || "") + '</span>',
+                '</span>'
+            ].join("");
+        }
+
+        function topdownAchievementCardHtml(achievement, selectedId) {
+            const tierInfo = topdownAchievementTierTheme(achievement.tier);
+            const selected = selectedId === achievement.id;
+            return [
+                '<div class="topdown-achievement-card is-' + escapeHtml(tierInfo.key) + (achievement.unlocked ? " is-unlocked" : " is-locked") + (selected ? " is-selected" : "") + '">',
+                '  <div class="topdown-achievement-card-head">',
+                topdownAchievementBadgeChipHtml(achievement, "topdown-achievement-badge-chip"),
+                '    <div class="topdown-achievement-head-copy">',
+                '      <strong>' + escapeHtml(achievement.name) + '</strong>',
+                '      <span>' + escapeHtml(tierInfo.label + " · " + topdownAchievementGroupLabel(achievement.group)) + '</span>',
+                '    </div>',
+                '  </div>',
+                '  <div class="topdown-achievement-card-body">',
+                '    <div class="topdown-achievement-desc">' + escapeHtml(achievement.description) + '</div>',
+                '    <div class="topdown-achievement-progress">' + escapeHtml(achievement.progressText) + '</div>',
+                '  </div>',
+                '  <div class="topdown-achievement-card-actions">',
+                achievement.unlocked
+                    ? ('    <button type="button" class="games-btn' + (selected ? " games-btn--primary" : "") + '" data-topdown-achievement-select="' + escapeHtml(achievement.id) + '">' + (selected ? "展示中" : "设为展示") + "</button>")
+                    : '    <span class="topdown-achievement-locked">未达成</span>',
+                '  </div>',
+                '</div>'
+            ].join("");
+        }
+
+        function topdownMetaAchievementViewHtml() {
+            const summary = topdownAchievementSummary(metaState);
+            const selectedBadge = topdownSelectedAchievementBadge(metaState);
+            const selectedId = selectedBadge ? selectedBadge.id : "";
+            const achievements = topdownResolveAchievements(metaState);
+            const groupOrder = ["topdown", "sudoku", "game2048", "frontline", "gomoku", "gacha", "collection"];
+            const groupedHtml = groupOrder.map(function (groupKey) {
+                const items = achievements.filter(function (entry) {
+                    return entry.group === groupKey;
+                });
+                if (!items.length) {
+                    return "";
+                }
+                return [
+                    '<section class="games-insight-panel topdown-meta-panel topdown-achievement-section">',
+                    '  <div class="topdown-meta-section-head"><div class="games-section-title">' + escapeHtml(topdownAchievementGroupLabel(groupKey)) + '</div><div class="games-stage-meta">已解锁 ' + escapeHtml(String(items.filter(function (entry) { return entry.unlocked; }).length)) + ' / ' + escapeHtml(String(items.length)) + '</div></div>',
+                    '  <div class="topdown-achievement-grid">' + items.map(function (entry) { return topdownAchievementCardHtml(entry, selectedId); }).join("") + '</div>',
+                    '</section>'
+                ].join("");
+            }).join("");
+            return [
+                '<div class="topdown-meta-shell">',
+                '  <div class="topdown-meta-layout">',
+                '    <div class="topdown-meta-overview-section">',
+                '      <div class="games-insight-panel topdown-meta-overview">',
+                '        <div class="topdown-meta-overview-main">',
+                '          <div>',
+                '            <div class="games-section-title">成就陈列</div>',
+                '            <div class="games-stage-meta">已设计 ' + escapeHtml(String(summary.total)) + ' 个长期目标，解锁后可任选一个徽章展示在排行榜昵称后。</div>',
+                '          </div>',
+                '          <div class="topdown-achievement-showcase">',
+                selectedBadge
+                    ? (topdownAchievementBadgeChipHtml(selectedBadge, "topdown-achievement-badge-chip topdown-achievement-badge-chip--large")
+                        + '<div class="topdown-achievement-showcase-copy"><strong>' + escapeHtml(selectedBadge.name) + '</strong><span>当前展示徽章</span></div>')
+                    : '<div class="topdown-achievement-showcase-copy is-empty"><strong>当前未展示徽章</strong><span>解锁后可在这里设为展示</span></div>',
+                '          </div>',
+                '        </div>',
+                '        <div class="topdown-meta-stat-grid">',
+                '          <div class="topdown-meta-stat"><span>已解锁成就</span><strong>' + escapeHtml(String(summary.unlocked)) + ' / ' + escapeHtml(String(summary.total)) + '</strong></div>',
+                '          <div class="topdown-meta-stat"><span>铜色金辉</span><strong>' + escapeHtml(String(summary.unlockedByTier.bronze)) + ' / ' + escapeHtml(String(summary.bronze)) + '</strong></div>',
+                '          <div class="topdown-meta-stat"><span>银色金辉</span><strong>' + escapeHtml(String(summary.unlockedByTier.silver)) + ' / ' + escapeHtml(String(summary.silver)) + '</strong></div>',
+                '          <div class="topdown-meta-stat"><span>金色金辉</span><strong>' + escapeHtml(String(summary.unlockedByTier.gold)) + ' / ' + escapeHtml(String(summary.gold)) + '</strong></div>',
+                '          <div class="topdown-meta-stat"><span>钻石金辉</span><strong>' + escapeHtml(String(summary.unlockedByTier.diamond)) + ' / ' + escapeHtml(String(summary.diamond)) + '</strong></div>',
+                '        </div>',
+                '        <div class="topdown-achievement-toolbar">',
+                '          <button type="button" class="games-btn" data-topdown-achievement-clear="1"' + (selectedBadge ? "" : " disabled") + '>取消展示</button>',
+                '        </div>',
+                (metaFlashMessage ? ('        <div class="games-stage-meta topdown-meta-flash">' + escapeHtml(metaFlashMessage) + '</div>') : ''),
+                '      </div>',
+                '    </div>',
+                '    <div class="topdown-meta-equip-section">',
+                groupedHtml,
+                '    </div>',
+                '  </div>',
+                '</div>'
+            ].join("");
+        }
+
         function topdownMetaColorCardHtml(key, color) {
             const owned = metaState.ownedColors.indexOf(key) !== -1;
             const equipped = metaState.equippedColor === key;
@@ -547,6 +1071,7 @@
                 '  <span class="topdown-meta-skin-icon" style="' + topdownMetaPreviewStyle(color) + '"></span>',
                 '  <span class="topdown-meta-skin-name">' + escapeHtml(color.label) + '</span>',
                 '  <span class="topdown-meta-skin-state">' + escapeHtml(topdownMetaTierLabel(color.tier, "color")) + ' / ' + (equipped ? "已装备" : (owned ? "已拥有" : "未拥有")) + '</span>',
+                '  ' + topdownMetaEffectHtml("color", key, color),
                 "</button>"
             ].join("");
         }
@@ -560,6 +1085,7 @@
                 '  ' + topdownMetaIconPreviewHtml(icon, "topdown-meta-skin-icon", appearance.color),
                 '  <span class="topdown-meta-skin-name">' + escapeHtml(icon.label) + '</span>',
                 '  <span class="topdown-meta-skin-state">' + escapeHtml(topdownMetaTierLabel(icon.tier, "icon")) + ' / ' + (equipped ? "已装备" : (owned ? "已拥有" : "未拥有")) + '</span>',
+                '  ' + topdownMetaEffectHtml("icon", key, icon),
                 "</button>"
             ].join("");
         }
@@ -572,6 +1098,7 @@
                 '  <span class="topdown-meta-skin-icon topdown-meta-background-preview" style="' + topdownBackgroundPreviewStyle(background) + '"></span>',
                 '  <span class="topdown-meta-skin-name">' + escapeHtml(background.label) + '</span>',
                 '  <span class="topdown-meta-skin-state">' + escapeHtml(topdownMetaTierLabel(background.tier, "background")) + ' / ' + (equipped ? "已装备" : (owned ? "已拥有" : "未拥有")) + '</span>',
+                '  ' + topdownMetaEffectHtml("background", key, background),
                 "</button>"
             ].join("");
         }
@@ -785,13 +1312,13 @@
             const colorCatalog = topdownColorCatalog();
             const iconCatalog = topdownIconCatalog();
             const backgroundCatalog = topdownBackgroundCatalog();
-            const colorKeys = topdownSortCatalogKeysByTier(colorCatalog).filter(function (key) {
+            const colorKeys = topdownSortCatalogKeysByTier(colorCatalog, metaSortDescending).filter(function (key) {
                 return metaShowLocked || metaState.ownedColors.indexOf(key) !== -1;
             });
-            const iconKeys = topdownSortCatalogKeysByTier(iconCatalog).filter(function (key) {
+            const iconKeys = topdownSortCatalogKeysByTier(iconCatalog, metaSortDescending).filter(function (key) {
                 return metaShowLocked || metaState.ownedIcons.indexOf(key) !== -1;
             });
-            const backgroundKeys = topdownSortCatalogKeysByTier(backgroundCatalog).filter(function (key) {
+            const backgroundKeys = topdownSortCatalogKeysByTier(backgroundCatalog, metaSortDescending).filter(function (key) {
                 return metaShowLocked || metaState.ownedBackgrounds.indexOf(key) !== -1;
             });
             return [
@@ -809,6 +1336,7 @@
                 '          <input type="checkbox" data-topdown-show-locked="1"' + (metaShowLocked ? " checked" : "") + '>',
                 '          <span>显示未拥有</span>',
                 '        </label>',
+                '        <button type="button" class="topdown-meta-toggle-btn" data-topdown-sort-toggle="1">' + escapeHtml(topdownMetaSortLabel()) + '</button>',
                 '        <div class="topdown-meta-stat-grid">',
                 '          <div class="topdown-meta-stat"><span>颜色拥有</span><strong>' + escapeHtml(String(metaState.ownedColors.length)) + ' / ' + escapeHtml(String(Object.keys(colorCatalog).length)) + '</strong></div>',
                 '          <div class="topdown-meta-stat"><span>图标拥有</span><strong>' + escapeHtml(String(metaState.ownedIcons.length)) + ' / ' + escapeHtml(String(Object.keys(iconCatalog).length)) + '</strong></div>',
@@ -817,6 +1345,7 @@
                 '          <div class="topdown-meta-stat"><span>已装备图标</span><strong>' + escapeHtml(((iconCatalog[metaState.equippedIcon] || {}).label || "默认")) + '</strong></div>',
                 '          <div class="topdown-meta-stat"><span>已装备背景</span><strong>' + escapeHtml(((backgroundCatalog[metaState.equippedBackground] || {}).label || "默认")) + '</strong></div>',
                 '        </div>',
+                topdownMetaActiveEffectsHtml(),
                 (metaFlashMessage ? ('        <div class="games-stage-meta topdown-meta-flash">' + escapeHtml(metaFlashMessage) + '</div>') : ''),
                 '      </div>',
                 '    </div>',
@@ -843,13 +1372,14 @@
 
         function topdownMetaPanelHtml() {
             return [
-                '<div class="topdown-meta-root">',
+                '<div class="topdown-meta-root topdown-meta-root--' + escapeHtml(metaView) + '">',
                 '  <div class="topdown-meta-tabs">',
                 '    <button type="button" class="topdown-meta-tab' + (metaView === "draw" ? " is-active" : "") + '" data-topdown-meta-view="draw">抽奖</button>',
                 '    <button type="button" class="topdown-meta-tab' + (metaView === "equip" ? " is-active" : "") + '" data-topdown-meta-view="equip">装备</button>',
+                '    <button type="button" class="topdown-meta-tab' + (metaView === "achievement" ? " is-active" : "") + '" data-topdown-meta-view="achievement">成就</button>',
                 '  </div>',
                 '  <div class="topdown-meta-view">',
-                (metaView === "draw" ? topdownMetaDrawViewHtml() : topdownMetaEquipViewHtml()),
+                (metaView === "draw" ? topdownMetaDrawViewHtml() : (metaView === "achievement" ? topdownMetaAchievementViewHtml() : topdownMetaEquipViewHtml())),
                 '  </div>',
                 '</div>'
             ].join("");
@@ -889,6 +1419,7 @@
                     "[data-topdown-meta-view]",
                     "[data-topdown-equip-category]",
                     "[data-topdown-equip-game]",
+                    "[data-topdown-sort-toggle]",
                     "[data-topdown-equip-color]",
                     "[data-topdown-equip-icon]",
                     "[data-topdown-equip-background]",
@@ -897,7 +1428,9 @@
                     "[data-topdown-draw-icon]",
                     "[data-topdown-draw-icon-ten]",
                     "[data-topdown-draw-background]",
-                    "[data-topdown-draw-background-ten]"
+                    "[data-topdown-draw-background-ten]",
+                    "[data-topdown-achievement-select]",
+                    "[data-topdown-achievement-clear]"
                 ].join(","));
                 if (!(actionTarget instanceof HTMLElement) || !metaModal.contains(actionTarget)) {
                     return;
@@ -907,6 +1440,16 @@
                     return;
                 }
                 const nextView = actionTarget.getAttribute("data-topdown-meta-view");
+                if (nextView === "achievement") {
+                    if (topdownAnyMetaRollActive()) {
+                        metaFlashMessage = "当前正在开奖，请等待滚动结束。";
+                        renderMetaModal();
+                        return;
+                    }
+                    metaView = nextView;
+                    renderMetaModal();
+                    return;
+                }
                 if (nextView === "draw" || nextView === "equip") {
                     if (topdownAnyMetaRollActive()) {
                         metaFlashMessage = "当前正在开奖，请等待滚动结束。";
@@ -914,6 +1457,11 @@
                         return;
                     }
                     metaView = nextView;
+                    renderMetaModal();
+                    return;
+                }
+                if (actionTarget.hasAttribute("data-topdown-sort-toggle")) {
+                    metaSortDescending = !metaSortDescending;
                     renderMetaModal();
                     return;
                 }
@@ -961,6 +1509,23 @@
                         renderMetaModal();
                         updateHud();
                     }
+                    return;
+                }
+                const achievementId = actionTarget.getAttribute("data-topdown-achievement-select");
+                if (achievementId) {
+                    metaState = setTopdownSharedMetaState(topdownSetSelectedAchievementBadge(metaState, achievementId));
+                    persistMeta();
+                    metaFlashMessage = "已更新展示徽章。";
+                    renderMetaModal();
+                    refreshAchievementBadgeDisplays();
+                    return;
+                }
+                if (actionTarget.hasAttribute("data-topdown-achievement-clear")) {
+                    metaState = setTopdownSharedMetaState(topdownSetSelectedAchievementBadge(metaState, ""));
+                    persistMeta();
+                    metaFlashMessage = "已取消展示徽章。";
+                    renderMetaModal();
+                    refreshAchievementBadgeDisplays();
                     return;
                 }
                 if (actionTarget.hasAttribute("data-topdown-draw-color")) {
@@ -1195,6 +1760,33 @@
             });
         }
 
+        function cloneTopdownMetaState() {
+            return JSON.parse(JSON.stringify(metaState || {}));
+        }
+
+        function topdownPreviewBatchRoll(kind, payment, drawCount) {
+            const originalState = metaState;
+            const simulationState = cloneTopdownMetaState();
+            const winnerKeys = [];
+            const results = [];
+            metaState = simulationState;
+            try {
+                for (let index = 0; index < drawCount; index += 1) {
+                    const winnerKey = topdownRollNextRewardKey(kind);
+                    const result = topdownApplyRollReward(kind, winnerKey, payment.unitCosts[index] || 0);
+                    topdownTrackPity(kind, result);
+                    winnerKeys.push(winnerKey);
+                    results.push(result);
+                }
+            } finally {
+                metaState = originalState;
+            }
+            return {
+                winnerKeys: winnerKeys,
+                results: results
+            };
+        }
+
         function topdownResolveRollReward(kind, winnerKey, paidUnitCost) {
             const result = topdownApplyRollReward(kind, winnerKey, paidUnitCost);
             topdownTrackPity(kind, result);
@@ -1285,17 +1877,21 @@
             const itemSpan = metaRollMetrics.itemWidth + metaRollMetrics.itemGap;
             const targetOffset = Math.max(0, rowState.winnerIndex * itemSpan - (viewport.clientWidth / 2 - metaRollMetrics.itemWidth / 2));
             const startedAt = performance.now();
+            const leadInMs = 180;
+            track.style.transform = "translateX(0px)";
+            track.getBoundingClientRect();
             function frame(now) {
-                const progress = clamp((now - startedAt) / metaRollMetrics.durationMs, 0, 1);
+                const elapsed = Math.max(0, now - startedAt);
+                const progress = clamp((elapsed - leadInMs) / metaRollMetrics.durationMs, 0, 1);
                 const eased = 1 - Math.pow(1 - progress, 3);
                 const wave = Math.sin(progress * Math.PI * 10) * (1 - progress) * itemSpan * 0.24;
                 const sway = Math.sin(progress * Math.PI * 2.5) * (1 - progress) * itemSpan * 0.12;
-                rowState.offsetPx = Math.max(0, targetOffset * eased + wave + sway);
+                rowState.offsetPx = elapsed < leadInMs ? 0 : Math.max(0, targetOffset * eased + wave + sway);
                 const liveTrack = metaModal ? metaModal.querySelector('[data-topdown-roll-track="' + kind + '"]') : track;
                 if (liveTrack) {
                     liveTrack.style.transform = 'translateX(-' + rowState.offsetPx + 'px)';
                 }
-                if (progress < 1) {
+                if (elapsed < leadInMs + metaRollMetrics.durationMs) {
                     rowState.frameId = window.requestAnimationFrame(frame);
                     return;
                 }
@@ -1307,7 +1903,9 @@
                     onComplete();
                 }
             }
-            rowState.frameId = window.requestAnimationFrame(frame);
+            window.requestAnimationFrame(function () {
+                rowState.frameId = window.requestAnimationFrame(frame);
+            });
         }
 
         function topdownStartRoll(kind, payment, winnerKey) {
@@ -1433,38 +2031,38 @@
                 metaPaymentBusy = false;
             }
             metaView = "draw";
-            metaState.pulls += drawCount;
-            if (kind === "color") {
-                metaState.colorPulls += drawCount;
-            } else if (kind === "background") {
-                metaState.backgroundPulls = Math.max(0, Number(metaState.backgroundPulls || 0)) + drawCount;
-            } else {
-                metaState.iconPulls += drawCount;
-            }
-            const results = [];
-            let newCount = 0;
-            let duplicateCount = 0;
-            let refundTotal = 0;
-            for (let index = 0; index < drawCount; index += 1) {
-                const result = topdownApplyRollReward(kind, topdownRollNextRewardKey(kind), payment.unitCosts[index] || 0);
-                topdownTrackPity(kind, result);
-                results.push(result);
-                if (result.duplicate) {
-                    duplicateCount += 1;
-                    refundTotal += result.refund;
-                } else {
-                    newCount += 1;
-                }
-            }
-            const names = results.slice(0, 6).map(function (item) {
+            const preview = topdownPreviewBatchRoll(kind, payment, drawCount);
+            const previewResults = preview.results;
+            const newCount = previewResults.filter(function (item) { return item && !item.duplicate; }).length;
+            const duplicateCount = previewResults.filter(function (item) { return item && item.duplicate; }).length;
+            const refundTotal = previewResults.reduce(function (sum, item) {
+                return sum + Math.max(0, Number((item && item.refund) || 0));
+            }, 0);
+            const names = previewResults.slice(0, 6).map(function (item) {
                 return item.label + (item.duplicate ? "(重复)" : "");
             }).join("、");
-            metaFlashMessage = "十连抽" + label + "完成：" + topdownPaymentText(payment) + "；新获得 " + newCount + "，重复 " + duplicateCount + "，返还 " + refundTotal + " 总积分。结果：" + names + (results.length > 6 ? " 等。" : "。");
-            topdownAnimateRoll(kind, topdownBatchWinnerKey(kind, results), function () {
+            metaFlashMessage = "十连抽" + label + "开始：" + topdownPaymentText(payment) + "，正在滚动开奖。";
+            renderMetaModal();
+            topdownAnimateRoll(kind, topdownBatchWinnerKey(kind, previewResults), function () {
+                const finalResults = [];
+                metaState.pulls += drawCount;
+                if (kind === "color") {
+                    metaState.colorPulls += drawCount;
+                } else if (kind === "background") {
+                    metaState.backgroundPulls = Math.max(0, Number(metaState.backgroundPulls || 0)) + drawCount;
+                } else {
+                    metaState.iconPulls += drawCount;
+                }
+                preview.winnerKeys.forEach(function (winnerKey, index) {
+                    const result = topdownApplyRollReward(kind, winnerKey, payment.unitCosts[index] || 0);
+                    topdownTrackPity(kind, result);
+                    finalResults.push(result);
+                });
+                metaFlashMessage = "十连抽" + label + "完成：" + topdownPaymentText(payment) + "；新获得 " + newCount + "，重复 " + duplicateCount + "，返还 " + refundTotal + " 总积分。结果：" + names + (previewResults.length > 6 ? " 等。" : "。");
                 persistMeta();
                 renderMetaModal();
-                showTopdownRewardReveal(kind, results);
-                topdownSettleRefunds(kind, results);
+                showTopdownRewardReveal(kind, finalResults);
+                topdownSettleRefunds(kind, finalResults);
             });
         }
 
@@ -1479,6 +2077,7 @@
                 "技能：" + topdownSkillSummary(session),
                 "技能键：" + topdownSkillTriggerKeyLabel(session.skillTriggerKey),
                 "首领装备：" + topdownBossRelicSummary(session),
+                "今日复活：" + topdownRevivesRemainingToday() + " / " + TOPDOWN_BALANCE.reviveDailyLimit,
                 renderTopdownAttributeCards(session),
                 wingmanLines[0],
                 "总积分：" + topdownMetaAvailablePoints() + " / 颜色券：" + topdownFreePulls("color") + " / 图标券：" + topdownFreePulls("icon") + " / 背景券：" + topdownFreePulls("background")
@@ -1506,7 +2105,7 @@
         }
 
         function togglePause() {
-            if (session.status === "over" || session.pendingUpgrade || session.pendingPickupChoice) {
+            if (session.status === "over" || session.pendingUpgrade || session.pendingPickupChoice || session.pendingReviveChoice) {
                 return;
             }
             if (session.status === "paused") {
@@ -1606,7 +2205,7 @@
             let bestRank = Infinity;
             let bestDistance = Infinity;
             session.enemies.forEach(function (enemy) {
-                if (!enemy || enemy.hp <= 0 || enemy.remnantActive) {
+                if (!enemy || enemy.hp <= 0 || enemy.remnantActive || enemy.corpseActive) {
                     return;
                 }
                 const rank = enemy.isBoss ? 0 : (enemy.isElite ? 1 : 2);
@@ -1640,6 +2239,29 @@
             return true;
         }
 
+        function spawnTopdownZeusBeam(angle) {
+            const safeAngle = Number.isFinite(angle) ? angle : 0;
+            const dirX = Math.cos(safeAngle);
+            const dirY = Math.sin(safeAngle);
+            const spawnDistance = session.player.radius + TOPDOWN_BALANCE.zeusBeamLength * 0.18;
+            session.skillProjectiles.push({
+                id: session.nextId,
+                type: "zeus",
+                x: session.player.x + dirX * spawnDistance,
+                y: session.player.y + dirY * spawnDistance,
+                prevX: session.player.x + dirX * spawnDistance,
+                prevY: session.player.y + dirY * spawnDistance,
+                vx: dirX * TOPDOWN_BALANCE.zeusBeamSpeed,
+                vy: dirY * TOPDOWN_BALANCE.zeusBeamSpeed,
+                radius: TOPDOWN_BALANCE.zeusBeamRadius,
+                beamWidth: TOPDOWN_BALANCE.zeusBeamWidth,
+                beamLength: TOPDOWN_BALANCE.zeusBeamLength,
+                life: topdownSkillZeusDuration(session)
+            });
+            session.nextId += 1;
+            return true;
+        }
+
         function activateTopdownSkill() {
             if (!session.skill || !session.skill.key || session.skill.key === "none") {
                 return false;
@@ -1652,22 +2274,11 @@
                 return false;
             }
             if (session.skill.key === "blink") {
-                const moveX = Number(session.player.moveDirX || 0);
-                const moveY = Number(session.player.moveDirY || 0);
-                const moveLen = Math.sqrt(moveX * moveX + moveY * moveY);
-                if (moveLen < 0.01) {
-                    setStatus("当前没有移动方向，无法触发闪现。", true);
-                    return false;
-                }
-                session.player.dashLeft = TOPDOWN_BALANCE.blinkDuration;
-                session.player.dashVx = moveX / moveLen * topdownSkillBlinkDistance(session) / TOPDOWN_BALANCE.blinkDuration;
-                session.player.dashVy = moveY / moveLen * topdownSkillBlinkDistance(session) / TOPDOWN_BALANCE.blinkDuration;
-                session.player.invulnerableUntil = Math.max(Number(session.player.invulnerableUntil || 0), session.tick + TOPDOWN_BALANCE.blinkDuration);
-                session.player.pullLeft = 0;
-                session.player.pullEnemyId = 0;
-                session.player.controlLock = 0;
+                const angle = topdownCurrentAimAngle(session, pointer);
+                spawnTopdownZeusBeam(angle);
                 session.skill.readyAt = session.tick + topdownSkillCooldownValue(session);
-                setStatus("已触发闪现。", false);
+                recordTopdownSkillUse();
+                setStatus("宙斯权杖已启动，处决光束开始巡场。", false);
                 return true;
             }
             if (session.skill.key === "missile") {
@@ -1696,12 +2307,14 @@
                     spawnTopdownSkillMissile(source.x, source.y, source.damage, 0);
                 });
                 session.skill.readyAt = session.tick + topdownSkillCooldownValue(session);
+                recordTopdownSkillUse();
                 setStatus("已发动导弹矩阵。", false);
                 return true;
             }
             if (session.skill.key === "invincible") {
                 session.player.invulnerableUntil = Math.max(Number(session.player.invulnerableUntil || 0), session.tick + topdownSkillInvincibleDuration(session));
                 session.skill.readyAt = session.tick + topdownSkillCooldownValue(session);
+                recordTopdownSkillUse();
                 setStatus("已进入 " + topdownSkillInvincibleDuration(session).toFixed(1) + " 秒无敌状态。", false);
                 return true;
             }
@@ -1720,6 +2333,9 @@
             }
             const angle = topdownCurrentAimAngle(session, pointer);
             const playerStats = getTopdownDerivedStats(session, false);
+            if (playerStats && playerStats.element === "electric") {
+                playerStats.continuousBeamOnly = true;
+            }
             spawnTopdownVolley(session, session.player, angle, playerStats, "player");
             session.player.fireCooldown = playerStats.fireInterval;
             getWingmanSlots(session).forEach(function (wingman, index) {
@@ -1730,17 +2346,97 @@
                     return;
                 }
                 const wingStats = getTopdownDerivedStats(session, true);
+                if (wingStats && wingStats.element === "electric") {
+                    wingStats.continuousBeamOnly = true;
+                }
                 spawnTopdownVolley(session, wingman, angle, wingStats, "wingman");
                 session.player.wingmanCooldowns[index] = wingStats.fireInterval;
             });
         }
 
+        function syncContinuousElectricBeam(active, origin, angle, stats, owner) {
+            const beamKey = owner === "wingman" ? "continuousElectricBeamWingman" : "continuousElectricBeamPlayer";
+            const beam = session[beamKey];
+            if (!active || !stats || stats.element !== "electric") {
+                if (beam) {
+                    beam.life = 0;
+                    session[beamKey] = null;
+                }
+                return;
+            }
+            const endX = origin.x + Math.cos(angle) * TOPDOWN_BALANCE.electricMaxRange;
+            const endY = origin.y + Math.sin(angle) * TOPDOWN_BALANCE.electricMaxRange;
+            let hitEnemy = null;
+            let bestDistance = TOPDOWN_BALANCE.electricMaxRange + 1;
+            session.enemies.forEach(function (enemy) {
+                if (!enemy || enemy.hp <= 0 || enemy.remnantActive || enemy.corpseActive) {
+                    return;
+                }
+                const distSq = distanceToSegmentSquared(enemy.x, enemy.y, origin.x, origin.y, endX, endY);
+                if (distSq <= (enemy.radius + 8) * (enemy.radius + 8)) {
+                    const direct = Math.sqrt((enemy.x - origin.x) * (enemy.x - origin.x) + (enemy.y - origin.y) * (enemy.y - origin.y));
+                    if (direct < bestDistance) {
+                        bestDistance = direct;
+                        hitEnemy = enemy;
+                    }
+                }
+            });
+            const beamEndX = hitEnemy ? hitEnemy.x : endX;
+            const beamEndY = hitEnemy ? hitEnemy.y : endY;
+            const multishot = Math.max(1, Number(stats.multishot || 1));
+            const baseWidth = owner === "wingman" ? 2.2 : 3.2;
+            const width = baseWidth + (multishot - 1) * 0.85;
+            if (beam) {
+                const currentIndex = session.beams ? session.beams.indexOf(beam) : -1;
+                if (currentIndex === -1) {
+                    session.beams.push(beam);
+                } else if (currentIndex !== session.beams.length - 1) {
+                    session.beams.splice(currentIndex, 1);
+                    session.beams.push(beam);
+                }
+                beam.fromX = origin.x;
+                beam.fromY = origin.y;
+                beam.toX = beamEndX;
+                beam.toY = beamEndY;
+                beam.width = width;
+                beam.elementLevel = stats.elementLevel;
+                beam.canUltimate = stats.canUltimate;
+                beam.life = TOPDOWN_BALANCE.electricBeamLife;
+            } else {
+                const created = {
+                    fromX: origin.x,
+                    fromY: origin.y,
+                    toX: beamEndX,
+                    toY: beamEndY,
+                    color: owner === "wingman" ? "#fde68a" : "#facc15",
+                    life: TOPDOWN_BALANCE.electricBeamLife,
+                    width: width,
+                    element: "electric",
+                    elementLevel: stats.elementLevel,
+                    canUltimate: stats.canUltimate,
+                    ultimate: stats.canUltimate
+                };
+                session[beamKey] = created;
+                session.beams.push(created);
+            }
+        }
+
         function finalizeScoreIfNeeded() {
             syncTopdownClock(session);
-            if (session.submittedScore || session.score <= 0) {
+            const pendingTimeBonus = session.timeBonusAwarded
+                ? Math.max(0, Number(session.timeBonusScore || 0))
+                : topdownTimeSettlementBonus(session);
+            if (session.submittedScore || (session.score <= 0 && pendingTimeBonus <= 0)) {
                 return Promise.resolve();
             }
+            if (!session.timeBonusAwarded) {
+                session.timeBonusScore = topdownTimeSettlementBonus(session);
+                session.score += session.timeBonusScore;
+                session.timeBonusAwarded = true;
+                persist(false);
+            }
             finalizeRunRewardIfNeeded();
+            recordTopdownRunAchievements();
             session.submittedScore = true;
             return submitScore("topdown-shooter", session.score, "standard", session.sessionKey, {
                 mode_key: "topdown-shooter-standard",
@@ -1760,7 +2456,9 @@
             syncTopdownClock(session);
             const shieldStats = syncTopdownShieldCapacity(session);
             session.player.radius = topdownCurrentPlayerRadius(session);
-            session.enemies = (session.enemies || []).filter(function (enemy) { return enemy && enemy.hp > 0; });
+            session.enemies = (session.enemies || []).filter(function (enemy) {
+                return enemy && (enemy.hp > 0 || enemy.corpseActive);
+            });
             session.bullets = trimTopdownArray(session.bullets || [], TOPDOWN_BALANCE.maxPlayerBullets);
             session.enemyBullets = trimTopdownArray(session.enemyBullets || [], TOPDOWN_BALANCE.maxEnemyBullets);
             session.beams = trimTopdownArray(session.beams || [], TOPDOWN_BALANCE.maxFriendlyBeams);
@@ -1903,7 +2601,20 @@
             }
             session.player.moveDirX = actualMoveDirX;
             session.player.moveDirY = actualMoveDirY;
-            if ((session.fireControl === "auto" && topdownNearestEnemy(session)) || ((session.fireControl !== "auto") && (pointer.down || pressed.KeyJ))) {
+            const rawFiringIntent = (session.fireControl === "auto" && topdownNearestEnemy(session))
+                || (session.fireControl !== "auto" && (pointer.down || pressed.KeyJ));
+            if (session.fireControl === "auto" && playerStats && playerStats.element === "electric") {
+                if (rawFiringIntent) {
+                    session.player.continuousBeamHoldLeft = Number(TOPDOWN_BALANCE.electricContinuousBeamHold || 1);
+                } else {
+                    session.player.continuousBeamHoldLeft = Math.max(0, Number(session.player.continuousBeamHoldLeft || 0) - dt);
+                }
+            } else {
+                session.player.continuousBeamHoldLeft = 0;
+            }
+            const beamActive = Boolean(rawFiringIntent) || Number(session.player.continuousBeamHoldLeft || 0) > 0;
+            syncContinuousElectricBeam(beamActive, session.player, topdownCurrentAimAngle(session, pointer), playerStats, "player");
+            if (rawFiringIntent) {
                 maybeShoot();
             }
 
@@ -1961,7 +2672,17 @@
             }
 
             session.enemies.forEach(function (enemy) {
-                if (!enemy || enemy.hp <= 0) {
+                if (!enemy) {
+                    return;
+                }
+                if (enemy.corpseActive) {
+                    enemy.corpseUntil = Math.max(0, Number(enemy.corpseUntil || 0) - dt);
+                    if (enemy.corpseUntil <= 0) {
+                        enemy.hp = -1;
+                    }
+                    return;
+                }
+                if (enemy.hp <= 0) {
                     return;
                 }
                 enemy.fireCooldown -= dt;
@@ -1987,9 +2708,9 @@
                 if (enemy.burnTime > 0) {
                     enemy.burnTime = Math.max(0, enemy.burnTime - dt);
                     enemy.burnTick += dt;
-                    while (enemy.burnTick >= TOPDOWN_BALANCE.burnTickInterval) {
-                        enemy.burnTick -= TOPDOWN_BALANCE.burnTickInterval;
-                        damageTopdownEnemy(session, enemy, enemy.burnDamage);
+                    while (enemy.burnTick >= topdownResolveBurnTickInterval(enemy)) {
+                        enemy.burnTick -= topdownResolveBurnTickInterval(enemy);
+                        damageTopdownEnemy(session, enemy, topdownResolveBurnTickDamage(enemy));
                     }
                 } else {
                     enemy.burnStacks = 0;
@@ -1998,6 +2719,21 @@
                 }
                 if (enemy.frozenTime > 0) {
                     enemy.frozenTime = Math.max(0, enemy.frozenTime - dt);
+                }
+                if (Number(enemy.magnetPullLeft || 0) > 0) {
+                    enemy.magnetPullLeft = Math.max(0, Number(enemy.magnetPullLeft || 0) - dt);
+                    const anchor = topdownFindEnemyById(session, enemy.magnetPullEnemyId);
+                    const targetX = anchor ? anchor.x : Number(enemy.magnetPullX || enemy.x);
+                    const targetY = anchor ? anchor.y : Number(enemy.magnetPullY || enemy.y);
+                    const pullDx = targetX - enemy.x;
+                    const pullDy = targetY - enemy.y;
+                    const pullLen = Math.sqrt(pullDx * pullDx + pullDy * pullDy) || 0;
+                    if (pullLen > 1.2) {
+                        const pullStrength = Math.max(0, Number(TOPDOWN_BALANCE.electricMagnetStrength || 0));
+                        const pullStep = Math.min(pullLen, pullStrength * dt);
+                        enemy.x += pullDx / Math.max(1, pullLen) * pullStep;
+                        enemy.y += pullDy / Math.max(1, pullLen) * pullStep;
+                    }
                 }
                 if (enemy.isElite && eliteType === "buffer") {
                     enemy.auraTimer = Math.max(0, Number(enemy.auraTimer || 0) - dt);
@@ -2076,8 +2812,9 @@
                     } else if (enemy.isElite && eliteType === "luse") {
                         fireRange = 0;
                         if (!enemy.luseTriggered && len <= TOPDOWN_BALANCE.luseTriggerRange) {
-                            spawnTopdownLuseBurst(session, enemy, Math.atan2(dy, dx), bulletSpeed * topdownRelicEnemyBulletSpeedMultiplier(session));
                             enemy.luseTriggered = true;
+                            enemy.luseBurstShotsLeft = TOPDOWN_BALANCE.luseBarrageCount;
+                            enemy.luseBurstCooldown = 0;
                             enemy.fireCooldown = 999;
                             setStatus("撸瑟开火：前方弹幕已铺开。", true);
                         }
@@ -2086,9 +2823,9 @@
                         desiredSpeed *= len < 220 ? 0.72 : 0.92;
                         enemy.succubusVictimIds = [];
                         session.enemies.forEach(function (candidate) {
-                            if (!candidate || candidate.id === enemy.id || candidate.hp <= 0 || candidate.remnantActive || candidate.isBoss) {
-                                return;
-                            }
+                        if (!candidate || candidate.id === enemy.id || candidate.hp <= 0 || candidate.remnantActive || candidate.corpseActive || candidate.isBoss) {
+                            return;
+                        }
                             const pullDx = enemy.x - candidate.x;
                             const pullDy = enemy.y - candidate.y;
                             const pullLen = Math.sqrt(pullDx * pullDx + pullDy * pullDy) || 0;
@@ -2106,12 +2843,19 @@
                     enemy.y += dy / len * desiredSpeed * dt;
                 }
                 if (enemy.isElite && eliteType === "luse" && enemy.luseTriggered) {
+                    enemy.luseBurstCooldown = Math.max(0, Number(enemy.luseBurstCooldown || 0) - dt);
+                    while (Number(enemy.luseBurstShotsLeft || 0) > 0 && Number(enemy.luseBurstCooldown || 0) <= 0) {
+                        const burstAngle = Math.atan2(session.player.y - enemy.y, session.player.x - enemy.x);
+                        spawnTopdownLuseBurst(session, enemy, burstAngle, bulletSpeed * topdownRelicEnemyBulletSpeedMultiplier(session));
+                        enemy.luseBurstShotsLeft = Math.max(0, Number(enemy.luseBurstShotsLeft || 0) - TOPDOWN_BALANCE.luseBurstShotsPerTick);
+                        enemy.luseBurstCooldown += TOPDOWN_BALANCE.luseBurstInterval;
+                    }
                     damageTopdownEnemy(session, enemy, TOPDOWN_BALANCE.luseDecayPerSecond * dt);
                 }
                 if (enemy.isElite && eliteType === "liangzi" && enemy.consumeCooldown <= 0) {
                     for (let eatIndex = 0; eatIndex < session.enemies.length; eatIndex += 1) {
                         const prey = session.enemies[eatIndex];
-                        if (!prey || prey.id === enemy.id || prey.hp <= 0 || prey.isBoss || prey.isElite || prey.remnantActive) {
+                        if (!prey || prey.id === enemy.id || prey.hp <= 0 || prey.isBoss || prey.isElite || prey.remnantActive || prey.corpseActive) {
                             continue;
                         }
                         const eatDistance = Math.pow(enemy.radius + prey.radius + 8, 2);
@@ -2149,6 +2893,8 @@
                                 iceStacks: 0,
                                 frozenTime: 0,
                                 shocked: false,
+                                corpseActive: false,
+                                corpseUntil: 0,
                                 isElite: false,
                                 isBoss: false,
                                 bulletCount: 1,
@@ -2197,6 +2943,52 @@
             });
 
             session.skillProjectiles = session.skillProjectiles.filter(function (projectile) {
+                if (projectile.type === "zeus") {
+                    projectile.prevX = Number(projectile.x || 0);
+                    projectile.prevY = Number(projectile.y || 0);
+                    projectile.x = Number(projectile.x || 0) + Number(projectile.vx || 0) * dt;
+                    projectile.y = Number(projectile.y || 0) + Number(projectile.vy || 0) * dt;
+                    const beamRadius = Math.max(4, Number(projectile.radius || TOPDOWN_BALANCE.zeusBeamRadius));
+                    const minX = arenaPlayerMargin + beamRadius;
+                    const maxX = arenaWidth - arenaPlayerMargin - beamRadius;
+                    const minY = arenaPlayerMargin + beamRadius;
+                    const maxY = arenaHeight - arenaPlayerMargin - beamRadius;
+                    if (projectile.x <= minX || projectile.x >= maxX) {
+                        projectile.x = clamp(projectile.x, minX, maxX);
+                        projectile.vx = -Number(projectile.vx || 0);
+                    }
+                    if (projectile.y <= minY || projectile.y >= maxY) {
+                        projectile.y = clamp(projectile.y, minY, maxY);
+                        projectile.vy = -Number(projectile.vy || 0);
+                    }
+                    const velocityLength = Math.max(1, Math.sqrt(Number(projectile.vx || 0) * Number(projectile.vx || 0) + Number(projectile.vy || 0) * Number(projectile.vy || 0)));
+                    const dirX = Number(projectile.vx || 0) / velocityLength;
+                    const dirY = Number(projectile.vy || 0) / velocityLength;
+                    const halfLength = Math.max(20, Number(projectile.beamLength || TOPDOWN_BALANCE.zeusBeamLength) * 0.5);
+                    const startX = projectile.x - dirX * halfLength;
+                    const startY = projectile.y - dirY * halfLength;
+                    const endX = projectile.x + dirX * halfLength;
+                    const endY = projectile.y + dirY * halfLength;
+                    const executeWidth = Math.max(8, Number(projectile.beamWidth || TOPDOWN_BALANCE.zeusBeamWidth) * 0.5);
+                    const killedEnemyIds = [];
+                    session.enemies.forEach(function (enemy) {
+                        if (!enemy || enemy.hp <= 0 || enemy.remnantActive || enemy.corpseActive) {
+                            return;
+                        }
+                        const hitRadius = enemy.radius + executeWidth;
+                        if (distanceToSegmentSquared(enemy.x, enemy.y, startX, startY, endX, endY) <= hitRadius * hitRadius) {
+                            if (damageTopdownEnemy(session, enemy, Number(enemy.hp || 0) + Number(enemy.maxHp || 0) + Number(enemy.bossShield || 0) + 999999)) {
+                                killedEnemyIds.push(enemy.id);
+                            }
+                        }
+                    });
+                    if (killedEnemyIds.length) {
+                        session.enemies = session.enemies.filter(function (enemy) {
+                            return killedEnemyIds.indexOf(enemy.id) === -1 && (enemy.hp > 0 || enemy.corpseActive);
+                        });
+                    }
+                    return true;
+                }
                 const target = topdownFindEnemyById(session, projectile.targetId) || topdownSkillTargetFrom(projectile.x, projectile.y);
                 if (!target) {
                     return false;
@@ -2231,6 +3023,9 @@
                     if (hit) {
                         break;
                     }
+                    if (!enemy || enemy.corpseActive) {
+                        continue;
+                    }
                     if (removedEnemyIds.indexOf(enemy.id) !== -1) {
                         continue;
                     }
@@ -2251,10 +3046,20 @@
                                 ultimate: topdownIsUltimateProjectile(bullet)
                             });
                         }
-                        if (damageTopdownEnemy(session, enemy, bullet.damage)) {
-                            removedEnemyIds.push(enemy.id);
+                        if (bullet.element === "electric") {
+                            applyTopdownElement(session, bullet, enemy, removedEnemyIds);
+                        } else {
+                            const directDamage = bullet.element === "nuclear"
+                                ? bullet.damage + topdownResolveNuclearHuskBonusDamage(session, enemy, bullet)
+                                : bullet.damage;
+                            const killedByDirectHit = damageTopdownEnemy(session, enemy, directDamage);
+                            applyTopdownElement(session, bullet, enemy, removedEnemyIds);
+                            if (killedByDirectHit) {
+                                if (!topdownTryCreateNuclearHusk(session, enemy, bullet)) {
+                                    removedEnemyIds.push(enemy.id);
+                                }
+                            }
                         }
-                        applyTopdownElement(session, bullet, enemy, removedEnemyIds);
                         break;
                     }
                 }
@@ -2263,7 +3068,9 @@
                 }
             });
             session.bullets = aliveBullets;
-            session.enemies = session.enemies.filter(function (enemy) { return removedEnemyIds.indexOf(enemy.id) === -1 && enemy.hp > 0; });
+            session.enemies = session.enemies.filter(function (enemy) {
+                return removedEnemyIds.indexOf(enemy.id) === -1 && (enemy.hp > 0 || enemy.corpseActive);
+            });
 
             (function resolvePickupCollection() {
                 const currentPickups = Array.isArray(session.pickups) ? session.pickups.slice() : [];
@@ -2339,7 +3146,7 @@
                 }
                 if (!gotHit) {
                     session.enemies.forEach(function (enemy) {
-                        if (gotHit || !enemy || enemy.hp <= 0 || enemy.remnantActive) {
+                        if (gotHit || !enemy || enemy.hp <= 0 || enemy.remnantActive || enemy.corpseActive) {
                             return;
                         }
                         if (distanceBetween(enemy, session.player) > enemy.radius + session.player.radius + 2) {
@@ -2352,8 +3159,13 @@
                     });
                 }
                 if (session.status === "over") {
-                    finalizeScoreIfNeeded();
-                    persist();
+                    if (topdownTryOfferRevive()) {
+                        updateHud();
+                        persistLocalRuntime();
+                    } else {
+                        finalizeScoreIfNeeded();
+                        persist();
+                    }
                 }
             }
         }
@@ -2501,6 +3313,189 @@
                 ctx.font = "700 18px Segoe UI";
                 ctx.fillText("0 放弃并改为随机增强", declineBox.x + declineBox.w / 2, declineBox.y + 29);
             }
+        }
+
+        function legacyDrawReviveQrCard(x, y, size) {
+            ctx.fillStyle = "rgba(15, 23, 42, 0.96)";
+            ctx.strokeStyle = "#38bdf8";
+            ctx.lineWidth = 2;
+            ctx.fillRect(x, y, size, size);
+            ctx.strokeRect(x, y, size, size);
+            if (reviveQrImage.complete && reviveQrImage.naturalWidth > 0) {
+                ctx.drawImage(reviveQrImage, x + 10, y + 10, size - 20, size - 20);
+            } else {
+                ctx.fillStyle = "#cbd5e1";
+                ctx.font = "700 18px Segoe UI";
+                ctx.textAlign = "center";
+                ctx.fillText("付款码加载中", x + size / 2, y + size / 2 - 8);
+                ctx.font = "500 14px Segoe UI";
+                ctx.fillText("稍等也能直接复活", x + size / 2, y + size / 2 + 18);
+            }
+        }
+
+        function legacyRenderReviveOverlay() {
+            reviveChoiceRects = [];
+            const prompt = topdownRevivePromptState();
+            if (!prompt) {
+                return;
+            }
+            const qrSize = 196;
+            const qrY = 142;
+            const leftQrX = 92;
+            const rightQrX = arenaWidth - 92 - qrSize;
+            const centerX = arenaWidth / 2;
+            const confirmBox = { x: centerX - 184, y: arenaHeight - 112, w: 368, h: 48, action: "confirm" };
+            const cancelBox = { x: centerX - 184, y: arenaHeight - 54, w: 368, h: 38, action: "cancel" };
+            reviveChoiceRects.push(confirmBox, cancelBox);
+
+            ctx.fillStyle = "rgba(2, 6, 23, 0.86)";
+            ctx.fillRect(0, 0, arenaWidth, arenaHeight);
+
+            ctx.textAlign = "center";
+            ctx.fillStyle = "#f8fafc";
+            ctx.font = "700 34px Segoe UI";
+            ctx.fillText("复活确认", centerX, 58);
+            ctx.font = "500 16px Segoe UI";
+            ctx.fillStyle = "#cbd5e1";
+            ctx.fillText("第一次死亡触发了场外神秘赞助，扫码与否都不影响复活。", centerX, 86);
+            ctx.fillText("确认复活会回满护盾，并消耗今天 1 次复活额度。", centerX, 108);
+
+            drawReviveQrCard(leftQrX, qrY, qrSize);
+            drawReviveQrCard(rightQrX, qrY, qrSize);
+
+            ctx.textAlign = "left";
+            ctx.fillStyle = "#e2e8f0";
+            ctx.font = "600 16px Segoe UI";
+            ctx.fillText("左护法付款码", leftQrX + 36, qrY + qrSize + 28);
+            ctx.fillText("右护法付款码", rightQrX + 36, qrY + qrSize + 28);
+
+            ctx.textAlign = "center";
+            ctx.fillStyle = "#fef3c7";
+            ctx.font = "700 20px Segoe UI";
+            ctx.fillText("今日剩余复活次数", centerX, 184);
+            ctx.font = "700 38px Segoe UI";
+            ctx.fillStyle = "#facc15";
+            ctx.fillText(String(prompt.remainingAfter) + " / " + String(TOPDOWN_BALANCE.reviveDailyLimit), centerX, 228);
+
+            ctx.font = "500 16px Segoe UI";
+            ctx.fillStyle = "#e2e8f0";
+            ctx.fillText("认真对待这一局。复活后不会再给第二次机会。", centerX, 264);
+            ctx.fillText("按 1 / Enter 直接复活，按 0 / Esc 放弃并结算。", centerX, 288);
+
+            ctx.fillStyle = "rgba(14, 116, 144, 0.92)";
+            ctx.strokeStyle = "#67e8f9";
+            ctx.lineWidth = 2;
+            ctx.fillRect(confirmBox.x, confirmBox.y, confirmBox.w, confirmBox.h);
+            ctx.strokeRect(confirmBox.x, confirmBox.y, confirmBox.w, confirmBox.h);
+            ctx.fillStyle = "#ecfeff";
+            ctx.font = "700 20px Segoe UI";
+            ctx.fillText("点我去扫码复活）", confirmBox.x + confirmBox.w / 2, confirmBox.y + 31);
+
+            ctx.fillStyle = "rgba(30, 41, 59, 0.96)";
+            ctx.strokeStyle = "#94a3b8";
+            ctx.lineWidth = 2;
+            ctx.fillRect(cancelBox.x, cancelBox.y, cancelBox.w, cancelBox.h);
+            ctx.strokeRect(cancelBox.x, cancelBox.y, cancelBox.w, cancelBox.h);
+            ctx.fillStyle = "#e2e8f0";
+            ctx.font = "700 17px Segoe UI";
+            ctx.fillText("取消，结束本局", cancelBox.x + cancelBox.w / 2, cancelBox.y + 25);
+        }
+
+        function drawReviveQrCard(image, label, x, y, width, height) {
+            ctx.fillStyle = "rgba(15, 23, 42, 0.96)";
+            ctx.strokeStyle = "#38bdf8";
+            ctx.lineWidth = 2;
+            ctx.fillRect(x, y, width, height);
+            ctx.strokeRect(x, y, width, height);
+            const frameX = x + 16;
+            const frameY = y + 16;
+            const frameW = width - 32;
+            const frameH = height - 76;
+            ctx.fillStyle = "#f8fafc";
+            ctx.fillRect(frameX, frameY, frameW, frameH);
+            if (image && image.complete && image.naturalWidth > 0) {
+                const scale = Math.min(frameW / image.naturalWidth, frameH / image.naturalHeight);
+                const drawW = image.naturalWidth * scale;
+                const drawH = image.naturalHeight * scale;
+                const drawX = frameX + (frameW - drawW) / 2;
+                const drawY = frameY + (frameH - drawH) / 2;
+                ctx.drawImage(image, drawX, drawY, drawW, drawH);
+            } else {
+                ctx.fillStyle = "#334155";
+                ctx.font = "700 18px Segoe UI";
+                ctx.textAlign = "center";
+                ctx.fillText("加载中", x + width / 2, y + height / 2 - 16);
+                ctx.font = "500 14px Segoe UI";
+                ctx.fillText("不扫码也可直接复活", x + width / 2, y + height / 2 + 12);
+            }
+            ctx.textAlign = "center";
+            ctx.fillStyle = "#e2e8f0";
+            ctx.font = "700 16px Segoe UI";
+            ctx.fillText(label || "赞助通道", x + width / 2, y + height - 22);
+        }
+
+        function renderReviveOverlay() {
+            reviveChoiceRects = [];
+            const prompt = topdownRevivePromptState();
+            if (!prompt) {
+                return;
+            }
+            const cardWidth = Math.min(312, Math.max(252, arenaWidth * 0.34));
+            const cardHeight = Math.min(382, Math.max(318, arenaHeight * 0.49));
+            const gap = Math.max(28, Math.floor((arenaWidth - cardWidth * 2) / 3));
+            const qrY = 126;
+            const leftQrX = gap;
+            const rightQrX = arenaWidth - gap - cardWidth;
+            const centerX = arenaWidth / 2;
+            const confirmBox = { x: centerX - 212, y: arenaHeight - 112, w: 424, h: 50, action: "confirm" };
+            const cancelBox = { x: centerX - 212, y: arenaHeight - 52, w: 424, h: 38, action: "cancel" };
+            reviveChoiceRects.push(confirmBox, cancelBox);
+
+            ctx.fillStyle = "rgba(2, 6, 23, 0.86)";
+            ctx.fillRect(0, 0, arenaWidth, arenaHeight);
+
+            ctx.textAlign = "center";
+            ctx.fillStyle = "#f8fafc";
+            ctx.font = "700 34px Segoe UI";
+            ctx.fillText("复活确认", centerX, 58);
+            ctx.font = "500 16px Segoe UI";
+            ctx.fillStyle = "#cbd5e1";
+            ctx.fillText("这次复活触发了神秘赞助通道，扫码与否都不会影响复活。", centerX, 86);
+            ctx.fillText("确认后会回满护盾，并消耗今日 1 次复活额度。", centerX, 108);
+
+            drawReviveQrCard(reviveQrImages[0], reviveQrLabels[0], leftQrX, qrY, cardWidth, cardHeight);
+            drawReviveQrCard(reviveQrImages[1] || reviveQrImages[0], reviveQrLabels[1] || reviveQrLabels[0], rightQrX, qrY, cardWidth, cardHeight);
+
+            ctx.textAlign = "center";
+            ctx.fillStyle = "#fef3c7";
+            ctx.font = "700 20px Segoe UI";
+            ctx.fillText("今日剩余复活次数", centerX, 518);
+            ctx.font = "700 38px Segoe UI";
+            ctx.fillStyle = "#facc15";
+            ctx.fillText(String(prompt.remainingAfter) + " / " + String(TOPDOWN_BALANCE.reviveDailyLimit), centerX, 560);
+
+            ctx.font = "500 16px Segoe UI";
+            ctx.fillStyle = "#e2e8f0";
+            ctx.fillText("认真对待这一局，复活后不会再给第二次机会。", centerX, 592);
+            ctx.fillText("按 1 / Enter 直接复活，按 0 / Esc 放弃并结算。", centerX, 614);
+
+            ctx.fillStyle = "rgba(14, 116, 144, 0.92)";
+            ctx.strokeStyle = "#67e8f9";
+            ctx.lineWidth = 2;
+            ctx.fillRect(confirmBox.x, confirmBox.y, confirmBox.w, confirmBox.h);
+            ctx.strokeRect(confirmBox.x, confirmBox.y, confirmBox.w, confirmBox.h);
+            ctx.fillStyle = "#ecfeff";
+            ctx.font = "700 20px Segoe UI";
+            ctx.fillText("我已赞助，直接复活", confirmBox.x + confirmBox.w / 2, confirmBox.y + 32);
+
+            ctx.fillStyle = "rgba(30, 41, 59, 0.96)";
+            ctx.strokeStyle = "#94a3b8";
+            ctx.lineWidth = 2;
+            ctx.fillRect(cancelBox.x, cancelBox.y, cancelBox.w, cancelBox.h);
+            ctx.strokeRect(cancelBox.x, cancelBox.y, cancelBox.w, cancelBox.h);
+            ctx.fillStyle = "#e2e8f0";
+            ctx.font = "700 17px Segoe UI";
+            ctx.fillText("取消，本局结束", cancelBox.x + cancelBox.w / 2, cancelBox.y + 25);
         }
 
         function topdownDamageFlashState(remaining) {
@@ -2671,12 +3666,48 @@
 
             session.skillProjectiles.forEach(function (projectile) {
                 ctx.save();
-                ctx.fillStyle = "#fbbf24";
-                ctx.shadowColor = "#fde68a";
-                ctx.shadowBlur = 10;
-                ctx.beginPath();
-                ctx.arc(projectile.x, projectile.y, projectile.radius, 0, Math.PI * 2);
-                ctx.fill();
+                if (projectile.type === "zeus") {
+                    const velocityLength = Math.max(1, Math.sqrt(Number(projectile.vx || 0) * Number(projectile.vx || 0) + Number(projectile.vy || 0) * Number(projectile.vy || 0)));
+                    const dirX = Number(projectile.vx || 0) / velocityLength;
+                    const dirY = Number(projectile.vy || 0) / velocityLength;
+                    const halfLength = Math.max(20, Number(projectile.beamLength || TOPDOWN_BALANCE.zeusBeamLength) * 0.5);
+                    const startX = projectile.x - dirX * halfLength;
+                    const startY = projectile.y - dirY * halfLength;
+                    const endX = projectile.x + dirX * halfLength;
+                    const endY = projectile.y + dirY * halfLength;
+                    ctx.lineCap = "round";
+                    ctx.shadowColor = "#fde68a";
+                    ctx.shadowBlur = 22;
+                    ctx.strokeStyle = "rgba(250, 204, 21, 0.34)";
+                    ctx.lineWidth = Number(projectile.beamWidth || TOPDOWN_BALANCE.zeusBeamWidth) + 10;
+                    ctx.beginPath();
+                    ctx.moveTo(startX, startY);
+                    ctx.lineTo(endX, endY);
+                    ctx.stroke();
+                    ctx.strokeStyle = "#facc15";
+                    ctx.lineWidth = Number(projectile.beamWidth || TOPDOWN_BALANCE.zeusBeamWidth);
+                    ctx.beginPath();
+                    ctx.moveTo(startX, startY);
+                    ctx.lineTo(endX, endY);
+                    ctx.stroke();
+                    ctx.strokeStyle = "#fef3c7";
+                    ctx.lineWidth = Math.max(3, Number(projectile.beamWidth || TOPDOWN_BALANCE.zeusBeamWidth) * 0.28);
+                    ctx.beginPath();
+                    ctx.moveTo(startX, startY);
+                    ctx.lineTo(endX, endY);
+                    ctx.stroke();
+                    ctx.fillStyle = "#fff7ed";
+                    ctx.beginPath();
+                    ctx.arc(projectile.x, projectile.y, projectile.radius, 0, Math.PI * 2);
+                    ctx.fill();
+                } else {
+                    ctx.fillStyle = "#fbbf24";
+                    ctx.shadowColor = "#fde68a";
+                    ctx.shadowBlur = 10;
+                    ctx.beginPath();
+                    ctx.arc(projectile.x, projectile.y, projectile.radius, 0, Math.PI * 2);
+                    ctx.fill();
+                }
                 ctx.restore();
             });
 
@@ -2756,12 +3787,31 @@
                 const baseRed = 248 - Math.round(30 * iceRatio);
                 const baseGreen = 113 + Math.round(28 * burnRatio) - Math.round(54 * iceRatio);
                 const baseBlue = 113 + Math.round(88 * iceRatio) - Math.round(24 * burnRatio);
-                ctx.fillStyle = enemy.remnantActive
-                    ? "#fb7185"
-                    : "rgb(" + clamp(baseRed, 120, 255) + ", " + clamp(baseGreen, 80, 210) + ", " + clamp(baseBlue, 80, 255) + ")";
+                ctx.fillStyle = enemy.corpseActive
+                    ? "rgba(148, 163, 184, 0.6)"
+                    : (enemy.remnantActive
+                        ? "#fb7185"
+                        : "rgb(" + clamp(baseRed, 120, 255) + ", " + clamp(baseGreen, 80, 210) + ", " + clamp(baseBlue, 80, 255) + ")");
                 ctx.beginPath();
                 ctx.arc(enemy.x, enemy.y, enemy.radius, 0, Math.PI * 2);
                 ctx.fill();
+                if (enemy.corpseActive) {
+                    ctx.save();
+                    ctx.strokeStyle = "rgba(226, 232, 240, 0.82)";
+                    ctx.lineWidth = 2;
+                    ctx.setLineDash([7, 5]);
+                    ctx.beginPath();
+                    ctx.arc(enemy.x, enemy.y, enemy.radius + 5, 0, Math.PI * 2);
+                    ctx.stroke();
+                    ctx.setLineDash([]);
+                    ctx.beginPath();
+                    ctx.moveTo(enemy.x - enemy.radius * 0.42, enemy.y - enemy.radius * 0.42);
+                    ctx.lineTo(enemy.x + enemy.radius * 0.42, enemy.y + enemy.radius * 0.42);
+                    ctx.moveTo(enemy.x + enemy.radius * 0.42, enemy.y - enemy.radius * 0.42);
+                    ctx.lineTo(enemy.x - enemy.radius * 0.42, enemy.y + enemy.radius * 0.42);
+                    ctx.stroke();
+                    ctx.restore();
+                }
                 if (enemy.isElite && enemy.eliteType === "buffer" && enemy.auraActive) {
                     ctx.save();
                     ctx.strokeStyle = "rgba(250, 204, 21, 0.7)";
@@ -2854,6 +3904,30 @@
                 if (enemy.iceStacks > 0) {
                     drawTopdownStatusRing(ctx, enemy, enemy.iceStacks, TOPDOWN_BALANCE.iceFreezeStacks, "#60a5fa", 5);
                 }
+                if (enemy.shocked && !enemy.corpseActive) {
+                    ctx.save();
+                    ctx.strokeStyle = "rgba(250, 204, 21, 0.95)";
+                    ctx.lineWidth = 2.2;
+                    ctx.setLineDash([5, 4]);
+                    ctx.beginPath();
+                    ctx.arc(enemy.x, enemy.y, enemy.radius + 10 + Math.sin(session.tick * 9) * 1.5, 0, Math.PI * 2);
+                    ctx.stroke();
+                    ctx.setLineDash([]);
+                    ctx.fillStyle = "#fde047";
+                    ctx.font = "700 12px Segoe UI";
+                    ctx.textAlign = "center";
+                    ctx.fillText("⚡", enemy.x, enemy.y - enemy.radius - 16);
+                    ctx.restore();
+                }
+                if (burnRatio >= 1 && !enemy.corpseActive) {
+                    ctx.save();
+                    ctx.strokeStyle = "rgba(248, 113, 113, 0.92)";
+                    ctx.lineWidth = 2.6;
+                    ctx.beginPath();
+                    ctx.arc(enemy.x, enemy.y, enemy.radius + 10 + Math.sin(session.tick * 10) * 1.2, 0, Math.PI * 2);
+                    ctx.stroke();
+                    ctx.restore();
+                }
                 if (enemy.isElite) {
                     ctx.strokeStyle = enemy.isBoss ? "#a78bfa" : "#facc15";
                     ctx.lineWidth = enemy.isBoss ? 4 : 3;
@@ -2875,18 +3949,18 @@
                 }
                 ctx.fillStyle = "rgba(15,23,42,0.92)";
                 ctx.fillRect(enemy.x - enemy.radius, enemy.y - enemy.radius - 12, enemy.radius * 2, 5);
-                ctx.fillStyle = "#22c55e";
+                ctx.fillStyle = enemy.corpseActive ? "rgba(148, 163, 184, 0.9)" : "#22c55e";
                 ctx.fillRect(enemy.x - enemy.radius, enemy.y - enemy.radius - 12, enemy.radius * 2 * hpRatio, 5);
-                if (enemy.isBoss) {
+                if (enemy.isBoss && !enemy.corpseActive) {
                     ctx.fillStyle = "rgba(15,23,42,0.92)";
                     ctx.fillRect(enemy.x - enemy.radius, enemy.y - enemy.radius - 20, enemy.radius * 2, 4);
                     ctx.fillStyle = "#67e8f9";
                     ctx.fillRect(enemy.x - enemy.radius, enemy.y - enemy.radius - 20, enemy.radius * 2 * bossShieldRatio, 4);
                 }
-                ctx.fillStyle = "#f8fafc";
+                ctx.fillStyle = enemy.corpseActive ? "#e2e8f0" : "#f8fafc";
                 ctx.font = "700 12px Consolas";
                 ctx.textAlign = "center";
-                ctx.fillText(topdownFormatHpValue(enemy.hp), enemy.x, enemy.y + 4);
+                ctx.fillText(enemy.corpseActive ? "尸" : topdownFormatHpValue(enemy.hp), enemy.x, enemy.y + 4);
                 if ((enemy.isElite && enemy.eliteType) || enemy.remnantActive) {
                     ctx.fillStyle = enemy.isBoss ? "#c4b5fd" : "#fde68a";
                     ctx.font = "700 " + (enemy.isBoss ? "11" : "10") + "px Segoe UI";
@@ -2941,6 +4015,11 @@
                 renderUpgradeOverlay();
             } else if (session.pendingPickupChoice) {
                 renderPickupChoiceOverlay();
+            } else if (session.pendingReviveChoice) {
+                renderReviveOverlay();
+            }
+            if (session.pendingReviveChoice) {
+                return;
             }
             if (session.status === "paused") {
                 ctx.fillStyle = "rgba(2,6,23,0.6)";
@@ -2958,12 +4037,13 @@
                 ctx.fillStyle = "#f8fafc";
                 ctx.textAlign = "center";
                 ctx.font = "700 42px Segoe UI";
-                ctx.fillText("本局失败", arenaWidth / 2, arenaHeight / 2 - 38);
+                ctx.fillText(session.manualSettlement ? "本局结算" : "本局失败", arenaWidth / 2, arenaHeight / 2 - 38);
                 ctx.font = "500 20px Segoe UI";
                 ctx.fillText("分数 " + session.score + " / 击败 " + session.kills + " / 波次 " + session.wave, arenaWidth / 2, arenaHeight / 2 + 12);
-                ctx.fillText(topdownBuildSummary(session), arenaWidth / 2, arenaHeight / 2 + 44);
-                ctx.fillText("本局结算局外积分 +" + topdownMetaRewardAmount(session), arenaWidth / 2, arenaHeight / 2 + 78);
-                ctx.fillText("点击“重新开局”立即再来一局", arenaWidth / 2, arenaHeight / 2 + 108);
+                ctx.fillText("存活加分 +" + Math.max(0, Number(session.timeBonusScore || 0)) + " / 用时 " + formatSeconds(session.elapsedSeconds), arenaWidth / 2, arenaHeight / 2 + 44);
+                ctx.fillText(topdownBuildSummary(session), arenaWidth / 2, arenaHeight / 2 + 76);
+                ctx.fillText("本局结算局外积分 +" + topdownMetaRewardAmount(session), arenaWidth / 2, arenaHeight / 2 + 110);
+                ctx.fillText("点击“重新开局”立即再来一局", arenaWidth / 2, arenaHeight / 2 + 140);
             }
         }
 
@@ -3002,7 +4082,13 @@
                 event.preventDefault();
             }
             pressed[event.code] = true;
-            if (session.pendingUpgrade && event.code.indexOf("Digit") === 0) {
+            if (session.pendingReviveChoice) {
+                if (event.code === "Digit1" || event.code === "Numpad1" || event.code === "Enter" || event.code === "Space") {
+                    confirmRevive();
+                } else if (event.code === "Digit0" || event.code === "Numpad0" || event.code === "Escape") {
+                    cancelRevive();
+                }
+            } else if (session.pendingUpgrade && event.code.indexOf("Digit") === 0) {
                 selectUpgrade(Number(event.code.slice(5)) - 1);
             } else if (session.pendingUpgrade && event.code === "KeyR") {
                 rerollUpgradeChoices();
@@ -3044,6 +4130,23 @@
                 return;
             }
             canvasPoint(event);
+            if (session.pendingReviveChoice) {
+                const rect = arcade.canvas.getBoundingClientRect();
+                const x = ((event.clientX - rect.left) / rect.width) * arenaWidth;
+                const y = ((event.clientY - rect.top) / rect.height) * arenaHeight;
+                reviveChoiceRects.some(function (box) {
+                    if (x >= box.x && x <= box.x + box.w && y >= box.y && y <= box.y + box.h) {
+                        if (box.action === "confirm") {
+                            confirmRevive();
+                        } else if (box.action === "cancel") {
+                            cancelRevive();
+                        }
+                        return true;
+                    }
+                    return false;
+                });
+                return;
+            }
             if (session.pendingUpgrade) {
                 const rect = arcade.canvas.getBoundingClientRect();
                 const x = ((event.clientX - rect.left) / rect.width) * arenaWidth;

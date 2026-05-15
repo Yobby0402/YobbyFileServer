@@ -6,6 +6,8 @@
     const GAMES_RUNTIME_STATE_PREFIX = "games_runtime_state:";
     const TOPDOWN_SCORE_SOFT_CAP = Math.max(0, Number(config.topdownScoreSoftCap || 100000));
     const GOMOKU_NAMESPACE = "/games-gomoku";
+    const ZHAJINHUA_NAMESPACE = "/games-zhajinhua";
+    const GAMES_CHAT_NAMESPACE = "/games-chat";
     const GAMES_SCRIPT_BASE_URL = (document.currentScript && document.currentScript.src)
         ? new URL(".", document.currentScript.src).href
         : "/static/js/";
@@ -14,6 +16,7 @@
         sudoku: "games/game_sudoku.js",
         frontline: "games/game_frontline.js",
         gomoku: "games/game_gomoku.js",
+        zhajinhua: "games/game_zhajinhua.js",
         "topdown-shooter": "games/game_topdown.js"
     };
 
@@ -23,11 +26,15 @@
         history: [],
         leaderboards: null,
         onlineVisitors: [],
+        onlineSelfIdentity: "",
+        onlineLoadToken: 0,
         activeGameId: null,
         activeCleanup: null,
         saveTimers: Object.create(null),
         savedFingerprints: Object.create(null),
         presenceTimer: null,
+        onlineTimer: null,
+        presenceHooksReady: false,
         topdownMetaState: null,
         topdownMetaRefresh: null,
         topdownMetaBeforeOpen: null,
@@ -36,7 +43,17 @@
             play_status: "空闲中",
             room_code: ""
         },
-        launchToken: 0
+        launchToken: 0,
+        gamesChat: {
+            socket: null,
+            messages: [],
+            draft: "",
+            isOpen: false,
+            unreadCount: 0,
+            initialized: false,
+            transportLabel: "WEBSOCKET",
+            nextLocalSequence: 0
+        }
     };
     const gameModules = Object.create(null);
     const gameModuleLoadPromises = Object.create(null);
@@ -51,13 +68,7 @@
         return (hash >>> 0).toString(16).padStart(8, "0");
     }
 
-    function getGamesDeviceId() {
-        if (window.__gamesDeviceId) {
-            return String(window.__gamesDeviceId);
-        }
-        if (window.__nativeMachineId) {
-            return String(window.__nativeMachineId);
-        }
+    function computeFingerprintDeviceId() {
         const nav = window.navigator || {};
         const screenInfo = window.screen || {};
         const timezone = (window.Intl && Intl.DateTimeFormat) ? Intl.DateTimeFormat().resolvedOptions().timeZone : "";
@@ -81,9 +92,65 @@
         ].join("|"));
     }
 
+    function createRandomDeviceId(prefix) {
+        const lead = String(prefix || "hw-");
+        try {
+            if (window.crypto && crypto.getRandomValues) {
+                const bytes = new Uint8Array(12);
+                crypto.getRandomValues(bytes);
+                const token = Array.from(bytes).map(function (b) { return b.toString(16).padStart(2, "0"); }).join("");
+                return lead + token;
+            }
+        } catch (error) {
+            void error;
+        }
+        return lead + Math.random().toString(16).slice(2) + Math.random().toString(16).slice(2);
+    }
+
+    function getGamesDeviceId() {
+        if (window.__gamesDeviceId) {
+            return String(window.__gamesDeviceId);
+        }
+        if (window.__nativeMachineId) {
+            window.__gamesDeviceId = String(window.__nativeMachineId);
+            return String(window.__gamesDeviceId);
+        }
+
+        try {
+            if (window.localStorage) {
+                const stored = String(localStorage.getItem("games-device-id") || "").trim();
+                if (stored) {
+                    window.__gamesDeviceId = stored;
+                    return stored;
+                }
+            }
+        } catch (error) {
+            void error;
+        }
+
+        const legacy = computeFingerprintDeviceId();
+        const next = createRandomDeviceId("hw-");
+        try {
+            if (window.localStorage) {
+                localStorage.setItem("games-device-id", next);
+            }
+            if (window.sessionStorage) {
+                const legacyStored = String(sessionStorage.getItem("games-legacy-device-id") || "").trim();
+                if (!legacyStored) {
+                    sessionStorage.setItem("games-legacy-device-id", legacy);
+                }
+            }
+        } catch (error) {
+            void error;
+        }
+        window.__gamesDeviceId = next;
+        return next;
+    }
+
     const els = {
         navList: document.getElementById("gamesNavList"),
         manifestList: document.getElementById("gamesManifestList"),
+        stage: document.querySelector(".games-stage"),
         stageToolbar: document.querySelector(".games-stage-toolbar"),
         stageTitle: document.getElementById("gamesStageTitle"),
         stageMeta: document.getElementById("gamesStageMeta"),
@@ -415,8 +482,34 @@
         ].join(" ");
     }
 
+    function renderAchievementBadgeInline(badge) {
+        const safeBadge = badge && typeof badge === "object" ? badge : {};
+        const id = String(safeBadge.id || "").trim();
+        const glyph = String(safeBadge.glyph || "").trim();
+        if (!id || !glyph) {
+            return "";
+        }
+        const tier = topdownAchievementTierTheme(safeBadge.tier).key;
+        const label = escapeHtml(String(safeBadge.name || "成就徽章"));
+        return '<span class="games-achievement-badge games-achievement-badge--' + tier + '" title="' + label + '">' + escapeHtml(glyph) + "</span>";
+    }
+
+    function renderRankedName(entry) {
+        const rank = entry && entry.rank ? entry.rank : { key: "blackiron", name: "黑铁" };
+        const displayName = escapeHtml(entry.display_name || "");
+        const totalScore = Number(entry.lifetime_score != null ? entry.lifetime_score : (entry.total_score != null ? entry.total_score : 0));
+        const achievementBadge = renderAchievementBadgeInline(entry && (entry.achievement_badge || entry.selected_achievement_badge));
+        return [
+            '<span class="games-rank-badge ' + getRankTierClass(rank) + '">' + escapeHtml(rank.name || "黑铁") + "</span>",
+            '<span class="games-ranked-name ' + getRankTierClass(rank) + '">' + displayName + "</span>",
+            achievementBadge,
+            '<span class="games-ranked-total">总积分 ' + escapeHtml(totalScore) + "</span>"
+        ].filter(Boolean).join(" ");
+    }
+
     function renderProfile(profile) {
         state.profile = profile;
+        state.onlineSelfIdentity = String((profile && (profile.identity || profile.ip)) || state.onlineSelfIdentity || "");
         const displayName = profile.display_name || profile.nickname || ("访客 " + String(profile.ip || "unknown").slice(-6).toUpperCase());
         if (els.profileName) {
             els.profileName.innerHTML = renderRankedName(profile);
@@ -455,6 +548,7 @@
         if (els.avatarFallback) {
             els.avatarFallback.textContent = (displayName || config.fallbackAvatarText || "I").slice(0, 1).toUpperCase();
         }
+        renderGamesChatWidget();
     }
 
     function renderBossKeyHint() {
@@ -525,6 +619,7 @@
             "2048": "20",
             sudoku: "数",
             gomoku: "五",
+            zhajinhua: "扎",
             frontline: "线",
             "topdown-shooter": "射"
         };
@@ -583,8 +678,10 @@
             return;
         }
         els.onlineList.innerHTML = "";
+        const selfIdentities = getSelfIdentitySet();
         const others = state.onlineVisitors.filter(function (visitor) {
-            return !(state.profile && visitor.ip === state.profile.ip);
+            const visitorIdentity = getVisitorIdentity(visitor);
+            return visitorIdentity && !selfIdentities.has(visitorIdentity);
         });
         if (!others.length) {
             els.onlineList.appendChild(emptyNode("暂时没有其他在线访客。"));
@@ -604,6 +701,70 @@
                 "</div>"
             ].join("");
             els.onlineList.appendChild(node);
+        });
+    }
+
+    function getVisitorIdentity(visitor) {
+        return String((visitor && (visitor.identity || visitor.ip)) || "").trim();
+    }
+
+    function getSelfIdentitySet() {
+        const values = [
+            state.onlineSelfIdentity,
+            state.profile && state.profile.identity,
+            state.profile && state.profile.ip,
+            getGamesDeviceId()
+        ];
+        const identities = new Set();
+        values.forEach(function (value) {
+            const normalized = String(value || "").trim();
+            if (normalized) {
+                identities.add(normalized);
+            }
+        });
+        return identities;
+    }
+
+    function normalizeOnlineVisitorsPayload(payload) {
+        if (Array.isArray(payload)) {
+            return {
+                selfIdentity: state.onlineSelfIdentity || String((state.profile && (state.profile.identity || state.profile.ip)) || getGamesDeviceId()),
+                visitors: payload
+            };
+        }
+        return {
+            selfIdentity: String((payload && payload.self_identity) || state.onlineSelfIdentity || (state.profile && (state.profile.identity || state.profile.ip)) || getGamesDeviceId()),
+            visitors: Array.isArray(payload && payload.visitors) ? payload.visitors : []
+        };
+    }
+
+    function normalizeOnlineVisitorsList(list) {
+        const latestByIdentity = new Map();
+        (Array.isArray(list) ? list : []).forEach(function (visitor) {
+            const identity = getVisitorIdentity(visitor);
+            if (!identity) {
+                return;
+            }
+            const normalized = Object.assign({}, visitor, { identity: identity, ip: String(visitor.ip || identity) });
+            const previous = latestByIdentity.get(identity);
+            if (!previous) {
+                latestByIdentity.set(identity, normalized);
+                return;
+            }
+            const previousAge = Number(previous.age_seconds);
+            const nextAge = Number(normalized.age_seconds);
+            const previousTime = Date.parse(previous.last_seen || "") || 0;
+            const nextTime = Date.parse(normalized.last_seen || "") || 0;
+            if ((Number.isFinite(nextAge) && Number.isFinite(previousAge) && nextAge < previousAge) || nextTime > previousTime) {
+                latestByIdentity.set(identity, normalized);
+            }
+        });
+        return Array.from(latestByIdentity.values()).sort(function (left, right) {
+            const ageDiff = Number(left.age_seconds || 0) - Number(right.age_seconds || 0);
+            if (ageDiff !== 0) {
+                return ageDiff;
+            }
+            return String(left.display_name || "").localeCompare(String(right.display_name || ""), "zh-CN");
         });
     }
 
@@ -747,6 +908,301 @@
         container.hidden = !safeStats.length;
     }
 
+    function currentGameTitle() {
+        const game = (state.manifest.games || []).find(function (item) {
+            return item && item.id === state.activeGameId;
+        });
+        return game ? String(game.title || game.id || "") : "";
+    }
+
+    function normalizeGamesChatMessage(entry) {
+        if (!entry || typeof entry !== "object") {
+            return null;
+        }
+        const content = String(entry.content || "").trim();
+        if (!content) {
+            return null;
+        }
+        return {
+            message_id: String(entry.message_id || "").trim(),
+            client_message_id: String(entry.client_message_id || "").trim(),
+            player_id: String(entry.player_id || "").trim(),
+            display_name: String(entry.display_name || "玩家").trim() || "玩家",
+            avatar_url: String(entry.avatar_url || "").trim(),
+            content: content,
+            created_at: String(entry.created_at || "").trim(),
+            current_game: String(entry.current_game || "").trim(),
+            current_game_label: String(entry.current_game_label || "").trim(),
+            is_local_pending: Boolean(entry.is_local_pending)
+        };
+    }
+
+    function isSameGamesChatMessage(left, right) {
+        if (!left || !right) {
+            return false;
+        }
+        if (left.message_id && right.message_id && left.message_id === right.message_id) {
+            return true;
+        }
+        return Boolean(
+            left.client_message_id
+            && right.client_message_id
+            && left.client_message_id === right.client_message_id
+            && left.player_id === right.player_id
+        );
+    }
+
+    function formatGamesChatTime(value) {
+        const parsed = Date.parse(String(value || ""));
+        if (!Number.isFinite(parsed)) {
+            return "";
+        }
+        const date = new Date(parsed);
+        return String(date.getHours()).padStart(2, "0") + ":" + String(date.getMinutes()).padStart(2, "0");
+    }
+
+    function ensureGamesChatWidget() {
+        if (!els.stage) {
+            return null;
+        }
+        let widget = els.stage.querySelector("#gamesHubChatWidget");
+        if (!widget) {
+            widget = document.createElement("div");
+            widget.id = "gamesHubChatWidget";
+            widget.className = "games-hub-chat-float";
+            els.stage.appendChild(widget);
+        }
+        return widget;
+    }
+
+    function scrollGamesChatToBottom() {
+        const list = document.getElementById("gamesHubChatList");
+        if (!list) {
+            return;
+        }
+        window.requestAnimationFrame(function () {
+            list.scrollTop = list.scrollHeight;
+        });
+    }
+
+    function renderGamesChatWidget() {
+        const widget = ensureGamesChatWidget();
+        if (!widget) {
+            return;
+        }
+        const chatState = state.gamesChat;
+        const playerId = getGamesDeviceId();
+        const unreadLabel = chatState.unreadCount > 99 ? "99+" : String(chatState.unreadCount || "");
+        const messagesHtml = chatState.messages.length
+            ? chatState.messages.map(function (entry) {
+                const isSelf = entry.player_id === playerId;
+                const avatar = entry.avatar_url
+                    ? '<img class="games-hub-chat-avatar-image" src="' + escapeHtml(entry.avatar_url) + '" alt="">'
+                    : '<span class="games-hub-chat-avatar-fallback">' + escapeHtml(String(entry.display_name || "玩").slice(0, 1).toUpperCase()) + '</span>';
+                const metaBits = [formatGamesChatTime(entry.created_at)];
+                if (entry.current_game_label) {
+                    metaBits.push(entry.current_game_label);
+                }
+                if (entry.is_local_pending) {
+                    metaBits.push("发送中");
+                }
+                return [
+                    '<div class="games-hub-chat-message' + (isSelf ? ' is-self' : '') + (entry.is_local_pending ? ' is-pending' : '') + '">',
+                    '  <div class="games-hub-chat-avatar">' + avatar + '</div>',
+                    '  <div class="games-hub-chat-bubble">',
+                    '    <div class="games-hub-chat-author">' + escapeHtml(entry.display_name || "玩家") + '</div>',
+                    '    <div class="games-hub-chat-text">' + escapeHtml(entry.content || "") + '</div>',
+                    '    <div class="games-hub-chat-meta">' + escapeHtml(metaBits.filter(Boolean).join(" · ")) + '</div>',
+                    "  </div>",
+                    "</div>"
+                ].join("");
+            }).join("")
+            : '<div class="games-hub-chat-empty">现在还没有消息，先打个招呼吧。</div>';
+        const panelHtml = chatState.isOpen ? [
+            '<section class="games-hub-chat-panel" aria-label="全局聊天窗口">',
+            '  <div class="games-hub-chat-head">',
+            '    <div>',
+            '      <div class="games-hub-chat-title">全局聊天</div>',
+            '      <div class="games-hub-chat-subtitle">当前游戏页内所有在线用户都能看到</div>',
+            "    </div>",
+            '    <button type="button" class="games-hub-chat-close" id="gamesHubChatCloseBtn" aria-label="关闭聊天窗口">&times;</button>',
+            "  </div>",
+            '  <div class="games-hub-chat-list" id="gamesHubChatList">' + messagesHtml + "</div>",
+            '  <form class="games-hub-chat-compose" id="gamesHubChatForm">',
+            '    <input type="text" class="games-text-input games-hub-chat-input" id="gamesHubChatInput" maxlength="160" placeholder="给游戏页里的大家发句话" value="' + escapeHtml(chatState.draft || "") + '">',
+            '    <button type="submit" class="games-btn games-btn--primary"' + (chatState.socket && chatState.socket.connected ? "" : " disabled") + '>发送</button>',
+            "  </form>",
+            '  <div class="games-hub-chat-status">' + escapeHtml((chatState.socket && chatState.socket.connected) ? ("已通过 " + chatState.transportLabel + " 连接") : "聊天连接中断，暂时无法发送") + "</div>",
+            "</section>"
+        ].join("") : "";
+        widget.innerHTML = [
+            panelHtml,
+            '<button type="button" class="games-hub-chat-toggle" id="gamesHubChatToggle" aria-expanded="' + (chatState.isOpen ? "true" : "false") + '" aria-label="打开全局聊天">',
+            '  <i class="fa fa-comments" aria-hidden="true"></i>',
+            (chatState.unreadCount > 0 ? '<span class="games-hub-chat-badge">' + escapeHtml(unreadLabel) + '</span>' : ""),
+            "</button>"
+        ].join("");
+        const toggleBtn = widget.querySelector("#gamesHubChatToggle");
+        if (toggleBtn) {
+            toggleBtn.addEventListener("click", function () {
+                state.gamesChat.isOpen = !state.gamesChat.isOpen;
+                if (state.gamesChat.isOpen) {
+                    state.gamesChat.unreadCount = 0;
+                }
+                renderGamesChatWidget();
+                if (state.gamesChat.isOpen) {
+                    scrollGamesChatToBottom();
+                    const input = document.getElementById("gamesHubChatInput");
+                    if (input) {
+                        input.focus();
+                    }
+                }
+            });
+        }
+        const closeBtn = widget.querySelector("#gamesHubChatCloseBtn");
+        if (closeBtn) {
+            closeBtn.addEventListener("click", function () {
+                state.gamesChat.isOpen = false;
+                renderGamesChatWidget();
+            });
+        }
+        const input = widget.querySelector("#gamesHubChatInput");
+        if (input) {
+            input.addEventListener("input", function () {
+                state.gamesChat.draft = input.value || "";
+            });
+        }
+        const form = widget.querySelector("#gamesHubChatForm");
+        if (form) {
+            form.addEventListener("submit", function (event) {
+                event.preventDefault();
+                sendGamesChatMessage();
+            });
+        }
+        if (chatState.isOpen) {
+            scrollGamesChatToBottom();
+        }
+    }
+
+    function applyGamesChatMessages(messages, replaceAll) {
+        const normalized = (Array.isArray(messages) ? messages : []).map(normalizeGamesChatMessage).filter(Boolean);
+        if (replaceAll) {
+            const pendingLocals = state.gamesChat.messages.filter(function (entry) {
+                return entry && entry.is_local_pending;
+            });
+            const nextMessages = normalized.slice();
+            pendingLocals.forEach(function (entry) {
+                if (!nextMessages.some(function (candidate) { return isSameGamesChatMessage(candidate, entry); })) {
+                    nextMessages.push(entry);
+                }
+            });
+            state.gamesChat.messages = nextMessages.slice(-50);
+            renderGamesChatWidget();
+            return;
+        }
+        normalized.forEach(function (incoming) {
+            const index = state.gamesChat.messages.findIndex(function (entry) {
+                return isSameGamesChatMessage(entry, incoming);
+            });
+            if (index >= 0) {
+                state.gamesChat.messages.splice(index, 1, incoming);
+            } else {
+                state.gamesChat.messages.push(incoming);
+            }
+            if (
+                state.gamesChat.initialized
+                && !state.gamesChat.isOpen
+                && incoming.player_id
+                && incoming.player_id !== getGamesDeviceId()
+            ) {
+                state.gamesChat.unreadCount = Math.min(99, Number(state.gamesChat.unreadCount || 0) + 1);
+            }
+        });
+        state.gamesChat.messages = state.gamesChat.messages.slice(-50);
+        renderGamesChatWidget();
+    }
+
+    function sendGamesChatMessage() {
+        const chatState = state.gamesChat;
+        const socket = chatState.socket;
+        const content = String(chatState.draft || "").trim();
+        if (!content) {
+            return;
+        }
+        if (!socket || !socket.connected) {
+            setStatus("全局聊天暂未连上，消息没有发出。", true);
+            return;
+        }
+        const clientMessageId = getGamesDeviceId() + "-" + String(Date.now()) + "-" + String(chatState.nextLocalSequence++);
+        chatState.messages.push({
+            message_id: "local-" + clientMessageId,
+            client_message_id: clientMessageId,
+            player_id: getGamesDeviceId(),
+            display_name: String((state.profile && state.profile.display_name) || (state.profile && state.profile.nickname) || "你"),
+            avatar_url: String((state.profile && state.profile.avatar_url) || ""),
+            content: content,
+            created_at: new Date().toISOString(),
+            current_game: state.activeGameId || "",
+            current_game_label: currentGameTitle(),
+            is_local_pending: true
+        });
+        chatState.messages = chatState.messages.slice(-50);
+        chatState.draft = "";
+        renderGamesChatWidget();
+        socket.emit("games_chat_send", {
+            client_message_id: clientMessageId,
+            content: content,
+            current_game: state.activeGameId || "",
+            current_game_label: currentGameTitle()
+        });
+    }
+
+    function refreshGamesChatTransportLabel() {
+        try {
+            const engine = state.gamesChat.socket && state.gamesChat.socket.io && state.gamesChat.socket.io.engine
+                ? state.gamesChat.socket.io.engine
+                : null;
+            state.gamesChat.transportLabel = String((engine && engine.transport && engine.transport.name) || "websocket").toUpperCase();
+        } catch (error) {
+            state.gamesChat.transportLabel = "WEBSOCKET";
+        }
+    }
+
+        function initGamesChat() {
+            renderGamesChatWidget();
+            if (state.gamesChat.socket || !window.io) {
+                return;
+            }
+            const socket = window.io(GAMES_CHAT_NAMESPACE, {
+                transports: ["polling", "websocket"],
+                upgrade: true,
+                rememberUpgrade: true,
+                timeout: 8000
+            });
+            state.gamesChat.socket = socket;
+            socket.on("connect", function () {
+                refreshGamesChatTransportLabel();
+                socket.emit("games_chat_join");
+            renderGamesChatWidget();
+        });
+        socket.on("games_chat_snapshot", function (payload) {
+            applyGamesChatMessages(payload && payload.messages, true);
+            state.gamesChat.initialized = true;
+        });
+        socket.on("games_chat_message", function (payload) {
+            applyGamesChatMessages([payload], false);
+        });
+        socket.on("games_chat_error", function (payload) {
+            setStatus((payload && payload.error) || "全局聊天发送失败", true);
+        });
+        socket.on("connect_error", function () {
+            renderGamesChatWidget();
+        });
+        socket.on("disconnect", function () {
+            renderGamesChatWidget();
+        });
+    }
+
     function clearStage() {
         if (typeof state.activeCleanup === "function") {
             state.activeCleanup();
@@ -840,7 +1296,14 @@
     }
 
     async function loadOnlineVisitors() {
-        state.onlineVisitors = await requestJson(config.onlineUrl, { method: "GET" });
+        const token = ++state.onlineLoadToken;
+        const payload = await requestJson(config.onlineUrl, { method: "GET" });
+        if (token !== state.onlineLoadToken) {
+            return;
+        }
+        const normalized = normalizeOnlineVisitorsPayload(payload);
+        state.onlineSelfIdentity = normalized.selfIdentity;
+        state.onlineVisitors = normalizeOnlineVisitorsList(normalized.visitors);
         renderOnlineVisitors();
     }
 
@@ -910,12 +1373,17 @@
         }, 280);
     }
 
-    async function loadGameState(gameId) {
-        const cached = loadCachedRuntimeGameState(gameId);
-        if (cached) {
-            return cached;
+    async function loadGameState(gameId, options) {
+        const loadOptions = options && typeof options === "object" ? options : {};
+        if (!loadOptions.preferRemote) {
+            const cached = loadCachedRuntimeGameState(gameId);
+            if (cached) {
+                return cached;
+            }
         }
-        return requestJson(getStateUrl(gameId), { method: "GET" });
+        const payload = await requestJson(getStateUrl(gameId), { method: "GET" });
+        cacheRuntimeGameState(gameId, payload && payload.state, payload && payload.summary);
+        return payload;
     }
 
     function createGameModuleContext() {
@@ -945,6 +1413,7 @@
             distanceBetween: distanceBetween,
             getGamesDeviceId: getGamesDeviceId,
             GOMOKU_NAMESPACE: GOMOKU_NAMESPACE,
+            ZHAJINHUA_NAMESPACE: ZHAJINHUA_NAMESPACE,
             setTopdownSharedMetaState: setTopdownSharedMetaState,
             getTopdownSharedMetaState: getTopdownSharedMetaState,
             normalizeTopdownMetaState: normalizeTopdownMetaState,
@@ -958,6 +1427,20 @@
             topdownIconPreviewGlyph: topdownIconPreviewGlyph,
             topdownMetaTierLabel: topdownMetaTierLabel,
             topdownBackgroundPreviewStyle: topdownBackgroundPreviewStyle,
+            applyElectricDamageModifier: applyElectricDamageModifier,
+            topdownResolveBurnTickDamage: topdownResolveBurnTickDamage,
+            topdownResolveBurnTickInterval: topdownResolveBurnTickInterval,
+            topdownResolveNuclearHuskBonusDamage: topdownResolveNuclearHuskBonusDamage,
+            topdownTimeSettlementBonus: topdownTimeSettlementBonus,
+            topdownTryCreateNuclearHusk: topdownTryCreateNuclearHusk,
+            topdownAchievementCatalog: topdownAchievementCatalog,
+            topdownResolveAchievements: topdownResolveAchievements,
+            topdownAchievementSummary: topdownAchievementSummary,
+            topdownSelectedAchievementBadge: topdownSelectedAchievementBadge,
+            topdownAchievementTierTheme: topdownAchievementTierTheme,
+            topdownApplyAchievementProgress: topdownApplyAchievementProgress,
+            topdownRememberAchievementEvent: topdownRememberAchievementEvent,
+            topdownSetSelectedAchievementBadge: topdownSetSelectedAchievementBadge,
             topdown: {
                 TOPDOWN_BALANCE: TOPDOWN_BALANCE,
                 TOPDOWN_SCORE_SOFT_CAP: TOPDOWN_SCORE_SOFT_CAP,
@@ -981,6 +1464,8 @@
                 topdownBossRelicSummary: topdownBossRelicSummary,
                 topdownBuffRemaining: topdownBuffRemaining,
                 topdownBuildSummary: topdownBuildSummary,
+                topdownBuildRunCosmeticBonuses: topdownBuildRunCosmeticBonuses,
+                applyElectricDamageModifier: applyElectricDamageModifier,
                 topdownBulletBlockedByWardenField: topdownBulletBlockedByWardenField,
                 topdownCanonicalEliteType: topdownCanonicalEliteType,
                 topdownCatalogForKind: topdownCatalogForKind,
@@ -1017,6 +1502,11 @@
                 drawTopdownStatusRing: drawTopdownStatusRing,
                 getWingmanSlots: getWingmanSlots,
                 renderTopdownAttributeCards: renderTopdownAttributeCards,
+                topdownResolveBurnTickDamage: topdownResolveBurnTickDamage,
+                topdownResolveBurnTickInterval: topdownResolveBurnTickInterval,
+                topdownResolveNuclearHuskBonusDamage: topdownResolveNuclearHuskBonusDamage,
+                topdownTimeSettlementBonus: topdownTimeSettlementBonus,
+                topdownTryCreateNuclearHusk: topdownTryCreateNuclearHusk,
                 topdownIconCatalog: topdownIconCatalog,
                 topdownIconDrawWeight: topdownIconDrawWeight,
                 topdownIconPreviewGlyph: topdownIconPreviewGlyph,
@@ -1026,6 +1516,14 @@
                 topdownMetaRewardAmount: topdownMetaRewardAmount,
                 topdownMetaTierClass: topdownMetaTierClass,
                 topdownMetaTierLabel: topdownMetaTierLabel,
+                topdownAchievementCatalog: topdownAchievementCatalog,
+                topdownResolveAchievements: topdownResolveAchievements,
+                topdownAchievementSummary: topdownAchievementSummary,
+                topdownSelectedAchievementBadge: topdownSelectedAchievementBadge,
+                topdownAchievementTierTheme: topdownAchievementTierTheme,
+                topdownApplyAchievementProgress: topdownApplyAchievementProgress,
+                topdownRememberAchievementEvent: topdownRememberAchievementEvent,
+                topdownSetSelectedAchievementBadge: topdownSetSelectedAchievementBadge,
                 topdownNearestEnemy: topdownNearestEnemy,
                 topdownPickupVisual: topdownPickupVisual,
                 topdownPlayerMoveSpeedFactor: topdownPlayerMoveSpeedFactor,
@@ -1038,6 +1536,7 @@
                 topdownSkillCooldownValue: topdownSkillCooldownValue,
                 topdownSkillCooldownRemaining: topdownSkillCooldownRemaining,
                 topdownSkillBlinkDistance: topdownSkillBlinkDistance,
+                topdownSkillZeusDuration: topdownSkillZeusDuration,
                 topdownSkillInvincibleDuration: topdownSkillInvincibleDuration,
                 topdownSkillMissileLifetime: topdownSkillMissileLifetime,
                 topdownSkillReady: topdownSkillReady,
@@ -1144,14 +1643,17 @@
         }
     }
 
-    async function postPresence() {
+    async function postPresence(options) {
+        const opts = options && typeof options === "object" ? options : {};
         try {
             await requestJson(config.onlineUrl, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(state.currentPresence)
             });
-            await loadOnlineVisitors();
+            if (opts.refreshOnline) {
+                await loadOnlineVisitors();
+            }
         } catch (error) {
             void error;
         }
@@ -1161,12 +1663,49 @@
         if (state.presenceTimer) {
             window.clearInterval(state.presenceTimer);
         }
-        postPresence();
+        if (state.onlineTimer) {
+            window.clearInterval(state.onlineTimer);
+        }
+
+        postPresence({ refreshOnline: true });
+
         state.presenceTimer = window.setInterval(function () {
+            postPresence({ refreshOnline: false });
+        }, 45000);
+
+        state.onlineTimer = window.setInterval(function () {
             loadOnlineVisitors().catch(function () {
                 return null;
             });
-        }, 60000);
+        }, 20000);
+
+        if (!state.presenceHooksReady) {
+            state.presenceHooksReady = true;
+            document.addEventListener("visibilitychange", function () {
+                if (!document.hidden) {
+                    postPresence({ refreshOnline: true });
+                }
+            });
+
+            window.addEventListener("beforeunload", function () {
+                try {
+                    const payload = JSON.stringify(state.currentPresence || {});
+                    if (navigator.sendBeacon) {
+                        const blob = new Blob([payload], { type: "application/json" });
+                        navigator.sendBeacon(config.onlineUrl, blob);
+                    } else {
+                        fetch(config.onlineUrl, {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: payload,
+                            keepalive: true
+                        });
+                    }
+                } catch (error) {
+                    void error;
+                }
+            });
+        }
     }
 
     async function launchGame(gameId) {
@@ -1185,10 +1724,11 @@
             els.stageMeta.textContent = game ? (game.summary || "") : "";
         }
         clearStage();
+        renderGamesChatWidget();
         applyActiveGameMetaAppearance();
         addGlobalStageButtons();
         renderStageLoadingState(game, "正在读取本地存档、恢复上次进度，并挂载游戏界面。");
-        syncPresence(gameId === "gomoku" ? "等待对局" : "游玩中", "");
+        syncPresence(gameId === "gomoku" || gameId === "zhajinhua" ? "等待对局" : "游玩中", "");
         postPresence();
 
         async function mountIfCurrent(factory) {
@@ -1209,6 +1749,17 @@
                 els.stageBody.innerHTML = "";
             }
             state.activeCleanup = factory();
+        }
+
+        const needsSharedMeta = gameId === "topdown-shooter" || gameId === "gomoku" || gameId === "zhajinhua";
+        if (needsSharedMeta || !state.topdownMetaState) {
+            const sharedMetaPayload = await loadGameState("topdown-shooter-meta", { preferRemote: true }).catch(function () {
+                return loadGameState("topdown-shooter-meta").catch(function () { return { state: {} }; });
+            });
+            if (launchToken !== state.launchToken) {
+                return;
+            }
+            setTopdownSharedMetaState((sharedMetaPayload && sharedMetaPayload.state) || {});
         }
 
         if (gameId === "2048") {
@@ -1236,16 +1787,31 @@
             return;
         }
         if (gameId === "gomoku") {
-            const payloadGomokuMeta = await loadGameState("topdown-shooter-meta").catch(function () { return { state: {} }; });
-            if (!state.topdownMetaState) {
-                setTopdownSharedMetaState(payloadGomokuMeta.state || {});
-            }
+            const payloadGomokuMeta = await loadGameState("topdown-shooter-meta", { preferRemote: true }).catch(function () {
+                return { state: getTopdownSharedMetaState() || {} };
+            });
+            setTopdownSharedMetaState((payloadGomokuMeta && payloadGomokuMeta.state) || {});
             const mountGomokuModule = await ensureGameModule("gomoku");
             await mountIfCurrent(function () {
                 if (mountGomokuModule) {
                     return mountGomokuModule(payloadGomokuMeta, createGameModuleContext());
                 }
                 renderEmptyStage("五子棋模块加载失败，请刷新页面重试。");
+                return null;
+            });
+            return;
+        }
+        if (gameId === "zhajinhua") {
+            const payloadZhajinhuaMeta = await loadGameState("topdown-shooter-meta", { preferRemote: true }).catch(function () {
+                return { state: getTopdownSharedMetaState() || {} };
+            });
+            setTopdownSharedMetaState((payloadZhajinhuaMeta && payloadZhajinhuaMeta.state) || {});
+            const mountZhajinhuaModule = await ensureGameModule("zhajinhua");
+            await mountIfCurrent(function () {
+                if (mountZhajinhuaModule) {
+                    return mountZhajinhuaModule(payloadZhajinhuaMeta, createGameModuleContext());
+                }
+                renderEmptyStage("炸金花模块加载失败，请刷新页面重试。");
                 return null;
             });
             return;
@@ -1265,14 +1831,15 @@
         if (gameId === "topdown-shooter") {
             const topdownPayloads = await Promise.all([
                 loadGameState("topdown-shooter").catch(function () { return { state: {} }; }),
-                loadGameState("topdown-shooter-meta").catch(function () { return { state: {} }; })
+                loadGameState("topdown-shooter-meta", { preferRemote: true }).catch(function () { return { state: {} }; })
             ]);
+            setTopdownSharedMetaState((topdownPayloads[1] && topdownPayloads[1].state) || {});
             const mountTopdownModule = await ensureGameModule("topdown-shooter");
             await mountIfCurrent(function () {
                 if (mountTopdownModule) {
                     return mountTopdownModule({
                         state: topdownPayloads[0].state || {},
-                        metaState: state.topdownMetaState || topdownPayloads[1].state || {}
+                        metaState: state.topdownMetaState || (topdownPayloads[1] && topdownPayloads[1].state) || {}
                     }, createGameModuleContext());
                 }
                 renderEmptyStage("俯视射击模块加载失败，请刷新页面重试。");
@@ -1400,294 +1967,344 @@
     }
 
     const TOPDOWN_BALANCE = {
-        // 得分与节奏
-        killScore: 2, // base score per kill
-        waveStepKills: 10, // kills required to push one normal wave step
-        waveBonusScore: 4, // bonus score granted when wave count rises
-        comboResetWindow: 8, // base combo timeout in seconds
-        comboResetWindowPerLevel: 0.8,
-        comboResetWindowMin: 5,
-        comboScoreStep: 5,
-        comboItemEvery: 60,
-        comboItemEveryStep: 5,
-        comboItemEveryMin: 25,
-        itemBuffDuration: 30, // duration of temporary item buffs in seconds
-        bonusRerollsAmount: 5, // rerolls granted by the reroll pickup
-        // 基础生存
-        playerLives: 1, // reserved player life count
-        baseShieldLayers: 2, // starting shield layers
-        shieldLayerPerLevel: 1,
-        shieldCapacityCap: 6,
-        shieldRechargeDelay: 5.4, // seconds before shield recharge starts
-        shieldRechargeDelayStep: 0.7,
-        shieldRechargeDelayMin: 1.8,
-        shieldRechargeDuration: 4.6,
-        shieldRechargeDurationStep: 0.55,
-        shieldRechargeDurationMin: 1.5,
-        // 玩家基础数值
-        baseMoveSpeed: 236, // starting move speed
-        moveSpeedPerLevel: 18,
-        moveSpeedRollMin: 24,
-        moveSpeedRollMax: 42,
-        baseFireInterval: 0.22, // base seconds between shots
-        fireRateStep: 0.1,
-        fireRateRollMin: 0.035,
-        fireRateRollMax: 0.2,
-        minFireInterval: 0.05,
-        baseBulletDamage: 3.2, // starting bullet damage
-        attackPerLevel: 0.75,
-        attackRollMin: 0.85,
-        attackRollMax: 1.65,
-        damageSoftCap: 18.5, // soft cap for player damage
-        damageOverflowFactor: 0.55, // retained efficiency after the soft cap
-        damagePrecision: 1000, // fixed-point precision for damage values
-        hpPrecision: 1000, // fixed-point precision for hp and shield values
-        damageEpsilon: 0.0001, // treat smaller damage as zero
-        killEpsilon: 0.001, // treat smaller remaining hp as zero
-        bulletSpeed: 480, // projectile speed
-        bulletRadius: 4,
-        bulletLife: 1.4,
-        projectileCap: 6,
-        projectileRadiusPerLevel: 0.45,
-        projectileLifePerLevel: 0.14,
-        moveSpeedSoftCap: 360, // soft cap for move speed
-        moveSpeedOverflowFactor: 0.45,
-        fireRateSoftCapPerSecond: 8.4,
-        fireRateHardCapPerSecond: 12.4,
-        fireRateOverflowFactor: 0.45,
-        playerRadius: 14, // base player collision radius
-        damageFlashDuration: 0.9, // player hit-flash duration in seconds
-        damageFlashBlinkPairs: 3, // blink pairs during the hit flash
-        enemyHpTextDecimalThreshold: 10, // show decimals when hp is low
-        enemyHpTextDecimals: 1, // decimal places shown for low fractional hp
-        arenaWidth: 960, // logical arena width
-        arenaHeight: 720, // logical arena height
-        arenaPadding: 20,
-        arenaPlayerMargin: 18,
-        multishotSpread: 0.18,
-        wingmanMax: 4,
-        wingmanOrbitRadius: 42,
-        wingmanDamageFactor: 0.5,
-        wingmanFireRateFactor: 1.35,
-        pickupRadius: 13,
-        pickupLifetime: 20,
-        // 敌人刷新与成长
-        targetEnemyBase: 4, // base desired living enemy count
-        targetEnemyPerWave: 1.15,
-        targetEnemyCap: 22,
-        spawnBaseInterval: 1.18, // base seconds between spawn attempts
-        spawnIntervalWaveStep: 0.16,
-        spawnIntervalMin: 0.33,
-        enemyBaseRadius: 16,
-        enemyRadiusVariance: 8,
-        enemyBaseSpeed: 28, // baseline enemy move speed
-        enemySpeedPerWave: 1.6,
-        enemySpeedVariance: 14,
-        enemyBaseHp: 6, // baseline enemy hp
-        enemyHpPerWave: 1.35, // hp gained per wave
-        enemyHpPerKill: 0.14, // hp gained per player kill
-        enemyHpPerBoss: 5, // hp gained per defeated boss
-        latePressureStartWave: 9,
-        lateEnemyHpPerWave: 1.9,
-        lateEnemySpeedPerWave: 1.05,
-        enemyFireMin: 1.2,
-        enemyFireMax: 2.9,
-        enemyFireRange: 340,
-        enemyBulletSpeed: 182, // baseline enemy bullet speed
-        enemyPowerPressureSoftCap: 5.2,
-        enemyPowerHpStep: 2.2,
-        enemyPowerHpCurve: 0.82,
-        enemyPowerSpeedStep: 0.05,
-        enemyPowerBulletSpeedStep: 0.045,
-        enemyPowerFireRateStep: 0.03,
-        rareIconStartChoices: 2,
-        superRareIconStartChoices: 2,
-        // 精英怪
-        eliteEveryKills: 9, // spawn an elite after this many kills
-        eliteHpMultiplier: 1.55, // hp multiplier applied to elites
-        eliteFireRateMultiplier: 0.78,
-        eliteBulletSpread: 0.16,
-        eliteBulletCount: 1,
-        eliteSpeedMultiplier: 1.16,
-        eliteBulletSpeedPerWave: 5,
-        bossWaveEvery: 4,
-        bossHpMultiplier: 5.2, // hp multiplier applied to bosses
-        bossShieldBase: 24, // starting boss shield amount
-        bossShieldPerWave: 5,
-        bossShieldPerBoss: 8,
-        bossRadius: 30,
-        bossFireRateMultiplier: 0.68,
-        bossBulletCount: 5,
-        bossBulletSpeedMultiplier: 1.45,
-        bossSpeedMultiplier: 0.78,
-        bossBonusScore: 24, // bonus score granted for a boss kill
-        bossRelicChoiceCount: 2,
-        // 强化上限
-        elementCap: 7,
-        statCap: 7,
-        multishotCap: 8,
-        comboWindowCap: 5,
-        comboThresholdCap: 7,
-        // 火 / 电 / 冰 / 核
-        burnDuration: 2.2, // seconds fire burn remains active
-        burnTickInterval: 0.35, // seconds between burn ticks
-        burnStackMax: 6,
-        burnDamageBase: 0.8,
-        burnDamagePerLevel: 0.7,
-        burnDamagePerStack: 0.4,
-        fireSpreadOverlapPadding: 5,
-        elementAoeBaseInterval: 10,
-        elementAoeIntervalStep: 1,
-        elementAoeMinInterval: 3,
-        fireAoeBaseRadius: 46,
-        fireAoeRadiusPerLevel: 7,
-        iceAoeBaseRadius: 50,
-        iceAoeRadiusPerLevel: 8,
-        electricBaseChains: 1,
-        electricRadius: 150,
-        electricDamageFactor: 0.7, // chain lightning damage multiplier
-        electricBeamLife: 0.1,
-        electricMaxRange: 420, // max electric beam travel distance
-        electricShockChance: 0.34,
-        electricShockBonus: 1.45,
-        iceSlowPerStack: 0.11,
-        iceMaxSlow: 0.78,
-        iceFreezeStacks: 6, // stacks required to freeze
-        iceFreezeDuration: 5.35,
-        iceShatterChance: 0.5,
-        nuclearBaseRadius: 52, // base nuclear explosion radius
-        nuclearRadiusPerLevel: 20,
-        nuclearDamageFactor: 0.8,
-        nuclearBurstLife: 0.24,
-        nuclearRadiationChance: 0.26,
-        nuclearRadiationDuration: 3,
-        nuclearRadiationAlpha: 0.22,
-        enemySpecialAttackWave: 6,
-        eliteSpecialAttackChance: 0.28,
-        bossSpecialAttackChance: 0.46,
-        enemySpecialCooldownMin: 3.2,
-        enemySpecialCooldownMax: 5.8,
-        enemyBeamLife: 0.18,
-        enemyBeamRange: 760,
-        enemyBeamWidth: 9,
-        enemyRingBulletCount: 6,
-        bossRingBulletCount: 6,
-        enemyRingSpeedFactor: 0.76,
-        enemyBarrageBulletCount: 6,
-        enemyBarrageSpread: 0.34,
-        enemyContactDamage: 1, // damage from touching an enemy
-        enemyDefaultBulletDamage: 1, // default enemy projectile damage
-        maxPlayerBullets: 320,
-        maxEnemyBullets: 420,
-        maxFriendlyBeams: 140,
-        maxEnemyBeams: 64,
-        maxAoeBursts: 80,
-        maxPickups: 28,
-        maxEnemiesHard: 40,
-        // 道具与精英
-        totalRerolls: 5, // rerolls granted at run start
-        eliteTypes: ["dash", "sniper", "summoner", "self-destruct", "buffer", "splitter", "repulsor", "warden", "blackhand", "nightmare", "liangzi", "luse", "succubus"],
-        eliteDashCooldown: 3.2,
-        eliteDashSpeed: 270,
-        eliteDashDuration: 0.5,
-        eliteSniperRange: 520,
-        eliteSniperBulletSpeed: 286,
-        eliteSniperDamage: 2,
-        eliteSummonCooldown: 5.2,
-        eliteSummonCount: 1,
-        bufferAuraRadius: 136,
-        bufferAuraOnDuration: 2.6,
-        bufferAuraOffDuration: 1.65,
-        bufferEnemySpeedMultiplier: 1.12,
-        bufferEnemyFireRateMultiplier: 0.84,
-        bufferHpFactor: 0.62,
-        selfDestructRushSpeed: 228,
-        selfDestructDelay: 1.15,
-        selfDestructRadius: 76,
-        selfDestructBurstLife: 0.42,
-        repulsorRange: 168, // range where repulsor can knock back player
-        repulsorKnockDistance: 128, // distance of repulsor knockback
-        repulsorKnockSpeed: 360,
-        repulsorCooldown: 3.1,
-        wardenFieldRange: 168, // radius of warden projectile-block field
-        wardenFieldOnDuration: 2.8,
-        wardenFieldOffDuration: 1.7,
-        wardenEnemySlowMultiplier: 0.58,
-        blackhandHookRange: 430,
-        blackhandHookSpeed: 280,
-        blackhandPullSpeed: 258,
-        blackhandHookCooldown: 2.8,
-        nightmareBlindDuration: 5,
-        nightmareVisionRadius: 108,
-        nightmareTouchCooldown: 1.1,
-        nightmareAuraRange: 126,
-        liangziConsumeCooldown: 1,
-        liangziConsumeHpFactor: 1.5,
-        luseTriggerRange: 330,
-        luseBarrageCount: 84,
-        luseSpreadRadians: 0.0820304748,
-        luseDecayPerSecond: 20,
-        succubusAuraRange: 178,
-        succubusPullStrength: 156,
-        succubusEnrageDuration: 5,
-        frenzyBurstDuration: 3,
-        frenzyExhaustDuration: 5,
-        frenzyMoveMultiplier: 0.5,
-        frenzyVolleyInterval: 0.12,
-        frenzyBulletCount: 84,
-        frenzySpreadRadians: 0.0820304748,
-        // 普通小怪幸运掉落
-        luckyDropChance: 0.01,
-        luckyDropItemWeight: 0.6,
-        // 首领装备：这里集中调节每层收益
-        bossRelicMaxStacks: 16,
-        bossRelicEnemySpeedStep: 0.08,
-        bossRelicEnemyBulletSpeedStep: 0.08,
-        bossRelicEnemyFireRateStep: 0.08,
-        bossRelicEnemyMinMultiplier: 0.2,
-        bossRelicEnemyFireCooldownMaxMultiplier: 2.28,
-        shrinkEngineScaleStep: 0.03,
-        shrinkEngineMaxStacks: 20,
-        magneticTrapMaxStacks: 12,
-        magneticTrapOrbitRadius: 68,
-        magneticTrapBulletRadius: 6,
-        magneticTrapDamageFactor: 1.5,
-        magneticTrapSpinFactor: 3.1,
-        magneticTrapHitIntervalFactor: 0.72,
-        pickupMagnetSpeed: 420,
-        pickupMagnetCatchupFactor: 0.42,
-        splitterChildCount: 5, // children spawned by splitter elite
-        splitterChildHpFactor: 0.3,
-        splitterChildSpeedFactor: 1.18,
-        splitterChildRadiusFactor: 0.56,
-        // 技能
-        skillCooldown: 45, // base skill cooldown in seconds
-        skillUpgradeStep: 0.05, // per-level percentage gain for skill upgrades
-        skillUpgradeCap: 6,
-        blinkTapWindow: 0.24,
-        blinkDistance: 138, // base blink travel distance
-        blinkDuration: 0.14,
-        missileSpeed: 540,
-        missileTurnRate: 8.8,
-        missileRadius: 6,
-        missileLifetime: 6,
-        missileDamageFactor: 1.85, // missile damage multiplier
-        invincibleDuration: 10,
-        maxSkillProjectiles: 180,
-        // 局外养成
-        metaColorDrawCost: Math.max(0, Number(config.topdownMetaColorDrawCost == null ? 4800 : config.topdownMetaColorDrawCost)), // point cost per color draw
-        metaIconDrawCost: Math.max(0, Number(config.topdownMetaIconDrawCost == null ? 3200 : config.topdownMetaIconDrawCost)), // point cost per icon draw
-        metaBackgroundDrawCost: Math.max(0, Number(config.topdownMetaBackgroundDrawCost == null ? 4000 : config.topdownMetaBackgroundDrawCost)), // point cost per background draw
-        metaLoginGiftPulls: 100, // login gift pulls granted per pool
-        metaDailyFreeTenCount: 10, // free daily ten-pull count per pool
-        metaRareColorChance: 0.035, // rare color chance after unlock
-        metaSuperRareColorChance: 0.012, // super-rare color chance after unlock
-        metaPointsBaseReward: 120, // base meta points granted per run
-        metaPointsScoreRate: 1.1, // score-to-meta-points conversion rate
-        metaPointsBossBonus: 180, // extra meta points per defeated boss
-        metaPointsComboBonus: 4 // extra meta points per combo breakpoint
-    };
+        // 分数与战局节奏：决定每次击杀、波次推进、连杀奖励和临时道具的出场频率。
+        killScore: 2, // 普通击杀的基础分数，所有连杀和额外倍率都从这个基础值往上叠。
+        settlementTimeScorePerSecond: 1, // 结算时按当前存活秒数追加分数，默认每秒 1 分。
+        waveStepKills: 10, // 每累计击杀多少个敌人，常规波次向前推进 1 步。
+        waveBonusScore: 4, // 波次提升时额外赠送的分数，用来鼓励持续推进而不是只刷单体。
+        comboResetWindow: 8, // 初始连杀计时窗口，超过这个秒数没续上击杀就会断连。
+        comboResetWindowPerLevel: 0.8, // 连杀窗口强化每级额外增加的秒数。
+        comboResetWindowMin: 5, // 连杀系统允许的最小窗口下限，避免被异常配置压得太短。
+        comboScoreStep: 10, // 连杀带来的额外得分步长，连杀越高每次击杀加成越明显。
+        comboItemEvery: 60, // 默认累计连杀贡献达到多少时掉 1 次幸运补给。
+        comboItemEveryStep: 5, // 强化“连杀阈值”后，每级减少多少掉落阈值。
+        comboItemEveryMin: 25, // 连杀掉补给的最小阈值下限，防止后期补给过于泛滥。
+        itemBuffDuration: 30, // 临时道具类增益的持续时间，单位秒。
+        bonusRerollsAmount: 5, // “刷新补给”道具一次性提供的强化刷新次数。
 
+        // 基础生存：玩家护盾、复活、受击反馈都在这一组统一调。
+        playerLives: 1, // 预留的生命数配置，目前主逻辑仍以“破盾后再吃伤害即死亡”为准。
+        reviveDailyLimit: 10, // 每个账号每天最多可复活多少次，跨局共享。
+        reviveInvulnerableDuration: 2.4, // 复活后附带的无敌保护时长，避免原地立刻再死。
+        reviveQrAsset: "/static/games/topdown/revive-payment-qr.png", // 兼容旧逻辑保留的默认付款码静态资源路径。
+        reviveQrAssets: [ // 复活确认页展示的大图付款码列表，按顺序绘制。
+            "/static/games/topdown/revive-payment-qr.png",
+            "/static/games/topdown/revive-payment-alipay.jpg"
+        ],
+        reviveQrLabels: ["微信收款码", "支付宝收款码"], // 付款码标题文案，和 reviveQrAssets 一一对应。
+        baseShieldLayers: 2, // 玩家开局自带的基础护盾层数。
+        shieldLayerPerLevel: 1, // “护盾层数”强化每升 1 级额外增加的护盾层数。
+        shieldCapacityCap: 6, // 护盾层数强化本身的等级上限，不是最终层数上限。
+        shieldRechargeDelay: 5.4, // 最后一层护盾受损后，开始自动回盾前的等待时间。
+        shieldRechargeDelayStep: 0.7, // 每级“护盾冷却”强化可缩短的等待秒数。
+        shieldRechargeDelayMin: 1.8, // 护盾开始回充的最短等待时间下限。
+        shieldRechargeDuration: 4.6, // 单层护盾从开始回充到补满所需时间。
+        shieldRechargeDurationStep: 0.55, // 每级“护盾恢复”强化可缩短的单层恢复时长。
+        shieldRechargeDurationMin: 1.5, // 单层护盾恢复时间的下限，防止回盾过快。
+
+        // 玩家基础数值：移动、射速、伤害、体积、弹道尺寸和场地尺寸都从这里出。
+        baseMoveSpeed: 236, // 玩家基础移动速度，单位是逻辑像素每秒。
+        moveSpeedPerLevel: 18, // “移速”强化每级稳定增加的基础移速。
+        moveSpeedRollMin: 24, // 随机移速强化条目最小可给的数值。
+        moveSpeedRollMax: 42, // 随机移速强化条目最大可给的数值。
+        baseFireInterval: 0.22, // 主武器基础射击间隔，数值越小射速越高。
+        fireRateStep: 0.1, // 每级射速强化带来的间隔缩减比例基数。
+        fireRateRollMin: 0.035, // 随机射速强化最小能减少多少射击间隔。
+        fireRateRollMax: 0.2, // 随机射速强化最大能减少多少射击间隔。
+        minFireInterval: 0.05, // 射击间隔硬下限，防止极端情况下射速无限接近 0。
+        baseBulletDamage: 3.2, // 玩家子弹的基础伤害。
+        attackPerLevel: 0.75, // “攻击力”强化每级稳定增加的伤害值。
+        attackRollMin: 0.85, // 随机攻击强化最小额外伤害。
+        attackRollMax: 1.65, // 随机攻击强化最大额外伤害。
+        damageSoftCap: 18.5, // 玩家伤害开始进入软上限衰减的阈值。
+        damageOverflowFactor: 0.55, // 伤害超过软上限后，溢出部分保留的效率比例。
+        damagePrecision: 1000, // 伤害固定小数精度倍率，用于避免浮点叠算丢伤。
+        hpPrecision: 1000, // 血量和护盾的固定小数精度倍率，保证整数显示但内部可精确累计。
+        damageEpsilon: 0.0001, // 小于这个值的伤害视为 0，避免浮点误差造成异常掉血。
+        killEpsilon: 0.001, // 剩余生命低于这个阈值时视为已击杀。
+        bulletSpeed: 480, // 玩家普通子弹飞行速度。
+        bulletRadius: 4, // 玩家普通子弹碰撞半径。
+        bulletLife: 1.4, // 玩家普通子弹最大存在时长，防止飞出太远常驻场上。
+        projectileCap: 6, // “弹道规模”强化的等级上限。
+        projectileRadiusPerLevel: 0.45, // 弹道强化每级增加的子弹体积系数。
+        projectileLifePerLevel: 0.14, // 弹道强化每级增加的子弹持续时间。
+        moveSpeedSoftCap: 360, // 移速进入软上限衰减的阈值。
+        moveSpeedOverflowFactor: 0.45, // 移速超过软上限后，溢出部分保留的效率。
+        fireRateSoftCapPerSecond: 10, // 实际射速每秒超过该值后开始衰减收益。
+        fireRateHardCapPerSecond: 15, // 实际射速的硬上限，防止超高频触发卡死。
+        fireRateOverflowFactor: 0.45, // 射速超过软上限后，额外收益保留的效率。
+        playerRadius: 14, // 玩家本体碰撞半径，也是默认绘制尺寸基准。
+        damageFlashDuration: 0.9, // 受击闪烁总时长。
+        damageFlashBlinkPairs: 3, // 受击闪烁会闪多少组明暗切换。
+        enemyHpTextDecimalThreshold: 10, // 敌人血量低于该阈值时显示小数，方便观察 DOT 磨血。
+        enemyHpTextDecimals: 1, // 低血量时展示的小数位数。
+        arenaWidth: 960, // 逻辑战场宽度，所有坐标都基于这个固定尺寸计算。
+        arenaHeight: 720, // 逻辑战场高度，用于适配不同屏幕时统一缩放。
+        arenaPadding: 20, // 敌人、子弹等与边界保持的基础安全内边距。
+        arenaPlayerMargin: 18, // 玩家移动时与地图边缘预留的额外缓冲距离。
+        multishotSpread: 0.18, // 多重射击每发之间的角度散布。
+        wingmanMax: 4, // 僚机数量上限。
+        wingmanOrbitRadius: 42, // 僚机围绕玩家旋转的默认半径。
+        wingmanDamageFactor: 0.5, // 僚机伤害相对于主武器伤害的倍率。
+        wingmanFireRateFactor: 1.35, // 僚机射击间隔相对主武器的倍率，越大代表僚机越慢。
+        pickupRadius: 13, // 掉落物碰撞半径。
+        pickupLifetime: 20, // 掉落物在地图上的最大停留时间。
+
+        // 敌人刷新与成长：控制敌群数量、刷新频率和随时间增长的压力。
+        targetEnemyBase: 4, // 第一波期望同时存活的敌人基数。
+        targetEnemyPerWave: 1.15, // 每提升 1 波额外增加多少目标存活敌人数。
+        targetEnemyCap: 20, // 常规刷新逻辑允许追求的最大在场敌人数。
+        spawnBaseInterval: 1.18, // 基础刷怪尝试间隔。
+        spawnIntervalWaveStep: 0.16, // 每提升一波对刷怪间隔的缩减幅度。
+        spawnIntervalMin: 0.5, // 刷怪间隔的最小值，保证节奏不会失控。
+        enemyBaseRadius: 16, // 普通敌人的基础体积半径。
+        enemyRadiusVariance: 8, // 普通敌人体积随机波动范围。
+        enemyBaseSpeed: 28, // 敌人的基础移速。
+        enemySpeedPerWave: 0.5, // 每波常规增加的敌人速度。
+        enemySpeedVariance: 14, // 敌人初始速度的随机浮动范围。
+        enemyBaseHp: 6, // 普通敌人基础生命值。
+        enemyHpPerWave: 1.35, // 每波稳定增加的生命成长。
+        enemyHpPerKill: 0.1, // 玩家击杀数带来的额外生命成长，用于动态追赶玩家强度。
+        enemyHpPerBoss: 5, // 每击败一个 Boss 后，后续小怪额外增加的生命量。
+        latePressureStartWave: 9, // 从第几波开始启用后期额外压强曲线。
+        lateEnemyHpPerWave: 0.95, // 后期阶段每波额外追加的生命成长。
+        lateEnemyHpExponent: 1.4, // 后期生命曲线指数，避免高波次血量按平方爆炸。
+        lateEnemySpeedPerWave: 1.05, // 后期阶段每波额外追加的速度成长。
+        enemyFireMin: 1.2, // 敌人普通射击冷却的最小随机值。
+        enemyFireMax: 2.9, // 敌人普通射击冷却的最大随机值。
+        enemyFireRange: 340, // 敌人进入射击状态所需的默认距离。
+        enemyBulletSpeed: 182, // 敌方基础子弹速度。
+        enemyPowerPressureSoftCap: 2.7, // 根据玩家强度推算敌人增幅时，压强曲线的软上限参数。
+        enemyPowerHpStep: 1.15, // 玩家战力每提升一个单位时，敌人血量额外增加的步长。
+        enemyPowerHpCurve: 0.34, // 玩家战力转敌方生命的曲线弯曲系数。
+        enemyPowerHpExponent: 1.35, // 玩家战力映射血量的指数，避免后期额外血量涨得过快。
+        enemyPowerSpeedStep: 0.05, // 玩家战力额外映射到敌方移速的比例。
+        enemyPowerBulletSpeedStep: 0.03, // 玩家战力额外映射到敌弹速度的比例。
+        enemyPowerFireRateStep: 0.02, // 玩家战力额外映射到敌方射速的比例。
+        rareIconStartChoices: 2, // 稀有图标提供的开局额外强化选择次数。
+        superRareIconStartChoices: 3, // 超级稀有图标当前同样提供 2 次开局强化选择。
+
+        // 精英与 Boss：控制精英刷新频率、Boss 周期和基础系数。
+        eliteEveryKills: 9, // 每累计多少击杀生成一个精英怪。
+        eliteHpMultiplier: 1.55, // 精英怪生命相对普通敌人的倍率。
+        eliteFireRateMultiplier: 0.78, // 精英怪射击间隔倍率，小于 1 代表射得更快。
+        eliteBulletSpread: 0.16, // 精英多发弹幕的每发散射角度。
+        eliteBulletCount: 1, // 默认精英的额外弹数基准。
+        eliteSpeedMultiplier: 1.16, // 精英怪移速倍率。
+        eliteBulletSpeedPerWave: 5, // 精英子弹每波额外增加的速度。
+        bossWaveEvery: 4, // 每隔多少波出现 1 次 Boss 波。
+        bossHpMultiplier: 5.2, // Boss 基础生命倍率。
+        bossShieldBase: 24, // Boss 初始护盾值。
+        bossShieldPerWave: 4, // 每波给 Boss 护盾追加的数值。
+        bossShieldPerBoss: 6, // 每击败一个 Boss，后续 Boss 再额外增加的护盾。
+        bossRadius: 30, // Boss 碰撞半径与绘制基础尺寸。
+        bossFireRateMultiplier: 0.68, // Boss 射击间隔倍率。
+        bossBulletCount: 5, // Boss 常规弹幕发射数。
+        bossBulletSpeedMultiplier: 1.45, // Boss 子弹速度倍率。
+        bossSpeedMultiplier: 0.78, // Boss 移速倍率，通常比杂兵慢但更压场。
+        bossBonusScore: 24, // 击败 Boss 额外奖励分数。
+        bossRelicChoiceCount: 2, // 击败首领后供玩家选择的局内遗物数量。
+
+        // 强化上限：各类成长条目的最大等级限制。
+        elementCap: 7, // 元素主武器等级上限，达到后解锁满级终极效果判定。
+        statCap: 20, // 通用属性强化等级上限。
+        multishotCap: 8, // 多重射击等级上限。
+        comboWindowCap: 5, // 连杀时间窗强化等级上限。
+        comboThresholdCap: 7, // 连杀补给阈值强化等级上限。
+
+        // 元素效果：火、电、冰、核四系的 DoT、AOE、控制和特殊判定都在这里。
+        burnDuration: 2.2, // 燃烧效果持续时长。
+        burnTickInterval: 0.1, // 燃烧伤害跳字间隔。
+        burnStackMax: 6, // 燃烧最多可叠加的层数。
+        burnDamageBase: 3, // 燃烧基础伤害。
+        burnDamagePerLevel: 2, // 每级火元素为燃烧额外带来的伤害。
+        burnDamagePerStack: 2, // 每层燃烧叠层额外增加的伤害。
+        burnOverheatTickInterval: 1, // 火焰满层后的质变跳伤间隔。
+        burnOverheatMaxHpFactor: 0.05, // 火焰满层后的质变伤害：每次跳伤附带目标最大生命值的百分比。
+        fireMaxSpreadRadius: 138, // 满层火焰再次命中时，向周围扩散满层火焰的半径。
+        fireSpreadOverlapPadding: 5, // 火系范围弹之间允许的额外重叠缓冲。
+        elementAoeBaseInterval: 6, // 元素范围脉冲的默认触发间隔。
+        elementAoeIntervalStep: 1, // 元素范围相关强化每级减少的间隔秒数。
+        elementAoeMinInterval: 3, // 元素范围脉冲允许的最短触发间隔。
+        fireAoeBaseRadius: 46, // 火系范围爆燃的基础半径。
+        fireAoeRadiusPerLevel: 7, // 每级火系范围扩散增加的半径。
+        iceAoeBaseRadius: 50, // 冰系范围扩散的基础半径。
+        iceAoeRadiusPerLevel: 8, // 冰系范围强化每级增加的半径。
+        electricBaseChains: 1, // 电系基础连锁次数。
+        electricRadius: 150, // 电系连锁搜索目标的半径。
+        electricDirectDamageFactor: 0.8, // 电系直击伤害倍率，突出“尖端放电”本体较低但能挂感电。
+        electricChainDamageFactor: 1.2, // 电系连锁伤害倍率：弹射目标更痛（非满级也保留“尖端放电”的直击/弹射差异）。
+        electricBeamLife: 0.1, // 电击光束视觉停留时长。
+        electricChainVisualCap: 3, // 电系弹射连线的最大可视数量（高弹道时避免画面太乱）。
+        electricMaxRange: 420, // 电击射线的最大搜索/绘制距离。
+        electricShockChance: 0.58, // 满足条件时触发感电增伤的概率。
+        electricShockBonus: 2, // 感电增伤倍率。
+        electricUltimateDirectShockChance: 1, // 满级电系直击命中后附加感电的概率。
+        electricUltimateChainShockChance: 0.58, // 满级电系连锁命中后附加感电的概率。
+        electricMagnetDuration: 0.7, // 电生磁：被电击命中/弹射的敌人被拉向直击目标的持续时间。
+        electricMagnetStrength: 520, // 电生磁：拉扯强度（单位/秒）。
+        electricContinuousBeamHold: 1, // 自动射击丢失目标后，持续电流束保留时长（秒）。
+
+        // TTK 控制：让玩家属性持续提升，但常规小怪的击杀时间保持在一个稳定区间。
+        ttkMinSeconds: 3,
+        ttkMaxSeconds: 5,
+        ttkDpsSoftCap: 80, // 用于“敌人血量追赶”计算的软上限，避免玩家极端爆发导致血量指数级拉升。
+        ttkDpsOverflowFactor: 0.6,
+        ttkEnemyHpMultiplierMin: 0.75,
+        ttkEnemyHpMultiplierMax: 8,
+        iceSlowPerStack: 0.11, // 每层冰缓叠加的减速比例。
+        iceMaxSlow: 0.78, // 冰缓允许达到的最大减速比例。
+        iceFreezeStacks: 6, // 叠到多少层冰缓会进入完全冻结。
+        iceFreezeDuration: 5.35, // 完全冻结持续时间。
+        iceShatterChance: 0.5, // 目标已完全冻结且被满级冰弹命中时的碎裂秒杀概率。
+        nuclearBaseRadius: 52, // 核系爆炸基础半径。
+        nuclearRadiusPerLevel: 20, // 每级核系增加的爆炸半径。
+        nuclearDamageFactor: 0.8, // 核爆对范围内单位造成的伤害倍率。
+        nuclearBurstLife: 0.24, // 核爆瞬时视觉持续时间。
+        nuclearRadiationChance: 0, // 旧版持续辐射区逻辑已关闭，满级核系改走“干尸占位”路线。
+        nuclearRadiationDuration: 3, // 辐射区域持续时间。
+        nuclearRadiationAlpha: 0.22, // 辐射区域绘制透明度。
+        nuclearHuskChance: 0.6, // 满级核系击杀普通敌人后，稳定转成干尸占位符，避免体感上“完全不出”。
+        nuclearHuskDuration: 10, // 干尸占位持续时间。
+        nuclearHuskCapRatio: 0.5, // 干尸最多占用目标刷怪上限的比例，0.5 代表最多占一半。
+        enemySpecialAttackWave: 6, // 从第几波开始允许敌人使用特殊攻击。
+        eliteSpecialAttackChance: 0.28, // 精英怪在满足条件时使用特殊攻击的概率。
+        bossSpecialAttackChance: 0.46, // Boss 使用特殊攻击的概率。
+        enemySpecialCooldownMin: 3.2, // 敌方特殊攻击最短冷却。
+        enemySpecialCooldownMax: 5.8, // 敌方特殊攻击最长冷却。
+        enemyBeamLife: 0.18, // 敌方激光束在画面上的停留时长。
+        enemyBeamRange: 760, // 敌方激光最大射程。
+        enemyBeamWidth: 9, // 敌方激光宽度。
+        enemyRingBulletCount: 6, // 普通敌人的环形弹幕弹数。
+        bossRingBulletCount: 6, // Boss 环形弹幕弹数。
+        enemyRingSpeedFactor: 0.76, // 环形弹幕子弹速度相对普通子弹的倍率。
+        enemyBarrageBulletCount: 6, // 普通散射弹幕发射的弹数。
+        enemyBarrageSpread: 0.34, // 普通散射弹幕的总散布角。
+        enemyContactDamage: 1, // 玩家直接撞到敌人时承受的伤害层数。
+        enemyDefaultBulletDamage: 1, // 敌方普通子弹命中时的默认伤害层数。
+        maxPlayerBullets: 320, // 玩家子弹最大缓存数量，防止极限射速把数组撑爆。
+        maxEnemyBullets: 200, // 敌方子弹最大缓存数量。
+        maxFriendlyBeams: 140, // 友方电击/光束效果最大数量。
+        maxEnemyBeams: 64, // 敌方光束最大数量。
+        maxAoeBursts: 80, // 范围爆炸效果最大数量。
+        maxPickups: 28, // 地图上可同时存在的掉落物上限。
+        maxEnemiesHard: 40, // 敌人数组的硬上限，超出后不再继续生成。
+
+        // 道具与精英特性：各种精英怪机制、掉落和狂暴参数。
+        totalRerolls: 5, // 每局开始时给玩家的强化刷新次数。
+        eliteTypes: ["dash", "sniper", "summoner", "self-destruct", "buffer", "splitter", "repulsor", "warden", "blackhand", "nightmare", "liangzi", "luse", "succubus"], // 当前精英怪池，刷出时会从这里抽取类型。
+        eliteDashCooldown: 3.2, // 冲刺型精英两次冲刺之间的冷却。
+        eliteDashSpeed: 270, // 冲刺型精英冲刺时的速度。
+        eliteDashDuration: 0.5, // 冲刺持续时间。
+        eliteSniperRange: 520, // 狙击精英开始远程锁定的射程。
+        eliteSniperBulletSpeed: 286, // 狙击精英子弹速度。
+        eliteSniperDamage: 2, // 狙击精英命中时造成的伤害。
+        eliteSummonCooldown: 5.2, // 召唤精英召唤小怪的冷却。
+        eliteSummonCount: 1, // 召唤精英每次召出的单位数量。
+        bufferAuraRadius: 136, // 增幅型精英光环半径。
+        bufferAuraOnDuration: 2.6, // 增幅光环开启持续时间。
+        bufferAuraOffDuration: 1.65, // 增幅光环关闭持续时间。
+        bufferEnemySpeedMultiplier: 1.12, // 受增幅影响的敌人移速倍率。
+        bufferEnemyFireRateMultiplier: 0.84, // 受增幅影响的敌人射击间隔倍率，小于 1 代表射得更快。
+        bufferHpFactor: 0.62, // 增幅型精英自身血量系数，避免过于难处理。
+        selfDestructRushSpeed: 228, // 自爆怪冲向玩家时的移动速度。
+        selfDestructDelay: 1.15, // 自爆怪进入引爆状态到爆炸的延迟。
+        selfDestructRadius: 76, // 自爆范围半径。
+        selfDestructBurstLife: 0.42, // 自爆视觉效果持续时长。
+        repulsorRange: 168, // 斥力怪触发击飞判定的作用半径。
+        repulsorKnockDistance: 128, // 斥力怪一次击飞把玩家推出的目标距离。
+        repulsorKnockSpeed: 360, // 斥力击飞过程的移动速度。
+        repulsorCooldown: 3.1, // 斥力怪两次击飞之间的冷却。
+        wardenFieldRange: 168, // 典狱长结界半径，子弹不能飞入并会减慢敌人。
+        wardenFieldOnDuration: 2.8, // 典狱长结界开启持续时间。
+        wardenFieldOffDuration: 1.7, // 典狱长结界关闭持续时间。
+        wardenEnemySlowMultiplier: 0.3, // 进入典狱长结界的敌人移速倍率。
+        blackhandHookRange: 530, // 黑手可出钩的最大距离。
+        blackhandHookSpeed: 280, // 黑手钩子的飞行速度。
+        blackhandPullSpeed: 450, // 黑手把玩家拖拽回去的速度。
+        blackhandHookCooldown:3, // 黑手技能冷却。
+        nightmareBlindDuration: 5, // 噩梦怪致盲持续时间。
+        nightmareVisionRadius: 108, // 致盲时玩家保留的可视半径。
+        nightmareTouchCooldown: 1.1, // 噩梦怪接触致盲的内部冷却。
+        nightmareAuraRange: 126, // 噩梦怪的压制光环范围。
+        liangziConsumeCooldown: 1, // 良子吞怪回血技能冷却。
+        liangziConsumeHpFactor: 1.5, // 良子吞掉猎物后转化的回血倍率。
+        luseTriggerRange: 330, // 卢瑟开始爆发弹幕的触发距离。
+        luseBarrageCount: 150, // 卢瑟单轮爆发发出的总弹数。
+        luseBurstInterval: 0.045, // 卢瑟爆发状态下，两次小簇喷射之间的间隔。
+        luseBurstShotsPerTick: 10, // 卢瑟每次小簇喷射实际吐出的散弹数量。
+        luseSpreadRadians: 0.0820304748, // 卢瑟爆发弹幕的单发角度步进。
+        luseDecayPerSecond: 20, // 卢瑟持续爆发状态下每秒自损的数值。
+        succubusAuraRange: 178, // 魅魔吸附与狂暴影响范围。
+        succubusPullStrength: 156, // 魅魔把目标往中心拖的力度。
+        succubusEnrageDuration: 5, // 魅魔击败后玩家进入狂暴状态的持续时长。
+        frenzyBurstDuration: 3, // 玩家狂暴爆发主阶段持续时间。
+        frenzyExhaustDuration: 5, // 爆发结束后的疲软持续时间。
+        frenzyMoveMultiplier: 0.5, // 疲软期玩家移动倍率。
+        frenzyVolleyInterval: 0.12, // 狂暴期间自动倾泻弹幕的间隔。
+        frenzyBulletCount: 251, // 玩家狂暴一次爆发的子弹总数。
+        frenzyShotsPerVolley: 10, // 玩家狂暴每个节拍喷出的子弹数，避免一帧内把整轮弹幕全部打成一条线。
+        frenzySpreadRadians: 0.0820304748, // 玩家狂暴弹幕的散射步进角。
+
+        // 普通杂兵幸运掉落：低概率提供额外奖励，缓解长局疲劳。
+        luckyDropChance: 0.005, // 普通小怪掉落幸运奖励的概率。
+        luckyDropItemWeight: 0.6, // 幸运掉落中“道具类”相对“升级类”的权重。
+
+        // 首领遗物：控制首领掉落局内装备的叠层收益和上限。
+        bossRelicMaxStacks: 16, // 大部分首领遗物默认最大叠层数。
+        bossRelicEnemySpeedStep: 0.08, // 每层“流体动力”降低敌方移速的比例。
+        bossRelicEnemyBulletSpeedStep: 0.08, // 每层“场阻尼器”降低敌弹速度的比例。
+        bossRelicEnemyFireRateStep: 0.08, // 每层“射速扰频器”降低敌方射击频率的比例。
+        bossRelicEnemyMinMultiplier: 0.2, // 敌人速度/弹速被减益后的最低倍率下限。
+        bossRelicEnemyFireCooldownMaxMultiplier: 2.28, // 敌方射击冷却被拉长后的最大倍率上限。
+        shrinkEngineScaleStep: 0.03, // 每层缩机遗物让玩家体积缩小的比例。
+        shrinkEngineMaxStacks: 20, // 缩机遗物最多可叠层数。
+        magneticTrapMaxStacks: 12, // 吸附环绕遗物的最大叠层数。
+        magneticTrapOrbitRadius: 68, // 环绕球围绕玩家运动的轨道半径。
+        magneticTrapBulletRadius: 6, // 环绕球碰撞半径。
+        magneticTrapDamageFactor: 1.5, // 环绕球碰撞造成的伤害倍率。
+        magneticTrapSpinFactor: 3.1, // 环绕球旋转速度系数。
+        magneticTrapHitIntervalFactor: 0.72, // 同一目标被环绕球连续命中时的最短间隔系数。
+        pickupMagnetSpeed: 420, // 吸附掉落效果触发后，掉落物朝玩家飞行的基础速度。
+        pickupMagnetCatchupFactor: 0.42, // 掉落物距离越远时额外叠加的追赶速度比例。
+        splitterChildCount: 5, // 分裂精英死亡后生成的子体数量。
+        splitterChildHpFactor: 0.3, // 分裂子体继承母体生命的比例。
+        splitterChildSpeedFactor: 1.18, // 分裂子体相对母体的速度倍率。
+        splitterChildRadiusFactor: 0.56, // 分裂子体相对母体的体积倍率。
+
+        // 技能：主动技能冷却、持续时间、宙斯权杖、导弹表现都集中在这里。
+        skillCooldown: 45, // 主动技能基础冷却，默认所有技能共享这个基准值。
+        skillUpgradeStep: 0.05, // 技能强化每级带来的 5% 收益，用于冷却或持续/距离。
+        skillUpgradeCap: 6, // 技能相关强化等级上限。
+        blinkTapWindow: 0.24, // 闪现输入缓冲窗口，防止快速按键被漏判。
+        blinkDistance: 138, // 闪现基础距离。
+        blinkDuration: 0.14, // 闪现位移过程持续时间。
+        zeusBeamDuration: 5, // 宙斯权杖初始持续时间。
+        zeusBeamSpeed: 620, // 宙斯权杖光束核心的飞行速度。
+        zeusBeamLength: 118, // 宙斯权杖单道光束的可见长度，同时也是处决判定长度基准。
+        zeusBeamWidth: 18, // 宙斯权杖光束的判定宽度。
+        zeusBeamRadius: 10, // 宙斯权杖光束核心的头部半径。
+        missileSpeed: 540, // 导弹技能的飞行速度。
+        missileTurnRate: 8.8, // 导弹追踪转向速度。
+        missileRadius: 6, // 导弹碰撞半径。
+        missileLifetime: 6, // 导弹最长存在时间。
+        missileDamageFactor: 1.85, // 导弹相对当前攻击力的伤害倍率。
+        invincibleDuration: 10, // 绝对无敌技能的持续时间。
+        maxSkillProjectiles: 180, // 技能投射物的最大缓存数量。
+
+        // 局外养成：抽奖成本、保底、每日赠送和结算奖励都走这里。
+        metaColorDrawCost: Math.max(0, Number(config.topdownMetaColorDrawCost == null ? 4800 : config.topdownMetaColorDrawCost)), // 单抽颜色消耗的局外总积分，支持从配置覆盖。
+        metaIconDrawCost: Math.max(0, Number(config.topdownMetaIconDrawCost == null ? 3200 : config.topdownMetaIconDrawCost)), // 单抽图标消耗的局外总积分，支持从配置覆盖。
+        metaBackgroundDrawCost: Math.max(0, Number(config.topdownMetaBackgroundDrawCost == null ? 4000 : config.topdownMetaBackgroundDrawCost)), // 单抽背景消耗的局外总积分，支持从配置覆盖。
+        metaLoginGiftPulls: 100, // 每次赠送重置时，每个奖池送多少抽。
+        metaDailyFreeTenCount: 10, // 每日免费十连固定按多少抽结算。
+        metaRareColorChance: 0.035, // 解锁稀有颜色池后，抽到稀有色的基础概率。
+        metaSuperRareColorChance: 0.012, // 解锁超稀有颜色池后，抽到超稀有色的基础概率。
+        metaPointsBaseReward: 120, // 每局无论表现如何都能拿到的局外基础积分。
+        metaPointsScoreRate: 1.1, // 局内分数转换为局外积分的比例。
+        metaPointsBossBonus: 180, // 每击败一个 Boss 额外奖励的局外积分。
+        metaPointsComboBonus: 4 // 连杀达到奖励节点时，额外换算出的局外积分。
+    };
     function topdownPickupVisual(pickup) {
         const itemKey = pickup && pickup.itemKey;
         const map = {
@@ -2009,7 +2626,185 @@
         return Math.max(0, Number(session.wave || 1) - TOPDOWN_BALANCE.latePressureStartWave);
     }
 
+    let topdownColorCatalogCache = null;
+    let topdownBackgroundCatalogCache = null;
+
+    function topdownClampByte(value) {
+        return Math.max(0, Math.min(255, Math.round(Number(value || 0))));
+    }
+
+    function topdownHslToHex(hue, saturation, lightness) {
+        const h = ((Number(hue || 0) % 360) + 360) % 360;
+        const s = Math.max(0, Math.min(100, Number(saturation || 0))) / 100;
+        const l = Math.max(0, Math.min(100, Number(lightness || 0))) / 100;
+        const chroma = (1 - Math.abs(2 * l - 1)) * s;
+        const segment = h / 60;
+        const second = chroma * (1 - Math.abs(segment % 2 - 1));
+        let red = 0;
+        let green = 0;
+        let blue = 0;
+        if (segment >= 0 && segment < 1) {
+            red = chroma;
+            green = second;
+        } else if (segment < 2) {
+            red = second;
+            green = chroma;
+        } else if (segment < 3) {
+            green = chroma;
+            blue = second;
+        } else if (segment < 4) {
+            green = second;
+            blue = chroma;
+        } else if (segment < 5) {
+            red = second;
+            blue = chroma;
+        } else {
+            red = chroma;
+            blue = second;
+        }
+        const match = l - chroma / 2;
+        const toHex = function (channel) {
+            return topdownClampByte((channel + match) * 255).toString(16).padStart(2, "0");
+        };
+        return "#" + toHex(red) + toHex(green) + toHex(blue);
+    }
+
+    function topdownGeneratedColorLabel(index) {
+        const prefixes = ["晨星", "暮岚", "霜潮", "曜芒", "绯羽", "海雾", "森语", "月砂", "流焰", "极光", "云锦", "夜虹", "深空", "琉金", "薄荷", "电辉", "潮汐", "星烬", "晶雾", "霞辉"];
+        const suffixes = ["流彩", "微光", "脉冲", "余晖", "秘调", "幻层", "光谱", "星涌", "折光", "涂层", "辉斑", "雾面"];
+        return prefixes[index % prefixes.length] + suffixes[Math.floor(index / prefixes.length) % suffixes.length];
+    }
+
+    function topdownGeneratedBackgroundLabel(index, pattern) {
+        const scenes = ["木纹", "星海", "云岚", "雨幕", "裂晶", "墨潮", "极昼", "夜幕", "沙丘", "霜庭", "莲境", "霞谷", "雾森", "霓场", "银河", "古卷"];
+        const suffixes = {
+            wood: "地台",
+            paper: "纸境",
+            stone: "石庭",
+            grid: "棋域",
+            rain: "雨界",
+            wave: "潮庭",
+            crack: "裂盘",
+            prism: "棱幕",
+            eclipse: "蚀环",
+            lotus: "莲台",
+            stars: "星穹",
+            galaxy: "星湾",
+            aurora: "极幕",
+            ink: "墨台",
+            petals: "花庭",
+            neon: "虹场"
+        };
+        return scenes[index % scenes.length] + (suffixes[pattern] || "舞台");
+    }
+
+    function topdownAppendGeneratedColors(catalog, targetTotal) {
+        let created = Object.keys(catalog).length;
+        let index = 0;
+        while (created < targetTotal && index < 1024) {
+            const key = "palette_" + String(index + 1).padStart(3, "0");
+            if (Object.prototype.hasOwnProperty.call(catalog, key)) {
+                index += 1;
+                continue;
+            }
+            const tier = index % 29 === 0 ? "superrare" : (index % 5 === 0 ? "rare" : "common");
+            const hue = (index * 37 + 11) % 360;
+            const label = topdownGeneratedColorLabel(index);
+            if (tier === "common") {
+                catalog[key] = {
+                    key: key,
+                    label: label,
+                    tier: "common",
+                    fill: topdownHslToHex(hue, 78, 56),
+                    stroke: topdownHslToHex(hue, 92, 88),
+                    accent: topdownHslToHex((hue + 28) % 360, 88, 72)
+                };
+            } else if (tier === "rare") {
+                catalog[key] = {
+                    key: key,
+                    label: label,
+                    tier: "rare",
+                    stroke: topdownHslToHex((hue + 10) % 360, 88, 90),
+                    accent: topdownHslToHex((hue + 60) % 360, 90, 72),
+                    gradient: [
+                        topdownHslToHex(hue, 74, 28),
+                        topdownHslToHex((hue + 34) % 360, 84, 52),
+                        topdownHslToHex((hue + 78) % 360, 92, 70)
+                    ]
+                };
+            } else {
+                catalog[key] = {
+                    key: key,
+                    label: label,
+                    tier: "superrare",
+                    stroke: "#ffffff",
+                    accent: topdownHslToHex((hue + 72) % 360, 96, 82),
+                    effect: index % 2 === 0 ? "rainbow-breathe" : "",
+                    gradient: [
+                        topdownHslToHex(hue, 82, 24),
+                        topdownHslToHex((hue + 24) % 360, 86, 44),
+                        topdownHslToHex((hue + 48) % 360, 92, 60),
+                        topdownHslToHex((hue + 96) % 360, 94, 72),
+                        topdownHslToHex((hue + 156) % 360, 90, 80)
+                    ]
+                };
+            }
+            created += 1;
+            index += 1;
+        }
+    }
+
+    function topdownAppendGeneratedBackgrounds(catalog, targetTotal) {
+        const patterns = ["wood", "paper", "stone", "grid", "rain", "wave", "crack", "prism", "eclipse", "lotus", "stars", "galaxy", "aurora", "ink", "petals", "neon"];
+        let created = Object.keys(catalog).length;
+        let index = 0;
+        while (created < targetTotal && index < 1024) {
+            const key = "backdrop_" + String(index + 1).padStart(3, "0");
+            if (Object.prototype.hasOwnProperty.call(catalog, key)) {
+                index += 1;
+                continue;
+            }
+            const pattern = patterns[index % patterns.length];
+            const tier = index % 31 === 0 ? "superrare" : (index % 4 === 0 ? "rare" : "common");
+            const hue = (index * 29 + 17) % 360;
+            const darkPattern = pattern === "stars" || pattern === "galaxy" || pattern === "neon" || pattern === "eclipse" || pattern === "aurora" || pattern === "prism";
+            const baseLight = darkPattern ? 12 : 42;
+            const accentLight = darkPattern ? 74 : 70;
+            const gradient = tier === "common"
+                ? [topdownHslToHex(hue, 42, baseLight), topdownHslToHex((hue + 28) % 360, 58, accentLight)]
+                : (tier === "rare"
+                    ? [
+                        topdownHslToHex(hue, 56, darkPattern ? 14 : 26),
+                        topdownHslToHex((hue + 26) % 360, 70, darkPattern ? 34 : 44),
+                        topdownHslToHex((hue + 64) % 360, 82, 66)
+                    ]
+                    : [
+                        topdownHslToHex(hue, 62, 10),
+                        topdownHslToHex((hue + 24) % 360, 72, 24),
+                        topdownHslToHex((hue + 56) % 360, 82, 44),
+                        topdownHslToHex((hue + 96) % 360, 92, 62),
+                        topdownHslToHex((hue + 148) % 360, 96, 78)
+                    ]);
+            catalog[key] = {
+                key: key,
+                label: topdownGeneratedBackgroundLabel(index, pattern),
+                tier: tier,
+                base: gradient[0],
+                line: topdownHslToHex((hue + 92) % 360, 88, darkPattern ? 86 : 28),
+                accent: topdownHslToHex((hue + 38) % 360, 92, accentLight),
+                pattern: pattern,
+                gradient: gradient,
+                effect: tier === "superrare" ? "shimmer" : ""
+            };
+            created += 1;
+            index += 1;
+        }
+    }
+
     function topdownColorCatalog() {
+        if (topdownColorCatalogCache) {
+            return topdownColorCatalogCache;
+        }
         const catalog = {
             classic: { key: "classic", label: "经典蓝", tier: "common", fill: "#38bdf8", stroke: "#bae6fd", accent: "#67e8f9" },
             ember: { key: "ember", label: "余烬红", tier: "common", fill: "#f97316", stroke: "#fdba74", accent: "#fb7185" },
@@ -2086,7 +2881,9 @@
         ].forEach(function (entry) {
             catalog[entry[0]] = { key: entry[0], label: entry[1], tier: "superrare", stroke: entry[2], accent: entry[3], effect: "rainbow-breathe", gradient: entry[4] };
         });
-        return catalog;
+        topdownAppendGeneratedColors(catalog, 220);
+        topdownColorCatalogCache = catalog;
+        return topdownColorCatalogCache;
     }
 
     function topdownCommonColorKeys() {
@@ -2285,6 +3082,9 @@
     }
 
     function topdownBackgroundCatalog() {
+        if (topdownBackgroundCatalogCache) {
+            return topdownBackgroundCatalogCache;
+        }
         const catalog = {
             dojo: { key: "dojo", label: "竹影道场", tier: "common", base: "#c8924f", line: "#6f4324", accent: "#f7d08a", pattern: "wood" },
             slate: { key: "slate", label: "冷岩棋盘", tier: "common", base: "#334155", line: "#cbd5e1", accent: "#94a3b8", pattern: "grid" },
@@ -2305,7 +3105,9 @@
             gold_eclipse: { key: "gold_eclipse", label: "日蚀金座", tier: "superrare", base: "#1c1917", line: "#fef3c7", accent: "#f59e0b", pattern: "eclipse", effect: "shimmer", gradient: ["#020617", "#713f12", "#f59e0b", "#fef3c7"] },
             void_lotus: { key: "void_lotus", label: "虚空莲台", tier: "superrare", base: "#1e1b4b", line: "#f5d0fe", accent: "#f472b6", pattern: "lotus", effect: "shimmer", gradient: ["#020617", "#4c1d95", "#ec4899", "#14b8a6"] }
         };
-        return catalog;
+        topdownAppendGeneratedBackgrounds(catalog, 220);
+        topdownBackgroundCatalogCache = catalog;
+        return topdownBackgroundCatalogCache;
     }
 
     function topdownLegacySkinCatalog() {
@@ -2321,6 +3123,385 @@
         };
     }
 
+    let topdownAchievementCatalogCache = null;
+
+    function createTopdownAchievementStats() {
+        return {
+            topdownBestScore: 0,
+            topdownRunCount: 0,
+            topdownKillTotal: 0,
+            topdownBossTotal: 0,
+            topdownBestWave: 0,
+            topdownBestCombo: 0,
+            topdownSkillUseTotal: 0,
+            sudokuClearTotal: 0,
+            sudokuClassicEasyTotal: 0,
+            sudokuClassicMediumTotal: 0,
+            sudokuClassicHardTotal: 0,
+            sudokuHex16Total: 0,
+            sudokuSolverlessTotal: 0,
+            frontlineRunTotal: 0,
+            frontlineVictoryTotal: 0,
+            frontlineBestScore: 0,
+            game2048RunTotal: 0,
+            game2048BestScore: 0,
+            game2048MaxTile: 0,
+            gomokuMatchTotal: 0,
+            gomokuWinTotal: 0
+        };
+    }
+
+    function topdownNormalizeAchievementStats(raw) {
+        const base = Object.assign(createTopdownAchievementStats(), raw && typeof raw === "object" ? raw : {});
+        Object.keys(base).forEach(function (key) {
+            base[key] = Math.max(0, Math.floor(parseTopdownMetaNumber(base[key])));
+        });
+        return base;
+    }
+
+    function topdownNormalizeAchievementEventKeys(raw) {
+        const list = Array.isArray(raw) ? raw : [];
+        return list
+            .map(function (key) { return String(key || "").trim(); })
+            .filter(Boolean)
+            .filter(function (key, index, items) { return items.indexOf(key) === index; })
+            .slice(-256);
+    }
+
+    function topdownNormalizeStoredAchievementBadge(raw) {
+        const badge = raw && typeof raw === "object" ? raw : {};
+        return {
+            id: String(badge.id || ""),
+            name: String(badge.name || badge.label || ""),
+            shortName: String(badge.shortName || ""),
+            tier: String(badge.tier || ""),
+            glyph: String(badge.glyph || ""),
+            badgeText: String(badge.badgeText || ""),
+            group: String(badge.group || "")
+        };
+    }
+
+function topdownAchievementTierTheme(tier) {
+        if (tier === "mythic") {
+            return { key: "mythic", label: "神话", color: "#f9a8d4", glow: "rgba(244, 114, 182, 0.6)" };
+        }
+        if (tier === "diamond") {
+            return { key: "diamond", label: "钻石", color: "#7dd3fc", glow: "rgba(125, 211, 252, 0.58)" };
+        }
+        if (tier === "gold") {
+            return { key: "gold", label: "金色", color: "#facc15", glow: "rgba(250, 204, 21, 0.5)" };
+        }
+        if (tier === "silver") {
+            return { key: "silver", label: "银色", color: "#cbd5e1", glow: "rgba(203, 213, 225, 0.44)" };
+        }
+        return { key: "bronze", label: "铜色", color: "#fb923c", glow: "rgba(251, 146, 60, 0.42)" };
+    }
+
+    function topdownAchievementGroups() {
+        return {
+            topdown: { key: "topdown", label: "俯视射击", glyph: "✦" },
+            sudoku: { key: "sudoku", label: "数独", glyph: "⌘" },
+            game2048: { key: "game2048", label: "2048", glyph: "▣" },
+            frontline: { key: "frontline", label: "前线", glyph: "⚑" },
+            gomoku: { key: "gomoku", label: "五子棋", glyph: "◉" },
+            gacha: { key: "gacha", label: "抽奖", glyph: "✪" },
+            collection: { key: "collection", label: "收藏", glyph: "◈" }
+        };
+    }
+
+    function topdownRomanNumeral(value) {
+        const numerals = [
+            ["M", 1000], ["CM", 900], ["D", 500], ["CD", 400],
+            ["C", 100], ["XC", 90], ["L", 50], ["XL", 40],
+            ["X", 10], ["IX", 9], ["V", 5], ["IV", 4], ["I", 1]
+        ];
+        let remainder = Math.max(1, Math.floor(Number(value || 1)));
+        let result = "";
+        numerals.forEach(function (entry) {
+            while (remainder >= entry[1]) {
+                result += entry[0];
+                remainder -= entry[1];
+            }
+        });
+        return result || "I";
+    }
+
+    function topdownAchievementTierByProgress(index, total) {
+        const ratio = total <= 1 ? 1 : (index / (total - 1));
+        if (ratio >= 0.92) {
+            return "diamond";
+        }
+        if (ratio >= 0.68) {
+            return "gold";
+        }
+        if (ratio >= 0.38) {
+            return "silver";
+        }
+        return "bronze";
+    }
+
+    function topdownAchievementSeries(config) {
+        const values = Array.isArray(config.values) ? config.values : [];
+        return values.map(function (threshold, index) {
+            const level = index + 1;
+            const suffix = topdownRomanNumeral(level);
+            return {
+                id: config.idPrefix + "-" + level,
+                name: config.title + " " + suffix,
+                shortName: (config.shortTitle || config.title) + " " + suffix,
+                description: config.descriptionPrefix + threshold + (config.descriptionSuffix || ""),
+                tier: topdownAchievementTierByProgress(index, values.length),
+                glyph: config.glyph || "✦",
+                badgeText: suffix,
+                group: config.group,
+                metric: config.metric,
+                threshold: threshold,
+                progressSuffix: config.progressSuffix || ""
+            };
+        });
+    }
+
+    function topdownCollectionCountByTier(keys, catalog, tier) {
+        return (Array.isArray(keys) ? keys : []).reduce(function (count, key) {
+            const item = catalog[key];
+            return count + (item && item.tier === tier ? 1 : 0);
+        }, 0);
+    }
+
+    function topdownAchievementDerivedStats(meta) {
+        const resolvedMeta = normalizeTopdownMetaState(meta);
+        const stats = Object.assign({}, topdownNormalizeAchievementStats(resolvedMeta.achievementStats));
+        const colorCatalog = topdownColorCatalog();
+        const iconCatalog = topdownIconCatalog();
+        const backgroundCatalog = topdownBackgroundCatalog();
+        stats.pullTotal = Math.max(0, Number(resolvedMeta.pulls || 0));
+        stats.pointsSpent = Math.max(0, Number(resolvedMeta.totalSpent || 0));
+        stats.ownedColorCount = resolvedMeta.ownedColors.length;
+        stats.ownedIconCount = resolvedMeta.ownedIcons.length;
+        stats.ownedBackgroundCount = resolvedMeta.ownedBackgrounds.length;
+        stats.ownedRareColorCount = topdownCollectionCountByTier(resolvedMeta.ownedColors, colorCatalog, "rare");
+        stats.ownedSuperRareColorCount = topdownCollectionCountByTier(resolvedMeta.ownedColors, colorCatalog, "superrare");
+        stats.ownedRareIconCount = topdownCollectionCountByTier(resolvedMeta.ownedIcons, iconCatalog, "rare");
+        stats.ownedSuperRareIconCount = topdownCollectionCountByTier(resolvedMeta.ownedIcons, iconCatalog, "superrare");
+        stats.ownedRareBackgroundCount = topdownCollectionCountByTier(resolvedMeta.ownedBackgrounds, backgroundCatalog, "rare");
+        stats.ownedSuperRareBackgroundCount = topdownCollectionCountByTier(resolvedMeta.ownedBackgrounds, backgroundCatalog, "superrare");
+        stats.allCommonColorsOwned = topdownAllCommonColorsOwned(resolvedMeta) ? 1 : 0;
+        stats.allRareColorsOwned = topdownAllRareColorsOwned(resolvedMeta) ? 1 : 0;
+        stats.allColorsOwned = resolvedMeta.ownedColors.length >= Object.keys(colorCatalog).length ? 1 : 0;
+        stats.allIconsOwned = resolvedMeta.ownedIcons.length >= Object.keys(iconCatalog).length ? 1 : 0;
+        stats.allBackgroundsOwned = resolvedMeta.ownedBackgrounds.length >= Object.keys(backgroundCatalog).length ? 1 : 0;
+        stats.allCosmeticsOwned = (stats.allColorsOwned && stats.allIconsOwned && stats.allBackgroundsOwned) ? 1 : 0;
+        return stats;
+    }
+
+    function topdownAchievementCatalog() {
+        if (topdownAchievementCatalogCache) {
+            return topdownAchievementCatalogCache.slice();
+        }
+        const groups = topdownAchievementGroups();
+        const entries = []
+            .concat(topdownAchievementSeries({ idPrefix: "topdown-score", title: "空域试炼", shortTitle: "空域", descriptionPrefix: "俯视射击单局分数达到 ", values: [2000, 5000, 8000, 12000, 18000, 26000, 36000, 48000, 62000, 78000, 95000, 115000, 140000, 170000, 210000, 260000, 320000, 400000], glyph: groups.topdown.glyph, group: "topdown", metric: "topdownBestScore" }))
+            .concat(topdownAchievementSeries({ idPrefix: "topdown-run", title: "久经战阵", shortTitle: "战阵", descriptionPrefix: "累计完成俯视射击对局 ", descriptionSuffix: " 局", values: [1, 3, 5, 8, 12, 18, 25, 35, 50, 70, 95, 128], glyph: "✧", group: "topdown", metric: "topdownRunCount" }))
+            .concat(topdownAchievementSeries({ idPrefix: "topdown-kills", title: "猎群执照", shortTitle: "猎群", descriptionPrefix: "累计击败敌人 ", descriptionSuffix: " 个", values: [20, 50, 100, 180, 280, 400, 560, 760, 1000, 1300, 1700, 2200, 2800, 3600, 4600, 5800], glyph: "✣", group: "topdown", metric: "topdownKillTotal" }))
+            .concat(topdownAchievementSeries({ idPrefix: "topdown-boss", title: "首魁断章", shortTitle: "首魁", descriptionPrefix: "累计击败首领 ", descriptionSuffix: " 次", values: [1, 2, 3, 5, 8, 12, 18, 25, 35, 48], glyph: "✦", group: "topdown", metric: "topdownBossTotal" }))
+            .concat(topdownAchievementSeries({ idPrefix: "topdown-wave", title: "浪潮之眼", shortTitle: "浪潮", descriptionPrefix: "俯视射击单局波次达到 ", values: [2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 16, 18, 20, 24], glyph: "✺", group: "topdown", metric: "topdownBestWave" }))
+            .concat(topdownAchievementSeries({ idPrefix: "topdown-combo", title: "追猎连锁", shortTitle: "连锁", descriptionPrefix: "俯视射击单局最佳连杀达到 ", values: [5, 10, 15, 20, 25, 30, 40, 50, 65, 80, 100, 128], glyph: "✹", group: "topdown", metric: "topdownBestCombo" }))
+            .concat(topdownAchievementSeries({ idPrefix: "topdown-skill", title: "技相操演", shortTitle: "技相", descriptionPrefix: "累计施放主动技能 ", descriptionSuffix: " 次", values: [1, 3, 5, 8, 12, 18, 28, 42, 64, 96], glyph: "✷", group: "topdown", metric: "topdownSkillUseTotal" }))
+            .concat(topdownAchievementSeries({ idPrefix: "sudoku-clear", title: "解阵者", shortTitle: "解阵", descriptionPrefix: "累计完成数独 ", descriptionSuffix: " 局", values: [1, 2, 4, 6, 10, 16, 24, 36, 54, 80, 120, 180, 260, 360], glyph: groups.sudoku.glyph, group: "sudoku", metric: "sudokuClearTotal" }))
+            .concat(topdownAchievementSeries({ idPrefix: "sudoku-easy", title: "入门清道夫", shortTitle: "简阵", descriptionPrefix: "累计完成经典简单数独 ", descriptionSuffix: " 局", values: [1, 3, 6, 10, 16, 24, 36, 54], glyph: "⌑", group: "sudoku", metric: "sudokuClassicEasyTotal" }))
+            .concat(topdownAchievementSeries({ idPrefix: "sudoku-medium", title: "中盘解构师", shortTitle: "中阵", descriptionPrefix: "累计完成经典中等数独 ", descriptionSuffix: " 局", values: [1, 3, 6, 10, 16, 24, 36, 54], glyph: "⌖", group: "sudoku", metric: "sudokuClassicMediumTotal" }))
+            .concat(topdownAchievementSeries({ idPrefix: "sudoku-hard", title: "高阶破局人", shortTitle: "破局", descriptionPrefix: "累计完成经典困难数独 ", descriptionSuffix: " 局", values: [1, 2, 4, 6, 10, 16, 24, 36], glyph: "⌬", group: "sudoku", metric: "sudokuClassicHardTotal" }))
+            .concat(topdownAchievementSeries({ idPrefix: "sudoku-hex16", title: "十六曜解构", shortTitle: "十六曜", descriptionPrefix: "累计完成 HEX-16 数独 ", descriptionSuffix: " 局", values: [1, 2, 3, 5, 8, 12, 18, 26, 38, 56], glyph: "⬢", group: "sudoku", metric: "sudokuHex16Total" }))
+            .concat(topdownAchievementSeries({ idPrefix: "sudoku-fair", title: "纯解宣言", shortTitle: "纯解", descriptionPrefix: "累计无自动解题完成数独 ", descriptionSuffix: " 局", values: [1, 3, 6, 10, 16, 24, 36, 54, 80, 120], glyph: "⌗", group: "sudoku", metric: "sudokuSolverlessTotal" }))
+            .concat(topdownAchievementSeries({ idPrefix: "frontline-run", title: "前线报到", shortTitle: "前线", descriptionPrefix: "累计完成前线对局 ", descriptionSuffix: " 局", values: [1, 3, 5, 8, 12, 18, 28, 42], glyph: groups.frontline.glyph, group: "frontline", metric: "frontlineRunTotal" }))
+            .concat(topdownAchievementSeries({ idPrefix: "frontline-win", title: "塔群统帅", shortTitle: "统帅", descriptionPrefix: "累计赢下前线胜利 ", descriptionSuffix: " 场", values: [1, 2, 3, 5, 8, 12, 18, 26, 38, 56], glyph: "⚔", group: "frontline", metric: "frontlineVictoryTotal" }))
+            .concat(topdownAchievementSeries({ idPrefix: "frontline-score", title: "推进脉冲", shortTitle: "推进", descriptionPrefix: "前线单局分数达到 ", values: [800, 1200, 1800, 2500, 3400, 4500, 5800, 7200, 9000, 11000], glyph: "⚑", group: "frontline", metric: "frontlineBestScore" }))
+            .concat(topdownAchievementSeries({ idPrefix: "2048-run", title: "拼格热身", shortTitle: "拼格", descriptionPrefix: "累计完成 2048 对局 ", descriptionSuffix: " 局", values: [1, 3, 5, 8, 12, 18, 28, 42], glyph: groups.game2048.glyph, group: "game2048", metric: "game2048RunTotal" }))
+            .concat(topdownAchievementSeries({ idPrefix: "2048-score", title: "倍增引擎", shortTitle: "倍增", descriptionPrefix: "2048 单局分数达到 ", values: [500, 1000, 1800, 2800, 4200, 6000, 8500, 12000, 16000, 22000], glyph: "▥", group: "game2048", metric: "game2048BestScore" }))
+            .concat(topdownAchievementSeries({ idPrefix: "2048-tile", title: "奇点瓷砖", shortTitle: "奇点", descriptionPrefix: "2048 最大数字达到 ", values: [128, 256, 512, 1024, 2048, 4096, 8192], glyph: "▣", group: "game2048", metric: "game2048MaxTile" }))
+            .concat(topdownAchievementSeries({ idPrefix: "gomoku-match", title: "手谈约定", shortTitle: "手谈", descriptionPrefix: "累计完成五子棋对局 ", descriptionSuffix: " 局", values: [1, 3, 5, 8, 12, 18, 26, 38, 56, 80], glyph: groups.gomoku.glyph, group: "gomoku", metric: "gomokuMatchTotal" }))
+            .concat(topdownAchievementSeries({ idPrefix: "gomoku-win", title: "落子名局", shortTitle: "名局", descriptionPrefix: "累计赢下五子棋 ", descriptionSuffix: " 局", values: [1, 2, 3, 5, 8, 12, 18, 26, 38, 56], glyph: "◍", group: "gomoku", metric: "gomokuWinTotal" }))
+            .concat(topdownAchievementSeries({ idPrefix: "gacha-pulls", title: "星柜开封", shortTitle: "开封", descriptionPrefix: "累计抽奖 ", descriptionSuffix: " 次", values: [1, 5, 10, 20, 35, 55, 80, 120, 180, 260, 360, 500], glyph: groups.gacha.glyph, group: "gacha", metric: "pullTotal" }))
+            .concat(topdownAchievementSeries({ idPrefix: "gacha-spend", title: "豪掷流辉", shortTitle: "流辉", descriptionPrefix: "累计消耗局外积分 ", values: [2000, 8000, 16000, 30000, 50000, 80000, 120000, 180000, 260000, 360000], glyph: "✶", group: "gacha", metric: "pointsSpent" }))
+            .concat(topdownAchievementSeries({ idPrefix: "collection-colors", title: "色谱采集", shortTitle: "色谱", descriptionPrefix: "拥有颜色外观 ", descriptionSuffix: " 个", values: [5, 10, 20, 30, 45, 60, 80, 100, 125, 150, 180, 220], glyph: groups.collection.glyph, group: "collection", metric: "ownedColorCount" }))
+            .concat(topdownAchievementSeries({ idPrefix: "collection-icons", title: "图腾陈列", shortTitle: "图腾", descriptionPrefix: "拥有图标外观 ", descriptionSuffix: " 个", values: [2, 4, 6, 8, 10, 12, 14, 18, 22, 28, 34, 40], glyph: "◌", group: "collection", metric: "ownedIconCount" }))
+            .concat(topdownAchievementSeries({ idPrefix: "collection-backgrounds", title: "天幕藏馆", shortTitle: "天幕", descriptionPrefix: "拥有背景外观 ", descriptionSuffix: " 个", values: [5, 10, 20, 30, 45, 60, 80, 100, 125, 150, 180, 220], glyph: "▤", group: "collection", metric: "ownedBackgroundCount" }))
+            .concat([
+                { id: "collection-common-colors", name: "色谱铺陈", shortName: "色谱铺陈", description: "集齐全部普通颜色", tier: "silver", glyph: "◈", badgeText: "C", group: "collection", metric: "allCommonColorsOwned", threshold: 1 },
+                { id: "collection-rare-colors", name: "混色继承", shortName: "混色继承", description: "集齐全部稀有颜色", tier: "gold", glyph: "◈", badgeText: "R", group: "collection", metric: "allRareColorsOwned", threshold: 1 },
+                { id: "collection-all-colors", name: "色域王座", shortName: "色域王座", description: "集齐全部颜色外观", tier: "gold", glyph: "⬡", badgeText: "ALL", group: "collection", metric: "allColorsOwned", threshold: 1 },
+                { id: "collection-all-backgrounds", name: "银幕馆主", shortName: "银幕馆主", description: "集齐全部背景外观", tier: "silver", glyph: "▦", badgeText: "ALL", group: "collection", metric: "allBackgroundsOwned", threshold: 1 },
+                { id: "collection-all-icons", name: "图腾钻藏", shortName: "图腾钻藏", description: "集齐全部图标外观", tier: "diamond", glyph: "◆", badgeText: "ALL", group: "collection", metric: "allIconsOwned", threshold: 1 },
+                { id: "collection-complete", name: "通关！", shortName: "通关！", description: "集齐全部颜色、图标与背景外观", tier: "mythic", glyph: "✦", badgeText: "通关", group: "collection", metric: "allCosmeticsOwned", threshold: 1 },
+                { id: "collection-rare-icons", name: "稀印收藏", shortName: "稀印收藏", description: "拥有 10 个稀有图标", tier: "gold", glyph: "◇", badgeText: "10", group: "collection", metric: "ownedRareIconCount", threshold: 10 },
+                { id: "collection-rare-backgrounds", name: "珍景展廊", shortName: "珍景展廊", description: "拥有 24 个稀有背景", tier: "gold", glyph: "▧", badgeText: "24", group: "collection", metric: "ownedRareBackgroundCount", threshold: 24 },
+                { id: "collection-superrare-triad", name: "传说三冠", shortName: "传说三冠", description: "同时拥有至少 1 个超稀有颜色、图标和背景", tier: "diamond", glyph: "✹", badgeText: "III", group: "collection", metric: "ownedSuperRareColorCount", threshold: 1, extraMetrics: [{ metric: "ownedSuperRareIconCount", threshold: 1 }, { metric: "ownedSuperRareBackgroundCount", threshold: 1 }] }
+            ]);
+        topdownAchievementCatalogCache = entries.map(function (entry, index) {
+            return Object.assign({ order: index }, entry);
+        });
+        return topdownAchievementCatalogCache.slice();
+    }
+
+    function topdownAchievementUnlocked(entry, stats) {
+        if (!entry) {
+            return false;
+        }
+        const value = Number(stats[entry.metric] || 0);
+        if (value < Number(entry.threshold || 0)) {
+            return false;
+        }
+        const extras = Array.isArray(entry.extraMetrics) ? entry.extraMetrics : [];
+        return extras.every(function (item) {
+            return Number(stats[item.metric] || 0) >= Number(item.threshold || 0);
+        });
+    }
+
+    function topdownAchievementProgressText(entry, stats) {
+        if (!entry) {
+            return "";
+        }
+        const value = Math.max(0, Number(stats[entry.metric] || 0));
+        const threshold = Math.max(0, Number(entry.threshold || 0));
+        if (threshold <= 1 && String(entry.metric || "").indexOf("all") === 0) {
+            return value >= threshold ? "已达成" : "未达成";
+        }
+        return String(Math.min(value, threshold)) + " / " + String(threshold) + (entry.progressSuffix || "");
+    }
+
+    function topdownResolveAchievements(meta) {
+        const stats = topdownAchievementDerivedStats(meta);
+        return topdownAchievementCatalog().map(function (entry) {
+            return Object.assign({}, entry, {
+                unlocked: topdownAchievementUnlocked(entry, stats),
+                progressText: topdownAchievementProgressText(entry, stats)
+            });
+        });
+    }
+
+    function topdownAchievementSummary(meta) {
+        const resolved = topdownResolveAchievements(meta);
+        const summary = {
+            total: resolved.length,
+            unlocked: 0,
+            bronze: 0,
+            silver: 0,
+            gold: 0,
+            diamond: 0,
+            mythic: 0,
+            unlockedByTier: { bronze: 0, silver: 0, gold: 0, diamond: 0, mythic: 0 }
+        };
+        resolved.forEach(function (entry) {
+            const tier = topdownAchievementTierTheme(entry.tier).key;
+            summary[tier] += 1;
+            if (entry.unlocked) {
+                summary.unlocked += 1;
+                summary.unlockedByTier[tier] += 1;
+            }
+        });
+        return summary;
+    }
+
+    function topdownSelectedAchievementBadge(meta) {
+        const resolvedMeta = normalizeTopdownMetaState(meta);
+        const selectedId = String(resolvedMeta.selectedAchievementBadge || "");
+        if (!selectedId) {
+            return null;
+        }
+        const entry = topdownResolveAchievements(resolvedMeta).find(function (item) {
+            return item.id === selectedId && item.unlocked;
+        });
+        if (!entry) {
+            return null;
+        }
+        return {
+            id: entry.id,
+            name: entry.name,
+            shortName: entry.shortName,
+            tier: entry.tier,
+            glyph: entry.glyph,
+            badgeText: entry.badgeText,
+            group: entry.group
+        };
+    }
+
+    function topdownApplyAchievementProgress(meta, updates) {
+        const resolvedMeta = normalizeTopdownMetaState(meta);
+        const stats = topdownNormalizeAchievementStats(resolvedMeta.achievementStats);
+        const safeUpdates = updates && typeof updates === "object" ? updates : {};
+        const add = safeUpdates.add && typeof safeUpdates.add === "object" ? safeUpdates.add : {};
+        const setMax = safeUpdates.setMax && typeof safeUpdates.setMax === "object" ? safeUpdates.setMax : {};
+        const set = safeUpdates.set && typeof safeUpdates.set === "object" ? safeUpdates.set : {};
+        Object.keys(add).forEach(function (key) {
+            if (!Object.prototype.hasOwnProperty.call(stats, key)) {
+                return;
+            }
+            stats[key] = Math.max(0, Math.floor(Number(stats[key] || 0) + Number(add[key] || 0)));
+        });
+        Object.keys(setMax).forEach(function (key) {
+            if (!Object.prototype.hasOwnProperty.call(stats, key)) {
+                return;
+            }
+            stats[key] = Math.max(stats[key], Math.max(0, Math.floor(Number(setMax[key] || 0))));
+        });
+        Object.keys(set).forEach(function (key) {
+            if (!Object.prototype.hasOwnProperty.call(stats, key)) {
+                return;
+            }
+            stats[key] = Math.max(0, Math.floor(Number(set[key] || 0)));
+        });
+        resolvedMeta.achievementStats = stats;
+        const selected = topdownSelectedAchievementBadge(resolvedMeta);
+        resolvedMeta.selectedAchievementBadgeMeta = selected ? topdownNormalizeStoredAchievementBadge(selected) : topdownNormalizeStoredAchievementBadge({});
+        if (!selected) {
+            resolvedMeta.selectedAchievementBadge = "";
+        }
+        return resolvedMeta;
+    }
+
+    function topdownRememberAchievementEvent(meta, eventKey) {
+        const resolvedMeta = normalizeTopdownMetaState(meta);
+        const key = String(eventKey || "").trim();
+        if (!key) {
+            return false;
+        }
+        const keys = topdownNormalizeAchievementEventKeys(resolvedMeta.achievementEventKeys);
+        if (keys.indexOf(key) !== -1) {
+            resolvedMeta.achievementEventKeys = keys;
+            return false;
+        }
+        keys.push(key);
+        resolvedMeta.achievementEventKeys = topdownNormalizeAchievementEventKeys(keys);
+        return true;
+    }
+
+    function topdownSetSelectedAchievementBadge(meta, achievementId) {
+        const resolvedMeta = normalizeTopdownMetaState(meta);
+        const nextId = String(achievementId || "").trim();
+        if (!nextId) {
+            resolvedMeta.selectedAchievementBadge = "";
+            resolvedMeta.selectedAchievementBadgeMeta = topdownNormalizeStoredAchievementBadge({});
+            return resolvedMeta;
+        }
+        const entry = topdownResolveAchievements(resolvedMeta).find(function (item) {
+            return item.id === nextId && item.unlocked;
+        });
+        if (!entry) {
+            return resolvedMeta;
+        }
+        resolvedMeta.selectedAchievementBadge = entry.id;
+        resolvedMeta.selectedAchievementBadgeMeta = topdownNormalizeStoredAchievementBadge({
+            id: entry.id,
+            name: entry.name,
+            shortName: entry.shortName,
+            tier: entry.tier,
+            glyph: entry.glyph,
+            badgeText: entry.badgeText,
+            group: entry.group
+        });
+        return resolvedMeta;
+    }
+
     function createTopdownMetaState() {
         return {
             points: 0,
@@ -2334,10 +3515,15 @@
             freeIconPulls: 0,
             freeBackgroundPulls: 0,
             loginGiftVersion: 0,
-            dailyFreeTen: { color: "", icon: "" },
+            dailyFreeTen: { color: "", icon: "", background: "" },
+            dailyRevive: { date: "", used: 0 },
             colorPity: 0,
             iconPity: 0,
             backgroundPity: 0,
+            achievementStats: createTopdownAchievementStats(),
+            achievementEventKeys: [],
+            selectedAchievementBadge: "",
+            selectedAchievementBadgeMeta: {},
             ownedColors: ["classic", "ember"],
             ownedIcons: ["triangle"],
             ownedBackgrounds: ["dojo"],
@@ -2390,9 +3576,16 @@
         meta.dailyFreeTen.color = String(meta.dailyFreeTen.color || "");
         meta.dailyFreeTen.icon = String(meta.dailyFreeTen.icon || "");
         meta.dailyFreeTen.background = String(meta.dailyFreeTen.background || "");
+        meta.dailyRevive = Object.assign({ date: "", used: 0 }, meta.dailyRevive && typeof meta.dailyRevive === "object" ? meta.dailyRevive : {});
+        meta.dailyRevive.date = String(meta.dailyRevive.date || "");
+        meta.dailyRevive.used = Math.max(0, Math.floor(parseTopdownMetaNumber(meta.dailyRevive.used)));
         meta.colorPity = Math.max(0, Math.floor(parseTopdownMetaNumber(meta.colorPity)));
         meta.iconPity = Math.max(0, Math.floor(parseTopdownMetaNumber(meta.iconPity)));
         meta.backgroundPity = Math.max(0, Math.floor(parseTopdownMetaNumber(meta.backgroundPity)));
+        meta.achievementStats = topdownNormalizeAchievementStats(meta.achievementStats);
+        meta.achievementEventKeys = topdownNormalizeAchievementEventKeys(meta.achievementEventKeys);
+        meta.selectedAchievementBadge = String(meta.selectedAchievementBadge || "");
+        meta.selectedAchievementBadgeMeta = topdownNormalizeStoredAchievementBadge(meta.selectedAchievementBadgeMeta);
 
         const legacyOwned = Array.isArray(meta.ownedSkins) ? meta.ownedSkins : [];
         const migratedColors = (Array.isArray(meta.ownedColors) ? meta.ownedColors : []).slice();
@@ -2464,6 +3657,7 @@
 
     function serializeTopdownMetaState(meta) {
         const state = normalizeTopdownMetaState(meta);
+        const selectedBadge = topdownSelectedAchievementBadge(state);
         return {
             points: state.points,
             totalEarned: state.totalEarned,
@@ -2481,9 +3675,17 @@
                 icon: state.dailyFreeTen.icon || "",
                 background: state.dailyFreeTen.background || ""
             },
+            dailyRevive: {
+                date: state.dailyRevive.date || "",
+                used: Math.max(0, Math.floor(parseTopdownMetaNumber(state.dailyRevive.used)))
+            },
             colorPity: state.colorPity,
             iconPity: state.iconPity,
             backgroundPity: state.backgroundPity,
+            achievementStats: topdownNormalizeAchievementStats(state.achievementStats),
+            achievementEventKeys: topdownNormalizeAchievementEventKeys(state.achievementEventKeys),
+            selectedAchievementBadge: selectedBadge ? selectedBadge.id : "",
+            selectedAchievementBadgeMeta: selectedBadge ? topdownNormalizeStoredAchievementBadge(selectedBadge) : topdownNormalizeStoredAchievementBadge({}),
             ownedColors: state.ownedColors.slice(),
             ownedIcons: state.ownedIcons.slice(),
             ownedBackgrounds: state.ownedBackgrounds.slice(),
@@ -2495,6 +3697,8 @@
 
     function summarizeTopdownMetaState(meta) {
         const state = normalizeTopdownMetaState(meta);
+        const selectedBadge = topdownSelectedAchievementBadge(state);
+        const achievementSummary = topdownAchievementSummary(state);
         return {
             points: state.points,
             pulls: state.pulls,
@@ -2509,7 +3713,12 @@
             equipped_background: state.equippedBackground,
             owned_colors: state.ownedColors.length,
             owned_icons: state.ownedIcons.length,
-            owned_backgrounds: state.ownedBackgrounds.length
+            owned_backgrounds: state.ownedBackgrounds.length,
+            daily_revive_used: Math.max(0, Math.floor(parseTopdownMetaNumber(state.dailyRevive.used))),
+            achievement_badge: selectedBadge ? selectedBadge.id : "",
+            achievement_badge_tier: selectedBadge ? selectedBadge.tier : "",
+            achievements_unlocked: achievementSummary.unlocked,
+            achievements_total: achievementSummary.total
         };
     }
 
@@ -2554,8 +3763,120 @@
         return presets[hash % presets.length];
     }
 
+    function topdownColorBonusPreset(color) {
+        const safeColor = color || {};
+        const tier = String(safeColor.tier || "common");
+        if (tier !== "rare" && tier !== "superrare") {
+            return {
+                attackMultiplier: 1,
+                damageFlat: 0,
+                fireRateMultiplier: 1,
+                moveSpeedMultiplier: 1,
+                wingmanMaxBonus: 0,
+                label: ""
+            };
+        }
+        const rarePresets = [
+            {
+                key: "impact",
+                attackMultiplier: 1.05,
+                damageFlat: 0.6,
+                label: "锋彩增伤"
+            },
+            {
+                key: "tempo",
+                fireRateMultiplier: 0.94,
+                label: "脉冲快射"
+            },
+            {
+                key: "glide",
+                moveSpeedMultiplier: 1.06,
+                label: "流光机动"
+            },
+            {
+                key: "escort",
+                wingmanMaxBonus: 1,
+                fireRateMultiplier: 0.97,
+                label: "共鸣僚位"
+            }
+        ];
+        const superRarePresets = [
+            {
+                key: "corona",
+                attackMultiplier: 1.1,
+                damageFlat: 1.2,
+                label: "王冠火力"
+            },
+            {
+                key: "overclock",
+                fireRateMultiplier: 0.88,
+                moveSpeedMultiplier: 1.08,
+                label: "虹潮超频"
+            },
+            {
+                key: "formation",
+                wingmanMaxBonus: 1,
+                moveSpeedMultiplier: 1.1,
+                label: "尊耀编队"
+            },
+            {
+                key: "blitz",
+                attackMultiplier: 1.08,
+                fireRateMultiplier: 0.92,
+                label: "裂变速攻"
+            }
+        ];
+        const presets = tier === "superrare" ? superRarePresets : rarePresets;
+        const hash = String(safeColor.key || "").split("").reduce(function (sum, ch) {
+            return sum + ch.charCodeAt(0);
+        }, 0);
+        return presets[hash % presets.length];
+    }
+
+    function topdownMergeCosmeticBonus(target, bonus) {
+        if (!bonus || typeof bonus !== "object") {
+            return target;
+        }
+        target.attackMultiplier *= Number(bonus.attackMultiplier || 1);
+        target.damageFlat += Number(bonus.damageFlat || 0);
+        target.fireRateMultiplier *= Number(bonus.fireRateMultiplier || 1);
+        target.moveSpeedMultiplier *= Number(bonus.moveSpeedMultiplier || 1);
+        target.wingmanMaxBonus += Math.max(0, Math.floor(Number(bonus.wingmanMaxBonus || 0)));
+        target.startUpgradeChoices += Math.max(0, Math.floor(Number(bonus.startUpgradeChoices || 0)));
+        target.enemySpeedMultiplier *= Number(bonus.enemySpeedMultiplier || 1);
+        target.enemyBulletSpeedMultiplier *= Number(bonus.enemyBulletSpeedMultiplier || 1);
+        target.enemyFireCooldownMultiplier *= Number(bonus.enemyFireCooldownMultiplier || 1);
+        return target;
+    }
+
     function topdownBackgroundBonusPreset(background) {
-        const key = String(background && background.key || "");
+        const safeBackground = background || {};
+        const key = String(safeBackground.key || "");
+        if (String(safeBackground.tier || "common") === "rare") {
+            const rarePresets = [
+                {
+                    enemySpeedMultiplier: 0.96,
+                    label: "地形牵制"
+                },
+                {
+                    enemyBulletSpeedMultiplier: 0.95,
+                    label: "扰流缓弹"
+                },
+                {
+                    enemyFireCooldownMultiplier: 1.05,
+                    label: "火力压制"
+                },
+                {
+                    enemySpeedMultiplier: 0.97,
+                    enemyBulletSpeedMultiplier: 0.97,
+                    label: "双缓战场"
+                }
+            ];
+            const rareHash = key.split("").reduce(function (sum, ch) {
+                return sum + ch.charCodeAt(0);
+            }, 0);
+            return rarePresets[rareHash % rarePresets.length];
+        }
         if (key === "prism_board") {
             return {
                 enemyBulletSpeedMultiplier: 0.88,
@@ -2594,11 +3915,15 @@
 
     function topdownBuildRunCosmeticBonuses(meta) {
         const appearance = topdownEquippedAppearance(meta);
+        const color = appearance.color || {};
         const icon = appearance.icon || {};
         const background = appearance.background || {};
+        const colorBonus = topdownColorBonusPreset(color);
         const iconBonus = topdownIconBonusPreset(icon);
         const backgroundBonus = topdownBackgroundBonusPreset(background);
         const result = {
+            colorKey: String(color.key || "classic"),
+            colorTier: String(color.tier || "common"),
             iconKey: String(icon.key || "triangle"),
             iconTier: String(icon.tier || "common"),
             backgroundKey: String(background.key || "dojo"),
@@ -2612,24 +3937,23 @@
             enemySpeedMultiplier: 1,
             enemyBulletSpeedMultiplier: 1,
             enemyFireCooldownMultiplier: 1,
+            colorBonusLabel: "",
             iconBonusLabel: "",
             backgroundBonusLabel: ""
         };
+        if (color.tier === "rare" || color.tier === "superrare") {
+            topdownMergeCosmeticBonus(result, colorBonus);
+            result.colorBonusLabel = colorBonus.label || "";
+        }
         if (icon.tier === "rare") {
             result.startUpgradeChoices = TOPDOWN_BALANCE.rareIconStartChoices;
         } else if (icon.tier === "superrare") {
             result.startUpgradeChoices = TOPDOWN_BALANCE.superRareIconStartChoices;
-            result.attackMultiplier = iconBonus.attackMultiplier || 1;
-            result.damageFlat = iconBonus.damageFlat || 0;
-            result.fireRateMultiplier = iconBonus.fireRateMultiplier || 1;
-            result.moveSpeedMultiplier = iconBonus.moveSpeedMultiplier || 1;
-            result.wingmanMaxBonus = iconBonus.wingmanMaxBonus || 0;
+            topdownMergeCosmeticBonus(result, iconBonus);
             result.iconBonusLabel = iconBonus.label || "";
         }
-        if (background.tier === "superrare") {
-            result.enemySpeedMultiplier = backgroundBonus.enemySpeedMultiplier || 1;
-            result.enemyBulletSpeedMultiplier = backgroundBonus.enemyBulletSpeedMultiplier || 1;
-            result.enemyFireCooldownMultiplier = backgroundBonus.enemyFireCooldownMultiplier || 1;
+        if (background.tier === "rare" || background.tier === "superrare") {
+            topdownMergeCosmeticBonus(result, backgroundBonus);
             result.backgroundBonusLabel = backgroundBonus.label || "";
         }
         return result;
@@ -2647,6 +3971,7 @@
             enemySpeedMultiplier: Math.max(0.72, Number(raw && raw.enemySpeedMultiplier != null ? raw.enemySpeedMultiplier : base.enemySpeedMultiplier) || 1),
             enemyBulletSpeedMultiplier: Math.max(0.72, Number(raw && raw.enemyBulletSpeedMultiplier != null ? raw.enemyBulletSpeedMultiplier : base.enemyBulletSpeedMultiplier) || 1),
             enemyFireCooldownMultiplier: Math.max(0.72, Number(raw && raw.enemyFireCooldownMultiplier != null ? raw.enemyFireCooldownMultiplier : base.enemyFireCooldownMultiplier) || 1),
+            colorBonusLabel: String(raw && raw.colorBonusLabel != null ? raw.colorBonusLabel : base.colorBonusLabel || ""),
             iconBonusLabel: String(raw && raw.iconBonusLabel != null ? raw.iconBonusLabel : base.iconBonusLabel || ""),
             backgroundBonusLabel: String(raw && raw.backgroundBonusLabel != null ? raw.backgroundBonusLabel : base.backgroundBonusLabel || "")
         });
@@ -2688,15 +4013,16 @@
         return 0;
     }
 
-    function topdownSortCatalogKeysByTier(catalog) {
+    function topdownSortCatalogKeysByTier(catalog, descending) {
         return Object.keys(catalog).sort(function (left, right) {
             const leftItem = catalog[left] || {};
             const rightItem = catalog[right] || {};
             const tierDelta = topdownTierRank(leftItem.tier) - topdownTierRank(rightItem.tier);
             if (tierDelta !== 0) {
-                return tierDelta;
+                return descending ? -tierDelta : tierDelta;
             }
-            return String(leftItem.label || left).localeCompare(String(rightItem.label || right), "zh-CN");
+            const labelDelta = String(leftItem.label || left).localeCompare(String(rightItem.label || right), "zh-CN");
+            return descending ? -labelDelta : labelDelta;
         });
     }
 
@@ -2908,7 +4234,22 @@
             }
             ctx.restore();
         }
-        if (bullet.element === "ice") {
+        if (bullet.element === "fire") {
+            ctx.strokeStyle = ultimate ? palette.accent : palette.fill;
+            ctx.lineWidth = ultimate ? Math.max(3, radius * 0.62) : Math.max(2, radius * 0.48);
+            ctx.globalAlpha = ultimate ? 0.92 : 0.72;
+            ctx.beginPath();
+            ctx.arc(0, 0, radius * (ultimate ? 1.72 : 1.34), 0, Math.PI * 2);
+            ctx.stroke();
+            if (ultimate) {
+                ctx.strokeStyle = palette.deep;
+                ctx.globalAlpha = 0.52;
+                ctx.lineWidth = 1.4;
+                ctx.beginPath();
+                ctx.arc(0, 0, radius * 2.08, 0, Math.PI * 2);
+                ctx.stroke();
+            }
+        } else if (bullet.element === "ice") {
             ctx.fillStyle = ultimate ? palette.accent : palette.fill;
             ctx.beginPath();
             ctx.moveTo(radius * 1.55, 0);
@@ -2980,12 +4321,15 @@
 
     function drawTopdownAoeBurstVisual(ctx, burst) {
         const isHostile = burst.type === "enemy-explosion";
+        const isNuclearBurst = !isHostile && burst.type !== "radiation" && burst.element === "nuclear";
         const palette = isHostile ? { fill: "#fb7185", accent: "#fecdd3", deep: "#e11d48", glow: "rgba(251,113,133,0.26)" } : topdownElementPalette(burst.element || "nuclear");
         const lifeBase = isHostile ? TOPDOWN_BALANCE.selfDestructBurstLife : (burst.type === "radiation" ? TOPDOWN_BALANCE.nuclearRadiationDuration : TOPDOWN_BALANCE.nuclearBurstLife);
         const progress = clamp(1 - Number(burst.life || 0) / Math.max(0.001, lifeBase), 0, 1);
         const radius = Number(burst.radius || 0) * (0.82 + progress * 0.22);
         ctx.save();
-        ctx.globalAlpha = Math.max(0.16, Number(burst.life || 0) / Math.max(0.001, lifeBase));
+        ctx.globalAlpha = isNuclearBurst
+            ? Math.max(0.08, Number(burst.life || 0) / Math.max(0.001, lifeBase) * 0.42)
+            : Math.max(0.16, Number(burst.life || 0) / Math.max(0.001, lifeBase));
         ctx.fillStyle = burst.type === "radiation" ? "rgba(74, 222, 128, " + TOPDOWN_BALANCE.nuclearRadiationAlpha + ")" : palette.glow;
         ctx.strokeStyle = palette.fill;
         ctx.lineWidth = burst.ultimate ? 4.2 : 3;
@@ -2993,8 +4337,17 @@
         ctx.shadowBlur = burst.ultimate ? 18 : 8;
         ctx.beginPath();
         ctx.arc(burst.x, burst.y, radius, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.stroke();
+        if (isNuclearBurst) {
+            ctx.stroke();
+            ctx.globalAlpha *= 0.38;
+            ctx.lineWidth = burst.ultimate ? 2.2 : 1.6;
+            ctx.beginPath();
+            ctx.arc(burst.x, burst.y, radius * 0.66, 0, Math.PI * 2);
+            ctx.stroke();
+        } else {
+            ctx.fill();
+            ctx.stroke();
+        }
         if (burst.ultimate) {
             ctx.strokeStyle = palette.accent;
             ctx.lineWidth = 1.8;
@@ -3014,6 +4367,25 @@
         if (bg.pattern === "stars" || bg.pattern === "galaxy") {
             layers.push("radial-gradient(circle at 20% 24%, rgba(255,255,255,.9) 0 1px, transparent 2px)");
             layers.push("radial-gradient(circle at 78% 38%, rgba(255,255,255,.7) 0 1px, transparent 2px)");
+        } else if (bg.pattern === "grid" || bg.pattern === "neon") {
+            layers.push("repeating-linear-gradient(0deg, rgba(255,255,255,.10) 0 1px, transparent 1px 26px)");
+            layers.push("repeating-linear-gradient(90deg, rgba(255,255,255,.10) 0 1px, transparent 1px 26px)");
+        } else if (bg.pattern === "rain" || bg.pattern === "wave") {
+            layers.push("repeating-linear-gradient(135deg, rgba(255,255,255,.14) 0 2px, transparent 2px 24px)");
+        } else if (bg.pattern === "wood" || bg.pattern === "paper" || bg.pattern === "stone") {
+            layers.push("repeating-linear-gradient(180deg, rgba(255,255,255,.10) 0 2px, rgba(255,255,255,0) 2px 20px, rgba(0,0,0,.05) 20px 22px)");
+        } else if (bg.pattern === "prism" || bg.pattern === "crack" || bg.pattern === "eclipse" || bg.pattern === "lotus") {
+            layers.push("linear-gradient(35deg, transparent 0 46%, rgba(255,255,255,.14) 46% 48%, transparent 48% 100%)");
+            layers.push("linear-gradient(145deg, transparent 0 52%, rgba(255,255,255,.12) 52% 54%, transparent 54% 100%)");
+        } else if (bg.pattern === "aurora") {
+            layers.push("radial-gradient(circle at 18% 22%, rgba(255,255,255,.20), transparent 34%)");
+            layers.push("radial-gradient(circle at 78% 18%, rgba(255,255,255,.18), transparent 28%)");
+        } else if (bg.pattern === "ink") {
+            layers.push("radial-gradient(circle at 24% 34%, rgba(15,23,42,.16), transparent 18%)");
+            layers.push("radial-gradient(circle at 72% 58%, rgba(15,23,42,.12), transparent 20%)");
+        } else if (bg.pattern === "petals") {
+            layers.push("radial-gradient(circle at 24% 24%, rgba(255,255,255,.20), transparent 8%)");
+            layers.push("radial-gradient(circle at 74% 66%, rgba(255,255,255,.16), transparent 8%)");
         }
         if (bg.gradient && bg.gradient.length) {
             layers.push("linear-gradient(135deg," + bg.gradient.join(",") + ")");
@@ -3045,6 +4417,47 @@
                 const alpha = 0.22 + ((i * 17) % 10) / 18;
                 ctx.fillStyle = "rgba(248,250,252," + alpha.toFixed(2) + ")";
                 ctx.fillRect(x, y, i % 7 === 0 ? 3 : 2, i % 7 === 0 ? 3 : 2);
+            }
+        } else if (bg.pattern === "grid" || bg.pattern === "neon") {
+            ctx.strokeStyle = bg.pattern === "neon" ? "rgba(255,255,255,0.2)" : "rgba(255,255,255,0.12)";
+            ctx.lineWidth = bg.pattern === "neon" ? 1.8 : 1;
+            for (let x = 0; x <= width; x += 28) {
+                ctx.beginPath();
+                ctx.moveTo(x, 0);
+                ctx.lineTo(x, height);
+                ctx.stroke();
+            }
+            for (let y = 0; y <= height; y += 28) {
+                ctx.beginPath();
+                ctx.moveTo(0, y);
+                ctx.lineTo(width, y);
+                ctx.stroke();
+            }
+        } else if (bg.pattern === "aurora") {
+            for (let band = 0; band < 4; band += 1) {
+                const bandGradient = ctx.createLinearGradient(0, band * height * 0.22, width, band * height * 0.22 + height * 0.28);
+                bandGradient.addColorStop(0, "rgba(255,255,255,0)");
+                bandGradient.addColorStop(0.35, "rgba(94,234,212,0.14)");
+                bandGradient.addColorStop(0.7, "rgba(192,132,252,0.16)");
+                bandGradient.addColorStop(1, "rgba(255,255,255,0)");
+                ctx.fillStyle = bandGradient;
+                ctx.fillRect(0, band * height * 0.18 + Math.sin(tick * 0.8 + band) * 8, width, height * 0.22);
+            }
+        } else if (bg.pattern === "petals") {
+            for (let i = 0; i < 26; i += 1) {
+                const x = (i * 51 + tick * 18) % width;
+                const y = (i * 37 + tick * 11) % height;
+                ctx.fillStyle = "rgba(255,255,255,0.18)";
+                ctx.beginPath();
+                ctx.ellipse(x, y, 8, 4, Math.sin(i + tick) * 1.2, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        } else if (bg.pattern === "ink") {
+            for (let i = 0; i < 10; i += 1) {
+                ctx.fillStyle = "rgba(15,23,42," + (0.06 + i * 0.01).toFixed(2) + ")";
+                ctx.beginPath();
+                ctx.arc((i * 89) % width, (i * 61) % height, 18 + (i % 3) * 8, 0, Math.PI * 2);
+                ctx.fill();
             }
         } else if (bg.pattern === "wood" || bg.pattern === "paper" || bg.pattern === "stone") {
             ctx.strokeStyle = bg.pattern === "paper" ? "rgba(120, 84, 44, 0.12)" : "rgba(255,255,255,0.08)";
@@ -3103,9 +4516,9 @@
         return {
             blink: {
                 key: "blink",
-                label: "闪现",
-                shortLabel: "闪现",
-                description: "按技能键发动，朝当前移动方向闪现一段距离，闪现期间无敌。基础冷却 45 秒；技能持续强化会改为提升闪现距离。"
+                label: "宙斯权杖",
+                shortLabel: "权杖",
+                description: "按技能键发动。从玩家周围射出一道高速反弹光束，初始持续 5 秒，碰到的所有敌人都会被直接处死。技能强化可同时缩短冷却并延长持续时间。"
             },
             missile: {
                 key: "missile",
@@ -3147,6 +4560,10 @@
 
     function topdownSkillBlinkDistance(session) {
         return TOPDOWN_BALANCE.blinkDistance * topdownSkillEffectMultiplier(session);
+    }
+
+    function topdownSkillZeusDuration(session) {
+        return TOPDOWN_BALANCE.zeusBeamDuration * topdownSkillEffectMultiplier(session);
     }
 
     function topdownSkillMissileLifetime(session) {
@@ -3194,6 +4611,16 @@
         const finalAmount = Math.max(0, Math.round(amount * multiplier));
         session.score += finalAmount;
         return finalAmount;
+    }
+
+    function topdownTimeSettlementBonus(session) {
+        return Math.max(
+            0,
+            Math.floor(
+                Math.max(0, Number(session && session.elapsedSeconds || 0))
+                * Math.max(0, Number(TOPDOWN_BALANCE.settlementTimeScorePerSecond || 0))
+            )
+        );
     }
 
     function topdownKillBaseScore(session) {
@@ -3338,7 +4765,7 @@
         if (build.comboWindowLevel) { parts.push("续连 +" + build.comboWindowLevel); }
         if (build.comboThresholdLevel) { parts.push("连杀阈值 -" + (build.comboThresholdLevel * TOPDOWN_BALANCE.comboItemEveryStep)); }
         if (build.skillCooldownLevel) { parts.push("技冷 -" + Math.round(build.skillCooldownLevel * TOPDOWN_BALANCE.skillUpgradeStep * 100) + "%"); }
-        if (build.skillDurationLevel) { parts.push((session && session.skill && session.skill.key === "blink" ? "闪距" : "技时") + " +" + Math.round(build.skillDurationLevel * TOPDOWN_BALANCE.skillUpgradeStep * 100) + "%"); }
+        if (build.skillDurationLevel) { parts.push("技时 +" + Math.round(build.skillDurationLevel * TOPDOWN_BALANCE.skillUpgradeStep * 100) + "%"); }
         return parts.join(" / ") || "基础配置";
     }
 
@@ -3643,10 +5070,13 @@
         if (bonuses.startUpgradeChoices > 0) {
             parts.push("开局强化 +" + bonuses.startUpgradeChoices);
         }
-        if (bonuses.iconTier === "superrare" && bonuses.iconBonusLabel) {
+        if (bonuses.colorBonusLabel) {
+            parts.push("颜色加成:" + bonuses.colorBonusLabel);
+        }
+        if (bonuses.iconBonusLabel) {
             parts.push("图标加成:" + bonuses.iconBonusLabel);
         }
-        if (bonuses.backgroundTier === "superrare" && bonuses.backgroundBonusLabel) {
+        if (bonuses.backgroundBonusLabel) {
             parts.push("背景加成:" + bonuses.backgroundBonusLabel);
         }
         return parts.join(" / ");
@@ -3688,6 +5118,50 @@
             TOPDOWN_BALANCE.enemyPowerPressureSoftCap,
             Math.max(0, topdownPlayerPowerScore(session) - 1)
         );
+    }
+
+    function topdownPlayerEffectiveDps(session) {
+        if (!session || !session.build) {
+            return 0;
+        }
+        const playerStats = getTopdownDerivedStats(session, false);
+        if (!playerStats) {
+            return 0;
+        }
+        const playerShotsPerSecond = 1 / Math.max(0.01, Number(playerStats.fireInterval || TOPDOWN_BALANCE.baseFireInterval));
+        const playerDps = playerShotsPerSecond * Math.max(0, Number(playerStats.damage || 0)) * Math.max(1, Number(playerStats.multishot || 1));
+
+        const wingCount = Math.min(Math.max(0, Number(session.build.wingmanLevel || 0)), topdownMaxWingmanSlots(session));
+        if (wingCount <= 0) {
+            return Math.max(0, playerDps);
+        }
+        const wingStats = getTopdownDerivedStats(session, true);
+        if (!wingStats) {
+            return Math.max(0, playerDps);
+        }
+        const wingShotsPerSecond = 1 / Math.max(0.01, Number(wingStats.fireInterval || TOPDOWN_BALANCE.baseFireInterval));
+        const wingDpsPerWing = wingShotsPerSecond * Math.max(0, Number(wingStats.damage || 0)) * Math.max(1, Number(wingStats.multishot || 1));
+        return Math.max(0, playerDps + wingDpsPerWing * wingCount);
+    }
+
+    function topdownTtkDpsForScaling(session) {
+        const dps = topdownPlayerEffectiveDps(session);
+        return topdownApplySoftCap(dps, TOPDOWN_BALANCE.ttkDpsSoftCap, TOPDOWN_BALANCE.ttkDpsOverflowFactor);
+    }
+
+    function topdownTtkEnemyHpMultiplier(session, baseHp) {
+        const hp = Math.max(0, Number(baseHp || 0));
+        if (hp <= TOPDOWN_BALANCE.killEpsilon) {
+            return 1;
+        }
+        const dps = topdownTtkDpsForScaling(session);
+        if (dps <= 0.001) {
+            return 1;
+        }
+        const currentTtk = hp / dps;
+        const desiredTtk = clamp(currentTtk, TOPDOWN_BALANCE.ttkMinSeconds, TOPDOWN_BALANCE.ttkMaxSeconds);
+        const mult = desiredTtk / Math.max(0.001, currentTtk);
+        return clamp(mult, TOPDOWN_BALANCE.ttkEnemyHpMultiplierMin, TOPDOWN_BALANCE.ttkEnemyHpMultiplierMax);
     }
 
     function topdownPrimeStartingUpgradeChoices(session) {
@@ -3876,8 +5350,8 @@
             + Number(session.kills || 0) * TOPDOWN_BALANCE.enemyHpPerKill
             + Number(session.bossesDefeated || 0) * TOPDOWN_BALANCE.enemyHpPerBoss
             + powerPressure * TOPDOWN_BALANCE.enemyPowerHpStep
-            + powerPressure * powerPressure * TOPDOWN_BALANCE.enemyPowerHpCurve
-            + latePressure * latePressure * TOPDOWN_BALANCE.lateEnemyHpPerWave
+            + Math.pow(powerPressure, TOPDOWN_BALANCE.enemyPowerHpExponent) * TOPDOWN_BALANCE.enemyPowerHpCurve
+            + Math.pow(latePressure, TOPDOWN_BALANCE.lateEnemyHpExponent) * TOPDOWN_BALANCE.lateEnemyHpPerWave
         );
     }
 
@@ -3894,7 +5368,9 @@
         const powerPressure = topdownPlayerPowerPressure(session);
         const cosmeticBonuses = topdownSessionCosmeticBonuses(session);
         const hpMultiplier = spawnBoss ? TOPDOWN_BALANCE.bossHpMultiplier : (isElite ? TOPDOWN_BALANCE.eliteHpMultiplier : 1);
-        const hp = topdownQuantizeHp((topdownEnemyHp(session) + randomBetween(0, Math.max(1, session.wave) * 0.9) + difficultyScale) * hpMultiplier);
+        const baseHp = topdownEnemyHp(session) + randomBetween(0, Math.max(1, session.wave) * 0.9) + difficultyScale;
+        const ttkHpMultiplier = topdownTtkEnemyHpMultiplier(session, baseHp);
+        const hp = topdownQuantizeHp(baseHp * ttkHpMultiplier * hpMultiplier);
         const fireRateMultiplier = (spawnBoss ? TOPDOWN_BALANCE.bossFireRateMultiplier : (isElite ? TOPDOWN_BALANCE.eliteFireRateMultiplier : 1))
             * Math.max(0.7, 1 - powerPressure * TOPDOWN_BALANCE.enemyPowerFireRateStep)
             * cosmeticBonuses.enemyFireCooldownMultiplier;
@@ -3931,6 +5407,8 @@
             iceStacks: 0,
             frozenTime: 0,
             shocked: false,
+            corpseActive: false,
+            corpseUntil: 0,
             isElite: isElite || spawnBoss,
             isBoss: spawnBoss,
             bulletCount: bulletCount,
@@ -3958,6 +5436,8 @@
             touchCooldown: 0,
             consumeCooldown: 0,
             luseTriggered: false,
+            luseBurstShotsLeft: 0,
+            luseBurstCooldown: 0,
             succubusVictimIds: [],
             enrageUntil: 0
         };
@@ -4432,7 +5912,8 @@
     }
 
     function spawnTopdownLuseBurst(session, enemy, aimAngle, bulletSpeed) {
-        spawnTopdownSpreadShot(session, enemy, aimAngle, TOPDOWN_BALANCE.luseBarrageCount, TOPDOWN_BALANCE.luseSpreadRadians, function (shotAngle) {
+        const shots = Math.max(1, Math.min(TOPDOWN_BALANCE.luseBarrageCount, Number(enemy && enemy.luseBurstShotsPerTick || TOPDOWN_BALANCE.luseBurstShotsPerTick || 1)));
+        spawnTopdownSpreadShot(session, enemy, aimAngle, shots, TOPDOWN_BALANCE.luseSpreadRadians, function (shotAngle) {
             spawnTopdownEnemyBullet(session, enemy.x, enemy.y, shotAngle, bulletSpeed, 5.2, {
                 damage: 1,
                 kind: "luse-burst",
@@ -4444,7 +5925,8 @@
     function spawnTopdownPlayerFrenzyVolley(session, aimAngle) {
         const playerStats = getTopdownDerivedStats(session, false);
         const elementLevel = topdownBuildElementLevel(session.build, false, session.build.element);
-        spawnTopdownSpreadShot(session, session.player, aimAngle, TOPDOWN_BALANCE.frenzyBulletCount, TOPDOWN_BALANCE.frenzySpreadRadians, function (shotAngle) {
+        const shots = Math.max(1, Math.min(TOPDOWN_BALANCE.frenzyBulletCount, Number(TOPDOWN_BALANCE.frenzyShotsPerVolley || 1)));
+        spawnTopdownSpreadShot(session, session.player, aimAngle, shots, TOPDOWN_BALANCE.frenzySpreadRadians, function (shotAngle) {
             createTopdownBullet(session, session.player, shotAngle, playerStats.damage, "player", session.build.element, elementLevel, {
                 canUltimate: true,
                 ignoreWardenField: topdownPointInsideWardenField(session, session.player.x, session.player.y)
@@ -4651,6 +6133,9 @@
         let hitEnemy = null;
         let bestDistance = TOPDOWN_BALANCE.electricMaxRange + 1;
         session.enemies.forEach(function (enemy) {
+            if (!enemy || enemy.hp <= 0 || enemy.remnantActive || enemy.corpseActive) {
+                return;
+            }
             const distSq = distanceToSegmentSquared(enemy.x, enemy.y, origin.x, origin.y, endX, endY);
             if (distSq <= (enemy.radius + 8) * (enemy.radius + 8)) {
                 const direct = Math.sqrt((enemy.x - origin.x) * (enemy.x - origin.x) + (enemy.y - origin.y) * (enemy.y - origin.y));
@@ -4662,30 +6147,36 @@
         });
         const beamEndX = hitEnemy ? hitEnemy.x : endX;
         const beamEndY = hitEnemy ? hitEnemy.y : endY;
-        session.beams.push({
-            fromX: origin.x,
-            fromY: origin.y,
-            toX: beamEndX,
-            toY: beamEndY,
-            color: owner === "wingman" ? "#fde68a" : "#facc15",
-            life: TOPDOWN_BALANCE.electricBeamLife,
-            width: owner === "wingman" ? 2.2 : 3.2,
-            element: "electric",
-            elementLevel: stats.elementLevel,
-            canUltimate: stats.canUltimate,
-            ultimate: stats.canUltimate
-        });
+        if (!stats || !stats.continuousBeamOnly) {
+            session.beams.push({
+                fromX: origin.x,
+                fromY: origin.y,
+                toX: beamEndX,
+                toY: beamEndY,
+                color: owner === "wingman" ? "#fde68a" : "#facc15",
+                life: TOPDOWN_BALANCE.electricBeamLife,
+                width: owner === "wingman" ? 2.2 : 3.2,
+                element: "electric",
+                elementLevel: stats.elementLevel,
+                canUltimate: stats.canUltimate,
+                ultimate: stats.canUltimate
+            });
+        }
         if (!hitEnemy) {
             return;
         }
         const removedEnemyIds = [];
-        if (damageTopdownEnemy(session, hitEnemy, applyElectricDamageModifier(hitEnemy, stats.damage, stats.canUltimate))) {
-            removedEnemyIds.push(hitEnemy.id);
-        }
-        applyTopdownElement(session, { element: "electric", elementLevel: stats.elementLevel, damage: stats.damage, canUltimate: stats.canUltimate }, hitEnemy, removedEnemyIds);
+        applyTopdownElement(session, {
+            element: "electric",
+            elementLevel: stats.elementLevel,
+            damage: stats.damage,
+            canUltimate: stats.canUltimate,
+            owner: owner,
+            noBeamVisuals: Boolean(stats && stats.continuousBeamOnly && Number(stats.multishot || 1) > 1)
+        }, hitEnemy, removedEnemyIds);
         if (removedEnemyIds.length) {
             session.enemies = session.enemies.filter(function (enemy) {
-                return removedEnemyIds.indexOf(enemy.id) === -1 && enemy.hp > 0;
+                return removedEnemyIds.indexOf(enemy.id) === -1 && (enemy.hp > 0 || enemy.corpseActive);
             });
         }
     }
@@ -4694,15 +6185,23 @@
         const count = Math.max(1, stats.multishot);
         const offsetBase = -(count - 1) / 2;
         const ignoreWardenField = topdownPointInsideWardenField(session, session.player.x, session.player.y);
+        const laneSpacing = Math.max(10, topdownCurrentProjectileRadius(session, owner) * 2.8);
+        const normalX = -Math.sin(angle);
+        const normalY = Math.cos(angle);
         for (let shot = 0; shot < count; shot += 1) {
-            const shotAngle = angle + (offsetBase + shot) * TOPDOWN_BALANCE.multishotSpread;
+            const laneOffset = (offsetBase + shot) * laneSpacing;
+            const shotOrigin = {
+                x: origin.x + normalX * laneOffset,
+                y: origin.y + normalY * laneOffset
+            };
+            const shotAngle = angle;
             if (stats.element === "electric") {
-                resolveTopdownLaserHit(session, origin, shotAngle, stats, owner);
+                resolveTopdownLaserHit(session, shotOrigin, shotAngle, stats, owner);
             } else {
                 const emitElementAoe = shouldSpawnElementAoeBullet(session, stats.element, stats.elementLevel, owner);
                 createTopdownBullet(
                     session,
-                    origin,
+                    shotOrigin,
                     shotAngle,
                     stats.damage,
                     owner,
@@ -4749,7 +6248,7 @@
                     title: "战术技能选择",
                     subtitle: "每局只能带 1 个技能。首领已为你解锁本局唯一的技能栏位。",
                     detailLines: [
-                        "闪现：按技能键朝当前移动方向触发，期间无敌。",
+                        "宙斯权杖：按技能键放出一道会反弹的处决光束，基础持续 5 秒。",
                         "导弹 / 无敌：按 " + topdownSkillTriggerKeyLabel(session.skillTriggerKey) + " 主动施放，基础冷却 45 秒。"
                     ],
                     allowDecline: false,
@@ -4805,6 +6304,8 @@
                 iceStacks: 0,
                 frozenTime: 0,
                 shocked: false,
+                corpseActive: false,
+                corpseUntil: 0,
                 isElite: false,
                 isBoss: false,
                 bulletCount: 1,
@@ -4832,6 +6333,8 @@
                 touchCooldown: 0,
                 consumeCooldown: 0,
                 luseTriggered: false,
+                luseBurstShotsLeft: 0,
+                luseBurstCooldown: 0,
                 succubusVictimIds: [],
                 enrageUntil: 0,
                 isSplitterMinion: true
@@ -4876,8 +6379,122 @@
         setStatus("魅魔被击败：被吸附单位已狂暴，机体进入 3 秒压制弹幕。", true);
     }
 
+    function topdownResolveBurnTickInterval(enemy) {
+        return Number(enemy && enemy.burnStacks || 0) >= TOPDOWN_BALANCE.burnStackMax
+            ? TOPDOWN_BALANCE.burnOverheatTickInterval
+            : TOPDOWN_BALANCE.burnTickInterval;
+    }
+
+    function topdownResolveBurnTickDamage(enemy) {
+        const baseDamage = topdownQuantizeDamage(Number(enemy && enemy.burnDamage || 0));
+        if (Number(enemy && enemy.burnStacks || 0) < TOPDOWN_BALANCE.burnStackMax) {
+            return baseDamage;
+        }
+        return topdownQuantizeDamage(Math.max(
+            baseDamage,
+            Number(enemy && enemy.maxHp || 0) * TOPDOWN_BALANCE.burnOverheatMaxHpFactor
+        ));
+    }
+
+    function topdownApplyBurnState(enemy, elementLevel, stackDelta) {
+        if (!enemy) {
+            return;
+        }
+        const nextStacks = Math.min(TOPDOWN_BALANCE.burnStackMax, Number(enemy.burnStacks || 0) + Math.max(1, Math.floor(Number(stackDelta || 1))));
+        enemy.burnStacks = nextStacks;
+        enemy.burnTime = Math.max(Number(enemy.burnTime || 0), TOPDOWN_BALANCE.burnDuration + Number(elementLevel || 0) * 0.2);
+        enemy.burnDamage = Math.max(
+            Number(enemy.burnDamage || 0),
+            TOPDOWN_BALANCE.burnDamageBase
+                + Number(elementLevel || 0) * TOPDOWN_BALANCE.burnDamagePerLevel
+                + nextStacks * TOPDOWN_BALANCE.burnDamagePerStack
+        );
+    }
+
+    function topdownCanBecomeNuclearHusk(enemy, bullet) {
+        return Boolean(
+            enemy
+            && bullet
+            && bullet.element === "nuclear"
+            && bullet.canUltimate
+            && Number(bullet.elementLevel || 0) >= TOPDOWN_BALANCE.elementCap
+            && !enemy.isElite
+            && !enemy.isBoss
+            && !enemy.remnantActive
+            && !enemy.corpseActive
+        );
+    }
+
+    function transformTopdownNuclearHusk(session, enemy) {
+        if (!enemy) {
+            return;
+        }
+        enemy.corpseActive = true;
+        enemy.corpseUntil = Number(session && session.tick || 0) + TOPDOWN_BALANCE.nuclearHuskDuration;
+        enemy.hp = 0;
+        enemy.bossShield = 0;
+        enemy.bossShieldMax = 0;
+        enemy.speed = 0;
+        enemy.fireCooldown = 999;
+        enemy.specialAttackCooldown = 999;
+        enemy.bulletCount = 0;
+        enemy.burnTime = 0;
+        enemy.burnStacks = 0;
+        enemy.burnDamage = 0;
+        enemy.burnTick = 0;
+        enemy.iceStacks = 0;
+        enemy.frozenTime = 0;
+        enemy.shocked = false;
+        enemy.auraActive = false;
+        enemy.wardenFieldActive = false;
+        enemy.repulseCooldown = 999;
+        enemy.radius = Math.max(10, Number(enemy.radius || 12) * 0.82);
+    }
+
+    function topdownNuclearHuskCap(session) {
+        const ratio = Math.max(0, Math.min(1, Number(TOPDOWN_BALANCE.nuclearHuskCapRatio || 0)));
+        if (ratio <= 0) {
+            return 0;
+        }
+        return Math.max(1, Math.floor(Math.max(1, topdownTargetEnemyCount(session)) * ratio));
+    }
+
+    function topdownTryCreateNuclearHusk(session, enemy, bullet) {
+        if (!topdownCanBecomeNuclearHusk(enemy, bullet)) {
+            return false;
+        }
+        if (topdownActiveNuclearHuskCount(session) >= topdownNuclearHuskCap(session)) {
+            return false;
+        }
+        if (Math.random() >= TOPDOWN_BALANCE.nuclearHuskChance) {
+            return false;
+        }
+        transformTopdownNuclearHusk(session, enemy);
+        return true;
+    }
+
+    function topdownActiveNuclearHuskCount(session) {
+        if (!session || !Array.isArray(session.enemies)) {
+            return 0;
+        }
+        return session.enemies.reduce(function (count, enemy) {
+            return count + (enemy && enemy.corpseActive ? 1 : 0);
+        }, 0);
+    }
+
+    function topdownResolveNuclearHuskBonusDamage(session, enemy, bullet) {
+        if (!enemy || !bullet || bullet.element !== "nuclear" || !bullet.canUltimate || Number(bullet.elementLevel || 0) < TOPDOWN_BALANCE.elementCap) {
+            return 0;
+        }
+        const huskCount = topdownActiveNuclearHuskCount(session);
+        if (huskCount <= 0) {
+            return 0;
+        }
+        return topdownQuantizeDamage(Number(enemy.maxHp || 0) * huskCount * 0.01);
+    }
+
     function damageTopdownEnemy(session, enemy, amount) {
-        if (!enemy || enemy.remnantActive || topdownEnemyProtectedByBuffer(session, enemy)) {
+        if (!enemy || enemy.remnantActive || enemy.corpseActive || topdownEnemyProtectedByBuffer(session, enemy)) {
             return false;
         }
         let damageLeft = topdownQuantizeDamage(amount);
@@ -4916,53 +6533,61 @@
         return true;
     }
 
-    function applyElectricDamageModifier(enemy, amount, canUltimate) {
-        if (canUltimate && enemy.shocked) {
-            return amount * TOPDOWN_BALANCE.electricShockBonus;
+    function applyElectricDamageModifier(enemy, amount, isChain) {
+        let damage = Number(amount || 0) * (isChain ? TOPDOWN_BALANCE.electricChainDamageFactor : TOPDOWN_BALANCE.electricDirectDamageFactor);
+        if (enemy && enemy.shocked) {
+            damage *= TOPDOWN_BALANCE.electricShockBonus;
         }
-        return amount;
+        return topdownQuantizeDamage(damage);
     }
 
     function applyTopdownElement(session, bullet, enemy, killedIds) {
-        if (!enemy || enemy.remnantActive || topdownEnemyProtectedByBuffer(session, enemy)) {
+        if (!enemy || enemy.remnantActive || enemy.corpseActive || topdownEnemyProtectedByBuffer(session, enemy)) {
             return;
         }
         if (bullet.element === "fire" && bullet.elementLevel > 0) {
-            enemy.burnStacks = Math.min(TOPDOWN_BALANCE.burnStackMax, Number(enemy.burnStacks || 0) + 1);
-            enemy.burnTime = Math.max(enemy.burnTime, TOPDOWN_BALANCE.burnDuration + bullet.elementLevel * 0.2);
-            enemy.burnDamage = Math.max(
-                enemy.burnDamage,
-                TOPDOWN_BALANCE.burnDamageBase
-                    + bullet.elementLevel * TOPDOWN_BALANCE.burnDamagePerLevel
-                    + enemy.burnStacks * TOPDOWN_BALANCE.burnDamagePerStack
-            );
+            const hadMaxBurnStacks = Number(enemy.burnStacks || 0) >= TOPDOWN_BALANCE.burnStackMax;
+            const stackDelta = Math.max(1, Math.floor(Number(bullet.elementLevel || 1)));
+            topdownApplyBurnState(enemy, bullet.elementLevel, stackDelta);
             if (bullet.aoeStacks > 0 && bullet.aoeRadius > 0) {
                 spawnTopdownAoeBurst(session, enemy.x, enemy.y, bullet.aoeRadius, "fire", topdownIsUltimateProjectile(bullet));
                 session.enemies.forEach(function (target) {
-                    if (target.id === enemy.id || target.remnantActive || topdownEnemyProtectedByBuffer(session, target) || distanceBetween(target, enemy) > bullet.aoeRadius + target.radius) {
+                    if (target.id === enemy.id || target.remnantActive || target.corpseActive || topdownEnemyProtectedByBuffer(session, target) || distanceBetween(target, enemy) > bullet.aoeRadius + target.radius) {
                         return;
                     }
-                    target.burnStacks = Math.min(TOPDOWN_BALANCE.burnStackMax, Number(target.burnStacks || 0) + bullet.aoeStacks);
-                    target.burnTime = Math.max(target.burnTime, TOPDOWN_BALANCE.burnDuration + bullet.elementLevel * 0.18);
-                    target.burnDamage = Math.max(
-                        Number(target.burnDamage || 0),
-                        TOPDOWN_BALANCE.burnDamageBase
-                            + bullet.elementLevel * TOPDOWN_BALANCE.burnDamagePerLevel
-                            + target.burnStacks * TOPDOWN_BALANCE.burnDamagePerStack
-                    );
+                    topdownApplyBurnState(target, bullet.elementLevel, stackDelta);
                 });
+            }
+            if (hadMaxBurnStacks) {
+                const spreadRadius = Math.max(TOPDOWN_BALANCE.fireMaxSpreadRadius, Number(bullet.aoeRadius || 0));
+                spawnTopdownAoeBurst(session, enemy.x, enemy.y, spreadRadius, "fire", topdownIsUltimateProjectile(bullet));
+                session.enemies.forEach(function (target) {
+                    if (target.id === enemy.id || target.remnantActive || target.corpseActive || topdownEnemyProtectedByBuffer(session, target) || distanceBetween(target, enemy) > spreadRadius + target.radius) {
+                        return;
+                    }
+                    target.burnStacks = 0;
+                    target.burnTime = 0;
+                    target.burnDamage = 0;
+                    target.burnTick = 0;
+                    topdownApplyBurnState(target, bullet.elementLevel, TOPDOWN_BALANCE.burnStackMax);
+                });
+            }
+            if (bullet.owner === "player" && Number(enemy.hp || 0) > TOPDOWN_BALANCE.killEpsilon && Number(enemy.burnStacks || 0) >= TOPDOWN_BALANCE.burnStackMax) {
+                if (damageTopdownEnemy(session, enemy, Number(enemy.maxHp || 0) * 0.05)) {
+                    killedIds.push(enemy.id);
+                }
             }
         }
         if (bullet.element === "ice" && bullet.elementLevel > 0) {
             const wasFullyFrozen = Number(enemy.frozenTime || 0) > 0;
-            enemy.iceStacks += 1 + Math.floor(bullet.elementLevel / 2);
+            enemy.iceStacks = Number(enemy.iceStacks || 0) + 1;
             if (bullet.aoeStacks > 0 && bullet.aoeRadius > 0) {
                 spawnTopdownAoeBurst(session, enemy.x, enemy.y, bullet.aoeRadius, "ice", topdownIsUltimateProjectile(bullet));
                 session.enemies.forEach(function (target) {
-                    if (target.id === enemy.id || target.remnantActive || topdownEnemyProtectedByBuffer(session, target) || distanceBetween(target, enemy) > bullet.aoeRadius + target.radius) {
+                    if (target.id === enemy.id || target.remnantActive || target.corpseActive || topdownEnemyProtectedByBuffer(session, target) || distanceBetween(target, enemy) > bullet.aoeRadius + target.radius) {
                         return;
                     }
-                    target.iceStacks += bullet.aoeStacks;
+                    target.iceStacks = Number(target.iceStacks || 0) + 1;
                     if (target.iceStacks >= TOPDOWN_BALANCE.iceFreezeStacks) {
                         target.frozenTime = Math.max(Number(target.frozenTime || 0), TOPDOWN_BALANCE.iceFreezeDuration + bullet.elementLevel * 0.08);
                         target.iceStacks = 0;
@@ -4979,40 +6604,64 @@
             }
         }
         if (bullet.element === "electric" && bullet.elementLevel > 0) {
+            const isUltimateElectric = bullet.canUltimate && bullet.elementLevel >= TOPDOWN_BALANCE.elementCap;
             const chains = Math.max(TOPDOWN_BALANCE.electricBaseChains, bullet.elementLevel);
-            if (enemy.hp > 0 && bullet.canUltimate && Math.random() < TOPDOWN_BALANCE.electricShockChance) {
-                enemy.shocked = true;
-            }
-            session.enemies
+            const chainedTargets = session.enemies
                 .filter(function (target) {
                     return target.id !== enemy.id
                         && !target.remnantActive
+                        && !target.corpseActive
                         && !topdownEnemyProtectedByBuffer(session, target)
                         && killedIds.indexOf(target.id) === -1;
                 })
                 .sort(function (a, b) { return distanceBetween(a, enemy) - distanceBetween(b, enemy); })
-                .slice(0, chains)
-                .forEach(function (target) {
+                .slice(0, chains);
+            const anchor = { id: enemy.id, x: enemy.x, y: enemy.y };
+            const hpBonusDamage = isUltimateElectric && chainedTargets.length === 0
+                ? topdownQuantizeDamage(Number(enemy.hp || 0) / 7)
+                : 0;
+            const directDamage = topdownQuantizeDamage(applyElectricDamageModifier(enemy, bullet.damage, false) + hpBonusDamage);
+            if (damageTopdownEnemy(session, enemy, directDamage)) {
+                killedIds.push(enemy.id);
+            } else if (enemy.hp > 0 && bullet.canUltimate && Math.random() < TOPDOWN_BALANCE.electricUltimateDirectShockChance) {
+                enemy.shocked = true;
+            }
+            const chainVisualLimit = bullet.noBeamVisuals ? Math.max(1, Math.floor(Number(TOPDOWN_BALANCE.electricChainVisualCap || 3))) : chainedTargets.length;
+            chainedTargets.forEach(function (target, chainIndex) {
+                if (!bullet.noBeamVisuals || chainIndex < chainVisualLimit) {
                     session.beams.push({
                         fromX: enemy.x,
                         fromY: enemy.y,
                         toX: target.x,
                         toY: target.y,
-                        color: "#facc15",
+                        color: bullet.noBeamVisuals ? "rgba(250, 204, 21, 0.62)" : "#facc15",
                         life: TOPDOWN_BALANCE.electricBeamLife,
-                        width: 2 + bullet.elementLevel * 0.35,
+                        width: bullet.noBeamVisuals ? Math.max(1.2, 1.2 + bullet.elementLevel * 0.18) : (2 + bullet.elementLevel * 0.35),
                         element: "electric",
                         elementLevel: bullet.elementLevel,
                         canUltimate: bullet.canUltimate,
                         ultimate: topdownIsUltimateProjectile(bullet)
                     });
-                    const chainDamage = applyElectricDamageModifier(target, bullet.damage * TOPDOWN_BALANCE.electricDamageFactor, bullet.canUltimate);
-                    if (damageTopdownEnemy(session, target, chainDamage)) {
-                        killedIds.push(target.id);
-                    } else if (bullet.canUltimate && Math.random() < TOPDOWN_BALANCE.electricShockChance) {
-                        target.shocked = true;
+                }
+                const chainDamage = topdownQuantizeDamage(applyElectricDamageModifier(target, bullet.damage, true));
+                if (damageTopdownEnemy(session, target, chainDamage)) {
+                    killedIds.push(target.id);
+                } else if (bullet.canUltimate && Math.random() < TOPDOWN_BALANCE.electricUltimateChainShockChance) {
+                    target.shocked = true;
+                }
+            });
+            if (TOPDOWN_BALANCE.electricMagnetDuration > 0 && TOPDOWN_BALANCE.electricMagnetStrength > 0) {
+                const duration = Number(TOPDOWN_BALANCE.electricMagnetDuration || 0);
+                [enemy].concat(chainedTargets).forEach(function (target) {
+                    if (!target || target.hp <= 0) {
+                        return;
                     }
+                    target.magnetPullLeft = Math.max(Number(target.magnetPullLeft || 0), duration);
+                    target.magnetPullEnemyId = anchor.id;
+                    target.magnetPullX = anchor.x;
+                    target.magnetPullY = anchor.y;
                 });
+            }
         }
         if (bullet.element === "nuclear" && bullet.elementLevel > 0) {
             const radius = TOPDOWN_BALANCE.nuclearBaseRadius + bullet.elementLevel * TOPDOWN_BALANCE.nuclearRadiusPerLevel;
@@ -5021,8 +6670,13 @@
                 spawnTopdownRadiationZone(session, enemy.x, enemy.y, radius, bullet.damage * TOPDOWN_BALANCE.nuclearDamageFactor, getTopdownDerivedStats(session, false).fireInterval);
             }
             session.enemies.forEach(function (target) {
-                if (target.id !== enemy.id && !target.remnantActive && distanceBetween(target, enemy) <= radius + target.radius) {
-                    damageTopdownEnemy(session, target, bullet.damage * TOPDOWN_BALANCE.nuclearDamageFactor);
+                if (target.id !== enemy.id && !target.remnantActive && !target.corpseActive && !topdownEnemyProtectedByBuffer(session, target) && distanceBetween(target, enemy) <= radius + target.radius) {
+                    const nuclearDamage = bullet.damage * TOPDOWN_BALANCE.nuclearDamageFactor + topdownResolveNuclearHuskBonusDamage(session, target, bullet);
+                    if (damageTopdownEnemy(session, target, nuclearDamage)) {
+                        if (!topdownTryCreateNuclearHusk(session, target, bullet)) {
+                            killedIds.push(target.id);
+                        }
+                    }
                 }
             });
         }
@@ -5094,14 +6748,19 @@
             tick: 0,
             status: "playing",
             submittedScore: false,
+            timeBonusAwarded: false,
+            timeBonusScore: 0,
+            achievementRecorded: false,
             pendingUpgrade: null,
             pendingPickupChoice: null,
+            pendingReviveChoice: null,
             rerollsRemaining: TOPDOWN_BALANCE.totalRerolls,
             nextEliteAt: TOPDOWN_BALANCE.eliteEveryKills,
             elitesSinceBoss: 0,
             nextBossEliteGoal: 5,
             bossesDefeated: 0,
             metaRewardGranted: false,
+            reviveUsed: false,
             cosmeticBonuses: cosmeticBonuses,
             startUpgradeChoicesRemaining: Math.max(0, Math.floor(Number(cosmeticBonuses.startUpgradeChoices || 0))),
             moveControl: config.moveControl === "mouse" ? "mouse" : "keyboard",
@@ -5205,14 +6864,19 @@
             tick: Number(raw.tick || 0),
             status: normalizedStatus,
             submittedScore: Boolean(raw.submittedScore),
+            timeBonusAwarded: Boolean(raw.timeBonusAwarded),
+            timeBonusScore: Math.max(0, Number(raw.timeBonusScore || 0)),
+            achievementRecorded: Boolean(raw.achievementRecorded),
             pendingUpgrade: raw.pendingUpgrade && Array.isArray(raw.pendingUpgrade.choices) ? raw.pendingUpgrade : null,
             pendingPickupChoice: raw.pendingPickupChoice && Array.isArray(raw.pendingPickupChoice.choices) ? raw.pendingPickupChoice : null,
+            pendingReviveChoice: raw.pendingReviveChoice && typeof raw.pendingReviveChoice === "object" ? Object.assign({}, raw.pendingReviveChoice) : null,
             rerollsRemaining: Math.max(0, Number(raw.rerollsRemaining == null ? TOPDOWN_BALANCE.totalRerolls : raw.rerollsRemaining)),
             nextEliteAt: Math.max(TOPDOWN_BALANCE.eliteEveryKills, Number(raw.nextEliteAt || TOPDOWN_BALANCE.eliteEveryKills)),
             elitesSinceBoss: Math.max(0, Number(raw.elitesSinceBoss || 0)),
             nextBossEliteGoal: Math.max(1, Number(raw.nextBossEliteGoal || Math.max(1, 5 - Number(raw.bossesDefeated || 0)))),
             bossesDefeated: Math.max(0, Number(raw.bossesDefeated || 0)),
             metaRewardGranted: Boolean(raw.metaRewardGranted),
+            reviveUsed: Boolean(raw.reviveUsed),
             cosmeticBonuses: normalizeTopdownRunCosmeticBonuses(raw.cosmeticBonuses),
             startUpgradeChoicesRemaining: Math.max(0, Math.floor(Number(raw.startUpgradeChoicesRemaining || 0))),
             moveControl: raw.moveControl === "mouse" ? "mouse" : (raw.controlMode === "mouse-auto" ? "mouse" : "keyboard"),
@@ -5247,6 +6911,10 @@
             session.player.wingmanCooldowns.push(0);
         }
         session.player.wingmanCooldowns = session.player.wingmanCooldowns.slice(0, session.build.wingmanLevel);
+        if (session.pendingReviveChoice && session.status === "playing") {
+            session.status = "paused";
+            session.pausedElapsed = session.elapsedSeconds;
+        }
         session.bullets = session.bullets.map(function (bullet) {
             return topdownNormalizeBulletState(session, bullet);
         });
@@ -5258,6 +6926,12 @@
                 enemy.bossShield = topdownQuantizeHp(enemy.bossShield);
                 enemy.bossShieldMax = topdownQuantizeHp(enemy.bossShieldMax || enemy.bossShield);
                 enemy.burnDamage = topdownQuantizeDamage(enemy.burnDamage);
+                enemy.shocked = enemy.shocked === true;
+                enemy.corpseActive = enemy.corpseActive === true;
+                enemy.corpseUntil = Math.max(0, Number(enemy.corpseUntil || 0));
+                enemy.luseTriggered = enemy.luseTriggered === true;
+                enemy.luseBurstShotsLeft = Math.max(0, Math.floor(Number(enemy.luseBurstShotsLeft || 0)));
+                enemy.luseBurstCooldown = Math.max(0, Number(enemy.luseBurstCooldown || 0));
                 if (enemy.eliteType === "warden") {
                     enemy.wardenFieldActive = enemy.wardenFieldActive !== false;
                     enemy.wardenFieldTimer = Math.max(0, Number(enemy.wardenFieldTimer || TOPDOWN_BALANCE.wardenFieldOnDuration));
@@ -5363,9 +7037,9 @@
         if (build.skillDurationLevel < TOPDOWN_BALANCE.skillUpgradeCap) {
             addUpgrade(
                 "skill-duration",
-                session.skill && session.skill.key === "blink" ? "闪现距离" : "技能持续",
+                "技能持续",
                 session.skill && session.skill.key === "blink"
-                    ? ("闪现距离 +5%，当前 " + Math.round(topdownSkillBlinkDistance(session)) + "。")
+                    ? ("权杖持续时间 +5%，当前 " + topdownSkillZeusDuration(session).toFixed(1) + "s。")
                     : ("技能持续时间 +5%，当前倍率 " + topdownSkillEffectMultiplier(session).toFixed(2) + "x。"),
                 function () {
                     build.skillDurationLevel += 1;
@@ -5439,6 +7113,7 @@
         modal: null,
         view: "draw",
         showLocked: true,
+        sortDescending: false,
         equipGame: "topdown",
         equipCategory: "color",
         flashMessage: "",
@@ -5697,6 +7372,269 @@
         return '<span class="' + classes + '">' + escapeHtml(topdownIconPreviewGlyph(icon)) + '</span>';
     }
 
+    function topdownMetaEffectPercent(multiplier, invert) {
+        const value = Number(multiplier || 1);
+        if (Math.abs(value - 1) < 0.0001) {
+            return "";
+        }
+        const delta = Math.round(Math.abs(1 - value) * 100);
+        if (delta <= 0) {
+            return "";
+        }
+        return (invert ? (value < 1 ? "+" : "-") : (value > 1 ? "+" : "-")) + delta + "%";
+    }
+
+    function topdownMetaBonusesForPreview(kind, key) {
+        const catalog = topdownCatalogForKind(kind);
+        const item = catalog[key] || {};
+        const bonuses = {
+            startUpgradeChoices: 0,
+            attackMultiplier: 1,
+            damageFlat: 0,
+            fireRateMultiplier: 1,
+            moveSpeedMultiplier: 1,
+            wingmanMaxBonus: 0,
+            enemySpeedMultiplier: 1,
+            enemyBulletSpeedMultiplier: 1,
+            enemyFireCooldownMultiplier: 1,
+            colorBonusLabel: "",
+            iconBonusLabel: "",
+            backgroundBonusLabel: ""
+        };
+        if (kind === "color" && (item.tier === "rare" || item.tier === "superrare")) {
+            topdownMergeCosmeticBonus(bonuses, topdownColorBonusPreset(item));
+            bonuses.colorBonusLabel = topdownColorBonusPreset(item).label || "";
+            return bonuses;
+        }
+        if (kind === "icon") {
+            if (item.tier === "rare") {
+                bonuses.startUpgradeChoices = TOPDOWN_BALANCE.rareIconStartChoices;
+            } else if (item.tier === "superrare") {
+                bonuses.startUpgradeChoices = TOPDOWN_BALANCE.superRareIconStartChoices;
+                topdownMergeCosmeticBonus(bonuses, topdownIconBonusPreset(item));
+                bonuses.iconBonusLabel = topdownIconBonusPreset(item).label || "";
+            }
+            return bonuses;
+        }
+        if (kind === "background" && (item.tier === "rare" || item.tier === "superrare")) {
+            topdownMergeCosmeticBonus(bonuses, topdownBackgroundBonusPreset(item));
+            bonuses.backgroundBonusLabel = topdownBackgroundBonusPreset(item).label || "";
+        }
+        return bonuses;
+    }
+
+    function topdownMetaSortLabel() {
+        return topdownMetaUi.sortDescending ? "稀有度：高 -> 低" : "稀有度：低 -> 高";
+    }
+
+    function topdownMetaEffectLines(kind, key, item) {
+        const bonuses = topdownMetaBonusesForPreview(kind, key);
+        const lines = [];
+        if (kind === "color") {
+            if (bonuses.colorBonusLabel) {
+                lines.push("局内效果：" + bonuses.colorBonusLabel);
+            }
+            if (Number(bonuses.attackMultiplier || 1) > 1.0001) {
+                lines.push("攻击倍率 " + topdownMetaEffectPercent(bonuses.attackMultiplier, false));
+            }
+            if (Number(bonuses.damageFlat || 0) > 0) {
+                lines.push("额外攻击 +" + Number(bonuses.damageFlat).toFixed(1));
+            }
+            if (Number(bonuses.fireRateMultiplier || 1) < 0.9999) {
+                lines.push("射速 " + topdownMetaEffectPercent(bonuses.fireRateMultiplier, true));
+            }
+            if (Number(bonuses.moveSpeedMultiplier || 1) > 1.0001) {
+                lines.push("移速 " + topdownMetaEffectPercent(bonuses.moveSpeedMultiplier, false));
+            }
+            if (Number(bonuses.wingmanMaxBonus || 0) > 0) {
+                lines.push("僚机上限 +" + bonuses.wingmanMaxBonus);
+            }
+            if (!lines.length) {
+                lines.push("改变外观表现，不提供局内数值加成。");
+            }
+            if (item && item.effect) {
+                lines.push("视觉：" + String(item.effect));
+            }
+            return lines;
+        }
+        if (kind === "icon") {
+            if (bonuses.iconBonusLabel) {
+                lines.push("局内效果：" + bonuses.iconBonusLabel);
+            }
+            if (bonuses.startUpgradeChoices > 0) {
+                lines.push("开局强化选择 +" + bonuses.startUpgradeChoices);
+            } else {
+                lines.push("改变图标外观。");
+            }
+            if (Number(bonuses.attackMultiplier || 1) > 1.0001) {
+                lines.push("攻击倍率 " + topdownMetaEffectPercent(bonuses.attackMultiplier, false));
+            }
+            if (Number(bonuses.damageFlat || 0) > 0) {
+                lines.push("额外攻击 +" + Number(bonuses.damageFlat).toFixed(1));
+            }
+            if (Number(bonuses.fireRateMultiplier || 1) < 0.9999) {
+                lines.push("射速 " + topdownMetaEffectPercent(bonuses.fireRateMultiplier, true));
+            }
+            if (Number(bonuses.moveSpeedMultiplier || 1) > 1.0001) {
+                lines.push("移速 " + topdownMetaEffectPercent(bonuses.moveSpeedMultiplier, false));
+            }
+            if (Number(bonuses.wingmanMaxBonus || 0) > 0) {
+                lines.push("僚机上限 +" + bonuses.wingmanMaxBonus);
+            }
+            return lines;
+        }
+        if (bonuses.backgroundBonusLabel) {
+            lines.push("局内效果：" + bonuses.backgroundBonusLabel);
+        }
+        if (Number(bonuses.enemySpeedMultiplier || 1) < 0.9999) {
+            lines.push("敌人移速降低 " + topdownMetaEffectPercent(bonuses.enemySpeedMultiplier, true));
+        }
+        if (Number(bonuses.enemyBulletSpeedMultiplier || 1) < 0.9999) {
+            lines.push("敌弹速度降低 " + topdownMetaEffectPercent(bonuses.enemyBulletSpeedMultiplier, true));
+        }
+        if (Number(bonuses.enemyFireCooldownMultiplier || 1) > 1.0001) {
+            lines.push("敌人射速降低 " + topdownMetaEffectPercent(bonuses.enemyFireCooldownMultiplier, false));
+        }
+        if (!lines.length) {
+            lines.push("统一背景外观，可用于 Topdown、五子棋与炸金花。");
+        }
+        return lines;
+    }
+
+    function topdownMetaEffectHtml(kind, key, item) {
+        return '<span class="topdown-meta-skin-effect">' + escapeHtml(topdownMetaEffectLines(kind, key, item).join(" / ")) + '</span>';
+    }
+
+    function topdownMetaActiveEffectsHtml() {
+        const metaState = topdownMetaState();
+        const appearance = topdownEquippedAppearance(metaState);
+        return [
+            '<div class="topdown-meta-effect-grid">',
+            '  <div class="topdown-meta-effect-card"><strong>当前颜色效果</strong><span>' + escapeHtml(topdownMetaEffectLines("color", appearance.color.key, appearance.color).join(" / ")) + '</span></div>',
+            '  <div class="topdown-meta-effect-card"><strong>当前图标效果</strong><span>' + escapeHtml(topdownMetaEffectLines("icon", appearance.icon.key, appearance.icon).join(" / ")) + '</span></div>',
+            '  <div class="topdown-meta-effect-card"><strong>当前背景效果</strong><span>' + escapeHtml(topdownMetaEffectLines("background", appearance.background.key, appearance.background).join(" / ")) + '</span></div>',
+            '</div>'
+        ].join("");
+    }
+
+    function topdownAchievementGroupLabel(groupKey) {
+        if (groupKey === "sudoku") {
+            return "数独";
+        }
+        if (groupKey === "game2048") {
+            return "2048";
+        }
+        if (groupKey === "frontline") {
+            return "前线";
+        }
+        if (groupKey === "gomoku") {
+            return "五子棋";
+        }
+        if (groupKey === "gacha") {
+            return "抽奖收藏";
+        }
+        if (groupKey === "collection") {
+            return "收藏总览";
+        }
+        return "俯视射击";
+    }
+
+    function topdownAchievementBadgeChipHtml(badge, className) {
+        const safeBadge = badge || {};
+        const tierKey = topdownAchievementTierTheme(safeBadge.tier).key;
+        return [
+            '<span class="' + escapeHtml(className || "topdown-achievement-badge-chip") + ' topdown-achievement-badge-chip--' + escapeHtml(tierKey) + '">',
+            '  <span class="topdown-achievement-badge-glyph">' + escapeHtml(safeBadge.glyph || "✦") + '</span>',
+            '  <span class="topdown-achievement-badge-text">' + escapeHtml(safeBadge.badgeText || "") + '</span>',
+            '</span>'
+        ].join("");
+    }
+
+    function topdownAchievementCardHtml(achievement, selectedId) {
+        const tierInfo = topdownAchievementTierTheme(achievement.tier);
+        const selected = selectedId === achievement.id;
+        return [
+            '<div class="topdown-achievement-card is-' + escapeHtml(tierInfo.key) + (achievement.unlocked ? " is-unlocked" : " is-locked") + (selected ? " is-selected" : "") + '">',
+            '  <div class="topdown-achievement-card-head">',
+            topdownAchievementBadgeChipHtml(achievement, "topdown-achievement-badge-chip"),
+            '    <div class="topdown-achievement-head-copy">',
+            '      <strong>' + escapeHtml(achievement.name) + '</strong>',
+            '      <span>' + escapeHtml(tierInfo.label + " · " + topdownAchievementGroupLabel(achievement.group)) + '</span>',
+            '    </div>',
+            '  </div>',
+            '  <div class="topdown-achievement-card-body">',
+            '    <div class="topdown-achievement-desc">' + escapeHtml(achievement.description) + '</div>',
+            '    <div class="topdown-achievement-progress">' + escapeHtml(achievement.progressText) + '</div>',
+            '  </div>',
+            '  <div class="topdown-achievement-card-actions">',
+            achievement.unlocked
+                ? ('    <button type="button" class="games-btn' + (selected ? " games-btn--primary" : "") + '" data-topdown-achievement-select="' + escapeHtml(achievement.id) + '">' + (selected ? "展示中" : "设为展示") + "</button>")
+                : '    <span class="topdown-achievement-locked">未达成</span>',
+            '  </div>',
+            '</div>'
+        ].join("");
+    }
+
+    function topdownMetaAchievementViewHtml() {
+        const metaState = topdownMetaState();
+        const summary = topdownAchievementSummary(metaState);
+        const selectedBadge = topdownSelectedAchievementBadge(metaState);
+        const selectedId = selectedBadge ? selectedBadge.id : "";
+        const achievements = topdownResolveAchievements(metaState);
+        const groupOrder = ["topdown", "sudoku", "game2048", "frontline", "gomoku", "gacha", "collection"];
+        const groupedHtml = groupOrder.map(function (groupKey) {
+            const items = achievements.filter(function (entry) {
+                return entry.group === groupKey;
+            });
+            if (!items.length) {
+                return "";
+            }
+            return [
+                '<section class="games-insight-panel topdown-meta-panel topdown-achievement-section">',
+                '  <div class="topdown-meta-section-head"><div class="games-section-title">' + escapeHtml(topdownAchievementGroupLabel(groupKey)) + '</div><div class="games-stage-meta">已解锁 ' + escapeHtml(String(items.filter(function (entry) { return entry.unlocked; }).length)) + ' / ' + escapeHtml(String(items.length)) + '</div></div>',
+                '  <div class="topdown-achievement-grid">' + items.map(function (entry) { return topdownAchievementCardHtml(entry, selectedId); }).join("") + '</div>',
+                '</section>'
+            ].join("");
+        }).join("");
+        return [
+            '<div class="topdown-meta-shell">',
+            '  <div class="topdown-meta-layout">',
+            '    <div class="topdown-meta-overview-section">',
+            '      <div class="games-insight-panel topdown-meta-overview">',
+            '        <div class="topdown-meta-overview-main">',
+            '          <div>',
+            '            <div class="games-section-title">成就陈列</div>',
+            '            <div class="games-stage-meta">已设计 ' + escapeHtml(String(summary.total)) + ' 个长期目标，解锁后可以任选一个徽章展示在排行榜昵称后。</div>',
+            '          </div>',
+            '          <div class="topdown-achievement-showcase">',
+            selectedBadge
+                ? (topdownAchievementBadgeChipHtml(selectedBadge, "topdown-achievement-badge-chip topdown-achievement-badge-chip--large")
+                    + '<div class="topdown-achievement-showcase-copy"><strong>' + escapeHtml(selectedBadge.name) + '</strong><span>当前展示徽章</span></div>')
+                : '<div class="topdown-achievement-showcase-copy is-empty"><strong>当前未展示徽章</strong><span>解锁后可在这里设为展示</span></div>',
+            '          </div>',
+            '        </div>',
+            '        <div class="topdown-meta-stat-grid">',
+            '          <div class="topdown-meta-stat"><span>已解锁成就</span><strong>' + escapeHtml(String(summary.unlocked)) + ' / ' + escapeHtml(String(summary.total)) + '</strong></div>',
+            '          <div class="topdown-meta-stat"><span>铜色徽章</span><strong>' + escapeHtml(String(summary.unlockedByTier.bronze)) + ' / ' + escapeHtml(String(summary.bronze)) + '</strong></div>',
+            '          <div class="topdown-meta-stat"><span>银色徽章</span><strong>' + escapeHtml(String(summary.unlockedByTier.silver)) + ' / ' + escapeHtml(String(summary.silver)) + '</strong></div>',
+            '          <div class="topdown-meta-stat"><span>金色徽章</span><strong>' + escapeHtml(String(summary.unlockedByTier.gold)) + ' / ' + escapeHtml(String(summary.gold)) + '</strong></div>',
+            '          <div class="topdown-meta-stat"><span>钻石徽章</span><strong>' + escapeHtml(String(summary.unlockedByTier.diamond)) + ' / ' + escapeHtml(String(summary.diamond)) + '</strong></div>',
+            '          <div class="topdown-meta-stat"><span>神话徽章</span><strong>' + escapeHtml(String(summary.unlockedByTier.mythic)) + ' / ' + escapeHtml(String(summary.mythic)) + '</strong></div>',
+            '        </div>',
+            '        <div class="topdown-achievement-toolbar">',
+            '          <button type="button" class="games-btn" data-topdown-achievement-clear="1"' + (selectedBadge ? "" : " disabled") + '>取消展示</button>',
+            '        </div>',
+            (topdownMetaUi.flashMessage ? ('        <div class="games-stage-meta topdown-meta-flash">' + escapeHtml(topdownMetaUi.flashMessage) + '</div>') : ''),
+            '      </div>',
+            '    </div>',
+            '    <div class="topdown-meta-equip-section">',
+            groupedHtml,
+            '    </div>',
+            '  </div>',
+            '</div>'
+        ].join("");
+    }
+
     function topdownMetaColorCardHtml(key, color) {
         const metaState = topdownMetaState();
         const owned = metaState.ownedColors.indexOf(key) !== -1;
@@ -5706,6 +7644,7 @@
             '  <span class="topdown-meta-skin-icon" style="' + topdownMetaPreviewStyle(color) + '"></span>',
             '  <span class="topdown-meta-skin-name">' + escapeHtml(color.label) + '</span>',
             '  <span class="topdown-meta-skin-state">' + escapeHtml(topdownMetaTierLabel(color.tier, "color")) + ' / ' + (equipped ? "已装备" : (owned ? "已拥有" : "未拥有")) + '</span>',
+            '  ' + topdownMetaEffectHtml("color", key, color),
             "</button>"
         ].join("");
     }
@@ -5720,6 +7659,7 @@
             '  ' + topdownMetaIconPreviewHtml(icon, "topdown-meta-skin-icon", appearance.color),
             '  <span class="topdown-meta-skin-name">' + escapeHtml(icon.label) + '</span>',
             '  <span class="topdown-meta-skin-state">' + escapeHtml(topdownMetaTierLabel(icon.tier, "icon")) + ' / ' + (equipped ? "已装备" : (owned ? "已拥有" : "未拥有")) + '</span>',
+            '  ' + topdownMetaEffectHtml("icon", key, icon),
             "</button>"
         ].join("");
     }
@@ -5733,6 +7673,7 @@
             '  <span class="topdown-meta-skin-icon topdown-meta-background-preview" style="' + topdownBackgroundPreviewStyle(background) + '"></span>',
             '  <span class="topdown-meta-skin-name">' + escapeHtml(background.label) + '</span>',
             '  <span class="topdown-meta-skin-state">' + escapeHtml(topdownMetaTierLabel(background.tier, "background")) + ' / ' + (equipped ? "已装备" : (owned ? "已拥有" : "未拥有")) + '</span>',
+            '  ' + topdownMetaEffectHtml("background", key, background),
             "</button>"
         ].join("");
     }
@@ -5977,6 +7918,14 @@
                 iconHint: "五子棋棋子图标双方可见，可复用 Topdown 已抽到的图标。",
                 backgroundHint: "五子棋棋盘背景自己可见，使用统一背景接口。"
             },
+            zhajinhua: {
+                label: "炸金花",
+                summary: "扑克 / 牌心徽标 / 牌桌背景",
+                categories: ["color", "icon", "background"],
+                colorHint: "炸金花会把已装备颜色用于扑克牌主色与玩家气泡底色。",
+                iconHint: "炸金花会把已装备图标作为牌心徽标显示在扑克牌中央。",
+                backgroundHint: "炸金花会把已装备背景用于房间与牌桌背景展示。"
+            },
             sudoku: {
                 label: "数独",
                 summary: "盘面背景 / 高亮色",
@@ -6005,20 +7954,20 @@
         const metaState = topdownMetaState();
         if (category === "icon") {
             const iconCatalog = topdownIconCatalog();
-            const iconKeys = topdownSortCatalogKeysByTier(iconCatalog).filter(function (key) {
+            const iconKeys = topdownSortCatalogKeysByTier(iconCatalog, topdownMetaUi.sortDescending).filter(function (key) {
                 return topdownMetaUi.showLocked || metaState.ownedIcons.indexOf(key) !== -1;
             });
             return '<div class="topdown-meta-skins">' + iconKeys.map(function (key) { return topdownMetaIconCardHtml(key, iconCatalog[key]); }).join("") + '</div>';
         }
         if (category === "background") {
             const backgroundCatalog = topdownBackgroundCatalog();
-            const backgroundKeys = topdownSortCatalogKeysByTier(backgroundCatalog).filter(function (key) {
+            const backgroundKeys = topdownSortCatalogKeysByTier(backgroundCatalog, topdownMetaUi.sortDescending).filter(function (key) {
                 return topdownMetaUi.showLocked || metaState.ownedBackgrounds.indexOf(key) !== -1;
             });
             return '<div class="topdown-meta-skins topdown-meta-skins--backgrounds">' + backgroundKeys.map(function (key) { return topdownMetaBackgroundCardHtml(key, backgroundCatalog[key]); }).join("") + '</div>';
         }
         const colorCatalog = topdownColorCatalog();
-        const colorKeys = topdownSortCatalogKeysByTier(colorCatalog).filter(function (key) {
+        const colorKeys = topdownSortCatalogKeysByTier(colorCatalog, topdownMetaUi.sortDescending).filter(function (key) {
             return topdownMetaUi.showLocked || metaState.ownedColors.indexOf(key) !== -1;
         });
         return '<div class="topdown-meta-skins">' + colorKeys.map(function (key) { return topdownMetaColorCardHtml(key, colorCatalog[key]); }).join("") + '</div>';
@@ -6056,6 +8005,7 @@
             '        <input type="checkbox" data-topdown-show-locked="1"' + (topdownMetaUi.showLocked ? " checked" : "") + '>',
             '        <span>显示未拥有</span>',
             '      </label>',
+            '      <button type="button" class="topdown-meta-toggle-btn" data-topdown-sort-toggle="1">' + escapeHtml(topdownMetaSortLabel()) + '</button>',
             (topdownMetaUi.flashMessage ? ('      <div class="games-stage-meta topdown-meta-flash">' + escapeHtml(topdownMetaUi.flashMessage) + '</div>') : ''),
             '    </aside>',
             '    <section class="games-insight-panel topdown-meta-equip-content">',
@@ -6070,6 +8020,7 @@
             '        <div class="topdown-meta-stat"><span>当前游戏</span><strong>' + escapeHtml(game.label) + '</strong></div>',
             '        <div class="topdown-meta-stat"><span>' + escapeHtml(current.label) + '收藏</span><strong>' + escapeHtml(String(current.owned)) + ' / ' + escapeHtml(String(current.total)) + '</strong></div>',
             '      </div>',
+            topdownMetaActiveEffectsHtml(),
             topdownMetaEquipItemsHtml(category),
             '    </section>',
             '  </div>',
@@ -6079,18 +8030,18 @@
 
     function topdownMetaPanelHtml() {
         return [
-            '<div class="topdown-meta-root">',
+            '<div class="topdown-meta-root topdown-meta-root--' + escapeHtml(topdownMetaUi.view) + '">',
             '  <div class="topdown-meta-tabs">',
             '    <button type="button" class="topdown-meta-tab' + (topdownMetaUi.view === "draw" ? " is-active" : "") + '" data-topdown-meta-view="draw">抽奖</button>',
             '    <button type="button" class="topdown-meta-tab' + (topdownMetaUi.view === "equip" ? " is-active" : "") + '" data-topdown-meta-view="equip">装备</button>',
+            '    <button type="button" class="topdown-meta-tab' + (topdownMetaUi.view === "achievement" ? " is-active" : "") + '" data-topdown-meta-view="achievement">成就</button>',
             '  </div>',
             '  <div class="topdown-meta-view">',
-            (topdownMetaUi.view === "draw" ? topdownMetaDrawViewHtml() : topdownMetaEquipViewHtml()),
+            (topdownMetaUi.view === "draw" ? topdownMetaDrawViewHtml() : (topdownMetaUi.view === "achievement" ? topdownMetaAchievementViewHtml() : topdownMetaEquipViewHtml())),
             '  </div>',
             '</div>'
         ].join("");
     }
-
     function ensureTopdownMetaModal() {
         if (topdownMetaUi.modal) {
             return topdownMetaUi.modal;
@@ -6105,7 +8056,7 @@
             '  <div class="games-modal-head">',
             '    <div>',
             '      <div class="games-section-title">局外养成</div>',
-            '      <div class="games-stage-meta">统一管理抽到的颜色、图标与背景；Topdown、五子棋、数独、2048 和前线都会从这里选择外观。</div>',
+            '      <div class="games-stage-meta">统一管理抽到的颜色、图标与背景，Topdown、五子棋、炸金花、数独、2048 和前线都会从这里选择外观。</div>',
             "    </div>",
             '    <button type="button" class="games-modal-close" data-topdown-meta-close="1">关闭</button>',
             "  </div>",
@@ -6126,9 +8077,12 @@
                 "[data-topdown-meta-view]",
                 "[data-topdown-equip-category]",
                 "[data-topdown-equip-game]",
+                "[data-topdown-sort-toggle]",
                 "[data-topdown-equip-color]",
                 "[data-topdown-equip-icon]",
                 "[data-topdown-equip-background]",
+                "[data-topdown-achievement-select]",
+                "[data-topdown-achievement-clear]",
                 "[data-topdown-draw-color]",
                 "[data-topdown-draw-color-ten]",
                 "[data-topdown-draw-icon]",
@@ -6144,7 +8098,7 @@
                 return;
             }
             const nextView = actionTarget.getAttribute("data-topdown-meta-view");
-            if (nextView === "draw" || nextView === "equip") {
+            if (nextView === "draw" || nextView === "equip" || nextView === "achievement") {
                 if (topdownMetaAnyRollActive()) {
                     topdownMetaUi.flashMessage = "当前正在开奖，请等待滚动结束。";
                     renderTopdownMetaModal();
@@ -6168,6 +8122,32 @@
                 if (game.categories.indexOf(topdownMetaUi.equipCategory) === -1) {
                     topdownMetaUi.equipCategory = game.categories[0] || "color";
                 }
+                renderTopdownMetaModal();
+                return;
+            }
+            if (actionTarget.hasAttribute("data-topdown-sort-toggle")) {
+                topdownMetaUi.sortDescending = !topdownMetaUi.sortDescending;
+                renderTopdownMetaModal();
+                return;
+            }
+            const achievementId = actionTarget.getAttribute("data-topdown-achievement-select");
+            if (achievementId) {
+                const nextState = topdownSetSelectedAchievementBadge(topdownMetaState(), achievementId);
+                setTopdownSharedMetaState(nextState);
+                topdownMetaUi.flashMessage = "已设置展示徽章。";
+                persistTopdownMetaState();
+                loadProfile().catch(function () {});
+                refreshScorePanels().catch(function () {});
+                renderTopdownMetaModal();
+                return;
+            }
+            if (actionTarget.hasAttribute("data-topdown-achievement-clear")) {
+                const nextState = topdownSetSelectedAchievementBadge(topdownMetaState(), "");
+                setTopdownSharedMetaState(nextState);
+                topdownMetaUi.flashMessage = "已取消展示徽章。";
+                persistTopdownMetaState();
+                loadProfile().catch(function () {});
+                refreshScorePanels().catch(function () {});
                 renderTopdownMetaModal();
                 return;
             }
@@ -6290,10 +8270,10 @@
         if (typeof state.topdownMetaBeforeOpen === "function") {
             state.topdownMetaBeforeOpen();
         }
-        if (!state.topdownMetaState) {
-            const payload = await loadGameState("topdown-shooter-meta").catch(function () { return { state: {} }; });
-            setTopdownSharedMetaState((payload && payload.state) || {});
-        }
+        const payload = await loadGameState("topdown-shooter-meta", { preferRemote: true }).catch(function () {
+            return loadGameState("topdown-shooter-meta").catch(function () { return { state: {} }; });
+        });
+        setTopdownSharedMetaState((payload && payload.state) || {});
         if (!state.profile) {
             await loadProfile().catch(function () {});
         }
@@ -6630,6 +8610,7 @@
         bindStaticEvents();
         try {
             await Promise.all([loadProfile(), loadManifest(), refreshScorePanels(), loadOnlineVisitors()]);
+            initGamesChat();
             state.activeGameId = config.initialGameId || (((state.manifest.games || [])[0] || {}).id) || null;
             renderGameNav();
             startPresenceLoop();
