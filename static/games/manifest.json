@@ -42,6 +42,14 @@
       "tags": ["单机", "策略", "原型"]
     },
     {
+      "id": "shi",
+      "title": "士",
+      "summary": "单线双侧动作构筑原型，支持前压 / 截击 / 后撤三段步法、左右攻击、方向格挡、装备掉落与自动存档。",
+      "engine": "builtin",
+      "status": "beta",
+      "tags": ["单机", "动作", "构筑"]
+    },
+    {
       "id": "topdown-shooter",
       "title": "Top-Down Shooter",
       "summary": "键鼠或键盘操作的俯视角射击，支持波次、续玩和积分记录。",

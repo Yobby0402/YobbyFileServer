@@ -16,6 +16,7 @@
         sudoku: "games/game_sudoku.js",
         frontline: "games/game_frontline.js",
         gomoku: "games/game_gomoku.js",
+        shi: "games/game_shi.js",
         zhajinhua: "games/game_zhajinhua.js",
         "topdown-shooter": "games/game_topdown.js"
     };
@@ -1840,6 +1841,18 @@
                     return mountFrontlineModule(payloadFrontline, createGameModuleContext());
                 }
                 renderEmptyStage("前线模块加载失败，请刷新页面重试。");
+                return null;
+            });
+            return;
+        }
+        if (gameId === "shi") {
+            const payloadShi = await loadGameState("shi").catch(function () { return { state: {} }; });
+            const mountShiModule = await ensureGameModule("shi");
+            await mountIfCurrent(function () {
+                if (mountShiModule) {
+                    return mountShiModule(payloadShi, createGameModuleContext());
+                }
+                renderEmptyStage("《士》模块加载失败，请刷新页面重试。");
                 return null;
             });
             return;

@@ -1,0 +1,184 @@
+- generic [ref=e2]:
+  - complementary [ref=e3]:
+    - generic [ref=e4]:
+      - text: Dev Game
+      - heading "Games Hub" [level=1] [ref=e5]
+      - paragraph [ref=e6]: 把访客状态、游戏入口、在线信息和本地联机入口集中到一个页面里，方便随时开玩和继续进度。
+    - generic [ref=e7]:
+      - generic [ref=e8]:
+        - generic [ref=e10]: 访
+        - generic [ref=e11]:
+          - generic [ref=e12]: 当前访客
+          - generic [ref=e13]:
+            - generic [ref=e67]: 黑铁
+            - generic [ref=e68]: 访客 53CB3B
+            - generic [ref=e69]: 总积分
+          - generic [ref=e14]: 设备 3653cb3b
+      - generic [ref=e15]:
+        - generic [ref=e16]: 《士》已结算
+        - button "编辑资料" [ref=e18] [cursor=pointer]
+      - button "★ 局外养成 抽奖 / 装备 / 全游戏外观" [ref=e19] [cursor=pointer]:
+        - generic [ref=e20]: ★
+        - generic [ref=e21]:
+          - strong [ref=e22]: 局外养成
+          - generic [ref=e23]: 抽奖 / 装备 / 全游戏外观
+      - generic [ref=e24]: 老板键当前为 F9，触发后会立刻切到安全目录；当前游玩状态会展示给同一局域网内的在线访客。
+      - generic [ref=e25]: Games Hub 已就绪
+    - generic [ref=e26]:
+      - generic [ref=e27]: 在线访客
+      - generic [ref=e71]: 暂时没有其他在线访客。
+    - generic [ref=e28]:
+      - generic [ref=e29]: 游戏入口
+      - generic [ref=e30]:
+        - button "2048 · 带过渡动画、用时记录、自动续玩和分数入库的 2048。" [ref=e72] [cursor=pointer]:
+          - generic [ref=e73]: "20"
+          - generic [ref=e74]: "2048"
+          - text: 2048 · 带过渡动画、用时记录、自动续玩和分数入库的 2048。
+        - button "数独 · 包含经典 9x9 与 16 进制模式，支持续玩、计时和积分结算。" [ref=e75] [cursor=pointer]:
+          - generic [ref=e76]: 数
+          - generic [ref=e77]: 数独
+          - text: 数独 · 包含经典 9x9 与 16 进制模式，支持续玩、计时和积分结算。
+        - button "联机五子棋 · 局域网房间式五子棋，支持创建房间、准备、同步落子与历史对局结果。" [ref=e78] [cursor=pointer]:
+          - generic [ref=e79]: 五
+          - generic [ref=e80]: 联机五子棋
+          - text: 联机五子棋 · 局域网房间式五子棋，支持创建房间、准备、同步落子与历史对局结果。
+        - button "联机炸金花 · 房主设置底金的实时炸金花牌桌，支持 2-10 人上桌、观战聊天、每局重洗与积分结算。" [ref=e81] [cursor=pointer]:
+          - generic [ref=e82]: 扎
+          - generic [ref=e83]: 联机炸金花
+          - text: 联机炸金花 · 房主设置底金的实时炸金花牌桌，支持 2-10 人上桌、观战聊天、每局重洗与积分结算。
+        - button "攻占前线 · 固定地图原型版线路占领 RTS，支持自动存档、单机 AI 对战和积分结算。" [ref=e84] [cursor=pointer]:
+          - generic [ref=e85]: 线
+          - generic [ref=e86]: 攻占前线
+          - text: 攻占前线 · 固定地图原型版线路占领 RTS，支持自动存档、单机 AI 对战和积分结算。
+        - button "士 · 单线双侧动作构筑原型，支持前压后撤、左右攻击、方向格挡、装备掉落与自动存档。" [ref=e87] [cursor=pointer]:
+          - generic [ref=e88]: 士
+          - generic [ref=e89]: 士
+          - text: 士 · 单线双侧动作构筑原型，支持前压后撤、左右攻击、方向格挡、装备掉落与自动存档。
+        - button "Top-Down Shooter · 键鼠或键盘操作的俯视角射击，支持波次、续玩和积分记录。" [ref=e90] [cursor=pointer]:
+          - generic [ref=e91]: 射
+          - generic [ref=e92]: Top-Down Shooter
+          - text: Top-Down Shooter · 键鼠或键盘操作的俯视角射击，支持波次、续玩和积分记录。
+    - link " 返回入口页" [ref=e53] [cursor=pointer]:
+      - /url: /
+      - generic [ref=e54]: 
+      - text: 返回入口页
+  - main [ref=e55]:
+    - generic [ref=e56]:
+      - button "榜单" [ref=e57] [cursor=pointer]
+      - generic [ref=e58]:
+        - generic [ref=e59]:
+          - generic [ref=e60]: 当前游戏
+          - generic [ref=e61]: 士
+          - generic [ref=e62]: 单线双侧动作构筑原型，支持前压后撤、左右攻击、方向格挡、装备掉落与自动存档。
+        - 'button "主题: 暗色" [ref=e64] [cursor=pointer]'
+        - generic [ref=e93]:
+          - generic [ref=e94]:
+            - generic [ref=e95]: 波次
+            - generic [ref=e96]: "1"
+          - generic [ref=e97]:
+            - generic [ref=e98]: 生命
+            - generic [ref=e99]: 0 / 18
+          - generic [ref=e100]:
+            - generic [ref=e101]: 积分
+            - generic [ref=e102]: "0"
+          - generic [ref=e103]:
+            - generic [ref=e104]: 武器
+            - generic [ref=e105]: 匕首
+          - generic [ref=e106]:
+            - generic [ref=e107]: 击杀
+            - generic [ref=e108]: "0"
+          - generic [ref=e109]:
+            - generic [ref=e110]: 用时
+            - generic [ref=e111]: 05:50
+      - generic [ref=e112]:
+        - generic [ref=e115]: 士
+        - generic [ref=e116]:
+          - generic [ref=e120]:
+            - button "关闭帮助" [ref=e121] [cursor=pointer]
+            - generic [ref=e122]:
+              - generic [ref=e123]: 帮助说明
+              - generic [ref=e124]: 《士》当前原型说明
+              - generic [ref=e125]: 这是当前的单线中轴版本，重点验证左右攻防、步法距离和完美格挡反打是否成立。
+              - generic [ref=e126]:
+                - generic [ref=e127]: 当前已实现：单线中轴、左右攻击、前压/后撤步法、方向格挡、完美格挡、5 类敌人模板、20 把武器、47 件 LOL 风格装备、波次推进、自动存档和积分结算。
+                - generic [ref=e128]: 本轮重点：去掉上下路，改成距离博弈。前压更适合近战抢回合，后撤更适合远程与稳接完美格挡。
+                - generic [ref=e129]: 当前敌人模板：基础近战、快刺、重压、假动作、射击。真正出手的一侧会先接管主回合，另一侧只推进到压迫位制造压力。
+                - generic [ref=e130]: 当前未实现：敌人专属音效、更细分的射击子类、装备专属特效、房间联机。
+              - generic [ref=e131]: 这一版先把核心战斗改到更聚焦的结构上，再围绕单线中轴继续调敌人、武器和装备数值。
+          - generic [ref=e132]:
+            - generic [ref=e133]: 战局信息
+            - generic [ref=e136]:
+              - generic [ref=e137]:
+                - generic [ref=e138]: 装备
+                - generic [ref=e139]: 暂无装备
+              - generic [ref=e140]:
+                - generic [ref=e141]: 玩家
+                - generic [ref=e142]:
+                  - generic [ref=e143]:
+                    - generic [ref=e144]: 生命 / 护盾
+                    - generic [ref=e145]: 0 / 18 · 盾 0
+                  - generic [ref=e146]:
+                    - generic [ref=e147]: 波次 / 积分
+                    - generic [ref=e148]: 1 / 0
+                  - generic [ref=e149]:
+                    - generic [ref=e150]: 当前步法
+                    - generic [ref=e151]: 中位
+                  - generic [ref=e152]:
+                    - generic [ref=e153]: 击杀 / 用时
+                    - generic [ref=e154]: 0 / 05:50
+                  - generic [ref=e155]:
+                    - generic [ref=e156]: 玩家状态
+                    - generic [ref=e157]: 受击
+                  - generic [ref=e158]:
+                    - generic [ref=e159]: 步法冷却
+                    - generic [ref=e160]: 0.0s
+                  - generic [ref=e161]:
+                    - generic [ref=e162]: 左侧压力
+                    - generic [ref=e163]: 刺近 · 出手
+                  - generic [ref=e164]:
+                    - generic [ref=e165]: 右侧压力
+                    - generic [ref=e166]: 重远 · 待机
+                  - generic [ref=e167]:
+                    - generic [ref=e168]: 攻击 / 格挡
+                    - generic [ref=e169]: 0.0s / 0.0s
+                  - generic [ref=e170]:
+                    - generic [ref=e171]: 步法收益
+                    - generic [ref=e172]: 中位：攻防均衡，适合观察两侧节奏。
+                  - generic [ref=e173]:
+                    - generic [ref=e174]: 当前提示
+                    - generic [ref=e175]: 你倒下了，本局结束。
+              - generic [ref=e176]:
+                - generic [ref=e177]: 武器
+                - generic [ref=e178]:
+                  - generic [ref=e179]:
+                    - generic [ref=e180]: 名称
+                    - generic [ref=e181]: 匕首
+                  - generic [ref=e182]:
+                    - generic [ref=e183]: 类型
+                    - generic [ref=e184]: 近战
+                  - generic [ref=e185]:
+                    - generic [ref=e186]: 技能
+                    - generic [ref=e187]: 利刃风暴
+                  - generic [ref=e188]:
+                    - generic [ref=e189]: 技能冷却
+                    - generic [ref=e190]: 0s
+                  - generic [ref=e191]:
+                    - generic [ref=e192]: 伤害 / 攻速
+                    - generic [ref=e193]: 2 / 4.00/s
+                  - generic [ref=e194]:
+                    - generic [ref=e195]: 完美窗口
+                    - generic [ref=e196]: 210ms
+                  - generic [ref=e197]:
+                    - generic [ref=e198]: 说明
+                    - generic [ref=e199]: 双侧爆发多段切割，适合近身清场。
+                  - generic [ref=e200]:
+                    - generic [ref=e201]: 场上实体
+                    - generic [ref=e202]: 0 / 0 / 0
+      - generic [ref=e66]:
+        - button "沉浸模式" [ref=e203] [cursor=pointer]
+        - button "老板键 F9" [ref=e204] [cursor=pointer]
+        - button "重新开始" [ref=e205] [cursor=pointer]
+        - button "暂停 / 继续" [ref=e206] [cursor=pointer]
+        - button "帮助" [active] [ref=e207] [cursor=pointer]
+      - button "打开全局聊天" [ref=e208] [cursor=pointer]:
+        - generic [ref=e209]: 
