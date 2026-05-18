@@ -61,8 +61,8 @@
             size: 9,
             subgrid: 3,
             symbols: CLASSIC_SYMBOLS,
-            puzzle: "302609005000000040000010200700304009090000010800507003001040000080000000600708104",
-            solution: "312649875958273641467815239721384569593426718846597423175942386284136957639758124"
+            puzzle: "300681524045000000000500006000950741009002350000000000070800160531067080900105437",
+            solution: "397681524645279813218534976823956741169742358754318692472893165531467289986125437"
         },
         {
             id: "classic-hard-01",
@@ -73,7 +73,7 @@
             subgrid: 3,
             symbols: CLASSIC_SYMBOLS,
             puzzle: "300000000005009000200504000020000700160000058704310600000890100000067080000005437",
-            solution: "391682745475139826286574913823456791169723458754318692537894162942167385618245437"
+            solution: "397681524645279813218534976823956741169742358754318692472893165531467289986125437"
         },
         {
             id: "classic-hard-02",
@@ -423,6 +423,7 @@
             completed: false,
             submittedScore: false,
             usedSolver: false,
+            scoreBlocked: false,
             celebrationPlayed: false,
             startedAt: Date.now(),
             pausedElapsed: 0,
@@ -445,6 +446,7 @@
             completed: Boolean(raw.completed),
             submittedScore: Boolean(raw.submittedScore),
             usedSolver: Boolean(raw.usedSolver),
+            scoreBlocked: Boolean(raw.scoreBlocked),
             celebrationPlayed: Boolean(raw.celebrationPlayed),
             startedAt: Date.now(),
             pausedElapsed: Number(raw.pausedElapsed == null ? raw.elapsedSeconds || 0 : raw.pausedElapsed),
@@ -470,6 +472,7 @@
             completed: session.completed,
             submittedScore: session.submittedScore,
             usedSolver: session.usedSolver,
+            scoreBlocked: Boolean(session.scoreBlocked),
             celebrationPlayed: Boolean(session.celebrationPlayed),
             pausedElapsed: session.completed || session.paused ? session.pausedElapsed : session.elapsedSeconds,
             paused: Boolean(session.paused)
@@ -487,6 +490,28 @@
             elapsed_seconds: session.elapsedSeconds,
             completion: Math.floor((filled / (puzzle.size * puzzle.size)) * 100),
             estimated_score: session.usedSolver ? 0 : scoreData.total
+        };
+    }
+
+    function normalizeSudokuRewardState(raw) {
+        const payload = raw && typeof raw === "object" ? raw : {};
+        const lockedPuzzleIds = Object.create(null);
+        const source = Array.isArray(payload.lockedPuzzleIds) ? payload.lockedPuzzleIds : [];
+        source.forEach(function (puzzleId) {
+            const value = String(puzzleId || "").trim();
+            if (value) {
+                lockedPuzzleIds[value] = true;
+            }
+        });
+        return {
+            lockedPuzzleIds: lockedPuzzleIds
+        };
+    }
+
+    function serializeSudokuRewardState(state) {
+        const payload = state && typeof state === "object" ? state : {};
+        return {
+            lockedPuzzleIds: Object.keys(payload.lockedPuzzleIds || {}).sort()
         };
     }
 
@@ -640,14 +665,18 @@
     }
 
     function mountSudoku(savedPayload, ctx) {
-        let session = normalizeSudokuSession(savedPayload.state || {});
-        let manualCheckpoint = savedPayload && savedPayload.state && savedPayload.state.manualCheckpoint
-            ? Object.assign({}, savedPayload.state.manualCheckpoint, {
-                board: Array.isArray(savedPayload.state.manualCheckpoint.board)
-                    ? savedPayload.state.manualCheckpoint.board.slice()
+        const savedState = savedPayload && savedPayload.state && typeof savedPayload.state === "object"
+            ? savedPayload.state
+            : {};
+        let session = normalizeSudokuSession(savedState);
+        let manualCheckpoint = savedState.manualCheckpoint
+            ? Object.assign({}, savedState.manualCheckpoint, {
+                board: Array.isArray(savedState.manualCheckpoint.board)
+                    ? savedState.manualCheckpoint.board.slice()
                     : []
             })
             : null;
+        let rewardState = normalizeSudokuRewardState(savedState.rewardState);
         let timerId = null;
         let inputs = [];
         const sudokuHelpConfig = {
@@ -691,6 +720,68 @@
             persistAchievementMeta();
         }
 
+        function isPuzzleScoreLocked(puzzleId) {
+            const value = String(puzzleId || "").trim();
+            return Boolean(value && rewardState.lockedPuzzleIds[value]);
+        }
+
+        function lockPuzzleScore(puzzleId) {
+            const value = String(puzzleId || "").trim();
+            if (!value || rewardState.lockedPuzzleIds[value]) {
+                return false;
+            }
+            rewardState.lockedPuzzleIds[value] = true;
+            return true;
+        }
+
+        function unlockPuzzleScore(puzzleId) {
+            const value = String(puzzleId || "").trim();
+            if (!value) {
+                return;
+            }
+            delete rewardState.lockedPuzzleIds[value];
+        }
+
+        function createNextSudokuSession(modeKey, previousPuzzleId) {
+            const puzzles = getPuzzlesForMode(modeKey);
+            if (puzzles.length) {
+                const available = puzzles.filter(function (item) {
+                    return !isPuzzleScoreLocked(item.id);
+                });
+                if (available.length) {
+                    if (!previousPuzzleId) {
+                        return createSudokuSession(modeKey, {
+                            puzzleId: available[Math.floor(Math.random() * available.length)].id
+                        });
+                    }
+                    const currentIndex = available.findIndex(function (item) {
+                        return item.id === previousPuzzleId;
+                    });
+                    if (currentIndex >= 0) {
+                        return createSudokuSession(modeKey, {
+                            puzzleId: available[(currentIndex + 1) % available.length].id
+                        });
+                    }
+                    const ordered = getPuzzlesForMode(modeKey);
+                    const startIndex = ordered.findIndex(function (item) {
+                        return item.id === previousPuzzleId;
+                    });
+                    if (startIndex >= 0) {
+                        for (let offset = 1; offset <= ordered.length; offset += 1) {
+                            const candidate = ordered[(startIndex + offset) % ordered.length];
+                            if (!isPuzzleScoreLocked(candidate.id)) {
+                                return createSudokuSession(modeKey, { puzzleId: candidate.id });
+                            }
+                        }
+                    }
+                    return createSudokuSession(modeKey, {
+                        puzzleId: available[Math.floor(Math.random() * available.length)].id
+                    });
+                }
+            }
+            return createSudokuSession(modeKey, previousPuzzleId ? { previousPuzzleId: previousPuzzleId } : {});
+        }
+
         ctx.addStageButton("提交/校验", function () {
             session.checks += 1;
             validateAndMaybeFinish(true);
@@ -713,11 +804,13 @@
             session.board = puzzle.solution.split("");
             session.usedSolver = true;
             session.completed = true;
+            session.scoreBlocked = true;
+            lockPuzzleScore(session.puzzleId);
             syncSudokuClock(session);
             session.pausedElapsed = session.elapsedSeconds;
             drawBoard();
             persist();
-            ctx.setStatus("已自动解题，本局不计分。", false);
+            ctx.setStatus("已自动解题，该题后续不再计分，请换题继续。", false);
         }, false);
         ctx.addStageButton("存档点", function () {
             const snapshot = serializeSudokuSession(session);
@@ -744,12 +837,17 @@
         }, false);
         ctx.addStageButton("重置当前题", function () {
             const puzzle = getPuzzleById(session.puzzleId);
-            session = createSudokuSession(session.modeKey, { puzzleId: puzzle.id });
+            if (isPuzzleScoreLocked(puzzle.id)) {
+                session = createNextSudokuSession(session.modeKey, puzzle.id);
+                ctx.setStatus("当前题已结算或答案已揭示，已自动切换到下一题。", false);
+            } else {
+                session = createSudokuSession(session.modeKey, { puzzleId: puzzle.id });
+            }
             drawBoard();
             persist();
         }, false);
         ctx.addStageButton("换一题", function () {
-            session = createSudokuSession(session.modeKey, { previousPuzzleId: session.puzzleId });
+            session = createNextSudokuSession(session.modeKey, session.puzzleId);
             drawBoard();
             persist();
         }, false);
@@ -808,7 +906,7 @@
             { key: "hex-16", label: "HEX-16" }
         ].forEach(function (mode) {
             const btn = ctx.addStageTagButton(mode.label, function () {
-                session = createSudokuSession(mode.key);
+                session = createNextSudokuSession(mode.key, session.modeKey === mode.key ? session.puzzleId : "");
                 drawBoard();
                 persist();
             });
@@ -975,6 +1073,7 @@
                     board: Array.isArray(manualCheckpoint.board) ? manualCheckpoint.board.slice() : []
                 })
                 : null;
+            payload.rewardState = serializeSudokuRewardState(rewardState);
             ctx.scheduleGameStateSave("sudoku", payload, summarizeSudokuSession(session));
         }
 
@@ -1002,18 +1101,21 @@
             syncSudokuClock(session);
             const scoreData = computeSudokuScore(session.modeKey, session.elapsedSeconds);
             const conflictCount = findSudokuConflicts(session.board, puzzle).size;
-            metaEl.textContent = "题目: " + puzzle.name + "，校验次数 " + session.checks + "，冲突格 " + conflictCount + "，" + (session.paused ? "当前已暂停，可随时继续。" : "关闭页面后可从当前盘面继续。");
+            const puzzleLocked = isPuzzleScoreLocked(session.puzzleId);
+            metaEl.textContent = "题目: " + puzzle.name + "，校验次数 " + session.checks + "，冲突格 " + conflictCount + "，" + (session.paused ? "当前已暂停，可随时继续。" : (puzzleLocked ? "该题奖励已锁定，完成后不会再次得分。" : "关闭页面后可从当前盘面继续。"));
             ctx.setStageStats([
                 { label: "模式", value: session.modeKey.toUpperCase() },
                 { label: "状态", value: session.completed ? "完成" : (session.paused ? "暂停" : "进行中") },
                 { label: "用时", value: ctx.formatSeconds(session.elapsedSeconds) },
-                { label: "积分", value: String(session.usedSolver ? 0 : scoreData.total) },
+                { label: "积分", value: String(session.usedSolver || session.scoreBlocked || (puzzleLocked && !session.submittedScore) ? 0 : scoreData.total) },
                 { label: "冲突格", value: String(conflictCount) },
                 { label: "存档点", value: manualCheckpoint ? "已记录" : "无" }
             ]);
             scorelineEl.textContent = session.usedSolver
                 ? "已使用自动解题，本局不计算分数。"
-                : ("积分 =（底薪 " + scoreData.baseSalary + " + 难度提成 " + scoreData.difficultyBonus + " + 时间提成 " + scoreData.timeBonus + "），数独总奖励已整体提升到 20 倍。");
+                : ((session.scoreBlocked || (puzzleLocked && !session.submittedScore))
+                    ? "这道题的奖励已经结算过，或答案已经通过自动解题揭示，再次完成不会得分。"
+                    : ("积分 =（底薪 " + scoreData.baseSalary + " + 难度提成 " + scoreData.difficultyBonus + " + 时间提成 " + scoreData.timeBonus + "），数独总奖励已整体提升到 20 倍。"));
             modeButtons.forEach(function (btn) {
                 btn.classList.toggle("is-active", btn.dataset.modeKey === session.modeKey);
             });
@@ -1084,9 +1186,17 @@
             if (session.submittedScore || session.usedSolver) {
                 return;
             }
+            if (isPuzzleScoreLocked(session.puzzleId)) {
+                session.scoreBlocked = true;
+                session.submittedScore = true;
+                ctx.setStatus("该题奖励已领取过，或答案已经被自动解题揭示，本次不再计分。", false);
+                return;
+            }
             syncSudokuClock(session);
             const scoreData = computeSudokuScore(session.modeKey, session.elapsedSeconds);
             recordSudokuAchievements();
+            lockPuzzleScore(session.puzzleId);
+            session.scoreBlocked = false;
             session.submittedScore = true;
             ctx.submitScore("sudoku", scoreData.total, session.modeKey, session.sessionKey, {
                 mode_key: session.modeKey,
@@ -1097,8 +1207,16 @@
                 time_bonus: scoreData.timeBonus,
                 auto_solved: false,
                 puzzle_id: session.puzzleId
+            }).then(function (result) {
+                if (result && result.duplicate) {
+                    session.scoreBlocked = true;
+                    ctx.setStatus("该题奖励此前已经领过，本次没有重复加分。", false);
+                    persist();
+                }
             }).catch(function (error) {
                 session.submittedScore = false;
+                session.scoreBlocked = false;
+                unlockPuzzleScore(session.puzzleId);
                 ctx.setStatus(error.message || "数独成绩提交失败", true);
             });
         }
@@ -1138,12 +1256,13 @@
                 if (session.usedSolver) {
                     ctx.setStatus("已完成，但由于使用了自动解题，本局不计分。", false);
                 } else {
+                    const shouldAwardScore = !isPuzzleScoreLocked(session.puzzleId);
                     maybeSubmitScore();
                     if (!session.celebrationPlayed) {
                         session.celebrationPlayed = true;
                         playSudokuVictoryAnimation();
                     }
-                    ctx.setStatus("数独完成，成绩已记录。", false);
+                    ctx.setStatus(shouldAwardScore ? "数独完成，成绩已记录。" : "数独完成，但该题奖励已锁定，本次不再得分。", false);
                 }
                 persist();
             } else if (showMessage && !conflicts.size && !blankCount) {

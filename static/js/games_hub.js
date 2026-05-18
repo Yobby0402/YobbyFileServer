@@ -616,11 +616,11 @@
     function gameNavIconLabel(game) {
         const id = String((game && game.id) || "").toLowerCase();
         const iconMap = {
-            "2048": "20",
+            "2048": "2048",
             sudoku: "数",
             gomoku: "五",
-            zhajinhua: "扎",
-            frontline: "线",
+            zhajinhua: "炸",
+            frontline: "攻",
             "topdown-shooter": "射"
         };
         if (iconMap[id]) {
@@ -1419,6 +1419,7 @@
             normalizeTopdownMetaState: normalizeTopdownMetaState,
             serializeTopdownMetaState: serializeTopdownMetaState,
             summarizeTopdownMetaState: summarizeTopdownMetaState,
+            frontlineBuildMetaBonuses: frontlineBuildMetaBonuses,
             topdownEquippedAppearance: topdownEquippedAppearance,
             topdownColorCatalog: topdownColorCatalog,
             topdownIconCatalog: topdownIconCatalog,
@@ -1465,6 +1466,7 @@
                 topdownBuffRemaining: topdownBuffRemaining,
                 topdownBuildSummary: topdownBuildSummary,
                 topdownBuildRunCosmeticBonuses: topdownBuildRunCosmeticBonuses,
+                frontlineBuildMetaBonuses: frontlineBuildMetaBonuses,
                 applyElectricDamageModifier: applyElectricDamageModifier,
                 topdownBulletBlockedByWardenField: topdownBulletBlockedByWardenField,
                 topdownCanonicalEliteType: topdownCanonicalEliteType,
@@ -1617,7 +1619,7 @@
     });
 
     async function submitScore(gameId, score, mode, sessionKey, meta) {
-        await requestJson(config.scoreUrl, {
+        const payload = await requestJson(config.scoreUrl, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -1630,6 +1632,7 @@
         });
         await loadProfile();
         await refreshScorePanels();
+        return payload;
     }
 
     function syncPresence(playStatus, roomCode) {
@@ -1968,10 +1971,10 @@
 
     const TOPDOWN_BALANCE = {
         // 分数与战局节奏：决定每次击杀、波次推进、连杀奖励和临时道具的出场频率。
-        killScore: 2, // 普通击杀的基础分数，所有连杀和额外倍率都从这个基础值往上叠。
-        settlementTimeScorePerSecond: 1, // 结算时按当前存活秒数追加分数，默认每秒 1 分。
+        killScore: 30, // 普通击杀的基础分数，所有连杀和额外倍率都从这个基础值往上叠。
+        settlementTimeScorePerSecond: 15, // 结算时按当前存活秒数追加分数，默认每秒 1 分。
         waveStepKills: 10, // 每累计击杀多少个敌人，常规波次向前推进 1 步。
-        waveBonusScore: 4, // 波次提升时额外赠送的分数，用来鼓励持续推进而不是只刷单体。
+        waveBonusScore: 18, // 波次提升时额外赠送的分数，用来鼓励持续推进而不是只刷单体。
         comboResetWindow: 8, // 初始连杀计时窗口，超过这个秒数没续上击杀就会断连。
         comboResetWindowPerLevel: 0.8, // 连杀窗口强化每级额外增加的秒数。
         comboResetWindowMin: 5, // 连杀系统允许的最小窗口下限，避免被异常配置压得太短。
@@ -2102,7 +2105,7 @@
         bossBulletCount: 5, // Boss 常规弹幕发射数。
         bossBulletSpeedMultiplier: 1.45, // Boss 子弹速度倍率。
         bossSpeedMultiplier: 0.78, // Boss 移速倍率，通常比杂兵慢但更压场。
-        bossBonusScore: 24, // 击败 Boss 额外奖励分数。
+        bossBonusScore: 180, // 击败 Boss 额外奖励分数。
         bossRelicChoiceCount: 2, // 击败首领后供玩家选择的局内遗物数量。
 
         // 强化上限：各类成长条目的最大等级限制。
@@ -2148,6 +2151,7 @@
         // TTK 控制：让玩家属性持续提升，但常规小怪的击杀时间保持在一个稳定区间。
         ttkMinSeconds: 3,
         ttkMaxSeconds: 5,
+        ttkGrowthEndWave: 18,
         ttkDpsSoftCap: 80, // 用于“敌人血量追赶”计算的软上限，避免玩家极端爆发导致血量指数级拉升。
         ttkDpsOverflowFactor: 0.6,
         ttkEnemyHpMultiplierMin: 0.75,
@@ -3959,6 +3963,161 @@ function topdownAchievementTierTheme(tier) {
         return result;
     }
 
+    function frontlineColorBonusPreset(color) {
+        const tier = String(color && color.tier || "common");
+        if (tier === "rare") {
+            return {
+                productionIntervalMultiplier: 0.95,
+                travelMultiplier: 0.94,
+                dispatchMultiplier: 1,
+                startingUnitsBonus: 0,
+                upgradeCostMultiplier: 1,
+                specialCountBonus: 0,
+                label: "前线快编"
+            };
+        }
+        if (tier === "superrare") {
+            return {
+                productionIntervalMultiplier: 0.9,
+                travelMultiplier: 0.88,
+                dispatchMultiplier: 1.08,
+                startingUnitsBonus: 2,
+                upgradeCostMultiplier: 1,
+                specialCountBonus: 0,
+                label: "统帅涂装"
+            };
+        }
+        return {
+            productionIntervalMultiplier: 1,
+            travelMultiplier: 1,
+            dispatchMultiplier: 1,
+            startingUnitsBonus: 0,
+            upgradeCostMultiplier: 1,
+            specialCountBonus: 0,
+            label: ""
+        };
+    }
+
+    function frontlineBackgroundBonusPreset(background) {
+        const tier = String(background && background.tier || "common");
+        if (tier === "rare") {
+            return {
+                productionIntervalMultiplier: 1,
+                travelMultiplier: 1,
+                dispatchMultiplier: 1,
+                startingUnitsBonus: 3,
+                upgradeCostMultiplier: 0.94,
+                specialCountBonus: 1,
+                label: "战地补给"
+            };
+        }
+        if (tier === "superrare") {
+            return {
+                productionIntervalMultiplier: 1,
+                travelMultiplier: 1,
+                dispatchMultiplier: 1,
+                startingUnitsBonus: 5,
+                upgradeCostMultiplier: 0.88,
+                specialCountBonus: 2,
+                label: "总攻部署"
+            };
+        }
+        return {
+            productionIntervalMultiplier: 1,
+            travelMultiplier: 1,
+            dispatchMultiplier: 1,
+            startingUnitsBonus: 0,
+            upgradeCostMultiplier: 1,
+            specialCountBonus: 0,
+            label: ""
+        };
+    }
+
+    function frontlineMetaBonusLines(bonuses) {
+        const lines = [];
+        if (Number(bonuses.productionIntervalMultiplier || 1) < 0.9999) {
+            lines.push("产兵间隔 -" + Math.round((1 - Number(bonuses.productionIntervalMultiplier || 1)) * 100) + "%");
+        }
+        if (Number(bonuses.travelMultiplier || 1) < 0.9999) {
+            lines.push("行军耗时 -" + Math.round((1 - Number(bonuses.travelMultiplier || 1)) * 100) + "%");
+        }
+        if (Number(bonuses.dispatchMultiplier || 1) > 1.0001) {
+            lines.push("出兵兵力 +" + Math.round((Number(bonuses.dispatchMultiplier || 1) - 1) * 100) + "%");
+        }
+        if (Number(bonuses.startingUnitsBonus || 0) > 0) {
+            lines.push("初始驻军 +" + Math.round(Number(bonuses.startingUnitsBonus || 0)));
+        }
+        if (Number(bonuses.upgradeCostMultiplier || 1) < 0.9999) {
+            lines.push("升级消耗 -" + Math.round((1 - Number(bonuses.upgradeCostMultiplier || 1)) * 100) + "%");
+        }
+        if (Number(bonuses.specialCountBonus || 0) > 0) {
+            lines.push("特殊塔 +" + Math.round(Number(bonuses.specialCountBonus || 0)));
+        }
+        return lines;
+    }
+
+    function frontlineMetaBonusesForPreview(kind, key) {
+        const bonuses = {
+            productionIntervalMultiplier: 1,
+            travelMultiplier: 1,
+            dispatchMultiplier: 1,
+            startingUnitsBonus: 0,
+            upgradeCostMultiplier: 1,
+            specialCountBonus: 0,
+            colorBonusLabel: "",
+            backgroundBonusLabel: "",
+            summaryLines: []
+        };
+        if (kind === "color") {
+            const item = topdownColorCatalog()[key] || {};
+            const colorBonus = frontlineColorBonusPreset(item);
+            bonuses.productionIntervalMultiplier = colorBonus.productionIntervalMultiplier;
+            bonuses.travelMultiplier = colorBonus.travelMultiplier;
+            bonuses.dispatchMultiplier = colorBonus.dispatchMultiplier;
+            bonuses.startingUnitsBonus = colorBonus.startingUnitsBonus;
+            bonuses.upgradeCostMultiplier = colorBonus.upgradeCostMultiplier;
+            bonuses.specialCountBonus = colorBonus.specialCountBonus;
+            bonuses.colorBonusLabel = colorBonus.label || "";
+        } else if (kind === "background") {
+            const item = topdownBackgroundCatalog()[key] || {};
+            const backgroundBonus = frontlineBackgroundBonusPreset(item);
+            bonuses.productionIntervalMultiplier = backgroundBonus.productionIntervalMultiplier;
+            bonuses.travelMultiplier = backgroundBonus.travelMultiplier;
+            bonuses.dispatchMultiplier = backgroundBonus.dispatchMultiplier;
+            bonuses.startingUnitsBonus = backgroundBonus.startingUnitsBonus;
+            bonuses.upgradeCostMultiplier = backgroundBonus.upgradeCostMultiplier;
+            bonuses.specialCountBonus = backgroundBonus.specialCountBonus;
+            bonuses.backgroundBonusLabel = backgroundBonus.label || "";
+        }
+        bonuses.summaryLines = frontlineMetaBonusLines(bonuses);
+        return bonuses;
+    }
+
+    function frontlineBuildMetaBonuses(meta) {
+        const appearance = topdownEquippedAppearance(meta);
+        const color = appearance.color || {};
+        const background = appearance.background || {};
+        const colorBonus = frontlineColorBonusPreset(color);
+        const backgroundBonus = frontlineBackgroundBonusPreset(background);
+        const result = {
+            colorKey: String(color.key || "classic"),
+            colorTier: String(color.tier || "common"),
+            backgroundKey: String(background.key || "dojo"),
+            backgroundTier: String(background.tier || "common"),
+            productionIntervalMultiplier: Number(colorBonus.productionIntervalMultiplier || 1) * Number(backgroundBonus.productionIntervalMultiplier || 1),
+            travelMultiplier: Number(colorBonus.travelMultiplier || 1) * Number(backgroundBonus.travelMultiplier || 1),
+            dispatchMultiplier: Number(colorBonus.dispatchMultiplier || 1) * Number(backgroundBonus.dispatchMultiplier || 1),
+            startingUnitsBonus: Math.max(0, Math.round(Number(colorBonus.startingUnitsBonus || 0) + Number(backgroundBonus.startingUnitsBonus || 0))),
+            upgradeCostMultiplier: Number(colorBonus.upgradeCostMultiplier || 1) * Number(backgroundBonus.upgradeCostMultiplier || 1),
+            specialCountBonus: Math.max(0, Math.round(Number(colorBonus.specialCountBonus || 0) + Number(backgroundBonus.specialCountBonus || 0))),
+            colorBonusLabel: colorBonus.label || "",
+            backgroundBonusLabel: backgroundBonus.label || "",
+            summaryLines: []
+        };
+        result.summaryLines = frontlineMetaBonusLines(result);
+        return result;
+    }
+
     function normalizeTopdownRunCosmeticBonuses(raw) {
         const base = topdownBuildRunCosmeticBonuses(getTopdownSharedMetaState());
         return Object.assign(base, raw && typeof raw === "object" ? raw : {}, {
@@ -5159,7 +5318,9 @@ function topdownAchievementTierTheme(tier) {
             return 1;
         }
         const currentTtk = hp / dps;
-        const desiredTtk = clamp(currentTtk, TOPDOWN_BALANCE.ttkMinSeconds, TOPDOWN_BALANCE.ttkMaxSeconds);
+        const growthEndWave = Math.max(1, Number(TOPDOWN_BALANCE.ttkGrowthEndWave || 18));
+        const waveProgress = clamp((Math.max(1, Number(session && session.wave || 1)) - 1) / Math.max(1, growthEndWave - 1), 0, 1);
+        const desiredTtk = TOPDOWN_BALANCE.ttkMinSeconds + (TOPDOWN_BALANCE.ttkMaxSeconds - TOPDOWN_BALANCE.ttkMinSeconds) * waveProgress;
         const mult = desiredTtk / Math.max(0.001, currentTtk);
         return clamp(mult, TOPDOWN_BALANCE.ttkEnemyHpMultiplierMin, TOPDOWN_BALANCE.ttkEnemyHpMultiplierMax);
     }
@@ -7428,6 +7589,29 @@ function topdownAchievementTierTheme(tier) {
     }
 
     function topdownMetaEffectLines(kind, key, item) {
+        if (topdownMetaUi.equipGame === "frontline") {
+            const frontlineBonuses = frontlineMetaBonusesForPreview(kind, key);
+            const frontlineLines = [];
+            if (kind === "color") {
+                if (frontlineBonuses.colorBonusLabel) {
+                    frontlineLines.push("前线特性：" + frontlineBonuses.colorBonusLabel);
+                }
+                if (!frontlineBonuses.summaryLines.length) {
+                    frontlineLines.push("改变前线阵营主色，不提供局外加成。");
+                }
+                return frontlineLines.concat(frontlineBonuses.summaryLines);
+            }
+            if (kind === "background") {
+                if (frontlineBonuses.backgroundBonusLabel) {
+                    frontlineLines.push("前线特性：" + frontlineBonuses.backgroundBonusLabel);
+                }
+                if (!frontlineBonuses.summaryLines.length) {
+                    frontlineLines.push("改变前线战场背景，不提供局外加成。");
+                }
+                return frontlineLines.concat(frontlineBonuses.summaryLines);
+            }
+            return ["当前装备类型不影响前线局外养成。"];
+        }
         const bonuses = topdownMetaBonusesForPreview(kind, key);
         const lines = [];
         if (kind === "color") {

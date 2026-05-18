@@ -254,12 +254,23 @@
         }
 
         function availableRaiseAmounts() {
+            const maxBetAmount = Math.max(1, Number((room && room.max_bet_amount) || 10000000));
             const list = room && Array.isArray(room.raise_options) ? room.raise_options : [2, 5, 10, 20, 50, 100];
             return list.map(function (value) {
                 return Math.max(1, Number(value || 0));
             }).filter(function (value, index, values) {
-                return value > Number((room && room.current_bet) || 0) && values.indexOf(value) === index;
+                return value > Number((room && room.current_bet) || 0) && value <= maxBetAmount && values.indexOf(value) === index;
             });
+        }
+
+        function maxBetAmountText() {
+            return String(Math.max(1, Number((room && room.max_bet_amount) || 10000000)));
+        }
+
+        function specialRoundChanceText() {
+            const ratio = Number((room && room.special_round_probability) || 0.05);
+            const percent = ratio * 100;
+            return (Math.round(percent * 10) / 10).toString().replace(/\.0$/, "") + "%";
         }
 
         function visibleCards(player) {
@@ -271,19 +282,21 @@
             if (!player) {
                 return false;
             }
-            if (room && room.status === "finished") {
-                return true;
-            }
-            return Array.isArray(player.cards) && player.cards.length > 0;
+            return Boolean(player.is_revealed);
+        }
+
+        function latestFinishedRecord() {
+            const history = room && Array.isArray(room.history) ? room.history : [];
+            return history.length ? history[history.length - 1] : null;
         }
 
         function latestHistoryLine() {
-            const history = room && Array.isArray(room.history) ? room.history : [];
-            const latest = history.length ? history[history.length - 1] : null;
+            const latest = latestFinishedRecord();
             if (!latest) {
                 return "暂无结算记录。";
             }
-            return String(latest.winner_label || "本局") + " 赢下 " + String(latest.pot || 0) + " 积分奖池。";
+            return String(latest.winner_label || "本局") + " 赢下 " + String(latest.pot || 0) + " 积分奖池。"
+                + (latest.is_special_round ? " 本局为爽局。" : "");
         }
         function zhajinhuaHandRankGuide() {
             if (room && room.straight_gt_flush) {
@@ -294,24 +307,6 @@
                 labels.push("特殊：235 可压豹子");
             }
             return labels.join(" > ");
-        }
-
-        function renderSelfHandHint() {
-            const me = selfPlayer();
-            if (!me || !me.is_seen || !Array.isArray(me.cards) || me.cards.length < 3) {
-                return "";
-            }
-            const cardsText = me.cards.slice(0, 3).map(function (card) {
-                return String((card && card.label) || "");
-            }).filter(Boolean).join(" / ");
-            return [
-                '<div class="game-zhajinhua-self-note">',
-                '  <div class="game-zhajinhua-self-note-head"><strong>你的牌型</strong><span>仅自己可见</span></div>',
-                '  <div class="game-zhajinhua-self-note-main">' + escapeHtml(String(me.hand_kind_label || "未识别")) + '</div>',
-                '  <div class="game-zhajinhua-self-note-cards">' + escapeHtml(cardsText) + '</div>',
-                '  <div class="game-zhajinhua-self-note-rank">牌型大小：' + escapeHtml(zhajinhuaHandRankGuide()) + '</div>',
-                '</div>'
-            ].join("");
         }
 
         function formatEntryTime(value) {
@@ -389,48 +384,84 @@
             return winner ? playerAppearance(winner) : currentAppearance();
         }
 
-        function renderRecordsSection() {
+        function formatRecordCardText(card) {
+            if (!card || typeof card !== "object") {
+                return "";
+            }
+            const suitMap = {
+                spades: "黑桃",
+                hearts: "红桃",
+                clubs: "梅花",
+                diamonds: "方块"
+            };
+            const suit = suitMap[String(card.suit || "")] || "";
+            const rank = String(card.rank_label || rankText(card.rank) || "");
+            return suit && rank ? (suit + rank) : String(card.label || "");
+        }
+
+        function renderRecordDetailPlayer(player) {
+            const tags = [];
+            const cards = player && Array.isArray(player.cards) ? player.cards : [];
+            const cardsText = cards.map(formatRecordCardText).filter(Boolean).join(" / ");
+            if (player && player.hand_kind_label) {
+                tags.push(String(player.hand_kind_label));
+            }
+            if (player && player.is_folded) {
+                tags.push("已弃牌");
+            }
+            tags.push("投入 " + String((player && player.total_bet) || 0));
+            return [
+                '<div class="game-zhajinhua-record-player-row">',
+                '  <div class="game-zhajinhua-record-player-head">',
+                '    <strong>' + escapeHtml(String((player && player.display_name) || "玩家")) + '</strong>',
+                '    <span>' + escapeHtml(tags.join(" · ")) + '</span>',
+                "  </div>",
+                '  <div class="game-zhajinhua-record-cards-text">' + escapeHtml(cardsText || "未记录牌面") + '</div>',
+                '</div>'
+            ].join("");
+        }
+
+        function renderRecordsModalContent() {
             const records = normalizeRecords();
-            const buttonLabel = recordsExpanded ? "收起对局记录" : "查看对局记录";
-            const contentHtml = recordsExpanded
-                ? (
-                    '<div class="game-zhajinhua-records-list">' + (
-                        records.length
-                            ? records.map(function (record) {
-                                const appearance = recordWinnerAppearance(record);
-                                const players = record && Array.isArray(record.players) ? record.players : [];
-                                return [
-                                    '<div class="game-zhajinhua-record-card" style="' + bubbleStyleForAppearance(appearance) + '">',
-                                    '  <div class="game-zhajinhua-record-head">',
-                                    '    <strong>房间 ' + escapeHtml(String(record.room_code || "----")) + ' · 第 ' + escapeHtml(String(record.match_index || 0)) + ' 手牌</strong>',
-                                    '    <span>' + escapeHtml(formatEntryTime(record.finished_at || record.recorded_at)) + '</span>',
-                                    "  </div>",
-                                    '  <div class="game-zhajinhua-record-summary">' + escapeHtml(String(record.winner_label || "本局")) + ' 赢得奖池 ' + escapeHtml(String(record.pot || 0)) + '</div>',
-                                    '  <div class="game-zhajinhua-record-players">' + players.map(function (player) {
-                                        const tags = [];
-                                        if (player && player.hand_kind_label) {
-                                            tags.push(String(player.hand_kind_label));
-                                        }
-                                        if (player && player.is_folded) {
-                                            tags.push("已弃牌");
-                                        }
-                                        tags.push("投入 " + String((player && player.total_bet) || 0));
-                                        return '<span class="game-zhajinhua-record-chip">' + escapeHtml(String((player && player.display_name) || "玩家")) + ' · ' + escapeHtml(tags.join(" · ")) + '</span>';
-                                    }).join("") + '</div>',
-                                    '</div>'
-                                ].join("");
-                            }).join("")
-                            : '<div class="games-stage-meta">还没有可查看的对局记录。</div>'
-                    ) + '</div>'
-                )
-                : "";
+            if (!records.length) {
+                return '<div class="games-stage-meta">还没有可查看的对局记录。</div>';
+            }
+            return '<div class="game-zhajinhua-record-modal-list">' + records.map(function (record) {
+                const appearance = recordWinnerAppearance(record);
+                const players = record && Array.isArray(record.players) ? record.players : [];
+                return [
+                    '<div class="game-zhajinhua-record-card" style="' + bubbleStyleForAppearance(appearance) + '">',
+                    '  <div class="game-zhajinhua-record-head">',
+                    '    <strong>房间 ' + escapeHtml(String(record.room_code || "----")) + ' · 第 ' + escapeHtml(String(record.match_index || 0)) + ' 手牌</strong>',
+                    '    <span>' + escapeHtml(formatEntryTime(record.finished_at || record.recorded_at)) + '</span>',
+                    "  </div>",
+                    '  <div class="game-zhajinhua-record-summary">' + escapeHtml(String(record.winner_label || "本局")) + ' 赢得奖池 ' + escapeHtml(String(record.pot || 0)) + '</div>',
+                    (record && record.is_special_round ? '  <div class="games-stage-meta">本局为爽局：本手发牌时所有玩家都拿到了对子以上牌型。</div>' : ''),
+                    '  <div class="game-zhajinhua-record-detail-list">' + players.map(renderRecordDetailPlayer).join("") + '</div>',
+                    '</div>'
+                ].join("");
+            }).join("") + '</div>';
+        }
+
+        function openRecordsModal() {
+            recordsExpanded = true;
+            recordsModalBodyEl.innerHTML = renderRecordsModalContent();
+            recordsModalEl.hidden = false;
+        }
+
+        function closeRecordsModal() {
+            recordsExpanded = false;
+            recordsModalEl.hidden = true;
+        }
+
+        function renderRecordsSection() {
             return [
                 '<div class="game-zhajinhua-records">',
                 '  <div class="game-zhajinhua-records-head">',
                 '    <div class="games-section-title">对局记录</div>',
-                '    <button class="games-btn" type="button" id="zhajinhuaToggleRecordsBtn">' + buttonLabel + '</button>',
+                '    <button class="games-btn" type="button" id="zhajinhuaToggleRecordsBtn">查看对局记录</button>',
                 "  </div>",
-                contentHtml,
+                '  <div class="games-stage-meta">点击弹窗查看每一手的赢家、投入、牌型和各玩家牌面记录。</div>',
                 "</div>"
             ].join("");
         }
@@ -504,6 +535,19 @@
             "      </div>",
             "    </div>",
             '    <div class="games-stage-meta" id="zhajinhuaTurnMeta">创建或加入房间后即可开始。</div>',
+            '    <div class="games-modal" id="zhajinhuaRecordsModal" hidden>',
+            '      <div class="games-modal-backdrop" data-close-zhajinhua-records></div>',
+            '      <div class="games-modal-dialog games-modal-dialog--wide">',
+            '        <div class="games-modal-head">',
+            '          <div>',
+            '            <div class="games-section-title">对局记录</div>',
+            '            <div class="games-stage-meta">按房间与手数查看结算，支持追溯到每位玩家的文字牌面。</div>',
+            '          </div>',
+            '          <button type="button" class="games-modal-close" data-close-zhajinhua-records>&times;</button>',
+            '        </div>',
+            '        <div class="games-modal-body" id="zhajinhuaRecordsModalBody"></div>',
+            '      </div>',
+            '    </div>',
             "  </div>",
             "</div>"
         ].join("");
@@ -514,6 +558,8 @@
         const tableWrapEl = shell.querySelector("#zhajinhuaTableWrap");
         const logPanelEl = shell.querySelector("#zhajinhuaLogPanel");
         const actionPanelEl = shell.querySelector("#zhajinhuaActionPanel");
+        const recordsModalEl = shell.querySelector("#zhajinhuaRecordsModal");
+        const recordsModalBodyEl = shell.querySelector("#zhajinhuaRecordsModalBody");
 
         function updateStageHeader() {
             setStageStats([
@@ -526,13 +572,16 @@
                 return;
             }
             if (!room) {
-                els.stageMeta.textContent = "\u623f\u4e3b\u8bbe\u7f6e\u5e95\u91d1\uff0c\u4e0a\u684c 2-10 \u4eba\uff0c\u6bcf\u624b\u90fd\u91cd\u65b0\u6d17\u724c\uff0c\u652f\u6301\u89c2\u6218\u548c\u5168\u5c40\u804a\u5929\u3002";
+                els.stageMeta.textContent = "\u623f\u4e3b\u8bbe\u7f6e\u5e95\u91d1\uff0c\u4e0a\u684c 2-10 \u4eba\uff0c\u6bcf\u624b\u90fd\u91cd\u65b0\u6d17\u724c\uff0c\u652f\u6301\u89c2\u6218\u548c\u5168\u5c40\u804a\u5929\u3002 \u724c\u578b\u5927\u5c0f\uff1a" + zhajinhuaHandRankGuide();
                 return;
             }
             els.stageMeta.textContent = "底金 " + String(room.base_stake || 0)
                 + " · 在线 " + String(room.online_count || 0)
                 + " · 玩家 " + String(room.player_count || 0) + "/10"
-                + " · 观战 " + String(room.spectator_count || 0);
+                + " · 观战 " + String(room.spectator_count || 0)
+                + " · 牌型大小 " + zhajinhuaHandRankGuide()
+                + " · 爽局概率 " + specialRoundChanceText()
+                + " · 单次押注上限 " + maxBetAmountText();
         }
 
         function renderLobbyCard() {
@@ -547,11 +596,34 @@
                 "</div>",
                 '<div class="game-room-list">' + roomList.map(function (item) {
                     const canJoinPlayer = item.status !== "playing" && Number(item.player_count || 0) < 10;
+                    const players = Array.isArray(item.players) ? item.players : [];
                     return [
                         '<div class="game-room-item">',
-                        '  <strong>房间 ' + escapeHtml(String(item.room_code || "")) + "</strong>",
-                        "  <div class=\"games-stage-meta\">状态 " + escapeHtml(String(item.status || "lobby")) + " · 底金 " + escapeHtml(String(item.base_stake || 0)) + " · 在线 " + escapeHtml(String(item.online_count || 0)) + "</div>",
-                        "  <div class=\"games-stage-meta\">人数 " + escapeHtml(String(item.player_count || 0)) + " / 10 · 观战 " + escapeHtml(String(item.spectator_count || 0)) + "</div>",
+                        '  <div class="game-room-item-main">',
+                        '    <strong>房间 ' + escapeHtml(String(item.room_code || "")) + "</strong>",
+                        "    <div class=\"games-stage-meta\">状态 " + escapeHtml(String(item.status || "lobby")) + " · 底金 " + escapeHtml(String(item.base_stake || 0)) + " · 在线 " + escapeHtml(String(item.online_count || 0)) + "</div>",
+                        "    <div class=\"games-stage-meta\">人数 " + escapeHtml(String(item.player_count || 0)) + " / 10 · 观战 " + escapeHtml(String(item.spectator_count || 0)) + "</div>",
+                        (
+                            players.length
+                                ? ('    <div class="game-room-players">' + players.map(function (player) {
+                                    const statusBits = [];
+                                    if (player && player.is_ready) {
+                                        statusBits.push("已准备");
+                                    }
+                                    if (player && player.is_seen) {
+                                        statusBits.push("已看牌");
+                                    }
+                                    if (player && player.is_folded) {
+                                        statusBits.push("已弃牌");
+                                    }
+                                    if (player && !player.is_online) {
+                                        statusBits.push("离线");
+                                    }
+                                    return '<span class="game-room-player-chip">' + escapeHtml(String((player && player.display_name) || "玩家")) + (statusBits.length ? (' · ' + escapeHtml(statusBits.join(" · "))) : "") + '</span>';
+                                }).join("") + '</div>')
+                                : ""
+                        ),
+                        "  </div>",
                         '  <div class="game-room-actions">',
                         '    <button class="games-btn' + (canJoinPlayer ? " games-btn--primary" : "") + '" type="button" data-zhajinhua-enter="' + escapeHtml(String(item.room_code || "")) + '" data-zhajinhua-spectate="' + (canJoinPlayer ? "0" : "1") + '">' + (canJoinPlayer ? "加入上桌" : "进入观战") + "</button>",
                         '    <button class="games-btn" type="button" data-zhajinhua-enter="' + escapeHtml(String(item.room_code || "")) + '" data-zhajinhua-spectate="1">仅观战</button>',
@@ -596,8 +668,7 @@
             const lobbyRecordsBtn = controlCardEl.querySelector("#zhajinhuaToggleRecordsBtn");
             if (lobbyRecordsBtn) {
                 lobbyRecordsBtn.addEventListener("click", function () {
-                    recordsExpanded = !recordsExpanded;
-                    renderLobbyCard();
+                    openRecordsModal();
                 });
             }
         }
@@ -612,6 +683,7 @@
             const startLabel = room && room.status === "finished" ? "开始下一手" : "开始发牌";
             controlCardEl.innerHTML = [
                 '<div class="games-stage-meta">底金由房主统一设置。首局需要上桌玩家全部准备，之后每一手都由房主手动开始；发牌后默认暗牌，是否看牌由玩家自己决定。</div>',
+                '<div class="games-stage-meta">当前配置：爽局概率 ' + escapeHtml(specialRoundChanceText()) + '，单次押注/跟注/比牌支付上限 ' + escapeHtml(maxBetAmountText()) + '。</div>',
                 '<div class="games-stage-meta">扑克牌颜色、徽标和房间背景统一跟随页面里的局外养成，这里不再单独设置。</div>',
                 '<div class="game-room-players">' + players.map(function (player) {
                     const appearance = playerAppearance(player);
@@ -628,7 +700,7 @@
                 }).join("") + '</div>',
                 (isHost && !isPlaying ? (
                     '<div class="game-zhajinhua-base-bar">' +
-                    '  <input type="number" min="1" step="1" class="game-room-select game-zhajinhua-base-input" id="zhajinhuaBaseStakeInput" value="' + escapeHtml(baseStakeDraft || String(room.base_stake || 0)) + '" placeholder="设置底金">' +
+                    '  <input type="number" min="1" max="' + escapeHtml(maxBetAmountText()) + '" step="1" class="game-room-select game-zhajinhua-base-input" id="zhajinhuaBaseStakeInput" value="' + escapeHtml(baseStakeDraft || String(room.base_stake || 0)) + '" placeholder="设置底金">' +
                     '  <button class="games-btn" type="button" id="zhajinhuaBaseStakeBtn">设置底金</button>' +
                     '</div>'
                 ) : ('<div class="games-stage-meta">当前底金：' + escapeHtml(String(room.base_stake || 0)) + '</div>')),
@@ -698,6 +770,27 @@
                     });
                 });
             }
+            if (selfRole === "player" && isHost) {
+                const actionsRow = controlCardEl.querySelector(".game-room-actions");
+                const leaveAnchor = controlCardEl.querySelector("#zhajinhuaLeaveBtn");
+                if (actionsRow && leaveAnchor && !controlCardEl.querySelector("#zhajinhuaDissolveBtn")) {
+                    const dissolveBtn = document.createElement("button");
+                    dissolveBtn.className = "games-btn";
+                    dissolveBtn.type = "button";
+                    dissolveBtn.id = "zhajinhuaDissolveBtn";
+                    dissolveBtn.textContent = "解散房间";
+                    actionsRow.insertBefore(dissolveBtn, leaveAnchor);
+                }
+            }
+            const dissolveBtn = controlCardEl.querySelector("#zhajinhuaDissolveBtn");
+            if (dissolveBtn) {
+                dissolveBtn.addEventListener("click", function () {
+                    if (!window.confirm("确定要解散这个房间吗？房内所有人都会被退出到大厅。")) {
+                        return;
+                    }
+                    emitWithIdentity("zhajinhua_dissolve", { room_code: room.room_code });
+                });
+            }
             const leaveBtn = controlCardEl.querySelector("#zhajinhuaLeaveBtn");
             if (leaveBtn) {
                 leaveBtn.addEventListener("click", function () {
@@ -710,8 +803,7 @@
             const roomRecordsBtn = controlCardEl.querySelector("#zhajinhuaToggleRecordsBtn");
             if (roomRecordsBtn) {
                 roomRecordsBtn.addEventListener("click", function () {
-                    recordsExpanded = !recordsExpanded;
-                    renderRoomCard();
+                    openRecordsModal();
                 });
             }
         }
@@ -819,7 +911,7 @@
                     return [
                         '<div class="game-zhajinhua-player-card' + (isSelf ? ' is-self' : '') + (isTurn ? ' is-turn' : '') + (player.is_folded ? ' is-folded' : '') + (layout.compactCards ? ' is-compact' : '') + '">',
                         '  <div class="game-zhajinhua-player-head">',
-                        '    <strong>' + escapeHtml(String(player.display_name || "\u73a9\u5bb6")) + (isSelf ? " \u00b7 \u4f60" : "") + '</strong>',
+                        '    <strong>' + escapeHtml(String(player.display_name || "\u73a9\u5bb6")) + (isSelf ? " \u00b7 \u4f60" : "") + (isTurn ? ' <span class="game-zhajinhua-turn-badge">\u64cd\u4f5c\u4e2d</span>' : "") + '</strong>',
                         '    <span>' + escapeHtml(statusText) + '</span>',
                         '  </div>',
                         '  <div class="game-zhajinhua-player-meta">\u6295\u5165 ' + escapeHtml(String(player.total_bet || 0)) + ' \u00b7 \u79ef\u5206 ' + escapeHtml(String(player.total_score || 0)) + (player.is_online ? '' : ' \u00b7 \u79bb\u7ebf') + '</div>',
@@ -830,7 +922,7 @@
                                 index: index
                             });
                         }).join('') + '</div>',
-                        '  <div class="game-zhajinhua-player-meta">' + escapeHtml(reveal ? (player.hand_kind_label || "\u672a\u5f00\u724c") : "\u724c\u9762\u672a\u516c\u5f00") + '</div>',
+                        '  <div class="game-zhajinhua-player-meta">' + escapeHtml(reveal ? (player.hand_kind_label || "\u672a\u5f00\u724c") : "\u724c\u578b\u672a\u516c\u5f00") + '</div>',
                         '</div>'
                     ].join('');
                 }).join(''),
@@ -865,6 +957,7 @@
                     ].join("");
                 }).join('')
                 : '<div class="games-stage-meta">\u672c\u5c40\u8fd8\u6ca1\u6709\u65b0\u7684\u64cd\u4f5c\u8bb0\u5f55\u3002</div>';
+            logPanelEl.scrollTop = logPanelEl.scrollHeight;
         }
 
         function renderActionPanel() {
@@ -895,7 +988,6 @@
             }
             actionPanelEl.innerHTML = [
                 '<div class="game-zhajinhua-action-state' + (canAct ? ' is-active' : ' is-disabled') + (isPending ? ' is-pending' : '') + '">',
-                renderSelfHandHint(),
                 '  <div class="game-zhajinhua-turn-hint">' + escapeHtml(
                     isPending
                         ? ("\u5df2\u53d1\u9001\u300c" + String((pendingAction && pendingAction.label) || "\u64cd\u4f5c") + "\u300d\uff0c\u6b63\u5728\u901a\u8fc7 " + socketTransportLabel + " \u540c\u6b65\u2026")
@@ -909,7 +1001,7 @@
                 '    <button class="games-btn" type="button" id="zhajinhuaFoldBtn"' + (canAct ? '' : ' disabled') + '>\u5f03\u724c</button>',
                 '  </div>',
                 '  <div class="game-zhajinhua-action-bar">',
-                '    <input type="number" min="' + escapeHtml(String(minRaiseAmount)) + '" step="1" class="game-room-select game-zhajinhua-raise-input" id="zhajinhuaRaiseInput" value="' + escapeHtml(String(raiseAmountDraft || suggestedRaiseAmount)) + '" placeholder="\u8f93\u5165\u52a0\u6ce8\u91d1\u989d"' + (canAct ? '' : ' disabled') + '>',
+                '    <input type="number" min="' + escapeHtml(String(minRaiseAmount)) + '" max="' + escapeHtml(maxBetAmountText()) + '" step="1" class="game-room-select game-zhajinhua-raise-input" id="zhajinhuaRaiseInput" value="' + escapeHtml(String(raiseAmountDraft || suggestedRaiseAmount)) + '" placeholder="\u8f93\u5165\u52a0\u6ce8\u91d1\u989d"' + (canAct ? '' : ' disabled') + '>',
                 '    <button class="games-btn" type="button" id="zhajinhuaRaiseBtn"' + (canAct ? '' : ' disabled') + '>\u52a0\u6ce8</button>',
                 '  </div>',
                 (targets.length ? (
@@ -921,7 +1013,7 @@
                     '    <button class="games-btn" type="button" id="zhajinhuaCompareBtn"' + (canAct ? '' : ' disabled') + '>\u6bd4\u724c</button>' +
                     '  </div>'
                 ) : '  <div class="game-zhajinhua-turn-hint">\u5f53\u524d\u6ca1\u6709\u53ef\u9009\u7684\u6bd4\u724c\u76ee\u6807\u3002</div>'),
-                '  <div class="game-zhajinhua-turn-hint">\u5f53\u524d\u6ce8 ' + escapeHtml(String(room.current_bet || 0)) + ' \u00b7 \u5956\u6c60 ' + escapeHtml(String(room.pot || 0)) + ' \u00b7 \u5e95\u91d1 ' + escapeHtml(String(room.base_stake || 0)) + ' \u00b7 ' + socketTransportLabel + '</div>',
+                '  <div class="game-zhajinhua-turn-hint">\u5f53\u524d\u6ce8 ' + escapeHtml(String(room.current_bet || 0)) + ' \u00b7 \u5956\u6c60 ' + escapeHtml(String(room.pot || 0)) + ' \u00b7 \u5e95\u91d1 ' + escapeHtml(String(room.base_stake || 0)) + ' \u00b7 \u5355\u6b21\u4e0a\u9650 ' + escapeHtml(maxBetAmountText()) + ' \u00b7 ' + socketTransportLabel + '</div>',
                 '</div>'
             ].join('');
             bindActionControls(actionPanelEl);
@@ -935,6 +1027,10 @@
                 renderTable();
                 renderLogPanel();
                 renderActionPanel();
+                if (recordsExpanded) {
+                    recordsModalBodyEl.innerHTML = renderRecordsModalContent();
+                    recordsModalEl.hidden = false;
+                }
                 return;
             }
             if (room.self_role === "spectator" && room.status === "playing") {
@@ -943,7 +1039,9 @@
             } else if (room.status === "playing") {
                 turnMetaEl.textContent = "第 " + String(room.round_count || 0) + " / " + String(room.max_round || 20) + " 轮 · " + (room.turn_player_id === playerId ? "轮到你操作，请直接在牌桌上的操作层选择动作。" : "等待其他玩家操作。") ;
             } else if (room.status === "finished") {
-                turnMetaEl.textContent = room.winner_label ? ("本手结束，" + room.winner_label + " 赢下奖池。下一手由房主手动开始。") : "本手已结束，下一手由房主手动开始。";
+                turnMetaEl.textContent = room.winner_label
+                    ? ("本手结束，" + room.winner_label + " 赢下奖池。下一手由房主手动开始。" + (room.is_special_round ? " 本局为爽局。" : ""))
+                    : ("本手已结束，下一手由房主手动开始。" + (room.is_special_round ? " 本局为爽局。" : ""));
             } else {
                 turnMetaEl.textContent = "房主设置底金后，首局需要上桌玩家全部准备；之后每一手都由房主手动开始。";
             }
@@ -951,6 +1049,10 @@
             renderTable();
             renderLogPanel();
             renderActionPanel();
+            if (recordsExpanded) {
+                recordsModalBodyEl.innerHTML = renderRecordsModalContent();
+                recordsModalEl.hidden = false;
+            }
         }
 
         socket.on("zhajinhua_room", function (payload) {
@@ -987,12 +1089,18 @@
             if (!room || recordsExpanded) {
                 renderAll();
             }
+            if (recordsExpanded) {
+                recordsModalBodyEl.innerHTML = renderRecordsModalContent();
+            }
         });
 
         socket.on("zhajinhua_records", function (payload) {
             globalRecords = Array.isArray(payload) ? payload : [];
             if (!room || recordsExpanded) {
                 renderAll();
+            }
+            if (recordsExpanded) {
+                recordsModalBodyEl.innerHTML = renderRecordsModalContent();
             }
         });
 
@@ -1021,6 +1129,30 @@
             clearPendingAction();
             setStatus("联机炸金花的 WebSocket 已断开。", true);
             renderAll();
+        });
+
+        socket.on("zhajinhua_room_closed", function (payload) {
+            clearPendingAction();
+            if (room && payload && payload.room_code && String(payload.room_code) !== String(room.room_code || "")) {
+                return;
+            }
+            room = null;
+            saveRememberedRoomCode("");
+            closeRecordsModal();
+            setStatus("房间已被房主解散，已返回大厅。", false);
+            renderAll();
+        });
+
+        shell.querySelectorAll("[data-close-zhajinhua-records]").forEach(function (element) {
+            element.addEventListener("click", function () {
+                closeRecordsModal();
+            });
+        });
+
+        document.addEventListener("keydown", function (event) {
+            if (event.key === "Escape" && !recordsModalEl.hidden) {
+                closeRecordsModal();
+            }
         });
 
         state.topdownMetaRefresh = function () {

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import yobboy_file_server.game_zhajinhua as zhajinhua_module
 from yobboy_file_server.game_zhajinhua import (
     ZhajinhuaManager,
     compare_zhajinhua_hands,
@@ -140,6 +141,61 @@ def test_public_room_hides_self_cards_before_look():
     assert me["hand_kind_label"] == ""
 
 
+def test_special_round_deals_pair_or_better_for_everyone_and_is_only_marked_after_finish(monkeypatch):
+    monkeypatch.setattr(zhajinhua_module, "SPECIAL_ROUND_PROBABILITY", 1.0)
+    store = FakeStore()
+    manager = ZhajinhuaManager(store=store)
+    room = manager.create_or_join_room("ip-1", "player-1", "sid-1", "Alice")
+    room_code = room["room_code"]
+    manager.create_or_join_room("ip-2", "player-2", "sid-2", "Bob", room_code=room_code)
+    manager.create_or_join_room("ip-3", "player-3", "sid-3", "Carol", room_code=room_code)
+    manager.set_base_stake(room_code, "player-1", 10)
+    manager.toggle_ready(room_code, "player-1")
+    manager.toggle_ready(room_code, "player-2")
+    manager.toggle_ready(room_code, "player-3")
+    manager.start_match(room_code, "player-1")
+
+    live_room = manager._rooms[room_code]
+    assert live_room["is_special_round"] is True
+    assert all(player["hand_kind_key"] != "high_card" for player in live_room["players"])
+
+    playing_payload = manager._public_room(live_room, "player-1")
+    assert "is_special_round" not in playing_payload
+
+    manager.fold_player(room_code, live_room["turn_player_id"])
+    manager.fold_player(room_code, live_room["turn_player_id"])
+
+    assert live_room["history"][-1]["is_special_round"] is True
+    finished_payload = manager._public_room(live_room, "player-1")
+    assert finished_payload["is_special_round"] is True
+
+
+def test_bet_limit_caps_base_stake_and_blocks_raise_above_limit():
+    store = FakeStore()
+    manager = ZhajinhuaManager(store=store)
+    room = manager.create_or_join_room("ip-1", "player-1", "sid-1", "Alice")
+    room_code = room["room_code"]
+    manager.create_or_join_room("ip-2", "player-2", "sid-2", "Bob", room_code=room_code)
+
+    manager.set_base_stake(room_code, "player-1", zhajinhua_module.MAX_BET_AMOUNT + 123)
+    assert manager._rooms[room_code]["base_stake"] == zhajinhua_module.MAX_BET_AMOUNT
+
+    manager.toggle_ready(room_code, "player-1")
+    manager.toggle_ready(room_code, "player-2")
+    manager.start_match(room_code, "player-1")
+    live_room = manager._rooms[room_code]
+
+    with pytest.raises(ValueError):
+        manager.raise_bet(room_code, live_room["turn_player_id"], zhajinhua_module.MAX_BET_AMOUNT + 1)
+
+    player = manager._find_player(live_room, live_room["turn_player_id"])
+    player["is_seen"] = True
+    live_room["current_bet"] = zhajinhua_module.MAX_BET_AMOUNT
+    before_total_bet = int(player["total_bet"] or 0)
+    manager.follow_bet(room_code, live_room["turn_player_id"])
+    assert int(player["total_bet"] or 0) - before_total_bet == zhajinhua_module.MAX_BET_AMOUNT
+
+
 def test_host_can_manually_start_next_match_after_finish_without_readying_again():
     store = FakeStore()
     manager = ZhajinhuaManager(store=store)
@@ -200,6 +256,30 @@ def test_negative_score_player_cannot_join_table():
         manager.switch_membership(room_code, "ip-1", "player-1", "sid-1", "Alice", spectate=False)
 
 
+def test_host_can_dissolve_room():
+    store = FakeStore()
+    manager = ZhajinhuaManager(store=store)
+    room = manager.create_or_join_room("ip-1", "player-1", "sid-1", "Alice")
+    room_code = room["room_code"]
+    manager.create_or_join_room("ip-2", "player-2", "sid-2", "Bob", room_code=room_code)
+
+    manager.dissolve_room(room_code, "player-1")
+
+    assert room_code not in manager._rooms
+    assert ("zhajinhua", room_code) not in store.rooms
+
+
+def test_non_host_cannot_dissolve_room():
+    store = FakeStore()
+    manager = ZhajinhuaManager(store=store)
+    room = manager.create_or_join_room("ip-1", "player-1", "sid-1", "Alice")
+    room_code = room["room_code"]
+    manager.create_or_join_room("ip-2", "player-2", "sid-2", "Bob", room_code=room_code)
+
+    with pytest.raises(ValueError):
+        manager.dissolve_room(room_code, "player-2")
+
+
 def test_reach_max_round_triggers_showdown():
     store = FakeStore()
     manager = ZhajinhuaManager(store=store)
@@ -242,6 +322,42 @@ def test_compare_reveals_both_hands_to_room_payload():
     payload = manager._public_room(live_room, "player-1")
     revealed = [item for item in payload["players"] if item.get("cards")]
     assert len(revealed) == 2
+
+
+def test_compare_reveal_stays_private_from_other_players_until_full_showdown():
+    store = FakeStore()
+    manager = ZhajinhuaManager(store=store)
+    room = manager.create_or_join_room("ip-1", "player-1", "sid-1", "Alice")
+    room_code = room["room_code"]
+    manager.create_or_join_room("ip-2", "player-2", "sid-2", "Bob", room_code=room_code)
+    manager.create_or_join_room("ip-3", "player-3", "sid-3", "Carol", room_code=room_code)
+    manager.set_base_stake(room_code, "player-1", 10)
+    manager.toggle_ready(room_code, "player-1")
+    manager.toggle_ready(room_code, "player-2")
+    manager.toggle_ready(room_code, "player-3")
+    manager.start_match(room_code, "player-1")
+
+    live_room = manager._rooms[room_code]
+    for player in live_room["players"]:
+        player["is_seen"] = True
+    live_room["players"][0]["cards"] = _cards((14, "spades"), (14, "hearts"), (14, "clubs"))
+    live_room["players"][1]["cards"] = _cards((2, "diamonds"), (5, "clubs"), (7, "hearts"))
+    live_room["players"][2]["cards"] = _cards((13, "spades"), (12, "hearts"), (11, "clubs"))
+    live_room["turn_player_id"] = "player-2"
+
+    manager.compare_with(room_code, "player-2", "player-1")
+
+    payload_for_a = manager._public_room(live_room, "player-1")
+    payload_for_b = manager._public_room(live_room, "player-2")
+    payload_for_c = manager._public_room(live_room, "player-3")
+
+    revealed_for_a = {item["player_id"] for item in payload_for_a["players"] if item.get("cards")}
+    revealed_for_b = {item["player_id"] for item in payload_for_b["players"] if item.get("cards")}
+    revealed_for_c = {item["player_id"] for item in payload_for_c["players"] if item.get("cards")}
+
+    assert revealed_for_a == {"player-1", "player-2"}
+    assert revealed_for_b == {"player-1", "player-2"}
+    assert revealed_for_c == {"player-3"}
 
 
 def test_round_settlement_awards_winner():

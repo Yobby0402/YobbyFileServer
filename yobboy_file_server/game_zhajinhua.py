@@ -14,10 +14,12 @@ from .game_hub import GameHubStore, now_iso
 ROOM_NAMESPACE = "/games-zhajinhua"
 ROOM_TYPE = "zhajinhua"
 CHAT_TTL_SECONDS = 20
-MAX_BASE_STAKE = 999999
+MAX_BET_AMOUNT = 10_000_000
+MAX_BASE_STAKE = MAX_BET_AMOUNT
 MAX_PLAYERS = 10
 DEFAULT_MAX_ROUNDS = 20
 DEFAULT_RAISE_OPTIONS = (2, 5, 10, 20, 50, 100)
+SPECIAL_ROUND_PROBABILITY = 0.05
 
 SUIT_ORDER = {
     "spades": 4,
@@ -200,8 +202,6 @@ def compare_zhajinhua_hands(
     if left_value < right_value:
         return -1
     return 0
-
-
 class ZhajinhuaManager:
     def __init__(self, store: GameHubStore | None = None) -> None:
         self._lock = threading.RLock()
@@ -233,6 +233,7 @@ class ZhajinhuaManager:
             state.setdefault("straight_gt_flush", False)
             state.setdefault("a23_is_straight", True)
             state.setdefault("raise_options", list(DEFAULT_RAISE_OPTIONS))
+            state.setdefault("is_special_round", False)
             state.setdefault("finished_at", "")
             state.setdefault("compare_reveal_player_ids", [])
             state.setdefault("last_action", {})
@@ -436,11 +437,11 @@ class ZhajinhuaManager:
 
     def _step_bet_amount(self, room: Dict[str, Any], player: Dict[str, Any]) -> int:
         current_bet = max(1, int(room.get("current_bet") or room.get("base_stake") or 1))
-        return current_bet * (2 if player.get("is_seen") else 1)
+        return min(current_bet * (2 if player.get("is_seen") else 1), self._max_bet_amount())
 
     def _compare_cost(self, room: Dict[str, Any]) -> int:
         current_bet = max(1, int(room.get("current_bet") or room.get("base_stake") or 1))
-        return current_bet * 2
+        return min(current_bet * 2, self._max_bet_amount())
 
     def _raise_options(self, room: Dict[str, Any]) -> List[int]:
         payload = room.get("raise_options")
@@ -448,9 +449,61 @@ class ZhajinhuaManager:
         result: List[int] = []
         for item in values:
             amount = max(1, int(item or 0))
-            if amount not in result:
+            if amount <= self._max_bet_amount() and amount not in result:
                 result.append(amount)
         return result or list(DEFAULT_RAISE_OPTIONS)
+
+    def _max_bet_amount(self) -> int:
+        return max(1, int(MAX_BET_AMOUNT))
+
+    def _special_round_probability(self) -> float:
+        return min(1.0, max(0.0, float(SPECIAL_ROUND_PROBABILITY)))
+
+    def _deal_regular_match_hands(self, room: Dict[str, Any], players: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        deck = build_zhajinhua_deck()
+        random.shuffle(deck)
+        return [evaluate_zhajinhua_hand(
+            [deck.pop(), deck.pop(), deck.pop()],
+            a23_is_straight=bool(room.get("a23_is_straight", True)),
+            straight_gt_flush=bool(room.get("straight_gt_flush", False)),
+        ) for _ in players]
+
+    def _deal_special_match_hands(self, room: Dict[str, Any], players: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        cards_by_rank: Dict[int, List[Dict[str, Any]]] = {}
+        for card in build_zhajinhua_deck():
+            cards_by_rank.setdefault(int(card["rank"]), []).append(card)
+        for rank_cards in cards_by_rank.values():
+            random.shuffle(rank_cards)
+        pair_ranks: List[int] = []
+        for rank, rank_cards in cards_by_rank.items():
+            pair_ranks.extend([rank] * (len(rank_cards) // 2))
+        random.shuffle(pair_ranks)
+        if len(pair_ranks) < len(players):
+            raise ValueError("特殊牌局发牌失败")
+        prepared_hands: List[Dict[str, Any]] = []
+        for pair_rank in pair_ranks[:len(players)]:
+            prepared_hands.append({
+                "pair_rank": pair_rank,
+                "cards": [cards_by_rank[pair_rank].pop(), cards_by_rank[pair_rank].pop()],
+            })
+        remaining_cards: List[Dict[str, Any]] = []
+        for rank_cards in cards_by_rank.values():
+            remaining_cards.extend(rank_cards)
+        random.shuffle(remaining_cards)
+        for hand in prepared_hands:
+            kicker_index = next((
+                index for index, card in enumerate(remaining_cards)
+                if int(card["rank"]) != int(hand["pair_rank"])
+            ), -1)
+            if kicker_index < 0:
+                raise ValueError("特殊牌局补牌失败")
+            hand["cards"].append(remaining_cards.pop(kicker_index))
+            random.shuffle(hand["cards"])
+        return [evaluate_zhajinhua_hand(
+            hand["cards"],
+            a23_is_straight=bool(room.get("a23_is_straight", True)),
+            straight_gt_flush=bool(room.get("straight_gt_flush", False)),
+        ) for hand in prepared_hands]
 
     def _player_index(self, room: Dict[str, Any], player_id: str) -> int:
         for index, player in enumerate(self._active_players(room)):
@@ -531,14 +584,13 @@ class ZhajinhuaManager:
     def _begin_match(self, room: Dict[str, Any], players: List[Dict[str, Any]]) -> None:
         room["match_index"] = int(room.get("match_index") or 0) + 1
         room["status"] = "playing"
+        room["is_special_round"] = random.random() < self._special_round_probability()
         room["winner_player_id"] = ""
         room["winner_label"] = ""
         room["finished_at"] = ""
         room["compare_reveal_player_ids"] = []
         room["action_log"] = []
         room["last_action"] = {}
-        deck = build_zhajinhua_deck()
-        random.shuffle(deck)
         dealer_index = (int(room.get("match_index") or 1) - 1) % len(players)
         dealer = players[dealer_index]
         first_turn = players[(dealer_index + 1) % len(players)] if len(players) > 1 else dealer
@@ -546,14 +598,9 @@ class ZhajinhuaManager:
         room["turn_player_id"] = first_turn["player_id"]
         room["round_count"] = 1
         room["pot"] = 0
-        room["current_bet"] = max(1, int(room.get("base_stake") or 1))
-        for player in players:
-            cards = [deck.pop(), deck.pop(), deck.pop()]
-            hand = evaluate_zhajinhua_hand(
-                cards,
-                a23_is_straight=bool(room.get("a23_is_straight", True)),
-                straight_gt_flush=bool(room.get("straight_gt_flush", False)),
-            )
+        room["current_bet"] = min(max(1, int(room.get("base_stake") or 1)), self._max_bet_amount())
+        dealt_hands = self._deal_special_match_hands(room, players) if room.get("is_special_round") else self._deal_regular_match_hands(room, players)
+        for player, hand in zip(players, dealt_hands):
             player["cards"] = hand["cards"]
             player["hand_compare"] = list(hand["compare"])
             player["hand_kind_key"] = hand["kind_key"]
@@ -603,7 +650,8 @@ class ZhajinhuaManager:
             )
         self._append_action_log(
             room,
-            f"{room.get('winner_label') or '本局'} 获胜，奖池 {pot_value}。",
+            f"{room.get('winner_label') or '本局'} 获胜，奖池 {pot_value}。"
+            + (" 本局为爽局。" if room.get("is_special_round") else ""),
             actor_player_id=str((winner or {}).get("player_id") or ""),
             action_key="finish",
         )
@@ -613,6 +661,7 @@ class ZhajinhuaManager:
             "winner_label": room.get("winner_label") or "",
             "pot": pot_value,
             "finish_reason": reason,
+            "is_special_round": bool(room.get("is_special_round")),
             "finished_at": now_iso(),
             "score_changes": score_changes,
             "players": [{
@@ -670,11 +719,14 @@ class ZhajinhuaManager:
             str(item or "")
             for item in (room.get("compare_reveal_player_ids") or [])
         }
-        is_self = str(player.get("player_id") or "") == str(viewer_player_id or "")
+        viewer_id = str(viewer_player_id or "")
+        player_id = str(player.get("player_id") or "")
+        is_self = player_id == viewer_id
+        can_view_compare_reveal = bool(viewer_id) and viewer_id in compare_reveal_ids
         player_score = int((score_cache or {}).get(str(player.get("player_id") or "").strip(), self._total_score(player["player_id"])))
         reveal_cards = bool(
             room.get("status") == "finished"
-            or str(player.get("player_id") or "") in compare_reveal_ids
+            or (can_view_compare_reveal and player_id in compare_reveal_ids)
             or (is_self and player.get("is_seen"))
         )
         payload = {
@@ -726,6 +778,8 @@ class ZhajinhuaManager:
             "enable_235_rule": bool(room.get("enable_235_rule", False)),
             "straight_gt_flush": bool(room.get("straight_gt_flush", False)),
             "a23_is_straight": bool(room.get("a23_is_straight", True)),
+            "max_bet_amount": self._max_bet_amount(),
+            "special_round_probability": self._special_round_probability(),
             "finished_at": str(room.get("finished_at") or ""),
             "last_action": room.get("last_action") or {},
             "history": list(room.get("history") or []),
@@ -762,6 +816,8 @@ class ZhajinhuaManager:
             payload["self_player_id"] = viewer_player_id
             payload["self_role"] = "player" if player else ("spectator" if spectator else "")
             payload["self_total_score"] = int(local_score_cache.get(str(viewer_player_id or "").strip(), self._total_score(viewer_player_id)))
+        if room.get("status") == "finished":
+            payload["is_special_round"] = bool(room.get("is_special_round"))
         return payload
 
     def room_snapshots(self, room_code: str) -> List[Dict[str, Any]]:
@@ -780,6 +836,16 @@ class ZhajinhuaManager:
                 if sid:
                     snapshots.append({"sid": sid, "payload": self._public_room(room, spectator["player_id"], score_cache)})
             return snapshots
+
+    def dissolve_room(self, room_code: str, player_id: str) -> None:
+        with self._lock:
+            code = str(room_code or "").strip().upper()
+            room = self._rooms.get(code)
+            if not room:
+                raise ValueError("Room not found")
+            if room.get("host_player_id") != player_id:
+                raise ValueError("只有房主可以解散房间")
+            self._delete_room(code)
 
     def room_summaries(self) -> List[Dict[str, Any]]:
         with self._lock:
@@ -809,6 +875,8 @@ class ZhajinhuaManager:
                     "online_spectator_count": self._online_spectator_count(room),
                     "online_count": self._online_count(room),
                     "spectator_count": len(self._active_spectators(room)),
+                    "max_bet_amount": self._max_bet_amount(),
+                    "special_round_probability": self._special_round_probability(),
                     "updated_at": room.get("updated_at", ""),
                 })
             return items
@@ -867,6 +935,7 @@ class ZhajinhuaManager:
                     "straight_gt_flush": False,
                     "a23_is_straight": True,
                     "raise_options": list(DEFAULT_RAISE_OPTIONS),
+                    "is_special_round": False,
                     "finished_at": "",
                     "compare_reveal_player_ids": [],
                     "last_action": {},
@@ -1140,7 +1209,7 @@ class ZhajinhuaManager:
                 raise ValueError("只有房主可以设置底金")
             if room.get("status") == "playing":
                 raise ValueError("牌局进行中，无法修改底金")
-            stake = max(1, min(int(amount or 0), MAX_BASE_STAKE))
+            stake = max(1, min(int(amount or 0), self._max_bet_amount()))
             room["base_stake"] = stake
             self._save_room(room)
 
@@ -1259,6 +1328,8 @@ class ZhajinhuaManager:
             if not player or player.get("is_folded"):
                 raise ValueError("当前无法加注")
             raise_to = max(1, int(amount or 0))
+            if raise_to > self._max_bet_amount():
+                raise ValueError(f"加注上限不能超过 {self._max_bet_amount()}")
             if raise_to <= int(room.get("current_bet") or 0):
                 raise ValueError("鍔犳敞鍚庣殑褰撳墠娉ㄥ繀椤诲ぇ浜庣幇鍦ㄧ殑娉ㄩ")
             room["current_bet"] = raise_to
@@ -1407,6 +1478,31 @@ def init_zhajinhua_socketio(socketio, profile_resolver):
         leave_room(room_code)
         if room_payload:
             _emit_room(room_code)
+        _emit_rooms_async()
+
+    @socketio.on("zhajinhua_dissolve", namespace=ROOM_NAMESPACE)
+    def zhajinhua_dissolve(data):
+        payload = dict(data or {})
+        room_code = str(payload.get("room_code") or "").strip().upper()
+        snapshots = zhajinhua_manager.room_snapshots(room_code)
+        try:
+            zhajinhua_manager.dissolve_room(room_code, profile_resolver(request)["identity"])
+        except Exception as exc:
+            socketio.emit("zhajinhua_error", {"error": str(exc)}, room=request.sid, namespace=ROOM_NAMESPACE)
+            return
+        notified_sids = set()
+        for snapshot in snapshots:
+            target_sid = str(snapshot.get("sid") or "").strip()
+            if not target_sid or target_sid in notified_sids:
+                continue
+            notified_sids.add(target_sid)
+            leave_room(room_code, sid=target_sid, namespace=ROOM_NAMESPACE)
+            socketio.emit(
+                "zhajinhua_room_closed",
+                {"room_code": room_code, "reason": "dissolved"},
+                room=target_sid,
+                namespace=ROOM_NAMESPACE,
+            )
         _emit_rooms_async()
 
     @socketio.on("zhajinhua_switch_role", namespace=ROOM_NAMESPACE)

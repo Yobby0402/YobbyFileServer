@@ -15,6 +15,9 @@
             normal: { key: "normal", label: "普通", mainNodes: [6, 7], branchCount: [2, 3], specialCount: 2, neutralGuard: [10, 19], mainJitter: 28 },
             hard: { key: "hard", label: "困难", mainNodes: [7, 8], branchCount: [3, 4], specialCount: 3, neutralGuard: [13, 24], mainJitter: 34 }
         };
+        table.easy.specialCount = 2;
+        table.normal.specialCount = 4;
+        table.hard.specialCount = 5;
         return table[key] || table.normal;
     }
 
@@ -29,6 +32,9 @@
             arsenal: { key: "arsenal", label: "军械塔", shortLabel: "ARS", intervalMultiplier: 1.12, amountMultiplier: 0.96, capMultiplier: 0.9, defenseMultiplier: 0.92, priorityScore: 31, travelMultiplier: 0.96, dispatchMultiplier: 1.18 },
             vault: { key: "vault", label: "储备塔", shortLabel: "VLT", intervalMultiplier: 1.1, amountMultiplier: 1.08, capMultiplier: 1.42, defenseMultiplier: 1.18, priorityScore: 24, travelMultiplier: 1.08, dispatchMultiplier: 1 }
         };
+        table.command = { key: "command", label: "指挥塔", shortLabel: "CMD", intervalMultiplier: 1.02, amountMultiplier: 0.94, capMultiplier: 1.02, defenseMultiplier: 1.02, priorityScore: 39, travelMultiplier: 1, dispatchMultiplier: 1.06 };
+        table.jammer = { key: "jammer", label: "干扰塔", shortLabel: "JAM", intervalMultiplier: 1.08, amountMultiplier: 0.9, capMultiplier: 0.96, defenseMultiplier: 1.08, priorityScore: 36, travelMultiplier: 1, dispatchMultiplier: 0.96 };
+        table.siege = { key: "siege", label: "攻城塔", shortLabel: "SGE", intervalMultiplier: 1.12, amountMultiplier: 0.9, capMultiplier: 0.94, defenseMultiplier: 0.94, priorityScore: 41, travelMultiplier: 1.04, dispatchMultiplier: 1.08 };
         return table[towerType] || table.normal;
     }
 
@@ -51,6 +57,15 @@
         }
         if (meta.key === "vault") {
             return "储备塔：容量更夸张，适合囤兵后再反扑。";
+        }
+        if (meta.key === "command") {
+            return "指挥塔：强化相邻友军的产兵与升级节奏，适合争夺枢纽。";
+        }
+        if (meta.key === "jammer") {
+            return "干扰塔：压制周边敌军机动与出兵效率，适合卡住要道。";
+        }
+        if (meta.key === "siege") {
+            return "攻城塔：派出的兵团更擅长打穿高防据点，适合破堡。";
         }
         if (meta.key === "core") {
             return "核心塔：起始阵地，属性更稳。";
@@ -140,8 +155,54 @@
         }
     }
 
-    function createFrontlineMap(difficultyKey) {
-        const config = frontlineDifficultyConfig(difficultyKey);
+    function getFrontlineTowerSpec(level, towerType) {
+        const baseTable = {
+            1: { cap: 30, productionInterval: 3400, productionAmount: 4, upgradeCost: 15 },
+            2: { cap: 45, productionInterval: 2800, productionAmount: 6, upgradeCost: 25 },
+            3: { cap: 65, productionInterval: 2200, productionAmount: 8, upgradeCost: 0 }
+        };
+        const base = baseTable[level] || baseTable[1];
+        const meta = frontlineTowerTypeMeta(towerType);
+        return {
+            cap: Math.max(20, Math.round(base.cap * meta.capMultiplier)),
+            productionInterval: Math.max(1200, Math.round(base.productionInterval * meta.intervalMultiplier)),
+            productionAmount: Math.max(1, Math.round(base.productionAmount * meta.amountMultiplier)),
+            upgradeCost: level >= 3 ? 0 : Math.max(8, Math.round(base.upgradeCost)),
+            defenseMultiplier: meta.defenseMultiplier,
+            travelMultiplier: meta.travelMultiplier,
+            dispatchMultiplier: meta.dispatchMultiplier,
+            priorityScore: meta.priorityScore,
+            label: meta.label,
+            shortLabel: meta.shortLabel
+        };
+    }
+
+    function normalizeFrontlineMetaBonuses(raw) {
+        const bonus = raw && typeof raw === "object" ? raw : {};
+        const normalized = {
+            colorKey: String(bonus.colorKey || "classic"),
+            colorTier: String(bonus.colorTier || "common"),
+            backgroundKey: String(bonus.backgroundKey || "dojo"),
+            backgroundTier: String(bonus.backgroundTier || "common"),
+            productionIntervalMultiplier: Math.max(0.7, Number(bonus.productionIntervalMultiplier != null ? bonus.productionIntervalMultiplier : 1) || 1),
+            travelMultiplier: Math.max(0.7, Number(bonus.travelMultiplier != null ? bonus.travelMultiplier : 1) || 1),
+            dispatchMultiplier: Math.max(0.7, Number(bonus.dispatchMultiplier != null ? bonus.dispatchMultiplier : 1) || 1),
+            startingUnitsBonus: Math.max(0, Math.round(Number(bonus.startingUnitsBonus != null ? bonus.startingUnitsBonus : 0) || 0)),
+            upgradeCostMultiplier: Math.max(0.65, Number(bonus.upgradeCostMultiplier != null ? bonus.upgradeCostMultiplier : 1) || 1),
+            specialCountBonus: Math.max(0, Math.round(Number(bonus.specialCountBonus != null ? bonus.specialCountBonus : 0) || 0)),
+            colorBonusLabel: String(bonus.colorBonusLabel || ""),
+            backgroundBonusLabel: String(bonus.backgroundBonusLabel || ""),
+            summaryLines: Array.isArray(bonus.summaryLines) ? bonus.summaryLines.map(function (line) {
+                return String(line || "");
+            }).filter(Boolean) : []
+        };
+        return normalized;
+    }
+
+    function createFrontlineMap(difficultyKey, metaBonuses) {
+        const bonuses = normalizeFrontlineMetaBonuses(metaBonuses);
+        const config = Object.assign({}, frontlineDifficultyConfig(difficultyKey));
+        config.specialCount += bonuses.specialCountBonus;
         const width = 920;
         const height = 560;
         const centerY = 290;
@@ -226,7 +287,7 @@
             return node.owner === "neutral";
         });
         const specialPool = frontlineShuffle(neutralNodes);
-        const availableTypes = frontlineShuffle(["foundry", "bastion", "surge", "relay", "arsenal", "vault"]);
+        const availableTypes = frontlineShuffle(["foundry", "bastion", "surge", "relay", "arsenal", "vault", "command", "jammer", "siege"]);
         for (let index = 0; index < Math.min(config.specialCount, specialPool.length); index += 1) {
             specialPool[index].towerType = availableTypes[index % availableTypes.length];
         }
@@ -265,31 +326,10 @@
         };
     }
 
-    function getFrontlineTowerSpec(level, towerType) {
-        const baseTable = {
-            1: { cap: 30, productionInterval: 3400, productionAmount: 4, upgradeCost: 15 },
-            2: { cap: 45, productionInterval: 2800, productionAmount: 6, upgradeCost: 25 },
-            3: { cap: 65, productionInterval: 2200, productionAmount: 8, upgradeCost: 0 }
-        };
-        const base = baseTable[level] || baseTable[1];
-        const meta = frontlineTowerTypeMeta(towerType);
-        return {
-            cap: Math.max(20, Math.round(base.cap * meta.capMultiplier)),
-            productionInterval: Math.max(1200, Math.round(base.productionInterval * meta.intervalMultiplier)),
-            productionAmount: Math.max(1, Math.round(base.productionAmount * meta.amountMultiplier)),
-            upgradeCost: level >= 3 ? 0 : Math.max(8, Math.round(base.upgradeCost)),
-            defenseMultiplier: meta.defenseMultiplier,
-            travelMultiplier: meta.travelMultiplier,
-            dispatchMultiplier: meta.dispatchMultiplier,
-            priorityScore: meta.priorityScore,
-            label: meta.label,
-            shortLabel: meta.shortLabel
-        };
-    }
-
-    function createFrontlineSession(difficultyKey) {
+    function createFrontlineSession(difficultyKey, metaBonuses) {
         const difficulty = String(difficultyKey || "normal");
-        const currentMap = createFrontlineMap(difficulty);
+        const bonuses = normalizeFrontlineMetaBonuses(metaBonuses);
+        const currentMap = createFrontlineMap(difficulty, bonuses);
         return {
             sessionKey: "frontline-" + Date.now() + "-" + Math.random().toString(36).slice(2, 8),
             mapKey: currentMap.key,
@@ -301,13 +341,14 @@
             selectedTowerId: currentMap.nodes.length ? currentMap.nodes[0].id : "",
             submittedScore: false,
             celebrationPlayed: false,
+            metaBonuses: bonuses,
             map: currentMap,
             towers: currentMap.nodes.map(function (node) {
                 return {
                     id: node.id,
                     owner: node.owner,
                     level: node.level,
-                    unitCount: node.unitCount,
+                    unitCount: node.unitCount + (node.owner === "player" && node.towerType === "core" ? bonuses.startingUnitsBonus : 0),
                     prodProgressMs: 0
                 };
             }),
@@ -321,7 +362,8 @@
         }
         const normalizedStatus = raw.status === "victory" || raw.status === "defeat" ? raw.status : "playing";
         const normalizedElapsed = Number(raw.elapsedSeconds || 0);
-        const rawMap = raw.map && Array.isArray(raw.map.nodes) && Array.isArray(raw.map.edges) ? raw.map : createFrontlineMap(String(raw.difficulty || "normal"));
+        const rawMetaBonuses = normalizeFrontlineMetaBonuses(raw.metaBonuses || {});
+        const rawMap = raw.map && Array.isArray(raw.map.nodes) && Array.isArray(raw.map.edges) ? raw.map : createFrontlineMap(String(raw.difficulty || "normal"), rawMetaBonuses);
         const currentMap = {
             key: String(rawMap.key || ("frontline-" + Date.now())),
             width: Number(rawMap.width || 920),
@@ -376,6 +418,7 @@
             selectedTowerId: nodeIds[raw.selectedTowerId] ? raw.selectedTowerId : (currentMap.nodes[0] ? currentMap.nodes[0].id : ""),
             submittedScore: Boolean(raw.submittedScore),
             celebrationPlayed: Boolean(raw.celebrationPlayed),
+            metaBonuses: rawMetaBonuses,
             map: currentMap,
             towers: currentMap.nodes.map(function (node) {
                 const source = towerById[node.id] || {};
@@ -399,7 +442,8 @@
                     toId: edge.a === squad.fromId ? edge.b : squad.toId,
                     count: Math.max(0, Math.round(Number(squad.count || 0))),
                     progress: clamp(Number(squad.progress || 0), 0, 1),
-                    travelMs: Math.max(800, Number(squad.travelMs || edge.travelMs))
+                    travelMs: Math.max(800, Number(squad.travelMs || edge.travelMs)),
+                    siegeMultiplier: Math.max(1, Number(squad.siegeMultiplier || 1))
                 };
             }).filter(function (squad) {
                 return squad && squad.count > 0 && squad.owner !== "neutral";
@@ -426,6 +470,7 @@
             selectedTowerId: session.selectedTowerId,
             submittedScore: session.submittedScore,
             celebrationPlayed: session.celebrationPlayed,
+            metaBonuses: session.metaBonuses,
             map: session.map,
             towers: session.towers.map(function (tower) {
                 return {
@@ -444,7 +489,8 @@
                     toId: squad.toId,
                     count: Math.round(squad.count),
                     progress: Math.round(clamp(squad.progress, 0, 1) * 1000) / 1000,
-                    travelMs: Math.round(squad.travelMs)
+                    travelMs: Math.round(squad.travelMs),
+                    siegeMultiplier: Math.max(1, Number(squad.siegeMultiplier || 1))
                 };
             })
         };
@@ -471,7 +517,8 @@
             player_towers: towerCounts.player,
             ai_towers: towerCounts.ai,
             player_units: Math.round(units.player),
-            ai_units: Math.round(units.ai)
+            ai_units: Math.round(units.ai),
+            frontline_meta_bonus_count: Array.isArray(session.metaBonuses && session.metaBonuses.summaryLines) ? session.metaBonuses.summaryLines.length : 0
         };
     }
 
@@ -480,10 +527,10 @@
         const difficultyMultiplier = session.difficulty === "hard" ? 1.75 : (session.difficulty === "easy" ? 1 : 1.35);
         const survivedUnits = Number(summary.player_units || 0);
         const playerTowers = Number(summary.player_towers || 0);
-        const victoryBonus = session.status === "victory" ? Math.round(1200 * difficultyMultiplier) : 0;
-        const mapControlBonus = Math.round(playerTowers * 140 * difficultyMultiplier);
-        const unitBonus = Math.round(survivedUnits * 12 * difficultyMultiplier);
-        const timeBonus = session.status === "victory" ? Math.max(0, 720 - session.elapsedSeconds) * Math.round(4 * difficultyMultiplier) : 0;
+        const victoryBonus = session.status === "victory" ? Math.round(60000 * difficultyMultiplier) : 0;
+        const mapControlBonus = Math.round(playerTowers * 1400 * difficultyMultiplier);
+        const unitBonus = Math.round(survivedUnits * 120 * difficultyMultiplier);
+        const timeBonus = session.status === "victory" ? Math.max(0, 7200 - session.elapsedSeconds) * Math.round(4 * difficultyMultiplier) : 0;
         return {
             victoryBonus: victoryBonus,
             mapControlBonus: mapControlBonus,
@@ -506,13 +553,18 @@
         const escapeHtml = ctx.escapeHtml;
         const state = ctx.state;
         const els = ctx.els;
+        const initialMetaState = ctx.getTopdownSharedMetaState();
+        const initialFrontlineMetaBonuses = normalizeFrontlineMetaBonuses((ctx.frontlineBuildMetaBonuses ? ctx.frontlineBuildMetaBonuses(initialMetaState) : null) || {});
         const nodeById = {};
         const edgeById = {};
         const edgeByPair = {};
         const neighbors = {};
-        let session = normalizeFrontlineSession(savedPayload.state || {});
+        let session = savedPayload && savedPayload.state && Array.isArray(savedPayload.state.towers) && savedPayload.state.towers.length
+            ? normalizeFrontlineSession(savedPayload.state || {})
+            : createFrontlineSession("normal", initialFrontlineMetaBonuses);
         let currentMap = session.map;
-        let metaState = ctx.getTopdownSharedMetaState();
+        let metaState = initialMetaState;
+        let frontlineMetaBonuses = normalizeFrontlineMetaBonuses((ctx.frontlineBuildMetaBonuses ? ctx.frontlineBuildMetaBonuses(metaState) : null) || session.metaBonuses || initialFrontlineMetaBonuses);
         let timerId = null;
         let introActive = true;
         let introShownAt = Date.now();
@@ -523,6 +575,11 @@
         function persistAchievementMeta() {
             metaState = ctx.setTopdownSharedMetaState(metaState);
             ctx.scheduleGameStateSave("topdown-shooter-meta", ctx.serializeTopdownMetaState(metaState), ctx.summarizeTopdownMetaState(metaState));
+        }
+
+        function refreshFrontlineMetaBonuses() {
+            frontlineMetaBonuses = normalizeFrontlineMetaBonuses((ctx.frontlineBuildMetaBonuses ? ctx.frontlineBuildMetaBonuses(metaState) : null) || frontlineMetaBonuses || {});
+            session.metaBonuses = frontlineMetaBonuses;
         }
 
         function recordFrontlineAchievements(scoreData) {
@@ -577,7 +634,8 @@
 
         function restartFrontline(difficultyKey) {
             finalizeScoreIfNeeded("restart").finally(function () {
-                session = createFrontlineSession(difficultyKey || session.difficulty);
+                refreshFrontlineMetaBonuses();
+                session = createFrontlineSession(difficultyKey || session.difficulty, frontlineMetaBonuses);
                 rebuildMapIndexes();
                 introShownAt = Date.now();
                 introActive = true;
@@ -656,6 +714,9 @@
         const selectionCardEl = shell.querySelector("#frontlineSelectionCard");
         let victoryAnimFrame = 0;
         let victoryAnimTimeout = 0;
+        let selectionCardStateKey = "";
+        let strategicStateCacheKey = "";
+        let strategicStateCacheValue = null;
 
         addStageButton("帮助", function () {
             openGameInfoOverlay(mapWrapEl, frontlineHelpConfig);
@@ -865,22 +926,337 @@
             return nodeById[towerId] || null;
         }
 
+        function getCoreTowerId(owner, blockedTowerId) {
+            const coreTower = session.towers.find(function (tower) {
+                const node = getTowerNode(tower.id);
+                return tower.owner === owner && tower.id !== blockedTowerId && node && node.towerType === "core";
+            });
+            return coreTower ? coreTower.id : "";
+        }
+
+        function buildOwnedSupplyMap(owner, blockedTowerId) {
+            const supplied = {};
+            if (owner !== "player" && owner !== "ai") {
+                return supplied;
+            }
+            const coreId = getCoreTowerId(owner, blockedTowerId);
+            if (!coreId) {
+                return supplied;
+            }
+            const queue = [coreId];
+            supplied[coreId] = true;
+            while (queue.length) {
+                const currentId = queue.shift();
+                (neighbors[currentId] || []).forEach(function (neighborId) {
+                    if (neighborId === blockedTowerId || supplied[neighborId]) {
+                        return;
+                    }
+                    const tower = getTower(neighborId);
+                    if (!tower || tower.owner !== owner) {
+                        return;
+                    }
+                    supplied[neighborId] = true;
+                    queue.push(neighborId);
+                });
+            }
+            return supplied;
+        }
+
+        function getStrategicStateKey() {
+            return currentMap.key + "|" + session.towers.map(function (tower) {
+                const node = getTowerNode(tower.id);
+                return tower.id + ":" + tower.owner + ":" + (node ? node.towerType : "normal");
+            }).join("|");
+        }
+
+        function buildFrontlineStrategicState() {
+            const cacheKey = getStrategicStateKey();
+            if (cacheKey === strategicStateCacheKey && strategicStateCacheValue) {
+                return strategicStateCacheValue;
+            }
+            const supplyByOwner = {
+                player: buildOwnedSupplyMap("player"),
+                ai: buildOwnedSupplyMap("ai")
+            };
+            const byTower = {};
+            session.towers.forEach(function (tower) {
+                const friendlyTypeCounts = {};
+                const enemyTypeCounts = {};
+                let friendlyAdjCount = 0;
+                let enemyAdjCount = 0;
+                let neutralAdjCount = 0;
+                (neighbors[tower.id] || []).forEach(function (neighborId) {
+                    const neighborTower = getTower(neighborId);
+                    const neighborNode = getTowerNode(neighborId);
+                    if (!neighborTower || !neighborNode) {
+                        return;
+                    }
+                    if (tower.owner !== "neutral" && neighborTower.owner === tower.owner) {
+                        friendlyAdjCount += 1;
+                        friendlyTypeCounts[neighborNode.towerType] = (friendlyTypeCounts[neighborNode.towerType] || 0) + 1;
+                        return;
+                    }
+                    if (neighborTower.owner === "neutral") {
+                        neutralAdjCount += 1;
+                        return;
+                    }
+                    enemyAdjCount += 1;
+                    enemyTypeCounts[neighborNode.towerType] = (enemyTypeCounts[neighborNode.towerType] || 0) + 1;
+                });
+                byTower[tower.id] = {
+                    supplied: tower.owner === "neutral" ? false : Boolean(supplyByOwner[tower.owner][tower.id]),
+                    friendlyAdjCount: friendlyAdjCount,
+                    enemyAdjCount: enemyAdjCount,
+                    neutralAdjCount: neutralAdjCount,
+                    friendlyTypeCounts: friendlyTypeCounts,
+                    enemyTypeCounts: enemyTypeCounts
+                };
+            });
+            strategicStateCacheKey = cacheKey;
+            strategicStateCacheValue = {
+                supplyByOwner: supplyByOwner,
+                byTower: byTower
+            };
+            return strategicStateCacheValue;
+        }
+
+        function getTowerStrategicInfo(tower) {
+            if (!tower) {
+                return {
+                    supplied: false,
+                    friendlyAdjCount: 0,
+                    enemyAdjCount: 0,
+                    neutralAdjCount: 0,
+                    friendlyTypeCounts: {},
+                    enemyTypeCounts: {}
+                };
+            }
+            return buildFrontlineStrategicState().byTower[tower.id] || {
+                supplied: false,
+                friendlyAdjCount: 0,
+                enemyAdjCount: 0,
+                neutralAdjCount: 0,
+                friendlyTypeCounts: {},
+                enemyTypeCounts: {}
+            };
+        }
+
+        function getSupplyCutImpact(targetId) {
+            const targetTower = getTower(targetId);
+            if (!targetTower || (targetTower.owner !== "player" && targetTower.owner !== "ai")) {
+                return 0;
+            }
+            const currentSupply = buildFrontlineStrategicState().supplyByOwner[targetTower.owner] || {};
+            if (!currentSupply[targetId]) {
+                return 0;
+            }
+            const owner = targetTower.owner;
+            const afterSupply = buildOwnedSupplyMap(owner, targetId);
+            const currentlySuppliedCount = session.towers.filter(function (tower) {
+                return tower.owner === owner && currentSupply[tower.id];
+            }).length;
+            const afterSuppliedCount = session.towers.filter(function (tower) {
+                return tower.owner === owner && tower.id !== targetId && afterSupply[tower.id];
+            }).length;
+            return Math.max(0, currentlySuppliedCount - afterSuppliedCount - 1);
+        }
+
         function getTowerSpecForTower(tower) {
             const node = tower ? getTowerNode(tower.id) : null;
-            return getFrontlineTowerSpec(tower ? tower.level : 1, node ? node.towerType : "normal");
+            const towerType = node ? node.towerType : "normal";
+            const baseSpec = getFrontlineTowerSpec(tower ? tower.level : 1, towerType);
+            if (!tower) {
+                return Object.assign({}, baseSpec, {
+                    supplied: false,
+                    friendlyAdjCount: 0,
+                    enemyAdjCount: 0,
+                    siegeMultiplier: towerType === "siege" ? 1.24 : (towerType === "arsenal" ? 1.08 : 1)
+                });
+            }
+            const strategicInfo = getTowerStrategicInfo(tower);
+            let cap = baseSpec.cap;
+            let productionInterval = baseSpec.productionInterval;
+            let productionAmount = baseSpec.productionAmount;
+            let upgradeCost = baseSpec.upgradeCost;
+            let defenseMultiplier = baseSpec.defenseMultiplier;
+            let travelMultiplier = baseSpec.travelMultiplier;
+            let dispatchMultiplier = baseSpec.dispatchMultiplier;
+            let siegeMultiplier = towerType === "siege" ? 1.24 : (towerType === "arsenal" ? 1.08 : 1);
+            const friendlyTypeCounts = strategicInfo.friendlyTypeCounts || {};
+            const enemyTypeCounts = strategicInfo.enemyTypeCounts || {};
+
+            if (tower.owner !== "neutral") {
+                if (!strategicInfo.supplied && towerType !== "core") {
+                    productionInterval *= 1.28;
+                    productionAmount *= 0.72;
+                    defenseMultiplier *= 0.88;
+                    dispatchMultiplier *= 0.84;
+                    upgradeCost += 10;
+                }
+                cap *= Math.pow(1.06, Number(friendlyTypeCounts.vault || 0));
+                defenseMultiplier *= Math.pow(1.08, Number(friendlyTypeCounts.bastion || 0));
+                dispatchMultiplier *= Math.pow(1.08, Number(friendlyTypeCounts.arsenal || 0));
+                travelMultiplier *= Math.pow(0.9, Number(friendlyTypeCounts.relay || 0));
+                productionInterval *= Math.pow(0.96, Number(friendlyTypeCounts.foundry || 0));
+                productionAmount *= Math.pow(1.04, Number(friendlyTypeCounts.surge || 0));
+                productionInterval *= Math.pow(0.92, Number(friendlyTypeCounts.command || 0));
+                upgradeCost -= 4 * Number(friendlyTypeCounts.command || 0);
+                siegeMultiplier *= Math.pow(1.08, Number(friendlyTypeCounts.siege || 0));
+
+                const jammerCount = Number(enemyTypeCounts.jammer || 0);
+                if (jammerCount > 0) {
+                    travelMultiplier *= Math.pow(1.16, jammerCount);
+                    dispatchMultiplier *= Math.pow(0.9, jammerCount);
+                    upgradeCost += 4 * jammerCount;
+                }
+                if (strategicInfo.enemyAdjCount >= strategicInfo.friendlyAdjCount + 2) {
+                    productionInterval *= 1.08;
+                    defenseMultiplier *= 0.95;
+                }
+                if (tower.owner === "player") {
+                    productionInterval *= frontlineMetaBonuses.productionIntervalMultiplier;
+                    travelMultiplier *= frontlineMetaBonuses.travelMultiplier;
+                    dispatchMultiplier *= frontlineMetaBonuses.dispatchMultiplier;
+                    upgradeCost *= frontlineMetaBonuses.upgradeCostMultiplier;
+                }
+            }
+
+            return {
+                cap: Math.max(20, Math.round(cap)),
+                productionInterval: Math.max(1100, Math.round(productionInterval)),
+                productionAmount: Math.max(1, Math.round(productionAmount)),
+                upgradeCost: baseSpec.upgradeCost <= 0 ? 0 : Math.max(8, Math.round(upgradeCost)),
+                defenseMultiplier: Math.max(0.72, Number(defenseMultiplier.toFixed(2))),
+                travelMultiplier: Math.max(0.58, Number(travelMultiplier.toFixed(2))),
+                dispatchMultiplier: Math.max(0.65, Number(dispatchMultiplier.toFixed(2))),
+                priorityScore: baseSpec.priorityScore + (strategicInfo.enemyAdjCount * 2) + (strategicInfo.friendlyAdjCount > 1 ? 3 : 0),
+                label: baseSpec.label,
+                shortLabel: baseSpec.shortLabel,
+                supplied: strategicInfo.supplied,
+                friendlyAdjCount: strategicInfo.friendlyAdjCount,
+                enemyAdjCount: strategicInfo.enemyAdjCount,
+                siegeMultiplier: Math.max(1, Number(siegeMultiplier.toFixed(2)))
+            };
+        }
+
+        function getSelectionCardStateKey(selectedTower) {
+            if (!selectedTower) {
+                return "empty";
+            }
+            const node = getTowerNode(selectedTower.id);
+            const towerType = node ? node.towerType : "normal";
+            const spec = getTowerSpecForTower(selectedTower);
+            const nextSpec = selectedTower.level >= 3 ? null : getFrontlineTowerSpec(selectedTower.level + 1, towerType);
+            return [
+                selectedTower.id,
+                selectedTower.owner,
+                selectedTower.level,
+                Math.floor(selectedTower.unitCount),
+                towerType,
+                spec.cap,
+                spec.productionInterval,
+                spec.productionAmount,
+                spec.travelMultiplier,
+                spec.dispatchMultiplier,
+                spec.supplied ? "supplied" : "cut-off",
+                spec.siegeMultiplier,
+                spec.friendlyAdjCount,
+                spec.enemyAdjCount,
+                canUpgradeTower(selectedTower) ? "can-upgrade" : "wait",
+                nextSpec ? nextSpec.cap : "-",
+                nextSpec ? nextSpec.productionInterval : "-",
+                nextSpec ? nextSpec.productionAmount : "-",
+                (neighbors[selectedTower.id] || []).join(",")
+            ].join("|");
+        }
+
+        function summarizeTowerStrategicEffects(tower, spec) {
+            const info = getTowerStrategicInfo(tower);
+            const notes = [];
+            const friendlyTypes = info.friendlyTypeCounts || {};
+            const enemyTypes = info.enemyTypeCounts || {};
+            if (tower.owner !== "neutral") {
+                notes.push(spec.supplied ? "补给畅通" : "补给中断");
+            }
+            if (friendlyTypes.command) {
+                notes.push("邻接指挥 x" + friendlyTypes.command);
+            }
+            if (friendlyTypes.relay) {
+                notes.push("机动链路 x" + friendlyTypes.relay);
+            }
+            if (friendlyTypes.arsenal) {
+                notes.push("火力支援 x" + friendlyTypes.arsenal);
+            }
+            if (friendlyTypes.bastion) {
+                notes.push("防御支撑 x" + friendlyTypes.bastion);
+            }
+            if (enemyTypes.jammer) {
+                notes.push("受干扰 x" + enemyTypes.jammer);
+            }
+            if (spec.siegeMultiplier > 1.05) {
+                notes.push("攻坚 " + Math.round(spec.siegeMultiplier * 100) + "%");
+            }
+            if (info.enemyAdjCount >= info.friendlyAdjCount + 2) {
+                notes.push("前线受压");
+            }
+            return notes.join(" · ");
         }
 
         function canUpgradeTower(tower) {
-            if (!tower || tower.owner !== "player" || tower.level >= 3) {
+            return tower && tower.owner === "player" && getTowerUpgradeLockReason(tower) === "";
+        }
+
+        function getTowerUpgradeLockReason_legacy_bug(tower) {
+            if (!tower || tower.owner !== "player") {
+                return "owner";
+            }
+            if (tower.level >= 3) {
+                return "max";
+            }
+            const node = getTowerNode(tower.id);
+            if (getTowerUpgradeLockReason(tower) === "supply") {
+                if (!silent) {
+                    setStatus("补给中断，必须先连回核心塔才能升级。", true);
+                }
                 return false;
             }
             const spec = getTowerSpecForTower(tower);
-            return tower.unitCount >= spec.upgradeCost;
+            if (!spec.supplied && (!node || node.towerType !== "core")) {
+                return "supply";
+            }
+            if (tower.unitCount < spec.upgradeCost) {
+                return "units";
+            }
+            return "";
+        }
+
+        function getTowerUpgradeLockReason(tower) {
+            if (!tower || tower.owner !== "player") {
+                return "owner";
+            }
+            if (tower.level >= 3) {
+                return "max";
+            }
+            const node = getTowerNode(tower.id);
+            const spec = getTowerSpecForTower(tower);
+            if (!spec.supplied && (!node || node.towerType !== "core")) {
+                return "supply";
+            }
+            if (tower.unitCount < spec.upgradeCost) {
+                return "units";
+            }
+            return "";
         }
 
         function upgradeTower(towerId, silent) {
             const tower = getTower(towerId);
             if (!tower || tower.owner !== "player") {
+                return false;
+            }
+            if (getTowerUpgradeLockReason(tower) === "supply") {
+                if (!silent) {
+                    setStatus("补给中断，必须先连回核心塔才能升级。", true);
+                }
                 return false;
             }
             if (tower.level >= 3) {
@@ -998,7 +1374,8 @@
                 toId: toId,
                 count: Math.max(1, Math.round(sendCount * Math.max(1, Number(sourceSpec.dispatchMultiplier || 1)))),
                 progress: 0,
-                travelMs: Math.max(800, Math.round(edge.travelMs * Math.max(0.6, Number(sourceSpec.travelMultiplier || 1))))
+                travelMs: Math.max(800, Math.round(edge.travelMs * Math.max(0.6, Number(sourceSpec.travelMultiplier || 1)))),
+                siegeMultiplier: Math.max(1, Number(sourceSpec.siegeMultiplier || 1))
             });
             session.nextSquadId += 1;
             return true;
@@ -1028,7 +1405,8 @@
             }
             const spec = getTowerSpecForTower(tower);
             const defenseMultiplier = Math.max(1, Number(spec.defenseMultiplier || 1));
-            const effectiveGuard = Math.max(0, Math.round(tower.unitCount * defenseMultiplier));
+            const siegeMultiplier = Math.max(1, Number(squad.siegeMultiplier || 1));
+            const effectiveGuard = Math.max(0, Math.round((tower.unitCount * defenseMultiplier) / siegeMultiplier));
             if (squad.count > effectiveGuard) {
                 const remainder = squad.count - effectiveGuard;
                 const previousOwner = tower.owner;
@@ -1123,6 +1501,7 @@
                         return null;
                     }
                     const targetSpec = getTowerSpecForTower(target);
+                    const targetNode = getTowerNode(targetId);
                     const advantage = tower.unitCount - target.unitCount;
                     let score = advantage * 8;
                     if (target.owner === "player") {
@@ -1131,12 +1510,27 @@
                         score += 30;
                     }
                     score += Number(targetSpec.priorityScore || 0);
+                    if (target.owner === "player" && targetSpec.supplied) {
+                        score += 20;
+                    }
+                    if (target.owner === "player") {
+                        score += getSupplyCutImpact(targetId) * 46;
+                    }
+                    if (targetNode && (targetNode.towerType === "command" || targetNode.towerType === "jammer" || targetNode.towerType === "siege")) {
+                        score += 24;
+                    }
                     if (towerNode && towerNode.towerType === "foundry") {
                         score += 8;
                     } else if (towerNode && towerNode.towerType === "relay") {
                         score += 10;
                     } else if (towerNode && towerNode.towerType === "arsenal") {
                         score += 14;
+                    } else if (towerNode && towerNode.towerType === "command") {
+                        score += 12;
+                    } else if (towerNode && towerNode.towerType === "siege") {
+                        score += 16;
+                    } else if (towerNode && towerNode.towerType === "jammer") {
+                        score += 10;
                     } else if (towerNode && towerNode.towerType === "vault") {
                         score += 4;
                     }
@@ -1161,7 +1555,7 @@
                     acted = dispatchSquad(tower.id, aiNeighbors[0].id, 0.5, "ai");
                     return;
                 }
-                if (tower.level < 3 && tower.unitCount >= spec.upgradeCost + 14) {
+                if ((towerNode && towerNode.towerType === "core" ? true : spec.supplied) && tower.level < 3 && tower.unitCount >= spec.upgradeCost + 14) {
                     tower.unitCount -= spec.upgradeCost;
                     tower.level += 1;
                     tower.prodProgressMs = 0;
@@ -1261,6 +1655,11 @@
         }
 
         function renderSelectionCard(selectedTower) {
+            const nextStateKey = getSelectionCardStateKey(selectedTower);
+            if (nextStateKey === selectionCardStateKey) {
+                return;
+            }
+            selectionCardStateKey = nextStateKey;
             if (!selectedTower) {
                 if (panelTitleEl) {
                     panelTitleEl.textContent = "塔信息";
@@ -1274,6 +1673,18 @@
             const towerType = node ? node.towerType : "normal";
             const spec = getTowerSpecForTower(selectedTower);
             const canUpgrade = canUpgradeTower(selectedTower);
+            const nextLevelSpec = selectedTower.level >= 3 ? null : getTowerSpecForTower({
+                id: selectedTower.id,
+                owner: selectedTower.owner,
+                level: selectedTower.level + 1,
+                unitCount: selectedTower.unitCount,
+                prodProgressMs: selectedTower.prodProgressMs
+            });
+            const upgradeLockReason = getTowerUpgradeLockReason(selectedTower);
+            const strategicSummary = summarizeTowerStrategicEffects(selectedTower, spec);
+            const blockedUpgradeMessage = upgradeLockReason === "supply"
+                ? "补给中断时无法升级。"
+                : (upgradeLockReason === "units" ? "当前驻军不足，无法升级。" : "");
             if (panelTitleEl) {
                 panelTitleEl.textContent = "塔 " + selectedTower.id + " · " + frontlineTowerTypeMeta(towerType).label;
             }
@@ -1286,9 +1697,9 @@
                         : [
                             '<div class="game-frontline-upgrade-card">',
                             '  <div class="game-frontline-note"><strong>升级到 Lv.' + escapeHtml(selectedTower.level + 1) + '</strong></div>',
-                            '  <div class="game-frontline-note">消耗 ' + escapeHtml(spec.upgradeCost) + ' 兵，下一档容量 ' + escapeHtml(getFrontlineTowerSpec(selectedTower.level + 1, towerType).cap) + '。</div>',
-                            '  <div class="game-frontline-note">下一档批次：每 ' + escapeHtml((getFrontlineTowerSpec(selectedTower.level + 1, towerType).productionInterval / 1000).toFixed(1)) + ' 秒 + ' + escapeHtml(getFrontlineTowerSpec(selectedTower.level + 1, towerType).productionAmount) + ' 兵。</div>',
-                            '  <button type="button" class="games-btn games-btn--primary" id="frontlineUpgradeBtn" ' + (canUpgrade ? "" : "disabled") + '>升级这座塔</button>',
+                            '  <div class="game-frontline-note">消耗 ' + escapeHtml(spec.upgradeCost) + ' 兵，下一档容量 ' + escapeHtml(nextLevelSpec ? nextLevelSpec.cap : spec.cap) + '。</div>',
+                            '  <div class="game-frontline-note">下一档批次：每 ' + escapeHtml(nextLevelSpec ? (nextLevelSpec.productionInterval / 1000).toFixed(1) : (spec.productionInterval / 1000).toFixed(1)) + ' 秒 + ' + escapeHtml(nextLevelSpec ? nextLevelSpec.productionAmount : spec.productionAmount) + ' 兵。</div>',
+                            '  <button type="button" class="games-btn games-btn--primary" data-frontline-upgrade-id="' + escapeHtml(selectedTower.id) + '" ' + (canUpgrade ? "" : "disabled") + '>升级这座塔</button>',
                             (!canUpgrade ? '<div class="game-frontline-note">当前驻军不足，无法升级。</div>' : ''),
                             '</div>'
                         ].join("")
@@ -1305,11 +1716,18 @@
                 upgradeMarkup,
                 '</div>'
             ].join("");
-            const upgradeButton = selectionCardEl.querySelector("#frontlineUpgradeBtn");
-            if (upgradeButton) {
-                upgradeButton.addEventListener("click", function () {
-                    upgradeTower(selectedTower.id, false);
-                });
+            const selectionMainEl = selectionCardEl.querySelector(".game-frontline-selection-main");
+            if (selectionMainEl) {
+                const strategicNoteEl = document.createElement("div");
+                strategicNoteEl.className = "game-frontline-note";
+                strategicNoteEl.textContent = strategicSummary || "无额外战术效果";
+                selectionMainEl.insertBefore(strategicNoteEl, selectionMainEl.lastElementChild);
+            }
+            if (!canUpgrade && blockedUpgradeMessage) {
+                const upgradeNotes = selectionCardEl.querySelectorAll(".game-frontline-upgrade-card .game-frontline-note");
+                if (upgradeNotes.length) {
+                    upgradeNotes[upgradeNotes.length - 1].textContent = blockedUpgradeMessage;
+                }
             }
         }
 
@@ -1326,6 +1744,8 @@
                 const selected = selectedTower && selectedTower.id === tower.id;
                 const dragSource = dragState && dragState.sourceId === tower.id;
                 const hoveredTarget = dragState && dragState.hoveredTargetId === tower.id;
+                const cutOff = tower.owner !== "neutral" && towerType !== "core" && !spec.supplied;
+                const pressured = spec.enemyAdjCount >= spec.friendlyAdjCount + 2;
                 const progress = tower.owner === "neutral" || tower.unitCount >= spec.cap ? 0 : clamp((tower.prodProgressMs || 0) / spec.productionInterval, 0, 1);
                 const half = frontlineTowerHalfSize();
                 const cell = 28;
@@ -1337,6 +1757,8 @@
                         actionable ? "is-targetable" : "",
                         dragSource ? "is-drag-source" : "",
                         hoveredTarget ? "is-hovered-target" : "",
+                        cutOff ? "is-cut-off" : "is-supplied",
+                        pressured ? "is-pressured" : "",
                         "is-type-" + towerType
                     ].join(" ").trim(),
                     transform: "translate(" + nodeById[tower.id].x + " " + nodeById[tower.id].y + ")",
@@ -1415,6 +1837,20 @@
                     "class": "game-frontline-tower-meta"
                 });
                 metaText.textContent = "Lv." + tower.level + " · " + spec.shortLabel;
+                const tagText = createSvgNode("text", {
+                    x: half - 6,
+                    y: -half + 15,
+                    "text-anchor": "end",
+                    "class": "game-frontline-tower-tag"
+                });
+                tagText.textContent = towerType === "normal" ? "" : spec.shortLabel;
+                const alertText = createSvgNode("text", {
+                    x: 0,
+                    y: half + 30,
+                    "text-anchor": "middle",
+                    "class": "game-frontline-tower-alert"
+                });
+                alertText.textContent = cutOff ? "CUT" : (pressured ? "HOT" : "");
                 function makeRatioText(x, y, value) {
                     const ratioText = createSvgNode("text", {
                         x: x,
@@ -1440,6 +1876,8 @@
                 group.appendChild(idText);
                 group.appendChild(countText);
                 group.appendChild(metaText);
+                group.appendChild(tagText);
+                group.appendChild(alertText);
 
                 group.addEventListener("pointerdown", function (event) {
                     event.preventDefault();
@@ -1525,10 +1963,19 @@
 
         function render() {
             syncFrontlineClock(session);
+            refreshFrontlineMetaBonuses();
             const difficultyInfo = frontlineDifficultyConfig(session.difficulty);
             const specialTowers = currentMap.nodes.filter(function (node) {
                 return node.towerType !== "normal" && node.towerType !== "core";
             }).length;
+            const strategicState = buildFrontlineStrategicState();
+            const playerSupplied = session.towers.filter(function (tower) {
+                return tower.owner === "player" && strategicState.supplyByOwner.player[tower.id];
+            }).length;
+            const aiSupplied = session.towers.filter(function (tower) {
+                return tower.owner === "ai" && strategicState.supplyByOwner.ai[tower.id];
+            }).length;
+            const mapMetaText = "当前地图：" + currentMap.nodes.length + " 塔 / " + currentMap.edges.length + " 线路 / " + specialTowers + " 特殊塔 · 玩家补给 " + playerSupplied + "/" + countOwnedTowers("player") + " · AI 补给 " + aiSupplied + "/" + countOwnedTowers("ai");
             playerTowersEl.textContent = String(countOwnedTowers("player"));
             aiTowersEl.textContent = String(countOwnedTowers("ai"));
             squadsEl.textContent = String(session.squads.length);
@@ -1538,6 +1985,9 @@
             }
             if (mapMetaEl) {
                 mapMetaEl.textContent = "主路径与分支会随难度变化。当前地图：" + currentMap.nodes.length + " 塔 / " + currentMap.edges.length + " 线路 / " + specialTowers + " 特殊塔。";
+            }
+            if (mapMetaEl) {
+                mapMetaEl.textContent = mapMetaText;
             }
             setStageStats([
                 { label: "难度", value: difficultyInfo.label },
@@ -1605,6 +2055,15 @@
         window.addEventListener("pointermove", updateDrag);
         window.addEventListener("pointerup", endDrag);
         window.addEventListener("pointercancel", endDrag);
+        selectionCardEl.addEventListener("click", function (event) {
+            const button = event.target && typeof event.target.closest === "function"
+                ? event.target.closest("[data-frontline-upgrade-id]")
+                : null;
+            if (!button) {
+                return;
+            }
+            upgradeTower(String(button.getAttribute("data-frontline-upgrade-id") || ""), false);
+        });
         render();
         persist();
         showIntro();

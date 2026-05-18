@@ -232,6 +232,15 @@ class GameHubStore:
                         week_key TEXT NOT NULL DEFAULT ''
                     );
 
+                    CREATE TABLE IF NOT EXISTS game_score_claims (
+                        ip TEXT NOT NULL,
+                        game_id TEXT NOT NULL,
+                        unique_key TEXT NOT NULL,
+                        score_id INTEGER NOT NULL DEFAULT 0,
+                        created_at TEXT NOT NULL DEFAULT '',
+                        PRIMARY KEY (ip, game_id, unique_key)
+                    );
+
                     CREATE TABLE IF NOT EXISTS online_presence (
                         ip TEXT PRIMARY KEY,
                         current_game TEXT NOT NULL DEFAULT '',
@@ -299,6 +308,31 @@ class GameHubStore:
         data["boss_key"] = normalize_boss_key(data.get("boss_key"))
         data.setdefault("identity", data.get("ip", ip))
         return data
+
+    def _score_row_to_dict(self, row: sqlite3.Row | None, fallback_ip: str = "", fallback_game_id: str = "") -> Dict[str, Any]:
+        if row is None:
+            return {
+                "id": 0,
+                "ip": fallback_ip,
+                "game_id": fallback_game_id,
+                "score": 0,
+                "mode": "",
+                "session_key": "",
+                "meta": {},
+                "created_at": "",
+                "week_key": current_week_key(),
+            }
+        return {
+            "id": int(row["id"] or 0),
+            "ip": row["ip"] or fallback_ip,
+            "game_id": row["game_id"] or fallback_game_id,
+            "score": int(row["score"] or 0),
+            "mode": row["mode"] or "",
+            "session_key": row["session_key"] or "",
+            "meta": self._decode_json(row["meta_json"], {}),
+            "created_at": row["created_at"] or "",
+            "week_key": row["week_key"] or current_week_key(),
+        }
 
     def get_profile(self, ip: str) -> Dict[str, Any]:
         self.ensure_schema()
@@ -1036,10 +1070,20 @@ class GameHubStore:
             for row in rows
         ]
 
-    def record_score(self, ip: str, game_id: str, score: Any, mode: Any = "", session_key: Any = "", meta: Any = None) -> Dict[str, Any]:
+    def record_score(
+        self,
+        ip: str,
+        game_id: str,
+        score: Any,
+        mode: Any = "",
+        session_key: Any = "",
+        meta: Any = None,
+        unique_key: Any = "",
+    ) -> Dict[str, Any]:
         game_id = normalize_game_id(game_id)
         mode_value = str(mode or "").strip()[:64]
         session_key_value = str(session_key or "").strip()[:96]
+        unique_key_value = str(unique_key or "").strip()[:160]
         try:
             score_value = int(score or 0)
         except Exception:
@@ -1050,6 +1094,29 @@ class GameHubStore:
         with _db_lock:
             conn = _connect()
             try:
+                if unique_key_value:
+                    existing_claim = conn.execute(
+                        """
+                        SELECT score_id
+                        FROM game_score_claims
+                        WHERE ip = ? AND game_id = ? AND unique_key = ?
+                        """,
+                        (ip, game_id, unique_key_value),
+                    ).fetchone()
+                    if existing_claim is not None:
+                        existing_row = conn.execute(
+                            """
+                            SELECT id, ip, game_id, score, mode, session_key, meta_json, created_at, week_key
+                            FROM game_scores
+                            WHERE id = ?
+                            """,
+                            (int(existing_claim["score_id"] or 0),),
+                        ).fetchone()
+                        payload = self._score_row_to_dict(existing_row, ip, game_id)
+                        payload["duplicate"] = True
+                        payload["unique_key"] = unique_key_value
+                        return payload
+
                 cursor = conn.execute(
                     """
                     INSERT INTO game_scores (ip, game_id, score, mode, session_key, meta_json, created_at, week_key)
@@ -1057,8 +1124,39 @@ class GameHubStore:
                     """,
                     (ip, game_id, score_value, mode_value, session_key_value, meta_json, created_at, current_week_key()),
                 )
-                conn.commit()
                 score_id = int(cursor.lastrowid)
+                if unique_key_value:
+                    try:
+                        conn.execute(
+                            """
+                            INSERT INTO game_score_claims (ip, game_id, unique_key, score_id, created_at)
+                            VALUES (?, ?, ?, ?, ?)
+                            """,
+                            (ip, game_id, unique_key_value, score_id, created_at),
+                        )
+                    except sqlite3.IntegrityError:
+                        conn.rollback()
+                        existing_claim = conn.execute(
+                            """
+                            SELECT score_id
+                            FROM game_score_claims
+                            WHERE ip = ? AND game_id = ? AND unique_key = ?
+                            """,
+                            (ip, game_id, unique_key_value),
+                        ).fetchone()
+                        existing_row = conn.execute(
+                            """
+                            SELECT id, ip, game_id, score, mode, session_key, meta_json, created_at, week_key
+                            FROM game_scores
+                            WHERE id = ?
+                            """,
+                            (int(existing_claim["score_id"] or 0) if existing_claim else 0,),
+                        ).fetchone()
+                        payload = self._score_row_to_dict(existing_row, ip, game_id)
+                        payload["duplicate"] = True
+                        payload["unique_key"] = unique_key_value
+                        return payload
+                conn.commit()
             finally:
                 conn.close()
         return {
@@ -1071,6 +1169,8 @@ class GameHubStore:
             "meta": meta or {},
             "created_at": created_at,
             "week_key": current_week_key(),
+            "duplicate": False,
+            "unique_key": unique_key_value,
         }
 
     def recent_scores(self, ip: str, limit: int = 20) -> List[Dict[str, Any]]:
@@ -1091,20 +1191,7 @@ class GameHubStore:
                 ).fetchall()
             finally:
                 conn.close()
-        return [
-            {
-                "id": row["id"],
-                "ip": row["ip"],
-                "game_id": row["game_id"],
-                "score": row["score"],
-                "mode": row["mode"],
-                "session_key": row["session_key"],
-                "meta": self._decode_json(row["meta_json"], {}),
-                "created_at": row["created_at"],
-                "week_key": row["week_key"],
-            }
-            for row in rows
-        ]
+        return [self._score_row_to_dict(row, ip, "") for row in rows]
 
     def _selected_achievement_badge_from_state(self, state: Any) -> Dict[str, Any]:
         payload = state if isinstance(state, dict) else {}

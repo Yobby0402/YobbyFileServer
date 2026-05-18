@@ -1325,6 +1325,12 @@ def init_app(app):
 
         payload = request.get_json(silent=True) or request.form or {}
         game_id = str(payload.get('game_id') or '').strip()
+        meta_payload = payload.get('meta') or {}
+        unique_key = ''
+        if game_id.lower() == 'sudoku':
+            puzzle_id = str((meta_payload or {}).get('puzzle_id') or '').strip()
+            if puzzle_id:
+                unique_key = f"puzzle:{puzzle_id}"
         if not game_id:
             return jsonify({'success': False, 'error': '缺少 game_id'}), 400
         identity = _resolved_games_identity()
@@ -1334,7 +1340,8 @@ def init_app(app):
             score=payload.get('score', 0),
             mode=payload.get('mode', ''),
             session_key=payload.get('session_key', ''),
-            meta=payload.get('meta') or {},
+            meta=meta_payload,
+            unique_key=unique_key,
         )
         return _attach_games_identity(make_response(jsonify({'success': True, 'data': saved})), identity)
 

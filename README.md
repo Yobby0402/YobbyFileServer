@@ -28,6 +28,17 @@
 
 Yobboy 文件服务器是一个集成了文件浏览、Markdown 预览、Draw.io 图表编辑等功能的本地 Web 服务器应用。通过现代化的 GUI 界面，您可以轻松启动服务器，在浏览器中管理和编辑文件。
 
+### ⚠️ 使用须知 / 免责声明
+
+- 本项目定位为本地工具，建议仅在个人电脑或受信任的局域网环境中使用，请勿用于对公网开放的生产服务。
+- 项目内置“小游戏大厅”（登录后访问 `/games`）仅用于娱乐与技术演示，请适度娱乐，**工作/学习为主**。
+
+#### 炸金花（Zhajinhua）免责声明（重要）
+
+- 炸金花仅用于娱乐与规则演示，**严禁用于任何形式的赌博/博彩/抽水/代充/盈利或导流**。
+- 严禁接入真钱、虚拟币、积分兑付等任何可能构成变相赌博的机制；因违规使用产生的一切法律责任由使用者自行承担。
+- 如所在地区法律法规或公司制度禁止此类内容，请勿使用或传播。
+
 ### 🎬 使用场景
 
 **告别抱着电脑满会议室跑的尴尬时刻！**
@@ -576,6 +587,16 @@ Copyright © 2025 Yobboy. All rights reserved.
 ### 📖 Introduction
 
 Yobboy File Server is a powerful local web server application that integrates file browsing, online code editing, Markdown previewing, and Draw.io diagram editing. With a modern GUI interface and professional CodeMirror editor, you can easily start the server and manage/edit files in your browser.
+
+### ⚠️ Disclaimer
+
+- This project is intended for local/personal use. Do not deploy it as a public-facing production service.
+- The built-in mini-games hub (visit `/games` after login) is for entertainment and technical demos only. Please keep work/study as your top priority.
+
+#### Zhajinhua (炸金花) Special Disclaimer (Important)
+
+- Zhajinhua is for entertainment and rule demonstration only. **Do not use it for gambling, betting, profiting, rake, paid services, or traffic diversion.**
+- Do not connect real money, cryptocurrency, redeemable points, or any mechanism that may constitute disguised gambling. Users bear all legal responsibility for any misuse.
 
 ### 🎬 Use Cases
 
