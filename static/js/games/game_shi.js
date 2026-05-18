@@ -17,7 +17,7 @@
      * 3. 逻辑层尽量只读取这里的配置，不把魔法数字散落到下面。
      */
     const SHI_DATA = {
-        // 场景基础尺寸：当前版本固定为单线中轴，策略来自左右判断与前压/后撤
+        // 场景基础尺寸：当前版本固定为单线中轴，策略来自左右判断与双攻击模式切换
         scene: {
             width: 1180,
             height: 500,
@@ -31,7 +31,7 @@
         // 全局节奏数据：这里统一控制原型快慢
         timings: {
             tickMs: 16,
-            stepShiftCooldownMs: 460,
+            stepShiftCooldownMs: 140,
             stepDistanceUnit: 64,
             enemyPressureApproachMs: 380,
             enemyPressureSettleMs: 240,
@@ -55,13 +55,41 @@
             hurtFlashDurationMs: 120,
             edgeFlashDurationMs: 160,
             screenShakeDurationMs: 90,
-            scoreSubmitDelayMs: 0
+            scoreSubmitDelayMs: 0,
+            perfectOpeningMs: 820,
+            modeComboWindowMs: 980
         },
 
         // 玩家初始面板
         player: {
             baseHp: 18,
             baseShield: 1
+        },
+
+        // 远程统一代价：远程不能变成“站中间无伤刷屏”。
+        // 这里把攻速税、敌人血量补偿和敌人压迫补偿集中写死，方便后续只在这里调数值。
+        balance: {
+            rangedRisk: {
+                cooldownScale: 1.18,
+                enemyHpScale: 1.18,
+                enemyAttackGapReduceMs: 60,
+                minAttackCooldownMs: 150,
+                extraCooldownByWeapon: {
+                    crossbow: 18,
+                    minigun: 24,
+                    thunderbook: 28,
+                    fireorb: 22
+                }
+            }
+        },
+
+        // 持续战斗配置：取消清波停顿后，改为双侧持续补怪和击杀随机掉落。
+        continuous: {
+            sideReserve: 3,
+            initialSpawnPerSide: 2,
+            spawnDelayMs: [900, 1500],
+            dropChance: 0.2,
+            difficultyIntervalSeconds: 35
         },
 
         // 武器数据：初版只做 3 把，先把攻击手感打出来
@@ -274,7 +302,7 @@
                 effectDurationMs: 145,
                 skillCooldownMs: 9400,
                 skillLabel: "贯心突阵",
-                skillDescription: "更极端的远刺武器，适合趁敌人后撤时点杀。"
+                skillDescription: "更极端的远刺武器，适合中距离点杀关键目标。"
             },
             chainblade: {
                 key: "chainblade",
@@ -442,6 +470,91 @@
                 skillCooldownMs: 9200,
                 skillLabel: "三相连断",
                 skillDescription: "左右各打一段，再补一次正手追击，适合节奏均衡的压制流。"
+            }
+        },
+
+        // 武器双模式：W 触发攻势模式，S 触发应势模式。
+        // 这里先把所有武器的模式命名和作用描述集中写在一起，方便后续继续调手感。
+        weaponModes: {
+            dagger: {
+                advance: { name: "贴身连刺", desc: "短前踏快刺，专门抢近身回合与补残血。" },
+                response: { name: "反手抹切", desc: "原地反切，范围更宽，适合格挡后立刻接刀。" }
+            },
+            spear: {
+                advance: { name: "贯线三连", desc: "保持长枪推进感，连续贯穿前排排队线。" },
+                response: { name: "拦腰扫拦", desc: "舍弃纯突进，换成更稳的拦截横扫与打断。" }
+            },
+            katana: {
+                advance: { name: "居合进斩", desc: "更深更窄的一刀，擅长抓后摇处决单体。" },
+                response: { name: "返身圆斩", desc: "回身大圆斩，覆盖更宽，也更适合应对逼近压力。" }
+            },
+            hammer: {
+                advance: { name: "坠锤", desc: "重压砸落，爆发更高，专门破重压敌和硬目标。" },
+                response: { name: "撞柄推锤", desc: "出手更快，强推前排，重点是解围和重整节奏。" }
+            },
+            pistol: {
+                advance: { name: "准星点射", desc: "单发精确快枪，适合收残血和点掉射手。" },
+                response: { name: "双连压射", desc: "两发连续压制，伤害更分散，但更容易阻止逼近。" }
+            },
+            shotgun: {
+                advance: { name: "收束独头喷", desc: "散布更紧，伤害更集中，适合中近距离斩杀。" },
+                response: { name: "扇面轰退", desc: "扇面更宽，重在打退近身敌和守住自己脚边。" }
+            },
+            crossbow: {
+                advance: { name: "重弩贯穿", desc: "单支重弩更适合点穿前排，打集中爆发。" },
+                response: { name: "双弩压制", desc: "双支轻弩更适合控逼近、拖慢敌人节奏。" }
+            },
+            sniper: {
+                advance: { name: "穿线狙击", desc: "高伤穿透直线点杀，专门处理后排关键目标。" },
+                response: { name: "止步制退", desc: "降低爆发换更强制停效果，专门保自己脚下安全。" }
+            },
+            boomerang: {
+                advance: { name: "远抛回斩", desc: "飞得更远，往返清整条线路，适合主动压线。" },
+                response: { name: "近环护身", desc: "更早回返，优先处理身边压力和近身敌。" }
+            },
+            axe: {
+                advance: { name: "裂甲劈", desc: "更深更狠的正手劈砍，专门压单侧前排。" },
+                response: { name: "环身横扫", desc: "更宽的横扫，适合清理贴脸单位并稳住自己脚下。" }
+            },
+            lance: {
+                advance: { name: "骑枪突阵", desc: "极端远刺，专门更快把远处敌人点穿。" },
+                response: { name: "架枪截刺", desc: "缩短枪路换更快截刺，专门打断贴近的前排。" }
+            },
+            chainblade: {
+                advance: { name: "甩钩拉拽", desc: "主动打乱敌阵，把最前方目标钩乱位置。" },
+                response: { name: "横锁抽", desc: "更宽的横扫链抽，重点是控场和拆飞行物。" }
+            },
+            dualblade: {
+                advance: { name: "交错追斩", desc: "双刀快速交错压入，适合追杀和持续贴身。" },
+                response: { name: "双月反切", desc: "双向弧线更圆，更适合边挡边反打。" }
+            },
+            cannon: {
+                advance: { name: "爆芯炮击", desc: "单发重炮追求正面穿爆，适合点掉关键敌。" },
+                response: { name: "震退霰炮", desc: "爆散震退更强，适合顶住前排压力和近身乱流。" }
+            },
+            grenade: {
+                advance: { name: "延时榴爆", desc: "更重的延时爆炸，适合处理扎堆队列。" },
+                response: { name: "近距空炸", desc: "更快更近的空炸，专门清脚边和逼退贴身单位。" }
+            },
+            minigun: {
+                advance: { name: "压枪连射", desc: "弹道更集中，专门朝一个方向稳定压血。" },
+                response: { name: "抑制扇扫", desc: "扇形抑制更强，适合在混乱时逼退冲脸敌人。" }
+            },
+            thunderbook: {
+                advance: { name: "贯序雷链", desc: "单侧更深的连锁雷，专门顺着一条线灌伤害。" },
+                response: { name: "分叉雷弧", desc: "把雷弧拆散，优先控近身和补另一侧压力。" }
+            },
+            icewandweapon: {
+                advance: { name: "穿刺冰锥", desc: "更快更直的冰锥，专门先手压远处敌人。" },
+                response: { name: "霜环钉刺", desc: "更慢但冻结更重，适合守脚下和接完美格挡后反打。" }
+            },
+            fireorb: {
+                advance: { name: "聚爆火球", desc: "单发更聚焦，爆炸更狠，适合压单侧线。" },
+                response: { name: "裂焰双星", desc: "拆成双火球，适合一边拉扯一边铺开范围灼烧。" }
+            },
+            trinity: {
+                advance: { name: "正架连断", desc: "正手连断更集中，专门压当前方向前排。" },
+                response: { name: "回身双节", desc: "回身带一记反抽，适合同时照顾前后节奏。" }
             }
         },
 
@@ -759,14 +872,43 @@
             warmog: {
                 key: "warmog",
                 name: "狂徒铠甲",
-                desc: "脱战后稳定回复生命值。",
-                apply: function (d) { d.warmogRegen = Math.max(d.warmogRegen, 1); }
+                desc: "长时间不受击时补一层护盾，偏向拖线与稳血。",
+                apply: function (d) {
+                    d.periodicShieldMs = Math.max(d.periodicShieldMs, 6200);
+                    d.periodicShieldAmount = Math.max(d.periodicShieldAmount, 1);
+                    d.shieldAmp = Math.max(d.shieldAmp, 1.2);
+                }
             },
             guardianangel: {
                 key: "guardianangel",
-                name: "守护天使",
-                desc: "受到致命伤害时复活一次。",
+                name: "守护天使（复活甲）",
+                desc: "受到致命伤害时复活一次，也就是常说的复活甲。",
                 apply: function (d) { d.reviveOnce = true; }
+            },
+            mejais: {
+                key: "mejais",
+                name: "梅贾的窃魂卷（杀人书）",
+                desc: "每次击杀叠 1 层攻击力，受击时失去当前一半层数。",
+                apply: function (d) { d.hasMejais = true; }
+            },
+            deathcap: {
+                key: "deathcap",
+                name: "灭世者的死亡之帽",
+                desc: "大幅强化技能爆发，并补一点法球伤害。",
+                apply: function (d) {
+                    d.skillDamageBonus += 3;
+                    d.magicOnHitDamage += 1;
+                }
+            },
+            trinityforce: {
+                key: "trinityforce",
+                name: "三相之力",
+                desc: "均衡强化攻击、攻速与技能衔接，适合大多数武器。",
+                apply: function (d) {
+                    d.attackDamage += 1;
+                    d.attackCooldownMs = Math.max(112, Math.round(d.attackCooldownMs * 0.92));
+                    d.skillRefundOnHitMs += 120;
+                }
             },
             rylais: {
                 key: "rylais",
@@ -976,11 +1118,11 @@
             ".game-shi-shell{position:relative;width:100%;height:100%;}",
             ".game-shi-shell .game-arcade-guide,.game-shi-shell .game-arcade-accent,.game-shi-shell .game-arcade-controls-card{display:none !important;}",
             ".game-shi-shell .game-arcade-toolbar{padding-bottom:0;}",
-            ".game-shi-shell .game-arcade-stage{grid-template-columns:1fr;align-items:start;}",
-            ".game-shi-shell .game-arcade-canvas-wrap{padding:14px 16px 16px;}",
+            ".game-shi-shell .game-arcade-stage{grid-template-columns:minmax(0,1fr) 332px;align-items:start;gap:14px;}",
+            ".game-shi-shell .game-arcade-canvas-wrap{padding:14px 12px 14px 16px;min-width:0;}",
             ".game-shi-shell .game-arcade-canvas{aspect-ratio:1180 / 500;}",
-            ".game-shi-shell .game-arcade-sidecard{order:3;max-height:none;overflow:visible;padding:14px;}",
-            ".game-shi-shell .game-arcade-sidecard > .games-section-title{margin-bottom:10px;}",
+            ".game-shi-shell .game-arcade-sidecard{order:0;max-height:none;overflow:hidden;padding:14px 14px 12px;display:grid;grid-template-rows:auto minmax(0,1fr);gap:10px;align-self:stretch;}",
+            ".game-shi-shell .game-arcade-sidecard > .games-section-title{margin-bottom:0;}",
             ".game-shi-shell .game-arcade-canvas{border-radius:24px;background:linear-gradient(180deg,#08111f 0%,#0f1a2c 55%,#08111f 100%);box-shadow:0 30px 80px rgba(2,6,23,.42);}",
             ".game-shi-overlay{position:absolute;inset:22px;display:flex;align-items:center;justify-content:center;pointer-events:none;}",
             ".game-shi-panel{pointer-events:auto;max-width:700px;width:min(100%,700px);padding:22px 24px;border-radius:24px;background:rgba(8,15,27,.9);border:1px solid rgba(148,163,184,.22);backdrop-filter:blur(14px);box-shadow:0 20px 70px rgba(0,0,0,.4);}",
@@ -1005,23 +1147,29 @@
             ".game-shi-convert-btn{margin-top:14px;border:1px dashed rgba(248,250,252,.22);background:rgba(15,23,42,.72);color:#e2e8f0;border-radius:16px;padding:14px 16px;cursor:pointer;}",
             ".game-shi-convert-btn:hover{border-color:rgba(250,204,21,.55);background:rgba(51,65,85,.8);}",
             ".game-shi-tag{display:inline-flex;align-items:center;padding:4px 8px;border-radius:999px;background:rgba(59,130,246,.16);color:#bfdbfe;font-size:12px;margin-right:6px;margin-bottom:6px;}",
-            ".game-shi-hub{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;}",
-            ".game-shi-hub-section{display:grid;gap:10px;padding:12px;border-radius:14px;background:rgba(15,23,42,.72);border:1px solid rgba(125,211,252,.14);min-height:100%;}",
-            ".game-shi-hub-title{font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:#94a3b8;}",
-            ".game-shi-player-grid,.game-shi-weapon-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;}",
+            ".game-shi-rail-shell{padding:0 !important;background:transparent !important;border:0 !important;box-shadow:none !important;}",
+            ".game-shi-rail{display:grid;gap:12px;max-height:calc(100vh - 240px);overflow:auto;padding-right:4px;min-width:0;}",
+            ".game-shi-rail-section{display:grid;gap:10px;padding:12px;border-radius:16px;background:rgba(15,23,42,.74);border:1px solid rgba(125,211,252,.14);min-width:0;}",
+            ".game-shi-rail-title{font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:#94a3b8;}",
+            ".game-shi-player-grid,.game-shi-weapon-grid{display:grid;grid-template-columns:1fr;gap:8px;}",
             ".game-shi-kv{padding:8px 10px;border-radius:12px;background:rgba(30,41,59,.78);border:1px solid rgba(148,163,184,.16);}",
             ".game-shi-kv-label{display:block;color:#94a3b8;font-size:11px;margin-bottom:4px;}",
-            ".game-shi-kv-value{display:block;color:#f8fafc;font-size:13px;line-height:1.35;word-break:break-word;}",
+            ".game-shi-kv-value{display:block;color:#f8fafc;font-size:13px;line-height:1.35;word-break:break-word;overflow-wrap:anywhere;}",
             ".game-shi-equipment-list{display:grid;grid-template-columns:1fr;gap:8px;}",
             ".game-shi-equipment-item{padding:8px 10px;border-radius:12px;background:rgba(30,41,59,.78);border:1px solid rgba(125,211,252,.18);color:#e2e8f0;font-size:13px;line-height:1.35;}",
             ".game-shi-equipment-empty{color:#94a3b8;}",
+            ".game-shi-mode-card{padding:10px 12px;border-radius:14px;background:rgba(2,6,23,.36);border:1px solid rgba(148,163,184,.14);}",
+            ".game-shi-mode-card.active{border-color:rgba(250,204,21,.34);background:linear-gradient(180deg,rgba(59,33,7,.58),rgba(17,24,39,.72));}",
+            ".game-shi-mode-title{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:6px;color:#f8fafc;font-size:14px;}",
+            ".game-shi-mode-trigger{display:inline-flex;align-items:center;padding:2px 8px;border-radius:999px;background:rgba(59,130,246,.16);color:#bfdbfe;font-size:11px;}",
+            ".game-shi-mode-desc{color:#cbd5e1;font-size:12px;line-height:1.55;}",
             ".game-shi-replace-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:14px;}",
             ".game-shi-replace-btn{width:100%;text-align:left;border:1px solid rgba(251,191,36,.28);background:linear-gradient(180deg,rgba(39,26,5,.96),rgba(30,20,8,.82));color:#f8fafc;border-radius:14px;padding:12px 14px;cursor:pointer;transition:transform .18s ease,border-color .18s ease,box-shadow .18s ease;}",
             ".game-shi-replace-btn:hover{transform:translateY(-2px);border-color:rgba(250,204,21,.72);box-shadow:0 14px 34px rgba(234,179,8,.18);}",
             ".game-shi-replace-btn span{display:block;color:#fcd34d;font-size:12px;margin-top:4px;}",
             ".game-shi-dead{color:#fda4af;}",
             ".game-shi-win{color:#86efac;}",
-            "@media (max-width: 1180px){.game-shi-hub{grid-template-columns:1fr;}.game-shi-player-grid,.game-shi-weapon-grid,.game-shi-replace-list{grid-template-columns:1fr;}}"
+            "@media (max-width: 1180px){.game-shi-shell .game-arcade-stage{grid-template-columns:1fr;}.game-shi-shell .game-arcade-canvas-wrap{padding-right:16px;}.game-shi-rail{max-height:none;overflow:visible;}.game-shi-player-grid,.game-shi-weapon-grid,.game-shi-replace-list{grid-template-columns:1fr;}}"
         ].join("");
         document.head.appendChild(style);
     }
@@ -1034,49 +1182,38 @@
         return items[Math.floor(Math.random() * items.length)];
     }
 
+    function normalizedModeLevel(level) {
+        return Number(level || 0) >= 1 ? 1 : 0;
+    }
+
     function stepProfileByLevel(level) {
-        if (level >= 1) {
+        if (normalizedModeLevel(level) >= 1) {
             return {
                 level: 1,
-                label: "前压位",
-                shortLabel: "前压",
-                meleeRangeBonus: 54,
-                perfectWindowDeltaMs: -25,
+                label: "攻势模式",
+                shortLabel: "攻势",
+                meleeRangeBonus: 0,
+                perfectWindowDeltaMs: 0,
                 perfectCounterDamageBonus: 0,
                 perfectSkillRefundMs: 0,
                 blockRecoveryMs: SHI_DATA.timings.blockRecoveryMs,
                 enemyGapBonusMs: 0,
                 remoteReductionBonus: 0,
-                hint: "前压：近战范围 +54，近战伤害 +1，攻速更快，但完美窗口 -25ms。"
-            };
-        }
-        if (level <= -1) {
-            return {
-                level: -1,
-                label: "后撤位",
-                shortLabel: "后撤",
-                meleeRangeBonus: -18,
-                perfectWindowDeltaMs: 70,
-                perfectCounterDamageBonus: 0,
-                perfectSkillRefundMs: 0,
-                blockRecoveryMs: SHI_DATA.timings.blockRecoveryMs,
-                enemyGapBonusMs: 120,
-                remoteReductionBonus: 0.15,
-                hint: "后撤：完美窗口 +70ms，远程伤害 +1，远程减伤 +15%，敌人下次出手更晚。"
+                hint: "W 攻势：切到更主动的攻击方式。不同武器会用更集中、更偏进攻的出手。"
             };
         }
         return {
             level: 0,
-            label: "截击位",
-            shortLabel: "截击",
+            label: "应势模式",
+            shortLabel: "应势",
             meleeRangeBonus: 0,
             perfectWindowDeltaMs: 0,
-            perfectCounterDamageBonus: 1,
-            perfectSkillRefundMs: 1200,
-            blockRecoveryMs: Math.max(90, SHI_DATA.timings.blockRecoveryMs - 50),
+            perfectCounterDamageBonus: 0,
+            perfectSkillRefundMs: 0,
+            blockRecoveryMs: SHI_DATA.timings.blockRecoveryMs,
             enemyGapBonusMs: 0,
             remoteReductionBonus: 0,
-            hint: "截击：完美反击 +1 伤害，成功完美格挡返还 1.2s 技能，普通格挡后摇更短。"
+            hint: "S 应势：切到更稳的攻击方式。不同武器会用更宽或更偏防反的出手。"
         };
     }
 
@@ -1088,13 +1225,37 @@
         return stepProfileByLevel(session && session.stepLevel ? session.stepLevel : 0).hint;
     }
 
+    function currentWeaponModeKey(session) {
+        return normalizedModeLevel(session && session.stepLevel ? session.stepLevel : 0) >= 1 ? "advance" : "response";
+    }
+
+    function currentWeaponMode(session, weapon) {
+        const current = weapon || currentWeapon(session);
+        const modes = SHI_DATA.weaponModes[current.key] || {};
+        return modes[currentWeaponModeKey(session)] || {
+            name: current.name,
+            desc: current.skillDescription || ""
+        };
+    }
+
+    function alternateWeaponMode(session, weapon) {
+        const current = weapon || currentWeapon(session);
+        const modes = SHI_DATA.weaponModes[current.key] || {};
+        const currentKey = currentWeaponModeKey(session);
+        const otherKey = currentKey === "advance" ? "response" : "advance";
+        return modes[otherKey] || currentWeaponMode(session, current);
+    }
+
+    function currentWeaponModeTrigger(session) {
+        return currentWeaponModeKey(session) === "advance" ? "W 攻势" : "S 应势";
+    }
+
     function playerDistanceBias(session, scale) {
-        const factor = scale == null ? 1 : scale;
-        return Math.round((0 - (session && session.stepLevel ? session.stepLevel : 0)) * SHI_DATA.timings.stepDistanceUnit * factor);
+        return 0;
     }
 
     function effectivePerfectWindowForLevel(session, level) {
-        return Math.max(90, session.perfectWindowMs + stepProfileByLevel(level).perfectWindowDeltaMs);
+        return Math.max(90, session.perfectWindowMs);
     }
 
     function effectivePerfectWindowMs(session) {
@@ -1106,7 +1267,7 @@
         if (!weapon || weapon.kind !== "melee") {
             return rawRange;
         }
-        return Math.max(96, rawRange + stepProfileByLevel(session && session.stepLevel ? session.stepLevel : 0).meleeRangeBonus);
+        return Math.max(96, rawRange);
     }
 
     function ctxEscape(value) {
@@ -1138,6 +1299,7 @@
             hp: SHI_DATA.player.baseHp,
             maxHp: SHI_DATA.player.baseHp,
             shield: SHI_DATA.player.baseShield,
+            // wave 现在只作为内部压强档位保留，前台不再显示“第几波”。
             wave: 1,
             score: 0,
             kills: 0,
@@ -1165,22 +1327,26 @@
             attackProcCounter: 0,
             lastDamageAt: Date.now(),
             lastAuraTickAt: 0,
-            lastRegenAt: 0,
             bunkerUntil: 0,
             guardianUsed: false,
             zhonyaUsed: false,
             lastAttackSide: 0,
+            mejaisStacks: 0,
 
             // 装备临时层数
             guinsooStacks: 0,
             guinsooUntil: 0,
             spearComboIndex: 0,
             spearComboUntil: 0,
+            modeComboKey: "",
+            modeComboStep: 0,
+            modeComboStreak: 0,
+            modeComboUntil: 0,
 
             // 视觉与提示
             flashText: "",
             flashUntil: 0,
-            message: "第 1 波开始：前压抢回合，截击等反打，后撤稳接完美格挡。",
+            message: "战斗开始：W 切攻势模式，S 切应势模式，按左右方向进攻并准备格挡。",
             pendingRewardOptions: [],
             pendingRewardScore: 0,
             pendingReplaceEquipmentKey: "",
@@ -1192,6 +1358,8 @@
             screenShakePower: 0,
             hitStopUntil: 0,
             enemyAttackReadyAt: 0,
+            leftSpawnReadyAt: 0,
+            rightSpawnReadyAt: 0,
 
             // 实体系统
             nextEnemyId: 1,
@@ -1203,7 +1371,7 @@
             meleeEffects: [],
             hitEffects: []
         };
-        spawnWave(session, true);
+        seedContinuousBattle(session, true);
         return session;
     }
 
@@ -1228,6 +1396,7 @@
             activeAt: Number(raw.activeAt || raw.createdAt || 0),
             sourceX: Number(raw.sourceX || raw.x || 0),
             sourceY: Number(raw.sourceY || raw.y || 0),
+            sourceEnemyId: Math.max(0, Number(raw.sourceEnemyId || 0)),
             remainingHits: Math.max(1, Number(raw.remainingHits || 1)),
             returnAt: Number(raw.returnAt || 0),
             maxTravelX: Number(raw.maxTravelX || 0),
@@ -1235,7 +1404,8 @@
             splash: Boolean(raw.splash),
             splashRadius: Math.max(0, Number(raw.splashRadius || 0)),
             splashDamage: Math.max(0, Number(raw.splashDamage || 0)),
-            freezeMs: Math.max(0, Number(raw.freezeMs || 0))
+            freezeMs: Math.max(0, Number(raw.freezeMs || 0)),
+            controlMs: Math.max(0, Number(raw.controlMs || 0))
         };
     }
 
@@ -1275,7 +1445,7 @@
             submittedScore: Boolean(raw.submittedScore),
             paused: Boolean(raw.paused),
             lane: 0,
-            stepLevel: Math.max(-1, Math.min(1, Number(raw.stepLevel || 0))),
+            stepLevel: normalizedModeLevel(raw.stepLevel || 0),
             hp: Math.max(0, Number(raw.hp || SHI_DATA.player.baseHp)),
             maxHp: Math.max(6, Number(raw.maxHp || SHI_DATA.player.baseHp)),
             shield: Math.max(0, Number(raw.shield || 0)),
@@ -1308,15 +1478,19 @@
             attackProcCounter: Math.max(0, Number(raw.attackProcCounter || 0)),
             lastDamageAt: Number(raw.lastDamageAt || Date.now()),
             lastAuraTickAt: Number(raw.lastAuraTickAt || 0),
-            lastRegenAt: Number(raw.lastRegenAt || 0),
             bunkerUntil: Number(raw.bunkerUntil || 0),
             guardianUsed: Boolean(raw.guardianUsed),
             zhonyaUsed: Boolean(raw.zhonyaUsed),
             lastAttackSide: raw.lastAttackSide === -1 ? -1 : (raw.lastAttackSide === 1 ? 1 : 0),
+            mejaisStacks: Math.max(0, Number(raw.mejaisStacks || 0)),
             guinsooStacks: Math.max(0, Number(raw.guinsooStacks || 0)),
             guinsooUntil: Number(raw.guinsooUntil || 0),
             spearComboIndex: Math.max(0, Number(raw.spearComboIndex || 0)) % 3,
             spearComboUntil: Number(raw.spearComboUntil || 0),
+            modeComboKey: raw.modeComboKey === "advance" || raw.modeComboKey === "response" ? raw.modeComboKey : "",
+            modeComboStep: Math.max(0, Number(raw.modeComboStep || 0)),
+            modeComboStreak: Math.max(0, Number(raw.modeComboStreak || 0)),
+            modeComboUntil: Number(raw.modeComboUntil || 0),
             flashText: String(raw.flashText || ""),
             flashUntil: Number(raw.flashUntil || 0),
             message: String(raw.message || ""),
@@ -1337,6 +1511,8 @@
             screenShakePower: Math.max(0, Number(raw.screenShakePower || 0)),
             hitStopUntil: Number(raw.hitStopUntil || 0),
             enemyAttackReadyAt: Number(raw.enemyAttackReadyAt || 0),
+            leftSpawnReadyAt: Number(raw.leftSpawnReadyAt || 0),
+            rightSpawnReadyAt: Number(raw.rightSpawnReadyAt || 0),
             nextEnemyId: Math.max(1, Number(raw.nextEnemyId || 1)),
             nextProjectileId: Math.max(1, Number(raw.nextProjectileId || 1)),
             nextEffectId: Math.max(1, Number(raw.nextEffectId || 1)),
@@ -1358,6 +1534,8 @@
                     recoverAt: Number(enemy.recoverAt || 0),
                     attackStartedAt: Number(enemy.attackStartedAt || 0),
                     feintUsed: Boolean(enemy.feintUsed),
+                    openingUntil: Number(enemy.openingUntil || 0),
+                    openingHitsLeft: Math.max(0, Number(enemy.openingHitsLeft || 0)),
                     targetLane: 0,
                     followLaneAt: Number(enemy.followLaneAt || 0)
                 };
@@ -1382,7 +1560,7 @@
             session.currentWeaponKey = session.weaponKeys[0];
         }
         if (!session.enemies.length && !session.pendingRewardOptions.length && session.status === "playing") {
-            spawnWave(session, true);
+            seedContinuousBattle(session, true);
         }
         return session;
     }
@@ -1430,15 +1608,19 @@
             attackProcCounter: session.attackProcCounter,
             lastDamageAt: session.lastDamageAt,
             lastAuraTickAt: session.lastAuraTickAt,
-            lastRegenAt: session.lastRegenAt,
             bunkerUntil: session.bunkerUntil,
             guardianUsed: session.guardianUsed,
             zhonyaUsed: session.zhonyaUsed,
             lastAttackSide: session.lastAttackSide,
+            mejaisStacks: session.mejaisStacks,
             guinsooStacks: session.guinsooStacks,
             guinsooUntil: session.guinsooUntil,
             spearComboIndex: session.spearComboIndex,
             spearComboUntil: session.spearComboUntil,
+            modeComboKey: session.modeComboKey,
+            modeComboStep: session.modeComboStep,
+            modeComboStreak: session.modeComboStreak,
+            modeComboUntil: session.modeComboUntil,
             flashText: session.flashText,
             flashUntil: session.flashUntil,
             message: session.message,
@@ -1453,6 +1635,8 @@
             screenShakePower: session.screenShakePower,
             hitStopUntil: session.hitStopUntil,
             enemyAttackReadyAt: session.enemyAttackReadyAt,
+            leftSpawnReadyAt: session.leftSpawnReadyAt,
+            rightSpawnReadyAt: session.rightSpawnReadyAt,
             nextEnemyId: session.nextEnemyId,
             nextProjectileId: session.nextProjectileId,
             nextEffectId: session.nextEffectId,
@@ -1473,6 +1657,8 @@
                     recoverAt: enemy.recoverAt,
                     attackStartedAt: enemy.attackStartedAt,
                     feintUsed: enemy.feintUsed,
+                    openingUntil: enemy.openingUntil,
+                    openingHitsLeft: enemy.openingHitsLeft,
                     targetLane: enemy.targetLane,
                     followLaneAt: enemy.followLaneAt
                 };
@@ -1615,7 +1801,6 @@
             auraTickMs: 0,
             periodicShieldMs: 0,
             periodicShieldAmount: 0,
-            warmogRegen: 0,
             thornsDamage: 0,
             blockEnemySlowMs: 0,
             onHitSlowMs: 0,
@@ -1627,11 +1812,16 @@
             reviveOnce: false,
             stasisOnce: false,
             heartsteel: false,
+            hasMejais: false,
             shieldPerWave: 0,
+            enemyHpScale: 1,
+            enemyAttackGapReduceMs: 0,
             hasGuinsoo: false,
             blockRecoveryMs: SHI_DATA.timings.blockRecoveryMs,
             perfectCounterDamageBonus: 0,
-            perfectSkillRefundMs: 0
+            perfectSkillRefundMs: 0,
+            combatPower: 100,
+            combatEnemyHpScale: 1
         };
         session.equipmentKeys.forEach(function (key) {
             const entry = SHI_DATA.equipments[key];
@@ -1639,7 +1829,12 @@
                 entry.apply(derived);
             }
         });
-        const stepProfile = stepProfileByLevel(session.stepLevel || 0);
+        // 杀人书层数归属于装备本身，离手后就不再保留。
+        if (!derived.hasMejais && session.mejaisStacks > 0) {
+            session.mejaisStacks = 0;
+        } else if (derived.hasMejais && session.mejaisStacks > 0) {
+            derived.attackDamage += session.mejaisStacks;
+        }
         if (derived.hasGuinsoo) {
             if (session.guinsooUntil > nowMs) {
                 derived.attackCooldownMs = Math.max(
@@ -1650,19 +1845,58 @@
                 session.guinsooStacks = 0;
             }
         }
-        derived.blockRecoveryMs = Math.max(90, Math.round(stepProfile.blockRecoveryMs));
-        derived.perfectCounterDamageBonus += stepProfile.perfectCounterDamageBonus;
-        derived.perfectSkillRefundMs += stepProfile.perfectSkillRefundMs;
-        if ((session.stepLevel || 0) >= 1 && weapon.kind === "melee") {
-            derived.attackDamage += 1;
-            derived.attackCooldownMs = Math.max(100, Math.round(derived.attackCooldownMs * 0.9));
+        if (weapon.kind === "ranged") {
+            const rangedRisk = SHI_DATA.balance.rangedRisk;
+            derived.attackCooldownMs = Math.max(
+                rangedRisk.minAttackCooldownMs,
+                Math.round(derived.attackCooldownMs * rangedRisk.cooldownScale) + Number(rangedRisk.extraCooldownByWeapon[weapon.key] || 0)
+            );
+            derived.enemyHpScale = Math.max(derived.enemyHpScale, rangedRisk.enemyHpScale);
+            derived.enemyAttackGapReduceMs = Math.max(derived.enemyAttackGapReduceMs, rangedRisk.enemyAttackGapReduceMs);
         }
-        if ((session.stepLevel || 0) <= -1 && weapon.kind === "ranged") {
-            derived.projectileDamageBonus += 1;
-            derived.remoteDamageReduction = Math.max(derived.remoteDamageReduction, stepProfile.remoteReductionBonus);
-            derived.attackCooldownMs = Math.max(100, Math.round(derived.attackCooldownMs * 0.93));
-        }
+        const combatInfo = combatPowerSnapshot(session, nowMs, derived);
+        derived.combatPower = combatInfo.power;
+        derived.combatEnemyHpScale = combatInfo.enemyHpScale;
+        derived.enemyHpScale = Math.max(derived.enemyHpScale, combatInfo.enemyHpScale);
+        derived.blockRecoveryMs = Math.max(90, SHI_DATA.timings.blockRecoveryMs);
         return derived;
+    }
+
+    function combatPowerSnapshot(session, nowMs, derivedOverride) {
+        const weapon = currentWeapon(session);
+        const d = derivedOverride || derivedStats(session, nowMs || Date.now());
+        const attackGain = Math.max(0, d.attackDamage - weapon.damage);
+        const attackSpeedGain = Math.max(0, (weapon.cooldownMs / Math.max(1, d.attackCooldownMs)) - 1);
+        const hpGain = Math.max(0, session.maxHp - SHI_DATA.player.baseHp);
+        const mejaisScore = Math.sqrt(Math.max(0, session.mejaisStacks || 0)) * 1.75;
+        const sustainScore = (
+            Math.max(0, d.lifeOnHit) * 0.9
+            + Math.max(0, d.killHeal) * 0.45
+            + Math.max(0, d.shieldPerWave) * 0.8
+            + Math.max(0, d.periodicShieldAmount) * 0.75
+        );
+        const utilityScore = (
+            Math.max(0, d.skillDamageBonus) * 0.85
+            + Math.max(0, d.magicOnHitDamage) * 0.7
+            + Math.max(0, d.projectileDamageBonus) * 0.65
+            + Math.max(0, d.extraTargets) * 0.9
+            + Math.max(0, d.chainDamage) * 0.65
+            + Math.max(0, d.krakenDamage) * 0.7
+        );
+        // 战力影响敌人血量，但用软缩放，避免成长装备导致敌方数值直接失控。
+        const score = (
+            attackGain * 1.45
+            + attackSpeedGain * 4.8
+            + hpGain * 0.18
+            + sustainScore
+            + utilityScore
+            + session.equipmentKeys.length * 0.78
+            + mejaisScore
+        );
+        return {
+            power: 100 + Math.round(score * 11),
+            enemyHpScale: Number((1 + Math.min(1.85, score * 0.055)).toFixed(2))
+        };
     }
 
     function enemyConfig(enemyType) {
@@ -1681,9 +1915,34 @@
         return enemyConfig(enemy.type).badge || (enemyRole(enemy) === "ranged" ? "射" : "斩");
     }
 
-    function pickEnemyTemplateKey(session) {
-        const wave = Math.max(1, session.wave || 1);
-        const pool = wave <= 2
+    function threatTierAt(session, nowMs) {
+        const currentMs = nowMs || Date.now();
+        const elapsedSeconds = session.status === "playing" && !session.paused
+            ? Math.max(0, Math.floor((currentMs - session.startedAt) / 1000))
+            : Math.max(0, Number(session.elapsedSeconds || 0));
+        return Math.max(1, 1 + Math.floor(elapsedSeconds / SHI_DATA.continuous.difficultyIntervalSeconds));
+    }
+
+    function syncThreatTier(session, nowMs) {
+        const nextTier = threatTierAt(session, nowMs);
+        if (nextTier <= session.wave) {
+            return;
+        }
+        const d = derivedStats(session, nowMs || Date.now());
+        while (session.wave < nextTier) {
+            session.wave += 1;
+            if (d.shieldPerWave > 0) {
+                session.shield = Math.max(session.shield, Math.round(d.shieldPerWave * d.shieldAmp));
+            }
+        }
+        session.flashText = "压强提升";
+        session.flashUntil = (nowMs || Date.now()) + SHI_DATA.timings.hitFlashDurationMs;
+        session.message = "战场压强提升，敌人会更快更硬。";
+    }
+
+    function pickEnemyTemplateKey(session, nowMs) {
+        const threatTier = Math.max(1, threatTierAt(session, nowMs));
+        const pool = threatTier <= 2
             ? [
                 { key: "quickstab", weight: 38 },
                 { key: "melee", weight: 18 },
@@ -1707,6 +1966,97 @@
             }
         }
         return pool[0].key;
+    }
+
+    function spawnEnemyUnit(session, side, nowMs, readyAtOverride) {
+        const type = pickEnemyTemplateKey(session, nowMs);
+        const config = enemyConfig(type);
+        const d = derivedStats(session, nowMs);
+        const threatTier = Math.max(1, session.wave || 1);
+        const hp = Math.max(1, Math.round((config.hpBase + config.hpPerWave * threatTier) * (d.enemyHpScale || 1)));
+        session.enemies.push({
+            id: session.nextEnemyId++,
+            side: side,
+            lane: session.lane,
+            type: type,
+            hp: hp,
+            maxHp: hp,
+            readyAt: readyAtOverride != null ? readyAtOverride : (nowMs + randomInt(config.readyDelayMs[0], config.readyDelayMs[1])),
+            state: "idle",
+            approachStartAt: 0,
+            approachEndAt: 0,
+            telegraphStartAt: 0,
+            strikeAt: 0,
+            recoverAt: 0,
+            attackStartedAt: 0,
+            feintUsed: false,
+            openingUntil: 0,
+            openingHitsLeft: 0,
+            targetLane: session.lane,
+            followLaneAt: 0
+        });
+    }
+
+    function scheduleSideSpawn(session, side, nowMs, immediate) {
+        const key = side < 0 ? "leftSpawnReadyAt" : "rightSpawnReadyAt";
+        session[key] = immediate
+            ? nowMs
+            : (nowMs + randomInt(SHI_DATA.continuous.spawnDelayMs[0], SHI_DATA.continuous.spawnDelayMs[1]));
+    }
+
+    function seedContinuousBattle(session, immediate) {
+        const nowMs = Date.now();
+        const d = derivedStats(session, nowMs);
+        session.enemies = [];
+        session.playerProjectiles = [];
+        session.enemyProjectiles = [];
+        session.meleeEffects = [];
+        session.hitEffects = [];
+        session.pendingRewardScore = 0;
+        session.enemyAttackReadyAt = 0;
+        session.perfectLockSide = 0;
+        session.perfectLockUntil = 0;
+        session.perfectGuardUntil = 0;
+        session.skillEmpowerHitsLeft = 0;
+        session.attackProcCounter = 0;
+        session.lastAttackSide = 0;
+        session.leftSpawnReadyAt = 0;
+        session.rightSpawnReadyAt = 0;
+        session.wave = Math.max(1, threatTierAt(session, nowMs));
+        clearBlockRecovery(session, nowMs);
+        [-1, 1].forEach(function (side) {
+            for (let index = 0; index < SHI_DATA.continuous.initialSpawnPerSide; index += 1) {
+                spawnEnemyUnit(
+                    session,
+                    side,
+                    nowMs,
+                    nowMs + (immediate ? (640 + index * 420) : (940 + index * 420))
+                );
+            }
+            scheduleSideSpawn(session, side, nowMs + (immediate ? 600 : 900), false);
+        });
+        if (d.shieldPerWave > 0) {
+            session.shield = Math.max(session.shield, Math.round(d.shieldPerWave * d.shieldAmp));
+        }
+        session.message = "战斗开始：左右两侧会持续补怪，击杀后有概率直接掉落。";
+    }
+
+    function maintainEnemyRoster(session, nowMs) {
+        syncThreatTier(session, nowMs);
+        [-1, 1].forEach(function (side) {
+            const sideCount = session.enemies.filter(function (enemy) {
+                return enemy.side === side && enemy.lane === session.lane;
+            }).length;
+            if (sideCount >= SHI_DATA.continuous.sideReserve) {
+                return;
+            }
+            const readyKey = side < 0 ? "leftSpawnReadyAt" : "rightSpawnReadyAt";
+            if ((session[readyKey] || 0) > nowMs) {
+                return;
+            }
+            spawnEnemyUnit(session, side, nowMs);
+            scheduleSideSpawn(session, side, nowMs, false);
+        });
     }
 
     function visualDistance(enemy, session) {
@@ -1854,54 +2204,8 @@
         }
     }
 
-    function spawnWave(session, immediate) {
-        const total = 2 + session.wave;
-        const nowMs = Date.now();
-        session.enemies = [];
-        session.playerProjectiles = [];
-        session.enemyProjectiles = [];
-        session.meleeEffects = [];
-        session.hitEffects = [];
-        session.pendingRewardScore = 0;
-        session.enemyAttackReadyAt = 0;
-        session.perfectLockSide = 0;
-        session.perfectLockUntil = 0;
-        session.perfectGuardUntil = 0;
-        session.skillEmpowerHitsLeft = 0;
-        session.attackProcCounter = 0;
-        session.lastAttackSide = 0;
-        clearBlockRecovery(session, nowMs);
-        for (let index = 0; index < total; index += 1) {
-            const type = pickEnemyTemplateKey(session);
-            const config = enemyConfig(type);
-            const hp = config.hpBase + config.hpPerWave * session.wave;
-            session.enemies.push({
-                id: session.nextEnemyId++,
-                side: Math.random() < 0.5 ? -1 : 1,
-                lane: session.lane,
-                type: type,
-                hp: hp,
-                maxHp: hp,
-                readyAt: nowMs + (immediate ? (900 + index * 760) : (1200 + index * 760)),
-                state: "idle",
-                approachStartAt: 0,
-                approachEndAt: 0,
-                telegraphStartAt: 0,
-                strikeAt: 0,
-                recoverAt: 0,
-                attackStartedAt: 0,
-                feintUsed: false,
-                targetLane: session.lane,
-                followLaneAt: 0
-            });
-        }
-        const d = derivedStats(session, nowMs);
-        session.shield = Math.max(session.shield, Math.round(d.shieldPerWave * d.shieldAmp));
-        session.message = "第 " + session.wave + " 波开始：前压抢回合，截击等反打，后撤稳完美格挡。";
-    }
-
-    function buildRewardOptions(session) {
-        const rewards = [];
+    function buildSingleReward(session) {
+        const rewardPool = [];
         const missingWeapons = Object.keys(SHI_DATA.weapons).filter(function (key) {
             return session.weaponKeys.indexOf(key) === -1;
         });
@@ -1909,46 +2213,61 @@
             return session.equipmentKeys.indexOf(key) === -1;
         });
         if (missingWeapons.length) {
-            const weaponKey = pickRandom(missingWeapons);
-            rewards.push({
-                category: "weapon",
-                key: weaponKey,
-                name: SHI_DATA.weapons[weaponKey].name,
-                desc: "替换当前武器并获得对应技能。"
+            rewardPool.push({
+                weight: 14,
+                value: {
+                    category: "weapon",
+                    key: pickRandom(missingWeapons),
+                    name: "",
+                    desc: "替换当前武器并获得对应技能。"
+                }
             });
         }
         if (availableEquipment.length) {
-            const equipmentKey = pickRandom(availableEquipment);
-            rewards.push({
-                category: "equipment",
-                key: equipmentKey,
-                name: SHI_DATA.equipments[equipmentKey].name,
-                desc: SHI_DATA.equipments[equipmentKey].desc
+            rewardPool.push({
+                weight: 54,
+                value: {
+                    category: "equipment",
+                    key: pickRandom(availableEquipment),
+                    name: "",
+                    desc: ""
+                }
             });
         }
-        const statKeys = Object.keys(SHI_DATA.statRewards);
-        while (rewards.length < SHI_DATA.scene.rewardPoolSize) {
-            const statKey = statKeys[rewards.length % statKeys.length];
-            rewards.push({
+        const statKey = pickRandom(Object.keys(SHI_DATA.statRewards));
+        rewardPool.push({
+            weight: 32,
+            value: {
                 category: "stat",
                 key: statKey,
                 name: SHI_DATA.statRewards[statKey].name,
                 desc: SHI_DATA.statRewards[statKey].desc
-            });
+            }
+        });
+        const totalWeight = rewardPool.reduce(function (sum, item) {
+            return sum + item.weight;
+        }, 0);
+        let roll = Math.random() * totalWeight;
+        let selected = rewardPool[0].value;
+        rewardPool.some(function (item) {
+            roll -= item.weight;
+            if (roll <= 0) {
+                selected = item.value;
+                return true;
+            }
+            return false;
+        });
+        if (selected.category === "weapon") {
+            selected.name = SHI_DATA.weapons[selected.key].name;
+        } else if (selected.category === "equipment") {
+            selected.name = SHI_DATA.equipments[selected.key].name;
+            selected.desc = SHI_DATA.equipments[selected.key].desc;
         }
-        return rewards.slice(0, SHI_DATA.scene.rewardPoolSize);
+        return selected;
     }
 
     function equipmentReplaceScore(session) {
-        return Math.max(12, 8 + session.wave * 3);
-    }
-
-    function finishRewardAndNextWave(session) {
-        session.pendingRewardOptions = [];
-        session.pendingRewardScore = 0;
-        session.pendingReplaceEquipmentKey = "";
-        session.wave += 1;
-        spawnWave(session, false);
+        return Math.max(12, 8 + Math.max(1, session.wave || 1) * 3);
     }
 
     function applyReward(session, reward) {
@@ -1978,7 +2297,9 @@
             SHI_DATA.statRewards[reward.key].apply(session);
             session.message = "强化生效：" + SHI_DATA.statRewards[reward.key].name;
         }
-        finishRewardAndNextWave(session);
+        session.pendingRewardOptions = [];
+        session.pendingRewardScore = 0;
+        session.pendingReplaceEquipmentKey = "";
     }
 
     function replaceEquipmentReward(session, index) {
@@ -1996,22 +2317,23 @@
         session.flashText = "+" + gain;
         session.flashUntil = Date.now() + SHI_DATA.timings.hitFlashDurationMs;
         session.message = "替换装备：" + SHI_DATA.equipments[oldKey].name + " -> " + SHI_DATA.equipments[nextKey].name + "，并获得 " + gain + " 积分。";
-        finishRewardAndNextWave(session);
+        session.pendingRewardOptions = [];
+        session.pendingRewardScore = 0;
+        session.pendingReplaceEquipmentKey = "";
     }
 
     function convertRewardToScore(session) {
         if (!session.pendingRewardOptions.length) {
             return;
         }
-        const gain = Math.max(10, session.pendingRewardScore || (24 + session.wave * 8));
+        const gain = Math.max(10, session.pendingRewardScore || (12 + Math.max(1, session.wave || 1) * 4));
         session.score += gain;
         session.pendingRewardOptions = [];
         session.pendingRewardScore = 0;
-        session.wave += 1;
-        session.message = "放弃掉落，转换为 " + gain + " 积分。";
+        session.pendingReplaceEquipmentKey = "";
+        session.message = "放弃这次掉落，转换为 " + gain + " 积分。";
         session.flashText = "+" + gain;
         session.flashUntil = Date.now() + SHI_DATA.timings.hitFlashDurationMs;
-        spawnWave(session, false);
     }
 
     function healPlayer(session, amount, nowMs) {
@@ -2020,6 +2342,16 @@
         }
         const d = derivedStats(session, nowMs || Date.now());
         session.hp = Math.min(session.maxHp, session.hp + Math.max(1, Math.round(amount * (d.healAmp || 1))));
+    }
+
+    function dropMejaisStacksOnHit(session) {
+        if (session.equipmentKeys.indexOf("mejais") === -1 || session.mejaisStacks <= 0) {
+            return 0;
+        }
+        const before = Math.max(0, Number(session.mejaisStacks || 0));
+        const after = Math.floor(before / 2);
+        session.mejaisStacks = after;
+        return before - after;
     }
 
     function spawnHitEffect(session, x, lane, color, text) {
@@ -2145,7 +2477,7 @@
     }
 
     function cancelBlockStance(session, nowMs) {
-        // 主动出手、步法调整会取消当前举盾姿态。
+        // 主动出手或切模式都会取消当前举盾姿态。
         // 但如果已经在预警阶段锁定了完美格挡，就保留这次锁定，避免“看起来触发了完美格挡却仍掉血”。
         setBlockState(session, nowMs, Math.max(session.blockReadyAt || 0, nowMs));
         if (session.perfectGuardUntil > nowMs) {
@@ -2189,7 +2521,7 @@
         cancelBlockStance(session, nowMs);
         session.attackPose.side = 0;
         session.attackPose.until = nowMs;
-        session.playerState = "调整步法";
+        session.playerState = "调整模式";
     }
 
     function shiftStep(session, direction, nowMs) {
@@ -2197,25 +2529,25 @@
             return;
         }
         if (nowMs < session.stepReadyAt) {
-            session.message = "步法还在调整。";
+            session.message = "攻击模式还在切换。";
             return;
         }
-        const nextLevel = Math.max(-1, Math.min(1, (session.stepLevel || 0) + direction));
-        if (nextLevel === session.stepLevel) {
-            session.message = nextLevel >= 1 ? "已经在最前压的位置。" : "已经在最后撤的位置。";
+        const nextLevel = direction > 0 ? 1 : 0;
+        if (nextLevel === normalizedModeLevel(session.stepLevel || 0)) {
+            session.message = nextLevel >= 1 ? "已经是攻势模式。" : "已经是应势模式。";
             return;
         }
-        interruptPlayerCombat(session, nowMs);
         session.stepLevel = nextLevel;
         session.stepReadyAt = nowMs + SHI_DATA.timings.stepShiftCooldownMs;
         session.laneSwitchReadyAt = session.stepReadyAt;
+        session.modeComboKey = "";
+        session.modeComboStep = 0;
+        session.modeComboStreak = 0;
+        session.modeComboUntil = 0;
         session.flashText = stepProfileByLevel(nextLevel).shortLabel;
         session.flashUntil = nowMs + SHI_DATA.timings.hitFlashDurationMs;
-        session.playerState = nextLevel > 0 ? "前压逼位" : "后撤拉距";
-        if (nextLevel === 0) {
-            session.playerState = "截击待发";
-        }
-        session.message = "步法切换至" + stepLabel(nextLevel) + "。 " + stepHint(session);
+        session.playerState = nextLevel > 0 ? "攻势待发" : "应势待发";
+        session.message = "攻击模式切换至" + stepLabel(nextLevel) + "。 " + stepHint(session);
     }
 
     function interruptEnemyForLaneShift(enemy, nextLane, nowMs) {
@@ -2232,12 +2564,13 @@
     }
 
     function enemyAttackGapMs(session) {
-        // 暂时用波次近似难度：波次越高，敌人允许的下一次攻击间隔越短，但保留底线避免手感失控。
+        // 这里用持续战斗中的压强档位近似难度：拖得越久，敌人允许的下一次攻击间隔越短，但保留底线避免手感失控。
+        const d = derivedStats(session, Date.now());
         return Math.max(
             SHI_DATA.timings.enemyMinAttackGapFloorMs,
             SHI_DATA.timings.enemyMinAttackGapMs
             - Math.max(0, session.wave - 1) * SHI_DATA.timings.enemyMinAttackGapWaveReduceMs
-            + stepProfileByLevel(session.stepLevel || 0).enemyGapBonusMs
+            - Math.max(0, d.enemyAttackGapReduceMs || 0)
         );
     }
 
@@ -2271,6 +2604,7 @@
             activeAt: Number(extra.activeAt || Date.now()),
             sourceX: Number(extra.sourceX != null ? extra.sourceX : x),
             sourceY: Number(extra.sourceY != null ? extra.sourceY : SHI_DATA.scene.laneY[lane]),
+            sourceEnemyId: Math.max(0, Number(extra.sourceEnemyId || 0)),
             remainingHits: Math.max(1, Number(extra.remainingHits || 1)),
             returnAt: Number(extra.returnAt || 0),
             maxTravelX: Number(extra.maxTravelX || 0),
@@ -2278,7 +2612,8 @@
             splash: Boolean(extra.splash),
             splashRadius: Math.max(0, Number(extra.splashRadius || 0)),
             splashDamage: Math.max(0, Number(extra.splashDamage || 0)),
-            freezeMs: Math.max(0, Number(extra.freezeMs || 0))
+            freezeMs: Math.max(0, Number(extra.freezeMs || 0)),
+            controlMs: Math.max(0, Number(extra.controlMs || 0))
         });
     }
 
@@ -2321,75 +2656,67 @@
 
         if (incomingProjectile) {
             return {
-                level: -1,
-                label: stepLabel(-1),
-                reason: "场上已有飞行物，后撤更容易稳接完美格挡并吃到远程减伤。"
+                level: 0,
+                label: stepLabel(0),
+                reason: "场上已有飞行物，应势模式更适合用更稳的出手接住节奏。"
             };
         }
         if (telegraphEnemy) {
             const role = enemyRole(telegraphEnemy);
             if (role === "ranged") {
                 return {
-                    level: -1,
-                    label: stepLabel(-1),
-                    reason: "当前是射击前摇，后撤能把完美窗口放大到 " + effectivePerfectWindowForLevel(session, -1) + "ms。"
+                    level: 0,
+                    label: stepLabel(0),
+                    reason: "当前是射击前摇，应势模式更适合留节奏，准备格挡后反打。"
                 };
             }
             if (enemyStyle(telegraphEnemy) === "heavy" || enemyStyle(telegraphEnemy) === "stab" || enemyStyle(telegraphEnemy) === "feint") {
                 return {
-                    level: -1,
-                    label: stepLabel(-1),
-                    reason: "当前招式读招压力更高，后撤更稳，更容易把完美格挡接实。"
+                    level: 0,
+                    label: stepLabel(0),
+                    reason: "当前招式读招压力更高，应势模式更稳，适合等格挡落点后反打。"
                 };
             }
             return {
-                level: 0,
-                label: stepLabel(0),
-                reason: "现在更适合留在截击位，等对方前摇落点后反打。"
+                level: 1,
+                label: stepLabel(1),
+                reason: "对方已经亮招，如果你准备主动打断，攻势模式更适合直接压上去。"
             };
         }
         if (!nearestEnemy) {
             return {
-                level: 0,
-                label: stepLabel(0),
-                reason: "暂时没有近身压力，截击位最适合观察左右节奏。"
+                level: 1,
+                label: stepLabel(1),
+                reason: "当前没有贴身压力，攻势模式更适合先手开节奏。"
             };
         }
         const nearestDistance = visualDistance(nearestEnemy, session);
         if (weapon.kind === "melee") {
             const currentRange = effectiveMeleeRange(session, weapon, weapon.range);
-            const forwardRange = effectiveMeleeRange({ stepLevel: 1 }, weapon, weapon.range);
-            if (nearestDistance > currentRange && nearestDistance <= forwardRange + 12) {
+            if (nearestDistance <= currentRange + 18) {
                 return {
                     level: 1,
                     label: stepLabel(1),
-                    reason: "前压一步就能把最近敌人拉进你的近战范围。"
-                };
-            }
-            if (nearestDistance > currentRange) {
-                return {
-                    level: 1,
-                    label: stepLabel(1),
-                    reason: "近战武器当前够不到人，前压能更快抢回合。"
+                    reason: "敌人已经进入近战处理区，攻势模式更适合抢这一轮近身出手。"
                 };
             }
             return {
                 level: 0,
                 label: stepLabel(0),
-                reason: "你已经在可命中距离，截击位更适合准备完美格挡后的反打。"
+                reason: "敌人还没进安全斩区，应势模式更适合等它自己送进来。"
             };
         }
         if (nearestDistance <= 170 || nearestEnemy.state === "approach") {
             return {
-                level: -1,
-                label: stepLabel(-1),
-                reason: "敌人快贴身了，后撤能拉开身位并放大完美格挡窗口。"
+                level: 0,
+                label: stepLabel(0),
+                reason: "敌人正在贴近，应势模式更适合守住脚下和接后手。"
             };
         }
         return {
-            level: 0,
-            label: stepLabel(0),
-            reason: "当前距离安全，截击位更适合观察哪一侧先接管主回合。"
+            level: 1,
+            label: stepLabel(1),
+            reason: "当前距离安全，攻势模式更适合先点掉正在排队的一侧。"
         };
     }
 
@@ -2468,51 +2795,87 @@
             });
     }
 
+    function isOffensiveDamageReason(reason) {
+        return reason === "attack" || reason === "projectile" || reason === "skill" || reason === "proc";
+    }
+
+    function isOnHitDamageReason(reason) {
+        return reason === "attack" || reason === "projectile";
+    }
+
+    function maybeOfferRandomDrop(session) {
+        if (session.pendingRewardOptions.length || session.status !== "playing") {
+            return;
+        }
+        if (Math.random() > SHI_DATA.continuous.dropChance) {
+            return;
+        }
+        const reward = buildSingleReward(session);
+        if (!reward) {
+            return;
+        }
+        session.pendingRewardOptions = [reward];
+        session.pendingRewardScore = Math.max(10, 12 + Math.max(1, session.wave || 1) * 4);
+        session.message = "敌人掉落了一件战利品。";
+    }
+
     function killEnemy(session, enemy, reason) {
-        session.score += 12 + session.wave * 4;
+        session.score += 12 + Math.max(1, session.wave || 1) * 4;
         session.kills += 1;
         const d = derivedStats(session, Date.now());
+        const offensiveKill = isOffensiveDamageReason(reason);
         if (d.heartsteel) {
             session.maxHp += 1;
-            session.hp = Math.min(session.maxHp, session.hp + 1);
+            if (offensiveKill) {
+                session.hp = Math.min(session.maxHp, session.hp + 1);
+            }
         }
         if (d.bonusScoreOnKill > 0) {
             session.score += d.bonusScoreOnKill;
         }
-        if (d.killHeal > 0) {
+        if (offensiveKill && d.killHeal > 0) {
             healPlayer(session, d.killHeal, Date.now());
         }
         if (reason === "perfect" || reason === "reflect") {
             session.score += 8;
         }
+        if (session.equipmentKeys.indexOf("mejais") >= 0) {
+            session.mejaisStacks += 1;
+            session.flashText = "书+" + session.mejaisStacks;
+            session.flashUntil = Date.now() + SHI_DATA.timings.hitFlashDurationMs;
+        }
         session.enemies = session.enemies.filter(function (item) {
             return item.id !== enemy.id;
         });
-        if (!session.enemies.length && !session.pendingRewardOptions.length && session.status === "playing") {
-            session.pendingRewardOptions = buildRewardOptions(session);
-            session.pendingRewardScore = 24 + session.wave * 8;
-            session.message = "第 " + session.wave + " 波清空，选择一个掉落。";
+        maybeOfferRandomDrop(session);
+        if (session.equipmentKeys.indexOf("mejais") >= 0 && !session.pendingRewardOptions.length) {
+            session.message = "杀人书叠到 " + session.mejaisStacks + " 层。";
         }
     }
 
     function damageEnemy(session, enemy, amount, nowMs, reason, hitX) {
         const d = derivedStats(session, nowMs);
-        const playerHit = reason === "attack" || reason === "projectile" || reason === "perfect" || reason === "skill" || reason === "reflect";
+        const offensiveHit = isOffensiveDamageReason(reason);
+        const onHitDamage = isOnHitDamageReason(reason);
+        const openingStrike = enemyOpeningActive(enemy, nowMs) && (reason === "attack" || reason === "projectile");
         let finalAmount = amount;
         if (reason === "skill") {
             finalAmount += d.skillDamageBonus;
         }
-        if ((reason === "attack" || reason === "projectile" || reason === "perfect" || reason === "reflect") && d.magicOnHitDamage > 0) {
+        if (openingStrike) {
+            finalAmount += 1;
+        }
+        if (onHitDamage && d.magicOnHitDamage > 0) {
             finalAmount += d.magicOnHitDamage;
         }
-        if ((reason === "projectile" || reason === "reflect") && d.projectileDamageBonus > 0) {
+        if (reason === "projectile" && d.projectileDamageBonus > 0) {
             finalAmount += d.projectileDamageBonus;
         }
-        if (session.skillEmpowerHitsLeft > 0 && (reason === "attack" || reason === "projectile")) {
+        if (session.skillEmpowerHitsLeft > 0 && onHitDamage) {
             finalAmount += d.skillEmpowerDamage;
             session.skillEmpowerHitsLeft -= 1;
         }
-        if (playerHit) {
+        if (onHitDamage) {
             session.attackProcCounter += 1;
             if (d.krakenEvery > 0 && session.attackProcCounter % d.krakenEvery === 0) {
                 finalAmount += d.krakenDamage;
@@ -2523,15 +2886,17 @@
         } else {
             enemy.hp -= finalAmount;
         }
-        healPlayer(session, d.lifeOnHit, nowMs);
-        if (d.skillRefundOnHitMs > 0) {
+        if (onHitDamage && d.lifeOnHit > 0) {
+            healPlayer(session, d.lifeOnHit, nowMs);
+        }
+        if (onHitDamage && d.skillRefundOnHitMs > 0) {
             session.skillReadyAt = Math.max(nowMs, session.skillReadyAt - d.skillRefundOnHitMs);
         }
-        if (d.hasGuinsoo) {
+        if (onHitDamage && d.hasGuinsoo) {
             session.guinsooStacks = Math.min(4, session.guinsooStacks + 1);
             session.guinsooUntil = nowMs + 3000;
         }
-        if (playerHit && d.chainEvery > 0 && d.chainDamage > 0 && session.attackProcCounter % d.chainEvery === 0) {
+        if (onHitDamage && d.chainEvery > 0 && d.chainDamage > 0 && session.attackProcCounter % d.chainEvery === 0) {
             nearestDirectionalEnemies(session, enemy.side, d.chainRange || 180)
                 .filter(function (target) { return target.id !== enemy.id; })
                 .slice(0, 2)
@@ -2546,15 +2911,22 @@
                     );
                 });
         }
-        if (playerHit && d.onHitSlowMs > 0) {
+        if (offensiveHit && d.onHitSlowMs > 0) {
             enemy.readyAt += d.onHitSlowMs;
             enemy.recoverAt = enemy.recoverAt > 0 ? (enemy.recoverAt + Math.round(d.onHitSlowMs * 0.45)) : enemy.recoverAt;
+        }
+        if (openingStrike) {
+            consumeEnemyOpening(enemy);
+            applyEnemyControl(enemy, nowMs, 420);
+            session.flashText = "破绽追击";
+            session.flashUntil = nowMs + SHI_DATA.timings.hitFlashDurationMs;
+            session.message = "抓住了完美格挡后的破绽。";
         }
         spawnHitEffect(
             session,
             hitX != null ? hitX : (SHI_DATA.scene.playerX + enemy.side * visualDistance(enemy, session)),
             enemy.lane,
-            reason === "reflect" ? "#93c5fd" : "#f8fafc",
+            openingStrike ? "#fbbf24" : (reason === "reflect" ? "#93c5fd" : "#f8fafc"),
             enemy.hp <= 0 ? "击杀" : ""
         );
         if (reason === "attack" || reason === "skill" || reason === "perfect") {
@@ -2566,10 +2938,28 @@
         }
     }
 
-    function hitDirectionalEnemies(session, side, range, baseDamage, hitCount, nowMs, reason) {
+    function hitDirectionalEnemies(session, side, range, baseDamage, hitCount, nowMs, reason, options) {
         const d = derivedStats(session, nowMs);
-        nearestDirectionalEnemies(session, side, range)
-            .slice(0, Math.max(1, hitCount + d.extraTargets))
+        const extra = options || {};
+        const openingReachBonus = Math.max(0, Number(extra.openingReachBonus || 0));
+        const totalHits = Math.max(1, hitCount + d.extraTargets + Math.max(0, Number(extra.extraHits || 0)));
+        session.enemies
+            .filter(function (enemy) {
+                if (enemy.side !== side || enemy.lane !== session.lane) {
+                    return false;
+                }
+                const distance = visualDistance(enemy, session);
+                if (distance <= range) {
+                    return true;
+                }
+                return openingReachBonus > 0
+                    && enemyOpeningActive(enemy, nowMs)
+                    && distance <= range + openingReachBonus;
+            })
+            .sort(function (left, right) {
+                return visualDistance(left, session) - visualDistance(right, session);
+            })
+            .slice(0, totalHits)
             .forEach(function (enemy) {
                 damageEnemy(
                     session,
@@ -2616,143 +3006,347 @@
         };
     }
 
+    function grantEnemyOpening(enemy, nowMs, durationMs) {
+        enemy.openingUntil = Math.max(Number(enemy.openingUntil || 0), nowMs + durationMs);
+        enemy.openingHitsLeft = Math.max(Number(enemy.openingHitsLeft || 0), 1);
+    }
+
+    function enemyOpeningActive(enemy, nowMs) {
+        return Number(enemy.openingUntil || 0) > nowMs && Number(enemy.openingHitsLeft || 0) > 0;
+    }
+
+    function consumeEnemyOpening(enemy) {
+        if (!enemy.openingHitsLeft) {
+            return;
+        }
+        enemy.openingHitsLeft = Math.max(0, Number(enemy.openingHitsLeft || 0) - 1);
+        if (enemy.openingHitsLeft <= 0) {
+            enemy.openingUntil = 0;
+        }
+    }
+
+    function previewModeCombo(session, modeKey, nowMs) {
+        const sameMode = session.modeComboKey === modeKey && session.modeComboUntil >= nowMs;
+        const nextStep = sameMode ? (session.modeComboStep >= 2 ? 1 : (session.modeComboStep + 1)) : 1;
+        const streak = sameMode ? (session.modeComboStreak + 1) : 1;
+        const fatigueStacks = Math.max(0, streak - 2);
+        if (modeKey === "advance") {
+            return {
+                key: modeKey,
+                step: nextStep,
+                stepLabel: nextStep === 1 ? "起手" : "追击",
+                streak: streak,
+                fatigueStacks: fatigueStacks,
+                damageBonus: nextStep === 2 ? 1 : 0,
+                rangeBonus: nextStep === 2 ? 22 : 0,
+                extraHits: 0,
+                controlMs: nextStep === 2 ? 180 : 0,
+                projectileControlMs: 0,
+                cooldownScale: 1 + Math.min(0.24, fatigueStacks * 0.08),
+                damagePenalty: Math.min(2, fatigueStacks),
+                hudText: "攻" + nextStep + " · " + (fatigueStacks > 0 ? ("疲" + fatigueStacks) : "稳")
+            };
+        }
+        return {
+            key: modeKey,
+            step: nextStep,
+            stepLabel: nextStep === 1 ? "拦截" : "反咬",
+            streak: streak,
+            fatigueStacks: fatigueStacks,
+            damageBonus: 0,
+            rangeBonus: nextStep === 2 ? 10 : 0,
+            extraHits: nextStep === 2 ? 1 : 0,
+            controlMs: nextStep === 2 ? 260 : 100,
+            projectileControlMs: nextStep === 2 ? 180 : 80,
+            cooldownScale: 1 + Math.min(0.24, fatigueStacks * 0.08),
+            damagePenalty: Math.min(2, fatigueStacks),
+            hudText: "应" + nextStep + " · " + (fatigueStacks > 0 ? ("疲" + fatigueStacks) : "稳")
+        };
+    }
+
+    function commitModeCombo(session, comboPreview, nowMs) {
+        session.modeComboKey = comboPreview.key;
+        session.modeComboStep = comboPreview.step;
+        session.modeComboStreak = comboPreview.streak;
+        session.modeComboUntil = nowMs + SHI_DATA.timings.modeComboWindowMs;
+    }
+
+    function currentModeComboHud(session, nowMs) {
+        if (session.modeComboUntil < nowMs || !session.modeComboKey) {
+            return "未连段";
+        }
+        const prefix = session.modeComboKey === "advance" ? "攻" : "应";
+        const fatigue = Math.max(0, Number(session.modeComboStreak || 0) - 2);
+        return prefix + session.modeComboStep + " · " + (fatigue > 0 ? ("疲" + fatigue) : "稳");
+    }
+
     function useAttack(session, side, nowMs) {
         if (session.status !== "playing" || session.paused || session.pendingRewardOptions.length) {
             return;
         }
         const weapon = currentWeapon(session);
         const d = derivedStats(session, nowMs);
+        const modeKey = currentWeaponModeKey(session);
+        const mode = currentWeaponMode(session, weapon);
+        const modeCombo = previewModeCombo(session, modeKey, nowMs);
+        const flashLabel = weapon.name + " · " + mode.name + " · " + modeCombo.stepLabel;
+        const attackDamage = Math.max(1, d.attackDamage + modeCombo.damageBonus - modeCombo.damagePenalty);
+        const openingReachBonus = modeCombo.rangeBonus;
+        const comboExtraHits = modeCombo.extraHits;
+        const comboControlMs = modeCombo.controlMs;
+        const projectileControlMs = modeCombo.projectileControlMs;
         if (nowMs < session.attackReadyAt) {
             return;
         }
         if (session.block.until > nowMs || session.perfectGuardUntil > nowMs) {
             cancelBlockStance(session, nowMs);
         }
-        session.attackReadyAt = nowMs + d.attackCooldownMs;
+        session.attackReadyAt = nowMs + Math.round(d.attackCooldownMs * modeCombo.cooldownScale);
 
         if (weapon.kind === "melee") {
-            session.playerState = "近战出手";
-            if (weapon.key === "spear" && Array.isArray(weapon.combo) && weapon.combo.length) {
-                const comboState = currentSpearCombo(session, nowMs);
-                const comboStep = comboState.step;
-                const comboRange = effectiveMeleeRange(session, weapon, comboStep.range);
-                session.attackHitStopMs = comboStep.hitStopMs || SHI_DATA.timings.hitStopMs;
-                setAttackPose(session, side, nowMs, weapon.key, comboStep.poseDistance);
-                spawnMeleeEffect(session, side, weapon, session.lane, comboStep.text, {
-                    shape: comboStep.shape,
-                    reach: comboStep.reach,
-                    arc: comboStep.arc,
-                    thickness: comboStep.thickness,
-                    effectDurationMs: comboStep.effectDurationMs
-                });
-                hitDirectionalEnemies(session, side, comboRange, comboStep.damage + session.bonusDamage, comboStep.hits, nowMs, "attack");
-                session.spearComboIndex = (comboState.index + 1) % weapon.combo.length;
-                session.spearComboUntil = nowMs + 720;
-                session.flashText = weapon.name + " " + comboStep.text;
+            session.playerState = (modeKey === "advance" ? "攻势近战" : "应势近战") + " · " + modeCombo.stepLabel;
+            if (weapon.key === "spear") {
+                if (modeKey === "advance" && Array.isArray(weapon.combo) && weapon.combo.length) {
+                    const comboState = currentSpearCombo(session, nowMs);
+                    const comboStep = comboState.step;
+                    const comboRange = effectiveMeleeRange(session, weapon, comboStep.range + 8 + openingReachBonus);
+                    session.attackHitStopMs = comboStep.hitStopMs || SHI_DATA.timings.hitStopMs;
+                    setAttackPose(session, side, nowMs, weapon.key, comboStep.poseDistance + 2);
+                    spawnMeleeEffect(session, side, weapon, session.lane, comboStep.text, {
+                        shape: comboStep.shape,
+                        reach: (comboStep.reach || weapon.slashReach) + 8 + openingReachBonus,
+                        arc: comboStep.arc,
+                        thickness: comboStep.thickness,
+                        effectDurationMs: comboStep.effectDurationMs
+                    });
+                    hitDirectionalEnemies(session, side, comboRange, comboStep.damage + session.bonusDamage + modeCombo.damageBonus - modeCombo.damagePenalty, comboStep.hits, nowMs, "attack", {
+                        openingReachBonus: openingReachBonus,
+                        extraHits: comboExtraHits
+                    });
+                    session.spearComboIndex = (comboState.index + 1) % weapon.combo.length;
+                    session.spearComboUntil = nowMs + 720;
+                } else {
+                    const meleeRange = effectiveMeleeRange(session, weapon, 198 + openingReachBonus);
+                    session.attackHitStopMs = 54;
+                    session.spearComboUntil = 0;
+                    setAttackPose(session, side, nowMs, weapon.key, 10);
+                    spawnMeleeEffect(session, side, weapon, session.lane, "拦", {
+                        shape: "arc",
+                        reach: 170 + openingReachBonus,
+                        arc: 0.64,
+                        thickness: 22,
+                        effectDurationMs: 150
+                    });
+                    hitDirectionalEnemies(session, side, meleeRange, attackDamage, 4, nowMs, "attack", {
+                        openingReachBonus: openingReachBonus,
+                        extraHits: comboExtraHits
+                    });
+                    nearestDirectionalEnemies(session, side, meleeRange + openingReachBonus).slice(0, 2).forEach(function (enemy) {
+                        applyEnemyControl(enemy, nowMs, 260 + comboControlMs);
+                    });
+                }
             } else if (weapon.key === "hammer") {
-                const meleeRange = effectiveMeleeRange(session, weapon, weapon.range);
-                session.attackHitStopMs = 72;
-                setAttackPose(session, side, nowMs, weapon.key, 14);
-                spawnMeleeEffect(session, side, weapon, session.lane, "砸", {
+                const meleeRange = effectiveMeleeRange(session, weapon, (modeKey === "advance" ? 182 : 160) + openingReachBonus);
+                session.attackHitStopMs = modeKey === "advance" ? 78 : 52;
+                setAttackPose(session, side, nowMs, weapon.key, modeKey === "advance" ? 16 : 10);
+                spawnMeleeEffect(session, side, weapon, session.lane, modeKey === "advance" ? "坠" : "推", {
                     shape: "arc",
-                    reach: 144,
-                    arc: 0.82,
-                    thickness: 24,
-                    effectDurationMs: 190
+                    reach: (modeKey === "advance" ? 150 : 126) + openingReachBonus,
+                    arc: modeKey === "advance" ? 0.88 : 1.02,
+                    thickness: modeKey === "advance" ? 26 : 20,
+                    effectDurationMs: modeKey === "advance" ? 196 : 152
                 });
-                hitDirectionalEnemies(session, side, meleeRange, d.attackDamage, weapon.hits, nowMs, "attack");
-                session.flashText = weapon.name;
+                hitDirectionalEnemies(session, side, meleeRange, attackDamage + (modeKey === "advance" ? 1 : 0), modeKey === "advance" ? 2 : 3, nowMs, "attack", {
+                    openingReachBonus: openingReachBonus,
+                    extraHits: comboExtraHits
+                });
+                if (modeKey !== "advance") {
+                    nearestDirectionalEnemies(session, side, meleeRange).slice(0, 1).forEach(function (enemy) {
+                        applyEnemyControl(enemy, nowMs, 420 + comboControlMs);
+                    });
+                }
             } else if (weapon.key === "axe") {
-                const meleeRange = effectiveMeleeRange(session, weapon, weapon.range);
-                session.attackHitStopMs = 60;
-                setAttackPose(session, side, nowMs, weapon.key, 12);
-                spawnMeleeEffect(session, side, weapon, session.lane, "裂");
-                hitDirectionalEnemies(session, side, meleeRange, d.attackDamage, weapon.hits, nowMs, "attack");
-                session.flashText = weapon.name;
-            } else if (weapon.key === "lance") {
-                const meleeRange = effectiveMeleeRange(session, weapon, weapon.range);
-                session.attackHitStopMs = 48;
-                setAttackPose(session, side, nowMs, weapon.key, 18);
-                spawnMeleeEffect(session, side, weapon, session.lane, "贯", {
-                    shape: "line",
-                    reach: 214,
-                    thickness: 14,
-                    effectDurationMs: 140
+                const meleeRange = effectiveMeleeRange(session, weapon, (modeKey === "advance" ? 202 : 178) + openingReachBonus);
+                session.attackHitStopMs = modeKey === "advance" ? 64 : 50;
+                setAttackPose(session, side, nowMs, weapon.key, modeKey === "advance" ? 14 : 10);
+                spawnMeleeEffect(session, side, weapon, session.lane, modeKey === "advance" ? "劈" : "扫", {
+                    shape: "arc",
+                    reach: (modeKey === "advance" ? 166 : 150) + openingReachBonus,
+                    arc: modeKey === "advance" ? 0.62 : 1.12,
+                    thickness: 20,
+                    effectDurationMs: modeKey === "advance" ? 165 : 150
                 });
-                hitDirectionalEnemies(session, side, meleeRange, d.attackDamage, weapon.hits, nowMs, "attack");
-                session.flashText = weapon.name;
-            } else if (weapon.key === "chainblade") {
-                const meleeRange = effectiveMeleeRange(session, weapon, weapon.range);
-                session.attackHitStopMs = 46;
-                setAttackPose(session, side, nowMs, weapon.key, 16);
-                spawnMeleeEffect(session, side, weapon, session.lane, "缠", {
+                hitDirectionalEnemies(session, side, meleeRange, attackDamage + (modeKey === "advance" ? 1 : 0), modeKey === "advance" ? 2 : 4, nowMs, "attack", {
+                    openingReachBonus: openingReachBonus,
+                    extraHits: comboExtraHits
+                });
+            } else if (weapon.key === "lance") {
+                const meleeRange = effectiveMeleeRange(session, weapon, (modeKey === "advance" ? 258 : 190) + openingReachBonus);
+                session.attackHitStopMs = modeKey === "advance" ? 50 : 38;
+                setAttackPose(session, side, nowMs, weapon.key, modeKey === "advance" ? 20 : 12);
+                spawnMeleeEffect(session, side, weapon, session.lane, modeKey === "advance" ? "阵" : "截", {
                     shape: "line",
-                    reach: 176,
-                    thickness: 16,
+                    reach: (modeKey === "advance" ? 232 : 178) + openingReachBonus,
+                    thickness: modeKey === "advance" ? 13 : 16,
+                    effectDurationMs: modeKey === "advance" ? 146 : 132
+                });
+                hitDirectionalEnemies(session, side, meleeRange, attackDamage + (modeKey === "advance" ? 1 : 0), modeKey === "advance" ? 2 : 3, nowMs, "attack", {
+                    openingReachBonus: openingReachBonus,
+                    extraHits: comboExtraHits
+                });
+                if (modeKey !== "advance") {
+                    nearestDirectionalEnemies(session, side, meleeRange).slice(0, 1).forEach(function (enemy) {
+                        applyEnemyControl(enemy, nowMs, 280 + comboControlMs);
+                    });
+                }
+            } else if (weapon.key === "chainblade") {
+                const meleeRange = effectiveMeleeRange(session, weapon, (modeKey === "advance" ? 214 : 192) + openingReachBonus);
+                session.attackHitStopMs = modeKey === "advance" ? 48 : 42;
+                setAttackPose(session, side, nowMs, weapon.key, modeKey === "advance" ? 17 : 12);
+                spawnMeleeEffect(session, side, weapon, session.lane, modeKey === "advance" ? "钩" : "锁", {
+                    shape: modeKey === "advance" ? "line" : "arc",
+                    reach: (modeKey === "advance" ? 186 : 170) + openingReachBonus,
+                    arc: modeKey === "advance" ? 0.42 : 0.92,
+                    thickness: modeKey === "advance" ? 16 : 18,
                     effectDurationMs: 150
                 });
-                hitDirectionalEnemies(session, side, meleeRange, d.attackDamage, weapon.hits, nowMs, "attack");
-                const pulled = nearestDirectionalEnemies(session, side, meleeRange)[0];
-                if (pulled) {
-                    applyEnemyControl(pulled, nowMs, 260);
-                }
-                session.flashText = weapon.name;
-            } else if (weapon.key === "dualblade") {
-                const meleeRange = effectiveMeleeRange(session, weapon, weapon.range);
-                session.attackHitStopMs = 34;
-                setAttackPose(session, side, nowMs, weapon.key, 12);
-                spawnMeleeEffect(session, side, weapon, session.lane, "连");
-                hitDirectionalEnemies(session, side, meleeRange, d.attackDamage, weapon.hits, nowMs, "attack");
-                session.flashText = weapon.name;
-            } else if (weapon.key === "trinity") {
-                const meleeRange = effectiveMeleeRange(session, weapon, weapon.range);
-                session.attackHitStopMs = 42;
-                setAttackPose(session, side, nowMs, weapon.key, 13);
-                spawnMeleeEffect(session, side, weapon, session.lane, "断", {
-                    shape: "arc",
-                    reach: 152,
-                    arc: 0.72,
-                    thickness: 17,
-                    effectDurationMs: 128
+                hitDirectionalEnemies(session, side, meleeRange, attackDamage, modeKey === "advance" ? 2 : 3, nowMs, "attack", {
+                    openingReachBonus: openingReachBonus,
+                    extraHits: comboExtraHits
                 });
-                hitDirectionalEnemies(session, side, meleeRange, d.attackDamage, weapon.hits, nowMs, "attack");
-                session.flashText = weapon.name;
+                if (modeKey === "advance") {
+                    const pulled = nearestDirectionalEnemies(session, side, meleeRange)[0];
+                    if (pulled) {
+                        applyEnemyControl(pulled, nowMs, 360 + comboControlMs);
+                    }
+                } else {
+                    clearEnemyProjectiles(session, session.lane, side);
+                    nearestDirectionalEnemies(session, side, meleeRange).slice(0, 1).forEach(function (enemy) {
+                        applyEnemyControl(enemy, nowMs, 220 + comboControlMs);
+                    });
+                }
+            } else if (weapon.key === "dualblade") {
+                const meleeRange = effectiveMeleeRange(session, weapon, (modeKey === "advance" ? 180 : 170) + openingReachBonus);
+                session.attackHitStopMs = modeKey === "advance" ? 28 : 36;
+                setAttackPose(session, side, nowMs, weapon.key, modeKey === "advance" ? 15 : 10);
+                spawnMeleeEffect(session, side, weapon, session.lane, modeKey === "advance" ? "追" : "月", {
+                    shape: "arc",
+                    reach: (modeKey === "advance" ? 132 : 136) + openingReachBonus,
+                    arc: modeKey === "advance" ? 0.74 : 1.18,
+                    thickness: 15,
+                    effectDurationMs: modeKey === "advance" ? 112 : 124
+                });
+                hitDirectionalEnemies(session, side, meleeRange, attackDamage, modeKey === "advance" ? 2 : 3, nowMs, "attack", {
+                    openingReachBonus: openingReachBonus,
+                    extraHits: comboExtraHits
+                });
+            } else if (weapon.key === "trinity") {
+                const meleeRange = effectiveMeleeRange(session, weapon, weapon.range + openingReachBonus);
+                session.attackHitStopMs = modeKey === "advance" ? 46 : 40;
+                setAttackPose(session, side, nowMs, weapon.key, modeKey === "advance" ? 14 : 11);
+                spawnMeleeEffect(session, side, weapon, session.lane, modeKey === "advance" ? "断" : "节", {
+                    shape: "arc",
+                    reach: (modeKey === "advance" ? 156 : 148) + openingReachBonus,
+                    arc: modeKey === "advance" ? 0.56 : 1.04,
+                    thickness: 17,
+                    effectDurationMs: 130
+                });
+                hitDirectionalEnemies(session, side, meleeRange, attackDamage + (modeKey === "advance" ? 1 : 0), 2, nowMs, "attack", {
+                    openingReachBonus: openingReachBonus,
+                    extraHits: comboExtraHits
+                });
+                if (modeKey !== "advance") {
+                    hitDirectionalEnemies(session, side * -1, 128, Math.max(1, attackDamage - 1), 1, nowMs, "attack", {
+                        openingReachBonus: openingReachBonus,
+                        extraHits: comboExtraHits > 0 ? 1 : 0
+                    });
+                }
+            } else if (weapon.key === "dagger") {
+                const meleeRange = effectiveMeleeRange(session, weapon, (modeKey === "advance" ? 176 : 146) + openingReachBonus);
+                session.attackHitStopMs = modeKey === "advance" ? 38 : 30;
+                setAttackPose(session, side, nowMs, weapon.key, modeKey === "advance" ? 16 : 8);
+                spawnMeleeEffect(session, side, weapon, session.lane, modeKey === "advance" ? "刺" : "切", {
+                    shape: modeKey === "advance" ? "stab" : "arc",
+                    reach: (modeKey === "advance" ? 126 : 118) + openingReachBonus,
+                    arc: modeKey === "advance" ? 0.88 : 1.06,
+                    thickness: 12,
+                    effectDurationMs: modeKey === "advance" ? 116 : 124
+                });
+                hitDirectionalEnemies(session, side, meleeRange, attackDamage + (modeKey === "advance" ? 1 : 0), modeKey === "advance" ? 1 : 2, nowMs, "attack", {
+                    openingReachBonus: openingReachBonus,
+                    extraHits: comboExtraHits
+                });
+            } else if (weapon.key === "katana") {
+                const meleeRange = effectiveMeleeRange(session, weapon, (modeKey === "advance" ? 206 : 182) + openingReachBonus);
+                session.attackHitStopMs = modeKey === "advance" ? 62 : 44;
+                setAttackPose(session, side, nowMs, weapon.key, modeKey === "advance" ? 15 : 11);
+                spawnMeleeEffect(session, side, weapon, session.lane, modeKey === "advance" ? "居" : "返", {
+                    shape: "arc",
+                    reach: (modeKey === "advance" ? 164 : 146) + openingReachBonus,
+                    arc: modeKey === "advance" ? 0.48 : 1.08,
+                    thickness: 20,
+                    effectDurationMs: modeKey === "advance" ? 170 : 150
+                });
+                hitDirectionalEnemies(session, side, meleeRange, attackDamage + (modeKey === "advance" ? 1 : 0), modeKey === "advance" ? 2 : 3, nowMs, "attack", {
+                    openingReachBonus: openingReachBonus,
+                    extraHits: comboExtraHits
+                });
             } else {
-                const meleeRange = effectiveMeleeRange(session, weapon, weapon.range);
-                session.attackHitStopMs = SHI_DATA.timings.hitStopMs;
-                setAttackPose(session, side, nowMs, weapon.key);
-                spawnMeleeEffect(session, side, weapon, session.lane, "斩");
-                hitDirectionalEnemies(session, side, meleeRange, d.attackDamage, weapon.hits, nowMs, "attack");
-                session.flashText = weapon.name;
+                const meleeRange = effectiveMeleeRange(session, weapon, (modeKey === "advance" ? weapon.range + 12 : weapon.range) + openingReachBonus);
+                session.attackHitStopMs = modeKey === "advance" ? SHI_DATA.timings.hitStopMs + 6 : SHI_DATA.timings.hitStopMs;
+                setAttackPose(session, side, nowMs, weapon.key, modeKey === "advance" ? 14 : 10);
+                spawnMeleeEffect(session, side, weapon, session.lane, modeKey === "advance" ? "压" : "守", {
+                    shape: modeKey === "advance" ? (weapon.meleeShape || "line") : "arc",
+                    reach: (modeKey === "advance" ? weapon.slashReach + 8 : weapon.slashReach) + openingReachBonus,
+                    arc: modeKey === "advance" ? weapon.slashArc : Math.max(0.92, weapon.slashArc || 0.72),
+                    thickness: weapon.slashThickness,
+                    effectDurationMs: weapon.effectDurationMs
+                });
+                hitDirectionalEnemies(session, side, meleeRange, attackDamage + (modeKey === "advance" ? 1 : 0), modeKey === "advance" ? weapon.hits : (weapon.hits + 1), nowMs, "attack", {
+                    openingReachBonus: openingReachBonus,
+                    extraHits: comboExtraHits
+                });
             }
+            session.flashText = flashLabel;
             session.flashUntil = nowMs + 90;
         } else {
-            session.playerState = "远程出手";
+            session.playerState = (modeKey === "advance" ? "攻势射击" : "应势射击") + " · " + modeCombo.stepLabel;
             session.attackHitStopMs = SHI_DATA.timings.hitStopMs;
-            setAttackPose(session, side, nowMs, weapon.key);
+            setAttackPose(session, side, nowMs, weapon.key, modeKey === "advance" ? 12 : 8);
             const muzzleX = SHI_DATA.scene.playerX + side * 34;
             if (weapon.key === "thunderbook") {
-                session.attackHitStopMs = 38;
-                chainDamageEnemies(session, side, 260, d.attackDamage + 1, weapon.chainCount || 3, nowMs, "attack");
+                session.attackHitStopMs = modeKey === "advance" ? 40 : 34;
+                if (modeKey === "advance") {
+                    chainDamageEnemies(session, side, 320, attackDamage + 1, (weapon.chainCount || 3) + 1 + comboExtraHits, nowMs, "attack");
+                } else {
+                    chainDamageEnemies(session, side, 220, attackDamage, Math.max(2, weapon.chainCount || 3) + comboExtraHits, nowMs, "attack");
+                    chainDamageEnemies(session, side * -1, 180, Math.max(1, attackDamage - 1), 1, nowMs, "attack");
+                }
             } else if (weapon.key === "shotgun") {
-                for (let pellet = 0; pellet < weapon.pelletCount; pellet += 1) {
+                const pelletCount = modeKey === "advance" ? 3 : 5;
+                for (let pellet = 0; pellet < pelletCount; pellet += 1) {
                     spawnProjectile(
                         session,
                         "player",
                         session.lane,
                         side,
-                        muzzleX + pellet * side * 4,
-                        weapon.projectileSpeed * (1 + pellet * 0.04),
-                        d.attackDamage,
-                        weapon.projectileRadius,
+                        muzzleX + (pellet - Math.floor(pelletCount / 2)) * side * (modeKey === "advance" ? 2 : 5),
+                        weapon.projectileSpeed * (modeKey === "advance" ? 1.06 : 0.92) * (1 + pellet * 0.03),
+                        attackDamage + (modeKey === "advance" ? 1 : 0),
+                        weapon.projectileRadius + (modeKey === "advance" ? 1 : 0),
                         weapon.projectileTrail,
                         weapon.projectileGlow,
                         false,
-                        { remainingHits: 1 }
+                        { remainingHits: 1, controlMs: projectileControlMs }
                     );
                 }
+                if (modeKey !== "advance") {
+                    nearestDirectionalEnemies(session, side, 210).slice(0, 2).forEach(function (enemy) {
+                        applyEnemyControl(enemy, nowMs, 220 + comboControlMs);
+                    });
+                }
             } else if (weapon.key === "crossbow") {
-                const burstCount = Math.max(1, Number(weapon.burstCount || 2));
+                const burstCount = modeKey === "advance" ? 1 : Math.max(2, Number(weapon.burstCount || 2));
                 for (let bolt = 0; bolt < burstCount; bolt += 1) {
                     spawnProjectile(
                         session,
@@ -2760,13 +3354,13 @@
                         session.lane,
                         side,
                         muzzleX + bolt * side * 6,
-                        weapon.projectileSpeed,
-                        d.attackDamage,
-                        weapon.projectileRadius,
+                        weapon.projectileSpeed * (modeKey === "advance" ? 1.05 : 0.96),
+                        attackDamage + (modeKey === "advance" ? 1 : 0),
+                        weapon.projectileRadius + (modeKey === "advance" ? 1 : 0),
                         weapon.projectileTrail,
                         weapon.projectileGlow,
                         false,
-                        { remainingHits: 1 }
+                        { remainingHits: modeKey === "advance" ? 2 : 1, freezeMs: modeKey === "advance" ? 0 : 160, controlMs: projectileControlMs }
                     );
                 }
             } else if (weapon.key === "sniper") {
@@ -2776,13 +3370,13 @@
                     session.lane,
                     side,
                     muzzleX,
-                    weapon.projectileSpeed,
-                    d.attackDamage,
-                    weapon.projectileRadius,
+                    weapon.projectileSpeed * (modeKey === "advance" ? 1.12 : 1),
+                    attackDamage + (modeKey === "advance" ? 1 : 0),
+                    weapon.projectileRadius + (modeKey === "advance" ? 0 : 1),
                     weapon.projectileTrail,
                     weapon.projectileGlow,
                     false,
-                    { remainingHits: weapon.projectilePierce || 3 }
+                    { remainingHits: modeKey === "advance" ? ((weapon.projectilePierce || 3) + 1) : 1, freezeMs: modeKey === "advance" ? 0 : 420, controlMs: projectileControlMs }
                 );
             } else if (weapon.key === "boomerang") {
                 spawnProjectile(
@@ -2791,16 +3385,17 @@
                     session.lane,
                     side,
                     muzzleX,
-                    weapon.projectileSpeed,
-                    d.attackDamage,
+                    weapon.projectileSpeed * (modeKey === "advance" ? 0.98 : 1.05),
+                    attackDamage + (modeKey === "advance" ? 1 : 0),
                     weapon.projectileRadius,
                     weapon.projectileTrail,
                     weapon.projectileGlow,
                     false,
                     {
-                        remainingHits: weapon.projectilePierce || 3,
-                        returnAt: nowMs + (weapon.boomerangTravelMs || 320),
-                        maxTravelX: muzzleX + side * 220
+                        remainingHits: modeKey === "advance" ? ((weapon.projectilePierce || 3) + 1) : 2,
+                        returnAt: nowMs + (weapon.boomerangTravelMs || 320) + (modeKey === "advance" ? 40 : -90),
+                        maxTravelX: muzzleX + side * (modeKey === "advance" ? 260 : 168),
+                        controlMs: projectileControlMs
                     }
                 );
             } else if (weapon.key === "grenade") {
@@ -2810,29 +3405,41 @@
                     session.lane,
                     side,
                     muzzleX,
-                    weapon.projectileSpeed,
-                    d.attackDamage,
+                    weapon.projectileSpeed * (modeKey === "advance" ? 0.9 : 1.08),
+                    attackDamage + (modeKey === "advance" ? 1 : 0),
                     weapon.projectileRadius,
                     weapon.projectileTrail,
                     weapon.projectileGlow,
                     false,
-                    { remainingHits: 1, splash: true, splashRadius: weapon.splashRadius, splashDamage: Math.max(1, d.attackDamage - 1) }
+                    {
+                        remainingHits: 1,
+                        splash: true,
+                        splashRadius: modeKey === "advance" ? Math.max(118, weapon.splashRadius || 108) : Math.max(92, (weapon.splashRadius || 108) - 12),
+                        splashDamage: modeKey === "advance" ? Math.max(2, attackDamage) : Math.max(1, attackDamage - 1),
+                        controlMs: projectileControlMs
+                    }
                 );
+                if (modeKey !== "advance") {
+                    nearestDirectionalEnemies(session, side, 220).slice(0, 1).forEach(function (enemy) {
+                        applyEnemyControl(enemy, nowMs, 240 + comboControlMs);
+                    });
+                }
             } else if (weapon.key === "minigun") {
-                for (let shot = 0; shot < (weapon.burstCount || 5); shot += 1) {
+                const burstCount = modeKey === "advance" ? 4 : Math.max(6, weapon.burstCount || 5);
+                for (let shot = 0; shot < burstCount; shot += 1) {
                     spawnProjectile(
                         session,
                         "player",
                         session.lane,
                         side,
-                        muzzleX + shot * side * 3,
-                        weapon.projectileSpeed * (1 + shot * 0.03),
-                        d.attackDamage,
+                        muzzleX + shot * side * (modeKey === "advance" ? 2 : 4),
+                        weapon.projectileSpeed * (modeKey === "advance" ? 1.08 : 0.96) * (1 + shot * 0.03),
+                        attackDamage + (modeKey === "advance" && shot < 2 ? 1 : 0),
                         weapon.projectileRadius,
                         weapon.projectileTrail,
                         weapon.projectileGlow,
                         false,
-                        { remainingHits: 1 }
+                        { remainingHits: 1, freezeMs: modeKey === "advance" ? 0 : (shot % 2 === 0 ? 120 : 0), controlMs: projectileControlMs }
                     );
                 }
             } else if (weapon.key === "icewandweapon") {
@@ -2842,44 +3449,80 @@
                     session.lane,
                     side,
                     muzzleX,
-                    weapon.projectileSpeed,
-                    d.attackDamage,
-                    weapon.projectileRadius,
+                    weapon.projectileSpeed * (modeKey === "advance" ? 1.08 : 0.92),
+                    attackDamage + (modeKey === "advance" ? 1 : 0),
+                    weapon.projectileRadius + (modeKey === "advance" ? 0 : 1),
                     weapon.projectileTrail,
                     weapon.projectileGlow,
                     false,
-                    { remainingHits: 1, freezeMs: weapon.freezeMs || 500 }
+                    { remainingHits: modeKey === "advance" ? 2 : 1, freezeMs: modeKey === "advance" ? 260 : Math.max(760, weapon.freezeMs || 500), controlMs: projectileControlMs }
                 );
             } else if (weapon.key === "fireorb") {
-                spawnProjectile(
-                    session,
-                    "player",
-                    session.lane,
-                    side,
-                    muzzleX,
-                    weapon.projectileSpeed,
-                    d.attackDamage,
-                    weapon.projectileRadius,
-                    weapon.projectileTrail,
-                    weapon.projectileGlow,
-                    false,
-                    { remainingHits: 1, splash: true, splashRadius: weapon.splashRadius, splashDamage: Math.max(1, d.attackDamage - 1) }
-                );
+                const orbCount = modeKey === "advance" ? 1 : 2;
+                for (let orb = 0; orb < orbCount; orb += 1) {
+                    spawnProjectile(
+                        session,
+                        "player",
+                        session.lane,
+                        side,
+                        muzzleX + (orb * side * 8),
+                        weapon.projectileSpeed * (modeKey === "advance" ? 1.04 : 0.92),
+                        attackDamage + (modeKey === "advance" ? 1 : 0),
+                        weapon.projectileRadius,
+                        weapon.projectileTrail,
+                        weapon.projectileGlow,
+                        false,
+                        {
+                            remainingHits: 1,
+                            splash: true,
+                            splashRadius: modeKey === "advance" ? Math.max(88, weapon.splashRadius || 84) : 70,
+                            splashDamage: modeKey === "advance" ? Math.max(2, attackDamage) : Math.max(1, attackDamage - 1),
+                            controlMs: projectileControlMs
+                        }
+                    );
+                }
             } else if (weapon.key === "cannon") {
-                spawnProjectile(
-                    session,
-                    "player",
-                    session.lane,
-                    side,
-                    muzzleX,
-                    weapon.projectileSpeed,
-                    d.attackDamage,
-                    weapon.projectileRadius,
-                    weapon.projectileTrail,
-                    weapon.projectileGlow,
-                    false,
-                    { remainingHits: 2 }
-                );
+                const cannonShots = modeKey === "advance" ? 1 : 2;
+                for (let shell = 0; shell < cannonShots; shell += 1) {
+                    spawnProjectile(
+                        session,
+                        "player",
+                        session.lane,
+                        side,
+                        muzzleX + shell * side * 10,
+                        weapon.projectileSpeed * (modeKey === "advance" ? 1.04 : 0.88),
+                        attackDamage + (modeKey === "advance" ? 1 : 0),
+                        weapon.projectileRadius + 1,
+                        weapon.projectileTrail,
+                        weapon.projectileGlow,
+                        false,
+                        {
+                            remainingHits: modeKey === "advance" ? 3 : 1,
+                            splash: true,
+                            splashRadius: modeKey === "advance" ? 90 : 116,
+                            splashDamage: modeKey === "advance" ? Math.max(2, attackDamage - 1) : Math.max(1, attackDamage - 2),
+                            controlMs: projectileControlMs
+                        }
+                    );
+                }
+            } else if (weapon.key === "pistol") {
+                const shotCount = modeKey === "advance" ? 1 : 2;
+                for (let shot = 0; shot < shotCount; shot += 1) {
+                    spawnProjectile(
+                        session,
+                        "player",
+                        session.lane,
+                        side,
+                        muzzleX + shot * side * 8,
+                        weapon.projectileSpeed * (modeKey === "advance" ? 1.12 : 0.98),
+                        attackDamage + (modeKey === "advance" ? 1 : 0),
+                        weapon.projectileRadius,
+                        weapon.projectileTrail,
+                        weapon.projectileGlow,
+                        false,
+                        { remainingHits: 1, controlMs: projectileControlMs }
+                    );
+                }
             } else {
                 spawnProjectile(
                     session,
@@ -2888,16 +3531,20 @@
                     side,
                     muzzleX,
                     weapon.projectileSpeed,
-                    d.attackDamage,
+                    attackDamage,
                     weapon.projectileRadius,
                     weapon.projectileTrail,
                     weapon.projectileGlow,
                     false,
-                    { remainingHits: 1 }
+                    { remainingHits: 1, controlMs: projectileControlMs }
                 );
             }
-            session.flashText = weapon.name;
+            session.flashText = flashLabel;
             session.flashUntil = nowMs + 120;
+        }
+        commitModeCombo(session, modeCombo, nowMs);
+        if (modeCombo.fatigueStacks > 0) {
+            session.message = "同一模式连续出手会疲劳，切到另一模式可重置手感。";
         }
     }
 
@@ -3184,7 +3831,7 @@
             applyPerfectGuard(session, atMs + 1000);
             session.flashText = "复活";
             session.flashUntil = atMs + SHI_DATA.timings.hitFlashDurationMs;
-            session.message = "守护天使触发，你重新站了起来。";
+            session.message = "复活甲触发，你重新站了起来。";
             return;
         }
         session.playerState = "受击";
@@ -3199,6 +3846,12 @@
         }
         session.hp = Math.max(0, session.hp - finalDamage);
         session.message = message;
+        const lostMejais = dropMejaisStacksOnHit(session);
+        if (lostMejais > 0 && session.hp > 0) {
+            session.message += " 杀人书掉了 " + lostMejais + " 层。";
+            session.flashText = "书-" + lostMejais;
+            session.flashUntil = atMs + SHI_DATA.timings.hitFlashDurationMs;
+        }
         session.hurtFlashUntil = atMs + SHI_DATA.timings.hurtFlashDurationMs;
         session.incomingFlashUntil = atMs + SHI_DATA.timings.edgeFlashDurationMs;
         triggerScreenShake(session, atMs, 1 + finalDamage * 0.35);
@@ -3229,6 +3882,7 @@
             );
             keepPerfectBlock(session, enemy.side, nowMs, perfectLockUntil);
             applyPerfectGuard(session, perfectLockUntil);
+            grantEnemyOpening(enemy, nowMs, SHI_DATA.timings.perfectOpeningMs);
             if (d.perfectSkillRefundMs > 0) {
                 session.skillReadyAt = Math.max(nowMs, session.skillReadyAt - d.perfectSkillRefundMs);
             }
@@ -3282,7 +3936,8 @@
                 {
                     activeAt: activeAt,
                     sourceX: sourceX,
-                    sourceY: SHI_DATA.scene.laneY[enemy.lane]
+                    sourceY: SHI_DATA.scene.laneY[enemy.lane],
+                    sourceEnemyId: enemy.id
                 }
             );
         }
@@ -3407,6 +4062,9 @@
                 if (one.freezeMs > 0) {
                     applyEnemyControl(hitEnemy, nowMs, one.freezeMs);
                 }
+                if (one.controlMs > 0) {
+                    applyEnemyControl(hitEnemy, nowMs, one.controlMs);
+                }
                 if (one.splash) {
                     damageEnemiesNearPoint(
                         session,
@@ -3459,6 +4117,14 @@
                     const perfectLockUntil = computePerfectLockUntil(session, blockSide, session.lane, nowMs);
                     keepPerfectBlock(session, blockSide, nowMs, perfectLockUntil);
                     applyPerfectGuard(session, perfectLockUntil);
+                    if (one.sourceEnemyId) {
+                        const sourceEnemy = session.enemies.find(function (enemy) {
+                            return enemy.id === one.sourceEnemyId;
+                        });
+                        if (sourceEnemy) {
+                            grantEnemyOpening(sourceEnemy, nowMs, SHI_DATA.timings.perfectOpeningMs);
+                        }
+                    }
                     if (d.perfectSkillRefundMs > 0) {
                         session.skillReadyAt = Math.max(nowMs, session.skillReadyAt - d.perfectSkillRefundMs);
                     }
@@ -3512,10 +4178,6 @@
         }
         if (d.periodicShieldMs > 0 && session.shield <= 0 && nowMs - session.lastDamageAt >= d.periodicShieldMs) {
             session.shield = Math.max(session.shield, Math.round(d.periodicShieldAmount * d.shieldAmp));
-        }
-        if (d.warmogRegen > 0 && session.hp < session.maxHp && nowMs - session.lastDamageAt >= 4000 && nowMs - session.lastRegenAt >= 900) {
-            session.lastRegenAt = nowMs;
-            healPlayer(session, d.warmogRegen, nowMs);
         }
         if (session.attackPose && session.attackPose.until <= nowMs) {
             session.attackPose.side = 0;
@@ -3577,8 +4239,8 @@
         }
         overlay.innerHTML = [
             '<div class="game-shi-panel">',
-            "  <h3>波次掉落</h3>",
-            "  <p>当前波次已清空。选择一个强化继续推进，或者直接把这次掉落换成积分。</p>",
+            "  <h3>随机掉落</h3>",
+            "  <p>敌人随机掉落了一件战利品。你可以立刻拿走，也可以直接把它换成积分继续战斗。</p>",
             '  <div class="game-shi-reward-list">',
             session.pendingRewardOptions.map(function (item, index) {
                 return [
@@ -3591,7 +4253,7 @@
             }).join(""),
             "  </div>",
             '  <div class="game-shi-keyline"><span class="game-shi-keychip">点击卡片选择</span><span class="game-shi-keychip">最多携带 6 件装备</span></div>',
-            '  <button type="button" class="game-shi-convert-btn" data-reward-convert="1"><strong>不要，换积分</strong><br><span>立刻获得 ' + session.pendingRewardScore + ' 积分，直接进入下一波。</span></button>',
+            '  <button type="button" class="game-shi-convert-btn" data-reward-convert="1"><strong>不要，换积分</strong><br><span>立刻获得 ' + session.pendingRewardScore + ' 积分，然后继续当前战斗。</span></button>',
             "</div>"
         ].join("");
     }
@@ -3606,8 +4268,8 @@
 
         const arcade = ctx.createArcadeShell(
             "士",
-            "W / S 前压或后撤，A / D 朝左右攻击，Q / E 朝左右格挡，Shift 释放当前武器技能。",
-            "这一版把上下路收束为单线中轴，重点验证左右攻防、距离控制和完美格挡反打是否成立。"
+            "W / S 切换攻势或应势，A / D 朝左右攻击，Q / E 朝左右格挡，Shift 释放当前武器技能。",
+            "这一版把上下路收束为单线中轴，重点验证左右攻防、双攻击模式和完美格挡反打是否成立。"
         );
         arcade.shell.classList.add("game-shi-shell");
         arcade.canvas.width = WIDTH;
@@ -3626,11 +4288,11 @@
 
         ctx.setArcadeList(arcade.controls, [
             "单线中轴：你固定守在中间，所有敌人从左右两侧逼近，策略改成左右判断与距离控制。",
-            "步法：W / S 在前压、截击、后撤之间切换。前压更适合近战抢回合，截击更适合吃前摇后反打，后撤更适合稳接完美格挡。",
+            "模式：W 切攻势，S 切应势。它们只影响当前武器采用哪种攻击方式，不再改变玩家位置。",
             "敌人节奏：同一时刻只有一侧真正进入出手主回合，另一侧最多先到压迫位逼近，等待接班。",
             "攻击：A 向左，D 向右。手枪会生成真实飞行子弹，近战武器会生成可见挥砍光效。",
             "格挡：Q 挡左、E 挡右。远程敌人会先靠近、闪光，再打出单发远程；圆圈或闪光出现时按一次就能锁定完美格挡。",
-            "构筑：清波后会掉落武器、LOL 装备或基础强化，也可以直接把掉落换成积分。装备上限 6 件。"
+            "构筑：敌人会随机掉落武器、LOL 装备或基础强化，也可以直接把掉落换成积分。装备上限 6 件。"
         ]);
 
         function persist(force) {
@@ -3789,6 +4451,162 @@
             draw.restore();
         }
 
+        function shortHudText(text, limit) {
+            const raw = String(text || "");
+            if (raw.length <= limit) {
+                return raw;
+            }
+            return raw.slice(0, Math.max(0, limit - 1)) + "…";
+        }
+
+        function wrapHudText(text, maxWidth, font) {
+            const lines = [];
+            const raw = String(text || "").replace(/\s+/g, " ").trim();
+            if (!raw) {
+                return [""];
+            }
+            draw.save();
+            if (font) {
+                draw.font = font;
+            }
+            let current = "";
+            for (let index = 0; index < raw.length; index += 1) {
+                const char = raw.charAt(index);
+                const next = current + char;
+                if (current && draw.measureText(next).width > maxWidth) {
+                    lines.push(current);
+                    current = char;
+                } else {
+                    current = next;
+                }
+            }
+            if (current) {
+                lines.push(current);
+            }
+            draw.restore();
+            return lines;
+        }
+
+        function drawWrappedHudText(lines, x, y, lineHeight, font, color) {
+            draw.fillStyle = color || "#e2e8f0";
+            draw.font = font;
+            lines.forEach(function (line, index) {
+                draw.fillText(line, x, y + index * lineHeight);
+            });
+        }
+
+        function drawHudCard(x, y, width, height, title, accent, drawBody) {
+            draw.save();
+            draw.fillStyle = "rgba(8,15,27,0.84)";
+            draw.strokeStyle = "rgba(148,163,184,0.18)";
+            draw.lineWidth = 1;
+            draw.beginPath();
+            draw.roundRect(x, y, width, height, 16);
+            draw.fill();
+            draw.stroke();
+            draw.fillStyle = accent;
+            draw.fillRect(x + 12, y + 12, 42, 3);
+            draw.fillStyle = "#e2e8f0";
+            draw.font = "bold 12px 'Segoe UI', sans-serif";
+            draw.fillText(title, x + 12, y + 32);
+            draw.strokeStyle = "rgba(148,163,184,0.14)";
+            draw.beginPath();
+            draw.moveTo(x + 12, y + 42);
+            draw.lineTo(x + width - 12, y + 42);
+            draw.stroke();
+            drawBody(x + 12, y + 54, width - 24);
+            draw.restore();
+        }
+
+        function drawHudLine(x, y, label, value, valueColor) {
+            draw.fillStyle = "rgba(148,163,184,0.88)";
+            draw.font = "11px Consolas, monospace";
+            draw.fillText(label, x, y);
+            draw.fillStyle = valueColor || "#f8fafc";
+            draw.font = "12px 'Segoe UI', sans-serif";
+            draw.fillText(value, x + 52, y);
+        }
+
+        function drawHudGauge(x, y, width, label, ratio, text, color) {
+            draw.fillStyle = "rgba(148,163,184,0.78)";
+            draw.font = "11px Consolas, monospace";
+            draw.fillText(label, x, y + 9);
+            draw.fillStyle = "rgba(15,23,42,0.92)";
+            draw.fillRect(x + 38, y, width, 10);
+            draw.fillStyle = color;
+            draw.fillRect(x + 38, y, width * ctx.clamp(ratio, 0, 1), 10);
+            draw.strokeStyle = "rgba(248,250,252,0.12)";
+            draw.strokeRect(x + 38, y, width, 10);
+            draw.fillStyle = "#e2e8f0";
+            draw.font = "11px 'Segoe UI', sans-serif";
+            draw.fillText(text, x + 46 + width, y + 9);
+        }
+
+        function drawBattleHud(nowMs, weapon, stepAdvice) {
+            const activeMode = currentWeaponMode(session, weapon);
+            const leftPressure = sidePressureSummary(session, -1, nowMs);
+            const rightPressure = sidePressureSummary(session, 1, nowMs);
+            const attackCooldownTotal = Math.max(1, derivedStats(session, nowMs).attackCooldownMs);
+            const attackCooldownLeft = Math.max(0, session.attackReadyAt - nowMs);
+            const blockActiveLeft = session.block.until > nowMs ? (session.block.until - nowMs) : 0;
+            const blockRecoveryLeft = session.blockReadyAt > nowMs && blockActiveLeft <= 0 ? (session.blockReadyAt - nowMs) : 0;
+            const blockRatio = blockActiveLeft > 0
+                ? 1 - (blockActiveLeft / Math.max(1, SHI_DATA.timings.blockStartupMs + SHI_DATA.timings.blockDurationMs))
+                : (blockRecoveryLeft > 0 ? 1 - (blockRecoveryLeft / Math.max(1, SHI_DATA.timings.blockRecoveryMs)) : 1);
+            const skillCooldownTotal = Math.max(1, currentWeapon(session).skillCooldownMs);
+            const skillCooldownLeft = Math.max(0, session.skillReadyAt - nowMs);
+            const stepCooldownTotal = Math.max(1, SHI_DATA.timings.stepShiftCooldownMs);
+            const stepCooldownLeft = Math.max(0, session.stepReadyAt - nowMs);
+            const hudMargin = 18;
+            const hudGap = 22;
+            const cardWidth = Math.max(290, Math.min(360, Math.round((WIDTH - hudMargin * 2 - hudGap) / 2)));
+            const leftX = hudMargin;
+            const rightX = WIDTH - hudMargin - cardWidth;
+            const topY = 18;
+            const activeDescLines = wrapHudText(activeMode.desc, cardWidth - 24, "12px 'Segoe UI', sans-serif");
+            const adviceLines = wrapHudText(stepAdvice.reason, cardWidth - 24, "12px 'Segoe UI', sans-serif");
+            const openingEnemies = session.enemies.filter(function (enemy) {
+                return enemyOpeningActive(enemy, nowMs);
+            }).length;
+            const topHeight = Math.max(140, 136 + (Math.max(activeDescLines.length, adviceLines.length) - 1) * 16);
+            const hudMessageLines = wrapHudText(session.message || stepAdvice.reason, cardWidth - 24, "13px 'Segoe UI', sans-serif");
+            const infoHeight = 150 + hudMessageLines.length * 18;
+            const bottomHeight = Math.max(154, infoHeight);
+            const bottomY = HEIGHT - hudMargin - bottomHeight;
+            drawHudCard(leftX, topY, cardWidth, topHeight, "武器 / 模式", weapon.color, function (contentX, contentY, contentWidth) {
+                draw.fillStyle = "#f8fafc";
+                draw.font = "bold 15px 'Segoe UI', sans-serif";
+                draw.fillText(weapon.name + " · " + activeMode.name, contentX, contentY + 2);
+                drawHudLine(contentX, contentY + 24, "触发", currentWeaponModeTrigger(session), "#bfdbfe");
+                drawHudLine(contentX, contentY + 44, "技能", weapon.skillLabel, "#fde68a");
+                drawWrappedHudText(activeDescLines, contentX, contentY + 66, 16, "12px 'Segoe UI', sans-serif", "rgba(203,213,225,0.94)");
+            });
+            drawHudCard(rightX, topY, cardWidth, topHeight, "左右压力", "#38bdf8", function (contentX, contentY) {
+                drawHudLine(contentX, contentY + 2, "左侧", shortHudText(leftPressure, 20), "#f8fafc");
+                drawHudLine(contentX, contentY + 24, "右侧", shortHudText(rightPressure, 20), "#f8fafc");
+                drawHudLine(contentX, contentY + 46, "建议", stepAdvice.label, "#86efac");
+                drawWrappedHudText(adviceLines, contentX, contentY + 68, 16, "12px 'Segoe UI', sans-serif", "rgba(203,213,225,0.92)");
+            });
+            drawHudCard(leftX, bottomY, cardWidth, bottomHeight, "冷却 / 状态", "#f59e0b", function (contentX, contentY) {
+                drawHudGauge(contentX, contentY, 116, "ATK", attackCooldownLeft > 0 ? 1 - (attackCooldownLeft / attackCooldownTotal) : 1, attackCooldownLeft > 0 ? (Math.ceil(attackCooldownLeft / 100) / 10).toFixed(1) + "s" : "ready", attackCooldownLeft > 0 ? "#f59e0b" : "#22c55e");
+                drawHudGauge(contentX, contentY + 18, 116, "BLK", blockRatio, blockActiveLeft > 0 ? "guard" : (blockRecoveryLeft > 0 ? (Math.ceil(blockRecoveryLeft / 100) / 10).toFixed(1) + "s" : "ready"), blockActiveLeft > 0 ? ((session.block.perfectUntil > nowMs || session.perfectLockUntil > nowMs) ? "#facc15" : "#38bdf8") : (blockRecoveryLeft > 0 ? "#f97316" : "#22c55e"));
+                drawHudGauge(contentX, contentY + 36, 116, "SKL", skillCooldownLeft > 0 ? 1 - (skillCooldownLeft / skillCooldownTotal) : 1, skillCooldownLeft > 0 ? Math.ceil(skillCooldownLeft / 1000) + "s" : "ready", skillCooldownLeft > 0 ? "#a78bfa" : "#22c55e");
+                drawHudGauge(contentX, contentY + 54, 116, "MOD", stepCooldownLeft > 0 ? 1 - (stepCooldownLeft / stepCooldownTotal) : 1, stepCooldownLeft > 0 ? (Math.ceil(stepCooldownLeft / 100) / 10).toFixed(1) + "s" : "ready", stepCooldownLeft > 0 ? "#22d3ee" : "#22c55e");
+                draw.fillStyle = "rgba(226,232,240,0.94)";
+                draw.font = "12px 'Segoe UI', sans-serif";
+                draw.fillText("状态：" + shortHudText(session.playerState || "待战", 16), contentX, contentY + 82);
+                draw.fillText("连段：" + currentModeComboHud(session, nowMs), contentX, contentY + 100);
+            });
+            drawHudCard(rightX, bottomY, cardWidth, bottomHeight, "战场提示", "#22c55e", function (contentX, contentY) {
+                drawWrappedHudText(hudMessageLines, contentX, contentY + 2, 18, "13px 'Segoe UI', sans-serif", "#f8fafc");
+                const metricsY = contentY + 22 + hudMessageLines.length * 18;
+                drawHudLine(contentX, metricsY, "模式", stepLabel(session.stepLevel), "#67e8f9");
+                drawHudLine(contentX, metricsY + 20, "窗口", effectivePerfectWindowMs(session) + "ms", "#fde68a");
+                drawHudLine(contentX, metricsY + 40, "破绽", String(openingEnemies), "#fde68a");
+                drawHudLine(contentX, metricsY + 60, "实体", session.playerProjectiles.length + " / " + session.enemyProjectiles.length + " / " + session.meleeEffects.length, "#cbd5e1");
+            });
+        }
+
         function drawEnemy(enemy, nowMs, sideRanks) {
             const config = enemyConfig(enemy.type);
             const role = enemyRole(enemy);
@@ -3885,6 +4703,13 @@
                     }
                 }
             }
+            if (enemyOpeningActive(enemy, nowMs)) {
+                draw.strokeStyle = "rgba(250,204,21," + (0.32 + 0.22 * Math.sin(nowMs * 0.03)).toFixed(2) + ")";
+                draw.lineWidth = 4;
+                draw.beginPath();
+                draw.arc(x, y, SHI_DATA.visuals.telegraphPulseRadius + 14, 0, Math.PI * 2);
+                draw.stroke();
+            }
             draw.fillStyle = enemy.state === "telegraph" ? (config.telegraphColor || "#f87171") : config.color;
             draw.beginPath();
             draw.arc(x, y - 18, 11, 0, Math.PI * 2);
@@ -3903,6 +4728,11 @@
             draw.font = "11px Consolas, monospace";
             draw.textAlign = "center";
             draw.fillText(String(enemy.hp) + " · " + enemyBadge(enemy) + (enemy.state === "pressure" ? (bandText + "压") : bandText), x, y + 30);
+            if (enemyOpeningActive(enemy, nowMs)) {
+                draw.fillStyle = "#fde68a";
+                draw.font = "bold 10px Consolas, monospace";
+                draw.fillText("破绽", x, y - 40);
+            }
             draw.textAlign = "left";
         }
 
@@ -3938,38 +4768,36 @@
             draw.lineTo(PLAYER_X, HEIGHT - 56);
             draw.stroke();
             draw.setLineDash([]);
-            [-1, 0, 1].forEach(function (level, index) {
-                const markerX = PLAYER_X + (index - 1) * 84;
-                const isRecommended = stepAdvice.level === level;
+            [
+                { level: 1, key: "W", label: "攻势", x: PLAYER_X - 58 },
+                { level: 0, key: "S", label: "应势", x: PLAYER_X + 58 }
+            ].forEach(function (mode) {
+                const markerX = mode.x;
+                const isRecommended = stepAdvice.level === mode.level;
                 if (isRecommended) {
-                    draw.strokeStyle = session.stepLevel === level ? "rgba(74,222,128,.9)" : "rgba(250,204,21,.86)";
+                    draw.strokeStyle = normalizedModeLevel(session.stepLevel || 0) === mode.level ? "rgba(74,222,128,.9)" : "rgba(250,204,21,.86)";
                     draw.lineWidth = 2;
                     draw.beginPath();
-                    draw.arc(markerX, fightY + 94, session.stepLevel === level ? 13 : 11, 0, Math.PI * 2);
+                    draw.arc(markerX, fightY + 94, normalizedModeLevel(session.stepLevel || 0) === mode.level ? 13 : 11, 0, Math.PI * 2);
                     draw.stroke();
-                    draw.fillStyle = session.stepLevel === level ? "#86efac" : "#fde68a";
+                    draw.fillStyle = normalizedModeLevel(session.stepLevel || 0) === mode.level ? "#86efac" : "#fde68a";
                     draw.font = "bold 10px Consolas, monospace";
                     draw.textAlign = "center";
                     draw.fillText("荐", markerX, fightY + 81);
                 }
-                draw.fillStyle = session.stepLevel === level ? "#67e8f9" : "rgba(148,163,184,.45)";
+                draw.fillStyle = normalizedModeLevel(session.stepLevel || 0) === mode.level ? "#67e8f9" : "rgba(148,163,184,.45)";
                 draw.beginPath();
-                draw.arc(markerX, fightY + 94, session.stepLevel === level ? 8 : 6, 0, Math.PI * 2);
+                draw.arc(markerX, fightY + 94, normalizedModeLevel(session.stepLevel || 0) === mode.level ? 8 : 6, 0, Math.PI * 2);
                 draw.fill();
-                draw.fillStyle = session.stepLevel === level ? "#e0f2fe" : "rgba(148,163,184,.9)";
+                draw.fillStyle = normalizedModeLevel(session.stepLevel || 0) === mode.level ? "#e0f2fe" : "rgba(148,163,184,.9)";
                 draw.font = "12px Consolas, monospace";
                 draw.textAlign = "center";
-                draw.fillText(level < 0 ? "后撤" : (level > 0 ? "前压" : "截击"), markerX, fightY + 116);
+                draw.fillText(mode.key + " " + mode.label, markerX, fightY + 116);
             });
-            draw.fillStyle = session.stepLevel === stepAdvice.level ? "#86efac" : "rgba(226,232,240,.92)";
-            draw.font = "12px 'Segoe UI', sans-serif";
-            draw.textAlign = "center";
-            draw.fillText("建议：" + stepAdvice.label + " · " + stepAdvice.reason, PLAYER_X, fightY + 140);
-            draw.textAlign = "left";
             draw.fillStyle = "rgba(148,163,184,.86)";
             draw.font = "12px Consolas, monospace";
             draw.fillText("中轴", 36, fightY + 4);
-            draw.fillText("步法", PLAYER_X - 18, fightY + 72);
+            draw.fillText("模式", PLAYER_X - 18, fightY + 72);
 
             const leftIncoming = session.enemies.some(function (enemy) {
                 return enemy.side === -1 && enemy.state === "approach";
@@ -4085,13 +4913,11 @@
             draw.fillStyle = session.shield > 0 ? "#93c5fd" : "#f8fafc";
             draw.arc(playerX, playerY, SHI_DATA.visuals.playerBodyRadius, 0, Math.PI * 2);
             draw.fill();
-            if (session.stepLevel !== 0) {
-                draw.strokeStyle = session.stepLevel > 0 ? "rgba(251,146,60,.7)" : "rgba(103,232,249,.72)";
-                draw.lineWidth = 3;
-                draw.beginPath();
-                draw.arc(playerX, playerY, 30, 0, Math.PI * 2);
-                draw.stroke();
-            }
+            draw.strokeStyle = normalizedModeLevel(session.stepLevel || 0) >= 1 ? "rgba(251,146,60,.7)" : "rgba(103,232,249,.72)";
+            draw.lineWidth = 3;
+            draw.beginPath();
+            draw.arc(playerX, playerY, 30, 0, Math.PI * 2);
+            draw.stroke();
             draw.save();
             draw.translate(playerX, playerY);
             if (pose) {
@@ -4179,6 +5005,7 @@
                 draw.textAlign = "left";
             }
             draw.restore();
+            drawBattleHud(nowMs, weapon, stepAdvice);
         }
 
         function render() {
@@ -4186,7 +5013,7 @@
             syncClock(session);
             drawScene(nowMs);
             ctx.setArcadeStats(arcade.statGrid, [
-                { label: "波次", value: String(session.wave) },
+                { label: "压强", value: String(Math.max(1, session.wave || 1)) },
                 { label: "生命", value: session.hp + " / " + session.maxHp },
                 { label: "积分", value: String(session.score) },
                 { label: "武器", value: currentWeapon(session).name },
@@ -4195,6 +5022,10 @@
             ]);
             const nowDerived = derivedStats(session, nowMs);
             const current = currentWeapon(session);
+            const activeMode = currentWeaponMode(session, current);
+            const standbyMode = alternateWeaponMode(session, current);
+            const modeTrigger = currentWeaponModeTrigger(session);
+            const standbyTrigger = currentWeaponModeKey(session) === "advance" ? "S 应势" : "W 攻势";
             const stepLeft = Math.max(0, Math.ceil((session.stepReadyAt - nowMs) / 100) / 10);
             const skillLeft = Math.max(0, Math.ceil((session.skillReadyAt - nowMs) / 1000));
             const attackLeft = Math.max(0, Math.ceil((session.attackReadyAt - nowMs) / 100) / 10);
@@ -4203,52 +5034,78 @@
             const leftPressure = sidePressureSummary(session, -1, nowMs);
             const rightPressure = sidePressureSummary(session, 1, nowMs);
             const stepAdvice = tacticalStepAdvice(session, nowMs);
-            const hubHtml = [
-                '<div class="game-shi-hub">',
-                '  <section class="game-shi-hub-section">',
-                '    <div class="game-shi-hub-title">装备</div>',
-                session.equipmentKeys.length
-                    ? ('<div class="game-shi-equipment-list">' + session.equipmentKeys.map(function (key) {
-                        return '<div class="game-shi-equipment-item">' + ctxEscape(SHI_DATA.equipments[key].name) + "</div>";
-                    }).join("") + "</div>")
-                    : '<div class="game-shi-equipment-empty">暂无装备</div>',
-                "  </section>",
-                '  <section class="game-shi-hub-section">',
-                '    <div class="game-shi-hub-title">玩家</div>',
-                '    <div class="game-shi-player-grid">',
-                '      <div class="game-shi-kv"><span class="game-shi-kv-label">生命 / 护盾</span><span class="game-shi-kv-value">' + session.hp + " / " + session.maxHp + ' · 盾 ' + session.shield + "</span></div>",
-                '      <div class="game-shi-kv"><span class="game-shi-kv-label">波次 / 积分</span><span class="game-shi-kv-value">' + session.wave + " / " + session.score + "</span></div>",
-                '      <div class="game-shi-kv"><span class="game-shi-kv-label">当前步法</span><span class="game-shi-kv-value">' + ctxEscape(stepLabel(session.stepLevel)) + "</span></div>",
-                '      <div class="game-shi-kv"><span class="game-shi-kv-label">击杀 / 用时</span><span class="game-shi-kv-value">' + session.kills + " / " + ctxEscape(ctx.formatSeconds(session.elapsedSeconds)) + "</span></div>",
-                '      <div class="game-shi-kv"><span class="game-shi-kv-label">玩家状态</span><span class="game-shi-kv-value">' + ctxEscape(session.playerState || "待战") + "</span></div>",
-                '      <div class="game-shi-kv"><span class="game-shi-kv-label">步法冷却</span><span class="game-shi-kv-value">' + stepLeft.toFixed(1) + "s</span></div>",
-                '      <div class="game-shi-kv"><span class="game-shi-kv-label">左侧压力</span><span class="game-shi-kv-value">' + ctxEscape(leftPressure) + "</span></div>",
-                '      <div class="game-shi-kv"><span class="game-shi-kv-label">右侧压力</span><span class="game-shi-kv-value">' + ctxEscape(rightPressure) + "</span></div>",
-                '      <div class="game-shi-kv"><span class="game-shi-kv-label">攻击 / 格挡</span><span class="game-shi-kv-value">' + attackLeft.toFixed(1) + "s / " + blockLeft.toFixed(1) + "s</span></div>",
-                '      <div class="game-shi-kv"><span class="game-shi-kv-label">建议步法</span><span class="game-shi-kv-value">' + ctxEscape(stepAdvice.label) + "</span></div>",
-                '      <div class="game-shi-kv"><span class="game-shi-kv-label">切步理由</span><span class="game-shi-kv-value">' + ctxEscape(stepAdvice.reason) + "</span></div>",
-                '      <div class="game-shi-kv"><span class="game-shi-kv-label">当前收益</span><span class="game-shi-kv-value">' + ctxEscape(stepHint(session)) + "</span></div>",
-                '      <div class="game-shi-kv"><span class="game-shi-kv-label">当前提示</span><span class="game-shi-kv-value">' + ctxEscape(session.message || "战斗进行中。") + "</span></div>",
-                "    </div>",
-                "  </section>",
-                '  <section class="game-shi-hub-section">',
-                '    <div class="game-shi-hub-title">武器</div>',
+            const openingEnemies = session.enemies.filter(function (enemy) {
+                return enemyOpeningActive(enemy, nowMs);
+            }).length;
+            const comboHud = currentModeComboHud(session, nowMs);
+            const comboFatigue = comboHud === "未连段" ? 0 : Math.max(0, Number(session.modeComboStreak || 0) - 2);
+            const comboWindowLeft = session.modeComboUntil > nowMs ? (Math.ceil((session.modeComboUntil - nowMs) / 100) / 10).toFixed(1) + "s" : "0.0s";
+            const comboTempo = comboHud === "未连段" ? "待连段" : (comboFatigue > 0 ? ("疲劳 +" + comboFatigue) : "稳定");
+            const mejaisOwned = session.equipmentKeys.indexOf("mejais") >= 0;
+            const railHtml = [
+                '<div class="game-shi-rail">',
+                '  <section class="game-shi-rail-section">',
+                '    <div class="game-shi-rail-title">武器</div>',
                 '    <div class="game-shi-weapon-grid">',
                 '      <div class="game-shi-kv"><span class="game-shi-kv-label">名称</span><span class="game-shi-kv-value">' + ctxEscape(current.name) + "</span></div>",
                 '      <div class="game-shi-kv"><span class="game-shi-kv-label">类型</span><span class="game-shi-kv-value">' + (current.kind === "melee" ? "近战" : "远程") + "</span></div>",
+                '      <div class="game-shi-kv"><span class="game-shi-kv-label">当前模式</span><span class="game-shi-kv-value">' + ctxEscape(activeMode.name) + "</span></div>",
+                '      <div class="game-shi-kv"><span class="game-shi-kv-label">当前连段</span><span class="game-shi-kv-value">' + ctxEscape(comboHud) + "</span></div>",
+                '      <div class="game-shi-kv"><span class="game-shi-kv-label">切换方式</span><span class="game-shi-kv-value">' + ctxEscape(modeTrigger) + "</span></div>",
+                '      <div class="game-shi-kv"><span class="game-shi-kv-label">节奏状态</span><span class="game-shi-kv-value">' + ctxEscape(comboTempo) + "</span></div>",
                 '      <div class="game-shi-kv"><span class="game-shi-kv-label">技能</span><span class="game-shi-kv-value">' + ctxEscape(current.skillLabel) + "</span></div>",
                 '      <div class="game-shi-kv"><span class="game-shi-kv-label">技能冷却</span><span class="game-shi-kv-value">' + skillLeft + "s</span></div>",
+                '      <div class="game-shi-kv"><span class="game-shi-kv-label">连段窗口</span><span class="game-shi-kv-value">' + comboWindowLeft + "</span></div>",
                 '      <div class="game-shi-kv"><span class="game-shi-kv-label">伤害 / 攻速</span><span class="game-shi-kv-value">' + nowDerived.attackDamage + " / " + (1000 / nowDerived.attackCooldownMs).toFixed(2) + "/s</span></div>",
-                '      <div class="game-shi-kv"><span class="game-shi-kv-label">完美窗口</span><span class="game-shi-kv-value">' + perfectWindowNow + "ms</span></div>",
-                '      <div class="game-shi-kv"><span class="game-shi-kv-label">说明</span><span class="game-shi-kv-value">' + ctxEscape(current.skillDescription) + "</span></div>",
                 '      <div class="game-shi-kv"><span class="game-shi-kv-label">场上实体</span><span class="game-shi-kv-value">' + session.playerProjectiles.length + " / " + session.enemyProjectiles.length + " / " + session.meleeEffects.length + "</span></div>",
                 "    </div>",
+                '    <div class="game-shi-mode-card active">',
+                '      <div class="game-shi-mode-title"><span>' + ctxEscape(activeMode.name) + '</span><span class="game-shi-mode-trigger">' + ctxEscape(modeTrigger) + "</span></div>",
+                '      <div class="game-shi-mode-desc">' + ctxEscape(activeMode.desc) + "</div>",
+                "    </div>",
+                '    <div class="game-shi-mode-card">',
+                '      <div class="game-shi-mode-title"><span>' + ctxEscape(standbyMode.name) + '</span><span class="game-shi-mode-trigger">' + ctxEscape(standbyTrigger) + "</span></div>",
+                '      <div class="game-shi-mode-desc">' + ctxEscape(standbyMode.desc) + "</div>",
+                "    </div>",
+                '    <div class="game-shi-kv"><span class="game-shi-kv-label">技能说明</span><span class="game-shi-kv-value">' + ctxEscape(current.skillDescription) + "</span></div>",
+                "  </section>",
+                '  <section class="game-shi-rail-section">',
+                '    <div class="game-shi-rail-title">玩家</div>',
+                '    <div class="game-shi-player-grid">',
+                '      <div class="game-shi-kv"><span class="game-shi-kv-label">生命 / 护盾</span><span class="game-shi-kv-value">' + session.hp + " / " + session.maxHp + ' · 盾 ' + session.shield + "</span></div>",
+                '      <div class="game-shi-kv"><span class="game-shi-kv-label">压强 / 积分</span><span class="game-shi-kv-value">' + Math.max(1, session.wave || 1) + " / " + session.score + "</span></div>",
+                '      <div class="game-shi-kv"><span class="game-shi-kv-label">战力 / 敌血</span><span class="game-shi-kv-value">' + nowDerived.combatPower + " / x" + nowDerived.combatEnemyHpScale.toFixed(2) + "</span></div>",
+                '      <div class="game-shi-kv"><span class="game-shi-kv-label">当前模式</span><span class="game-shi-kv-value">' + ctxEscape(stepLabel(session.stepLevel)) + "</span></div>",
+                '      <div class="game-shi-kv"><span class="game-shi-kv-label">当前状态</span><span class="game-shi-kv-value">' + ctxEscape(session.playerState || "待战") + "</span></div>",
+                '      <div class="game-shi-kv"><span class="game-shi-kv-label">击杀 / 用时</span><span class="game-shi-kv-value">' + session.kills + " / " + ctxEscape(ctx.formatSeconds(session.elapsedSeconds)) + "</span></div>",
+                '      <div class="game-shi-kv"><span class="game-shi-kv-label">攻击 / 格挡</span><span class="game-shi-kv-value">' + attackLeft.toFixed(1) + "s / " + blockLeft.toFixed(1) + "s</span></div>",
+                '      <div class="game-shi-kv"><span class="game-shi-kv-label">技能 / 切换</span><span class="game-shi-kv-value">' + skillLeft + "s / " + stepLeft.toFixed(1) + "s</span></div>",
+                '      <div class="game-shi-kv"><span class="game-shi-kv-label">左侧压力</span><span class="game-shi-kv-value">' + ctxEscape(leftPressure) + "</span></div>",
+                '      <div class="game-shi-kv"><span class="game-shi-kv-label">右侧压力</span><span class="game-shi-kv-value">' + ctxEscape(rightPressure) + "</span></div>",
+                '      <div class="game-shi-kv"><span class="game-shi-kv-label">建议模式</span><span class="game-shi-kv-value">' + ctxEscape(stepAdvice.label) + "</span></div>",
+                '      <div class="game-shi-kv"><span class="game-shi-kv-label">完美窗口</span><span class="game-shi-kv-value">' + perfectWindowNow + "ms</span></div>",
+                '      <div class="game-shi-kv"><span class="game-shi-kv-label">破绽目标</span><span class="game-shi-kv-value">' + openingEnemies + " 个</span></div>",
+                mejaisOwned
+                    ? ('      <div class="game-shi-kv"><span class="game-shi-kv-label">杀人书层数</span><span class="game-shi-kv-value">' + session.mejaisStacks + " 层</span></div>")
+                    : "",
+                '      <div class="game-shi-kv"><span class="game-shi-kv-label">模式说明</span><span class="game-shi-kv-value">' + ctxEscape(stepHint(session)) + "</span></div>",
+                '      <div class="game-shi-kv"><span class="game-shi-kv-label">当前提示</span><span class="game-shi-kv-value">' + ctxEscape(session.message || "战斗进行中。") + "</span></div>",
+                "    </div>",
+                "  </section>",
+                '  <section class="game-shi-rail-section">',
+                '    <div class="game-shi-rail-title">装备</div>',
+                session.equipmentKeys.length
+                    ? ('<div class="game-shi-equipment-list">' + session.equipmentKeys.map(function (key) {
+                        const suffix = key === "mejais" ? (" · " + session.mejaisStacks + " 层") : "";
+                        return '<div class="game-shi-equipment-item">' + ctxEscape(SHI_DATA.equipments[key].name + suffix) + "</div>";
+                    }).join("") + "</div>")
+                    : '<div class="game-shi-equipment-empty">暂无装备</div>',
                 "  </section>",
                 "</div>"
             ].join("");
-            ctx.setArcadeList(arcade.status, [hubHtml]);
+            ctx.setArcadeList(arcade.status, [railHtml], "game-shi-rail-shell");
             renderRewardOverlay(overlay, session);
-            ctx.syncPresence(session.status === "over" ? "《士》已结算" : ("《士》第 " + session.wave + " 波"), "");
+            ctx.syncPresence(session.status === "over" ? "《士》已结算" : ("《士》战斗中 · 压强 " + Math.max(1, session.wave || 1)), "");
         }
 
         function tick() {
@@ -4256,6 +5113,7 @@
             const deltaMs = Math.min(140, Math.max(16, nowMs - lastFrameMs));
             lastFrameMs = nowMs;
             if (session.status === "playing" && !session.paused && !session.pendingRewardOptions.length) {
+                maintainEnemyRoster(session, nowMs);
                 updateEnemies(session, nowMs);
                 if (session.hitStopUntil <= nowMs) {
                     updateProjectiles(session, nowMs, deltaMs);
@@ -4346,11 +5204,12 @@
         ctx.addStageButton("帮助", function () {
             ctx.openGameInfoOverlay(arcade.canvasWrap, {
                 title: "《士》当前原型说明",
-                subtitle: "这是当前的单线中轴版本，重点验证左右攻防、步法距离和完美格挡反打是否成立。",
+                subtitle: "这是当前的单线中轴版本，重点验证左右攻防、双攻击模式和完美格挡反打是否成立。",
                 bullets: [
-                    "当前已实现：单线中轴、左右攻击、前压 / 截击 / 后撤三段步法、方向格挡、完美格挡、5 类敌人模板、20 把武器、47 件 LOL 风格装备、波次推进、自动存档和积分结算。",
-                    "本轮重点：去掉上下路，改成距离博弈。前压更适合近战抢回合，后撤更适合远程与稳接完美格挡。",
+                    "当前已实现：单线中轴、左右攻击、W / S 双攻击模式切换、方向格挡、完美格挡、5 类敌人模板、20 把武器、50 件 LOL 风格装备、持续补怪、随机掉落、自动存档和积分结算。",
+                    "本轮重点：去掉位置步法，改成纯攻击模式切换。W 更主动，S 更稳，但它们只改变武器出手。",
                     "当前敌人模板：基础近战、快刺、重压、假动作、射击。真正出手的一侧会先接管主回合，另一侧只推进到压迫位制造压力。",
+                    "新增成长规则：敌人出生时会参考你当前战力提高生命值，像杀人书这类滚雪球装备也会被一起纳入缩放。",
                     "当前未实现：敌人专属音效、更细分的射击子类、装备专属特效、房间联机。"
                 ],
                 hint: "这一版先把核心战斗改到更聚焦的结构上，再围绕单线中轴继续调敌人、武器和装备数值。"
