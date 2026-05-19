@@ -30,7 +30,6 @@
         const distanceBetween = hubCtx.distanceBetween;
         const {
             TOPDOWN_BALANCE,
-            TOPDOWN_SCORE_SOFT_CAP,
             topdownActiveBuffSummary,
             topdownAllCommonColorsOwned,
             topdownAllRareColorsOwned,
@@ -2085,9 +2084,6 @@
             if (activeBuffSummary && activeBuffSummary !== "无") {
                 sideLines.push("临时增益：" + activeBuffSummary);
             }
-            if (session.score >= TOPDOWN_SCORE_SOFT_CAP) {
-                sideLines.push("得分软上限已生效：后续击杀基础分降为 1，连杀奖励保留。");
-            }
             if (topdownBuffRemaining(session, "enemySilenceUntil") > 0) {
                 sideLines.push("敌方哑火：" + topdownBuffRemaining(session, "enemySilenceUntil").toFixed(1) + " 秒");
             }
@@ -3146,7 +3142,14 @@
                 }
                 if (!gotHit) {
                     session.enemies.forEach(function (enemy) {
-                        if (gotHit || !enemy || enemy.hp <= 0 || enemy.remnantActive || enemy.corpseActive) {
+                        if (
+                            gotHit
+                            || !enemy
+                            || enemy.hp <= 0
+                            || enemy.remnantActive
+                            || enemy.corpseActive
+                            || Number(enemy.magnetPullLeft || 0) > 0
+                        ) {
                             return;
                         }
                         if (distanceBetween(enemy, session.player) > enemy.radius + session.player.radius + 2) {

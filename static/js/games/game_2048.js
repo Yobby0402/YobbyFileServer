@@ -5,6 +5,14 @@
     if (!modules || typeof modules.register !== "function") {
         return;
     }
+    const scoreApi = window.GamesHubScore || null;
+
+    function scale2048ScoreDelta(scoreDelta) {
+        if (scoreApi && typeof scoreApi.scale2048ScoreDelta === "function") {
+            return scoreApi.scale2048ScoreDelta(scoreDelta);
+        }
+        return Math.max(0, Number(scoreDelta || 0));
+    }
 
     function create2048Session() {
         const session = {
@@ -189,7 +197,7 @@
             return false;
         }
         session.tiles = nextTiles;
-        session.score += scoreDelta;
+        session.score += scale2048ScoreDelta(scoreDelta);
         session.moves += 1;
         session.maxTile = Math.max.apply(null, session.tiles.map(function (tile) { return tile.value; }).concat([session.maxTile]));
         spawn2048Tile(session);

@@ -144,6 +144,23 @@ def _http_json(method: str, url: str, body: Optional[Dict[str, Any]] = None, tim
     return json.loads(payload.decode("utf-8"))
 
 
+def _looks_like_embedding_model(model_id: str) -> bool:
+    low = (model_id or "").strip().lower()
+    return any(
+        token in low
+        for token in (
+            "embedding",
+            "embed",
+            "bge",
+            "gte",
+            "e5",
+            "mxbai",
+            "qwen3-embedding",
+            "nomic-embed",
+        )
+    )
+
+
 def _model_ids_from_payload(payload: Any) -> List[str]:
     """
     解析 GET …/models 的 JSON：
@@ -154,13 +171,17 @@ def _model_ids_from_payload(payload: Any) -> List[str]:
         return []
     data_arr = payload.get("data")
     if isinstance(data_arr, list) and data_arr:
-        out: List[str] = []
+        llm_like: List[str] = []
+        embedding_like: List[str] = []
         for it in data_arr:
             if isinstance(it, dict):
                 iid = str(it.get("id") or "").strip()
                 if iid:
-                    out.append(iid)
-        return out
+                    if _looks_like_embedding_model(iid):
+                        embedding_like.append(iid)
+                    else:
+                        llm_like.append(iid)
+        return llm_like + embedding_like
     models_arr = payload.get("models")
     if isinstance(models_arr, list) and models_arr:
         loaded_llm: List[str] = []
@@ -194,9 +215,12 @@ def _candidate_roots(base_url: str) -> List[str]:
     base = (base_url or "").strip().rstrip("/")
     if not base:
         return []
-    if base.endswith("/v1") or base.endswith("/api/v1"):
-        return [base]
-    roots = [base + "/v1", base + "/api/v1", base]
+    if base.endswith("/api/v1"):
+        roots = [base, base[: -len("/api/v1")] + "/v1"]
+    elif base.endswith("/v1"):
+        roots = [base[: -len("/v1")] + "/api/v1", base]
+    else:
+        roots = [base + "/api/v1", base + "/v1", base]
     seen: set[str] = set()
     out: List[str] = []
     for r in roots:

@@ -4,13 +4,13 @@
     const config = window.gamesHubConfig || {};
     const GAMES_THEME_SCHEME_KEY = "games_theme_scheme";
     const GAMES_RUNTIME_STATE_PREFIX = "games_runtime_state:";
-    const TOPDOWN_SCORE_SOFT_CAP = Math.max(0, Number(config.topdownScoreSoftCap || 100000));
     const GOMOKU_NAMESPACE = "/games-gomoku";
     const ZHAJINHUA_NAMESPACE = "/games-zhajinhua";
     const GAMES_CHAT_NAMESPACE = "/games-chat";
     const GAMES_SCRIPT_BASE_URL = (document.currentScript && document.currentScript.src)
         ? new URL(".", document.currentScript.src).href
         : "/static/js/";
+    const GAMES_SCORE_SCRIPT = "games/game_score.js";
     const GAME_MODULE_SCRIPTS = {
         "2048": "games/game_2048.js",
         sudoku: "games/game_sudoku.js",
@@ -38,6 +38,7 @@
         topdownMetaState: null,
         topdownMetaRefresh: null,
         topdownMetaBeforeOpen: null,
+        scoreApi: null,
         currentPresence: {
             current_game: "",
             play_status: "空闲中",
@@ -1434,6 +1435,7 @@
             topdownResolveNuclearHuskBonusDamage: topdownResolveNuclearHuskBonusDamage,
             topdownTimeSettlementBonus: topdownTimeSettlementBonus,
             topdownTryCreateNuclearHusk: topdownTryCreateNuclearHusk,
+            score: state.scoreApi,
             topdownAchievementCatalog: topdownAchievementCatalog,
             topdownResolveAchievements: topdownResolveAchievements,
             topdownAchievementSummary: topdownAchievementSummary,
@@ -1444,7 +1446,6 @@
             topdownSetSelectedAchievementBadge: topdownSetSelectedAchievementBadge,
             topdown: {
                 TOPDOWN_BALANCE: TOPDOWN_BALANCE,
-                TOPDOWN_SCORE_SOFT_CAP: TOPDOWN_SCORE_SOFT_CAP,
                 topdownActiveBuffSummary: topdownActiveBuffSummary,
                 topdownAllCommonColorsOwned: topdownAllCommonColorsOwned,
                 topdownAllRareColorsOwned: topdownAllRareColorsOwned,
@@ -1602,6 +1603,28 @@
         return gameModuleLoadPromises[src];
     }
 
+    async function ensureScoreApi() {
+        if (state.scoreApi) {
+            return state.scoreApi;
+        }
+        await loadScriptOnce(new URL(GAMES_SCORE_SCRIPT, GAMES_SCRIPT_BASE_URL).href);
+        if (!window.GamesHubScore || typeof window.GamesHubScore.createInterface !== "function") {
+            throw new Error("计分模块加载失败");
+        }
+        state.scoreApi = window.GamesHubScore.createInterface({
+            requestJson: requestJson,
+            scoreUrl: config.scoreUrl,
+            afterSubmit: async function () {
+                await loadProfile();
+                await refreshScorePanels();
+            }
+        });
+        if (state.scoreApi && typeof state.scoreApi.applyTopdownBalance === "function") {
+            state.scoreApi.applyTopdownBalance(TOPDOWN_BALANCE);
+        }
+        return state.scoreApi;
+    }
+
     async function ensureGameModule(gameId) {
         if (gameModules[gameId]) {
             return gameModules[gameId];
@@ -1610,6 +1633,7 @@
         if (!scriptName) {
             return null;
         }
+        await ensureScoreApi();
         await loadScriptOnce(new URL(scriptName, GAMES_SCRIPT_BASE_URL).href);
         return gameModules[gameId] || null;
     }
@@ -1619,20 +1643,9 @@
     });
 
     async function submitScore(gameId, score, mode, sessionKey, meta) {
-        const payload = await requestJson(config.scoreUrl, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                game_id: gameId,
-                score: score,
-                mode: mode,
-                session_key: sessionKey,
-                meta: meta || {}
-            })
+        return ensureScoreApi().then(function (scoreApi) {
+            return scoreApi.submitGameScore(gameId, score, mode, sessionKey, meta);
         });
-        await loadProfile();
-        await refreshScorePanels();
-        return payload;
     }
 
     function syncPresence(playStatus, roomCode) {
@@ -1971,7 +1984,7 @@
 
     const TOPDOWN_BALANCE = {
         // 分数与战局节奏：决定每次击杀、波次推进、连杀奖励和临时道具的出场频率。
-        killScore: 30, // 普通击杀的基础分数，所有连杀和额外倍率都从这个基础值往上叠。
+        killScore: 300, // 普通击杀的基础分数，所有连杀和额外倍率都从这个基础值往上叠。
         settlementTimeScorePerSecond: 15, // 结算时按当前存活秒数追加分数，默认每秒 1 分。
         waveStepKills: 10, // 每累计击杀多少个敌人，常规波次向前推进 1 步。
         waveBonusScore: 18, // 波次提升时额外赠送的分数，用来鼓励持续推进而不是只刷单体。
@@ -4766,6 +4779,9 @@ function topdownAchievementTierTheme(tier) {
     }
 
     function awardTopdownScore(session, amount) {
+        if (state.scoreApi && typeof state.scoreApi.awardTopdownScore === "function") {
+            return state.scoreApi.awardTopdownScore(session, amount, topdownScoreMultiplier(session));
+        }
         const multiplier = topdownScoreMultiplier(session);
         const finalAmount = Math.max(0, Math.round(amount * multiplier));
         session.score += finalAmount;
@@ -4773,6 +4789,9 @@ function topdownAchievementTierTheme(tier) {
     }
 
     function topdownTimeSettlementBonus(session) {
+        if (state.scoreApi && typeof state.scoreApi.topdownTimeSettlementBonus === "function") {
+            return state.scoreApi.topdownTimeSettlementBonus(session, TOPDOWN_BALANCE);
+        }
         return Math.max(
             0,
             Math.floor(
@@ -4783,10 +4802,16 @@ function topdownAchievementTierTheme(tier) {
     }
 
     function topdownKillBaseScore(session) {
-        return Number((session && session.score) || 0) >= TOPDOWN_SCORE_SOFT_CAP ? 1 : TOPDOWN_BALANCE.killScore;
+        if (state.scoreApi && typeof state.scoreApi.topdownKillBaseScore === "function") {
+            return state.scoreApi.topdownKillBaseScore(session, TOPDOWN_BALANCE);
+        }
+        return TOPDOWN_BALANCE.killScore;
     }
 
     function topdownComboBonus(session) {
+        if (state.scoreApi && typeof state.scoreApi.topdownComboBonus === "function") {
+            return state.scoreApi.topdownComboBonus(session, TOPDOWN_BALANCE.comboScoreStep);
+        }
         return Math.floor(Math.max(0, session.combo || 0) / TOPDOWN_BALANCE.comboScoreStep);
     }
 
@@ -5305,6 +5330,9 @@ function topdownAchievementTierTheme(tier) {
 
     function topdownTtkDpsForScaling(session) {
         const dps = topdownPlayerEffectiveDps(session);
+        if (state.scoreApi && typeof state.scoreApi.topdownTtkScaledDps === "function") {
+            return state.scoreApi.topdownTtkScaledDps(dps, TOPDOWN_BALANCE);
+        }
         return topdownApplySoftCap(dps, TOPDOWN_BALANCE.ttkDpsSoftCap, TOPDOWN_BALANCE.ttkDpsOverflowFactor);
     }
 
@@ -5316,6 +5344,14 @@ function topdownAchievementTierTheme(tier) {
         const dps = topdownTtkDpsForScaling(session);
         if (dps <= 0.001) {
             return 1;
+        }
+        if (state.scoreApi && typeof state.scoreApi.topdownTtkEnemyHpMultiplier === "function") {
+            return state.scoreApi.topdownTtkEnemyHpMultiplier(
+                hp,
+                dps,
+                Math.max(1, Number(session && session.wave || 1)),
+                TOPDOWN_BALANCE
+            );
         }
         const currentTtk = hp / dps;
         const growthEndWave = Math.max(1, Number(TOPDOWN_BALANCE.ttkGrowthEndWave || 18));
@@ -6811,7 +6847,11 @@ function topdownAchievementTierTheme(tier) {
                     target.shocked = true;
                 }
             });
-            if (TOPDOWN_BALANCE.electricMagnetDuration > 0 && TOPDOWN_BALANCE.electricMagnetStrength > 0) {
+            if (
+                Number(bullet.elementLevel || 0) >= TOPDOWN_BALANCE.elementCap
+                && TOPDOWN_BALANCE.electricMagnetDuration > 0
+                && TOPDOWN_BALANCE.electricMagnetStrength > 0
+            ) {
                 const duration = Number(TOPDOWN_BALANCE.electricMagnetDuration || 0);
                 [enemy].concat(chainedTargets).forEach(function (target) {
                     if (!target || target.hp <= 0) {

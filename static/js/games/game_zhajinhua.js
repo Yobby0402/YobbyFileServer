@@ -61,6 +61,7 @@
         let pendingActionTimer = 0;
         let recordsExpanded = false;
         let socketTransportLabel = "WEBSOCKET";
+        const DEFAULT_ZHAJINHUA_BASE_STAKE = 5000;
 
         function loadRememberedRoomCode() {
             try {
@@ -255,7 +256,7 @@
 
         function availableRaiseAmounts() {
             const maxBetAmount = Math.max(1, Number((room && room.max_bet_amount) || 10000000));
-            const list = room && Array.isArray(room.raise_options) ? room.raise_options : [2, 5, 10, 20, 50, 100];
+            const list = room && Array.isArray(room.raise_options) ? room.raise_options : [1000, 2500, 5000, 10000, 25000, 50000];
             return list.map(function (value) {
                 return Math.max(1, Number(value || 0));
             }).filter(function (value, index, values) {
@@ -700,7 +701,7 @@
                 }).join("") + '</div>',
                 (isHost && !isPlaying ? (
                     '<div class="game-zhajinhua-base-bar">' +
-                    '  <input type="number" min="1" max="' + escapeHtml(maxBetAmountText()) + '" step="1" class="game-room-select game-zhajinhua-base-input" id="zhajinhuaBaseStakeInput" value="' + escapeHtml(baseStakeDraft || String(room.base_stake || 0)) + '" placeholder="设置底金">' +
+                    '  <input type="number" min="1" max="' + escapeHtml(maxBetAmountText()) + '" step="1" class="game-room-select game-zhajinhua-base-input" id="zhajinhuaBaseStakeInput" value="' + escapeHtml(baseStakeDraft || String(room.base_stake || DEFAULT_ZHAJINHUA_BASE_STAKE)) + '" placeholder="设置底金">' +
                     '  <button class="games-btn" type="button" id="zhajinhuaBaseStakeBtn">设置底金</button>' +
                     '</div>'
                 ) : ('<div class="games-stage-meta">当前底金：' + escapeHtml(String(room.base_stake || 0)) + '</div>')),
@@ -740,7 +741,7 @@
                 baseBtn.addEventListener("click", function () {
                     emitWithIdentity("zhajinhua_set_base_stake", {
                         room_code: room.room_code,
-                        base_stake: Math.max(1, Number(baseStakeDraft || room.base_stake || 1))
+                        base_stake: Math.max(1, Number(baseStakeDraft || room.base_stake || DEFAULT_ZHAJINHUA_BASE_STAKE))
                     });
                 });
             }
@@ -1079,7 +1080,7 @@
                     persistMeta();
                 }
             }
-            baseStakeDraft = String(room.base_stake || 0);
+            baseStakeDraft = String(room.base_stake || DEFAULT_ZHAJINHUA_BASE_STAKE);
             saveRememberedRoomCode((payload && payload.room_code) || "");
             renderAll();
         });

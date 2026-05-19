@@ -1837,6 +1837,12 @@
                     renderStreamingAssistantBubble(full);
                     setPhase('generating', '正在生成回答…', progressPercent);
                 } else if (e.event === 'meta' && e.data) {
+                    if (e.data.trace_id) {
+                        window._localAiLastTraceId = String(e.data.trace_id);
+                        if (window.console && typeof window.console.info === 'function') {
+                            window.console.info('[local-ai-trace] trace_id=', window._localAiLastTraceId);
+                        }
+                    }
                     setPhase('preparing', '请求成功，正在准备上下文', 5);
                 } else if (e.event === 'chat_progress' && e.data) {
                     progressChars = Math.max(progressChars, Number(e.data.received_chars || 0), full.length);
@@ -2993,7 +2999,7 @@
         });
 
         setInterval(function () {
-            if ($('localAiPanel') && $('localAiPanel').classList.contains('visible')) {
+            if ($('localAiPanel') && $('localAiPanel').classList.contains('visible') && !isGenerating) {
                 refreshStatus();
             }
         }, 4000);

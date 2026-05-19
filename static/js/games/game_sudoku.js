@@ -5,6 +5,7 @@
     if (!modules || typeof modules.register !== "function") {
         return;
     }
+    const scoreApi = window.GamesHubScore || null;
 
     const HEX_SYMBOLS = "0123456789ABCDEF".split("");
     const CLASSIC_SYMBOLS = "123456789".split("");
@@ -385,25 +386,15 @@
         return list[(currentIndex + 1) % list.length];
     }
 
-    function getSudokuScoreSpec(modeKey) {
-        const table = {
-            "classic-easy": { base: 2200, difficultyBonus: 900, targetSeconds: 1800, timeRate: 1.1 },
-            "classic-medium": { base: 3000, difficultyBonus: 1700, targetSeconds: 2400, timeRate: 1.35 },
-            "classic-hard": { base: 4200, difficultyBonus: 3000, targetSeconds: 3000, timeRate: 1.8 },
-            "hex-16": { base: 8800, difficultyBonus: 7600, targetSeconds: 5400, timeRate: 3.0 }
-        };
-        return table[modeKey] || table["classic-medium"];
-    }
-
     function computeSudokuScore(modeKey, elapsedSeconds) {
-        const spec = getSudokuScoreSpec(modeKey);
-        const scoreMultiplier = 20;
-        const timeBonus = Math.max(0, Math.round((spec.targetSeconds - Math.max(0, elapsedSeconds)) * spec.timeRate)) * scoreMultiplier;
+        if (scoreApi && typeof scoreApi.computeSudokuScore === "function") {
+            return scoreApi.computeSudokuScore(modeKey, elapsedSeconds);
+        }
         return {
-            baseSalary: spec.base * scoreMultiplier,
-            difficultyBonus: spec.difficultyBonus * scoreMultiplier,
-            timeBonus: timeBonus,
-            total: spec.base * scoreMultiplier + spec.difficultyBonus * scoreMultiplier + timeBonus
+            baseSalary: 0,
+            difficultyBonus: 0,
+            timeBonus: 0,
+            total: 0
         };
     }
 
@@ -1115,7 +1106,7 @@
                 ? "已使用自动解题，本局不计算分数。"
                 : ((session.scoreBlocked || (puzzleLocked && !session.submittedScore))
                     ? "这道题的奖励已经结算过，或答案已经通过自动解题揭示，再次完成不会得分。"
-                    : ("积分 =（底薪 " + scoreData.baseSalary + " + 难度提成 " + scoreData.difficultyBonus + " + 时间提成 " + scoreData.timeBonus + "），数独总奖励已整体提升到 20 倍。"));
+                    : ("积分 =（底薪 " + scoreData.baseSalary + " + 难度提成 " + scoreData.difficultyBonus + " + 时间提成 " + scoreData.timeBonus + "），数独总奖励已整体提升到 120 倍。"));
             modeButtons.forEach(function (btn) {
                 btn.classList.toggle("is-active", btn.dataset.modeKey === session.modeKey);
             });

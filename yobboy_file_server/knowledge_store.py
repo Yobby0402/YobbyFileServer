@@ -1509,11 +1509,15 @@ def _ensure_registered_entries_current(
     entries = data.get("entries", {})
     if not isinstance(entries, dict):
         return
+    indexed_sources = {
+        str(item.get("source_key") or ""): item
+        for item in knowledge_index_db.list_sources(root_n, _FILE_SOURCE)
+    }
     for rel_path, meta in entries.items():
         rel = _normalize_rel_path(rel_path)
         if _is_rel_path_excluded(rel, excluded_dirs):
             continue
-        source = knowledge_index_db.get_source(root_n, _FILE_SOURCE, rel)
+        source = indexed_sources.get(rel)
         if not source and str((meta or {}).get("scan_status") or "") in ("discovered", "missing"):
             continue
         if source and str(source.get("status") or "") in ("queued", "running"):
@@ -1540,6 +1544,7 @@ def _ensure_registered_entries_current(
                 raw_text="",
                 normalized_text="",
             )
+            indexed_sources[rel] = source
             knowledge_index_db.replace_chunks(int((source or {}).get("id") or 0), [], [])
             continue
         _index_file_source(
@@ -1550,6 +1555,9 @@ def _ensure_registered_entries_current(
             app_config=app_config,
             max_file_bytes=max_file_bytes,
         )
+        latest_source = knowledge_index_db.get_source(root_n, _FILE_SOURCE, rel)
+        if latest_source:
+            indexed_sources[rel] = latest_source
 
 
 def _snippet_public(meta: Dict[str, Any]) -> Dict[str, Any]:

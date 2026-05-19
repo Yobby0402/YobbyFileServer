@@ -63,6 +63,7 @@
         let wagerDraft = "";
         let settlementRefreshKeys = [];
         let socketTransportLabel = "WEBSOCKET";
+        const DEFAULT_GOMOKU_WAGER = 50000;
         const quickChatEmojis = ["😀", "😎", "🔥", "👏", "💥", "😅", "🤔", "😭", "🎯", "⏳"];
 
         function loadRememberedRoomCode() {
@@ -524,7 +525,11 @@
             const selfRole = String(room.self_role || "");
             const me = selfPlayer();
             if (me && !wagerDraft) {
-                wagerDraft = String(Math.max(0, Number(me.wager || 0)));
+                const recommendedWager = Math.min(
+                    Math.max(0, Number(room.self_total_score || 0)),
+                    DEFAULT_GOMOKU_WAGER
+                );
+                wagerDraft = String(Math.max(0, Number(me.wager || recommendedWager)));
             }
             controlCardEl.innerHTML = [
                 '<div class="games-section-title">房间 ' + escapeHtml(room.room_code || "----") + "</div>",
@@ -893,7 +898,11 @@
             if (room && room.self_role === "player") {
                 const me = selfPlayer();
                 if (me) {
-                    wagerDraft = String(Math.max(0, Number(me.wager || 0)));
+                    const recommendedWager = Math.min(
+                        Math.max(0, Number(room.self_total_score || 0)),
+                        DEFAULT_GOMOKU_WAGER
+                    );
+                    wagerDraft = String(Math.max(0, Number(me.wager || recommendedWager)));
                 }
             }
             saveRememberedRoomCode((payload && payload.room_code) || "");

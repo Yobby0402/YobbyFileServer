@@ -141,6 +141,55 @@ def test_public_room_hides_self_cards_before_look():
     assert me["hand_kind_label"] == ""
 
 
+def test_fold_keeps_turn_order_following_original_seat_sequence():
+    store = FakeStore()
+    manager = ZhajinhuaManager(store=store)
+    room = manager.create_or_join_room("ip-1", "player-1", "sid-1", "Alice")
+    room_code = room["room_code"]
+    manager.create_or_join_room("ip-2", "player-2", "sid-2", "Bob", room_code=room_code)
+    manager.create_or_join_room("ip-3", "player-3", "sid-3", "Carol", room_code=room_code)
+    manager.set_base_stake(room_code, "player-1", 10)
+    manager.toggle_ready(room_code, "player-1")
+    manager.toggle_ready(room_code, "player-2")
+    manager.toggle_ready(room_code, "player-3")
+    manager.start_match(room_code, "player-1")
+
+    live_room = manager._rooms[room_code]
+    assert live_room["turn_player_id"] == "player-2"
+
+    manager.fold_player(room_code, "player-2")
+
+    assert live_room["turn_player_id"] == "player-3"
+
+
+def test_compare_loss_keeps_turn_order_following_original_seat_sequence():
+    store = FakeStore()
+    manager = ZhajinhuaManager(store=store)
+    room = manager.create_or_join_room("ip-1", "player-1", "sid-1", "Alice")
+    room_code = room["room_code"]
+    manager.create_or_join_room("ip-2", "player-2", "sid-2", "Bob", room_code=room_code)
+    manager.create_or_join_room("ip-3", "player-3", "sid-3", "Carol", room_code=room_code)
+    manager.set_base_stake(room_code, "player-1", 10)
+    manager.toggle_ready(room_code, "player-1")
+    manager.toggle_ready(room_code, "player-2")
+    manager.toggle_ready(room_code, "player-3")
+    manager.start_match(room_code, "player-1")
+
+    live_room = manager._rooms[room_code]
+    live_room["players"][0]["cards"] = _cards((14, "spades"), (14, "hearts"), (14, "clubs"))
+    live_room["players"][1]["cards"] = _cards((2, "diamonds"), (5, "clubs"), (7, "hearts"))
+    live_room["players"][2]["cards"] = _cards((13, "spades"), (12, "hearts"), (11, "clubs"))
+    live_room["players"][0]["hand_compare"] = list(evaluate_zhajinhua_hand(live_room["players"][0]["cards"])["compare"])
+    live_room["players"][1]["hand_compare"] = list(evaluate_zhajinhua_hand(live_room["players"][1]["cards"])["compare"])
+    live_room["players"][2]["hand_compare"] = list(evaluate_zhajinhua_hand(live_room["players"][2]["cards"])["compare"])
+    assert live_room["turn_player_id"] == "player-2"
+
+    manager.compare_with(room_code, "player-2", "player-1")
+
+    assert manager._find_player(live_room, "player-2")["is_folded"] is True
+    assert live_room["turn_player_id"] == "player-3"
+
+
 def test_special_round_deals_pair_or_better_for_everyone_and_is_only_marked_after_finish(monkeypatch):
     monkeypatch.setattr(zhajinhua_module, "SPECIAL_ROUND_PROBABILITY", 1.0)
     store = FakeStore()

@@ -18,7 +18,8 @@ MAX_BET_AMOUNT = 10_000_000
 MAX_BASE_STAKE = MAX_BET_AMOUNT
 MAX_PLAYERS = 10
 DEFAULT_MAX_ROUNDS = 20
-DEFAULT_RAISE_OPTIONS = (2, 5, 10, 20, 50, 100)
+DEFAULT_BASE_STAKE = 5_000
+DEFAULT_RAISE_OPTIONS = (1_000, 2_500, 5_000, 10_000, 25_000, 50_000)
 SPECIAL_ROUND_PROBABILITY = 0.05
 
 SUIT_ORDER = {
@@ -219,7 +220,7 @@ class ZhajinhuaManager:
             state["room_code"] = room_code
             state.setdefault("host_player_id", players[0].get("player_id", ""))
             state.setdefault("status", "lobby")
-            state.setdefault("base_stake", 0)
+            state.setdefault("base_stake", DEFAULT_BASE_STAKE)
             state.setdefault("pot", 0)
             state.setdefault("current_bet", 0)
             state.setdefault("dealer_player_id", "")
@@ -512,17 +513,23 @@ class ZhajinhuaManager:
         return -1
 
     def _next_turn_player(self, room: Dict[str, Any], from_player_id: str) -> Dict[str, Any] | None:
-        ordered = [player for player in room.get("players") or [] if not player.get("removed") and not player.get("is_folded")]
-        if len(ordered) <= 1:
-            return ordered[0] if ordered else None
+        ordered = list(room.get("players") or [])
+        if not ordered:
+            return None
+        remaining = [player for player in ordered if not player.get("removed") and not player.get("is_folded")]
+        if len(remaining) <= 1:
+            return remaining[0] if remaining else None
         start_index = -1
         for index, player in enumerate(ordered):
             if str(player.get("player_id") or "") == str(from_player_id or ""):
                 start_index = index
                 break
-        if start_index < 0:
-            return ordered[0]
-        return ordered[(start_index + 1) % len(ordered)]
+        for offset in range(1, len(ordered) + 1):
+            candidate = ordered[(start_index + offset) % len(ordered)] if start_index >= 0 else ordered[offset - 1]
+            if candidate.get("removed") or candidate.get("is_folded"):
+                continue
+            return candidate
+        return remaining[0]
 
     def _advance_turn(self, room: Dict[str, Any], from_player_id: str) -> None:
         next_player = self._next_turn_player(room, from_player_id)
@@ -921,7 +928,7 @@ class ZhajinhuaManager:
                     "players": [],
                     "spectators": [],
                     "status": "lobby",
-                    "base_stake": 0,
+                    "base_stake": DEFAULT_BASE_STAKE,
                     "pot": 0,
                     "current_bet": 0,
                     "dealer_player_id": "",

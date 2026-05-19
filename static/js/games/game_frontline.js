@@ -5,6 +5,7 @@
     if (!modules || typeof modules.register !== "function") {
         return;
     }
+    const scoreApi = window.GamesHubScore || null;
 
     function clamp(value, min, max) {
         return Math.min(max, Math.max(min, value));
@@ -524,6 +525,9 @@
 
     function computeFrontlineScore(session) {
         const summary = summarizeFrontlineSession(session);
+        if (scoreApi && typeof scoreApi.computeFrontlineScore === "function") {
+            return scoreApi.computeFrontlineScore(session, summary);
+        }
         const difficultyMultiplier = session.difficulty === "hard" ? 1.75 : (session.difficulty === "easy" ? 1 : 1.35);
         const survivedUnits = Number(summary.player_units || 0);
         const playerTowers = Number(summary.player_towers || 0);
