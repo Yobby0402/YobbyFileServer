@@ -17,6 +17,7 @@
         frontline: "games/game_frontline.js",
         gomoku: "games/game_gomoku.js",
         shi: "games/game_shi.js",
+        "hardware-daren": "games/game_hardware_daren.js",
         zhajinhua: "games/game_zhajinhua.js",
         "topdown-shooter": "games/game_topdown.js"
     };
@@ -623,6 +624,8 @@
             gomoku: "五",
             zhajinhua: "炸",
             frontline: "攻",
+            shi: "士",
+            "hardware-daren": "波",
             "topdown-shooter": "射"
         };
         if (iconMap[id]) {
@@ -1853,6 +1856,18 @@
                     return mountShiModule(payloadShi, createGameModuleContext());
                 }
                 renderEmptyStage("《士》模块加载失败，请刷新页面重试。");
+                return null;
+            });
+            return;
+        }
+        if (gameId === "hardware-daren") {
+            const payloadHardwareDaren = await loadGameState("hardware-daren").catch(function () { return { state: {} }; });
+            const mountHardwareDarenModule = await ensureGameModule("hardware-daren");
+            await mountIfCurrent(function () {
+                if (mountHardwareDarenModule) {
+                    return mountHardwareDarenModule(payloadHardwareDaren, createGameModuleContext());
+                }
+                renderEmptyStage("硬件达人模块加载失败，请刷新页面重试。");
                 return null;
             });
             return;

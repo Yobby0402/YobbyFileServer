@@ -28,7 +28,7 @@
     {
       "id": "zhajinhua",
       "title": "联机炸金花",
-      "summary": "房主设置底金的实时炸金花牌桌，支持 2-10 人上桌、观战聊天、每局重洗与积分结算。",
+      "summary": "房主设置底注的实时炸金花牌局，支持 2-10 人上桌、观战聊天、每局重洗与积分结算。",
       "engine": "builtin",
       "status": "beta",
       "tags": ["联机", "扑克", "房间制"]
@@ -48,6 +48,14 @@
       "engine": "builtin",
       "status": "beta",
       "tags": ["单机", "动作", "构筑"]
+    },
+    {
+      "id": "hardware-daren",
+      "title": "硬件达人",
+      "summary": "复古示波器风格的波形射击原型，使用电容、电感、电阻压制正弦波、方波、三角波、锯齿波与噪声信号。",
+      "engine": "builtin",
+      "status": "beta",
+      "tags": ["单机", "射击", "硬件", "示波器"]
     },
     {
       "id": "topdown-shooter",

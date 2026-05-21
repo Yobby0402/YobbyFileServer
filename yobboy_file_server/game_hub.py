@@ -537,6 +537,37 @@ class GameHubStore:
             "background_pulls": grant_background,
         }
 
+    def grant_score_compensation(
+        self,
+        ip: str,
+        score: Any,
+        note: Any = "",
+        operator: Any = "",
+    ) -> Dict[str, Any]:
+        identity = _sanitize_device_identity(ip)
+        if not identity:
+            raise ValueError("玩家标识不能为空")
+        try:
+            score_value = int(score or 0)
+        except (TypeError, ValueError):
+            raise ValueError("补偿积分必须是整数")
+        if score_value <= 0:
+            raise ValueError("补偿积分必须大于 0")
+
+        note_value = str(note or "").strip()[:200]
+        operator_value = str(operator or "").strip()[:64]
+        return self.record_score(
+            identity,
+            "admin-compensation",
+            score_value,
+            mode="manual-compensation",
+            meta={
+                "note": note_value,
+                "operator": operator_value,
+                "source": "desktop-admin",
+            },
+        )
+
     def delete_player_data(self, ip: str) -> Dict[str, Any]:
         identity = _sanitize_device_identity(ip)
         if not identity:

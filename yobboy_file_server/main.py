@@ -4222,6 +4222,11 @@ class MainWindow(QMainWindow):
         manage_games_action.triggered.connect(self.open_games_data_admin)
         file_menu.addAction(manage_games_action)
 
+        grant_games_score_action = QAction('💎 发放 Games Hub 积分补偿', self)
+        grant_games_score_action.setStatusTip('仅管理员可在桌面 GUI 中给指定 Games Hub 玩家发放积分补偿')
+        grant_games_score_action.triggered.connect(self.open_games_score_compensation_admin)
+        file_menu.addAction(grant_games_score_action)
+
         grant_games_coupons_action = QAction('🎟️ 发 Games Hub 奖券', self)
         grant_games_coupons_action.setStatusTip('仅管理员可给所有当前 Games Hub 用户发放三个奖池的抽奖券')
         grant_games_coupons_action.triggered.connect(self.open_games_coupon_admin)
@@ -5054,6 +5059,99 @@ class MainWindow(QMainWindow):
             )
         )
 
+    def open_games_score_compensation_admin(self):
+        """管理员入口：给指定 Games Hub 玩家发放积分补偿。"""
+        if self.is_server_running:
+            reply = QMessageBox.question(
+                self,
+                "停止服务器？",
+                "发放 Games Hub 积分补偿前建议先停止服务器，是否现在停止？",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.Yes
+            )
+            if reply != QMessageBox.Yes:
+                return
+            self.stop_server()
+            if not self.wait_for_server_state(expected_running=False, timeout_ms=5000):
+                QMessageBox.warning(self, "错误", "服务器停止失败，已取消积分补偿操作。")
+                return
+
+        settings = read_runtime_settings()
+        current_admin_password = settings.get('ADMIN_PASSWORD', 'admin123')
+        admin_pass, ok = QInputDialog.getText(
+            self,
+            "验证管理员密码",
+            "请输入管理员密码：",
+            QLineEdit.Password
+        )
+        if not ok:
+            return
+        if admin_pass != current_admin_password:
+            QMessageBox.critical(self, "错误", "管理员密码错误，无法发放积分补偿。")
+            return
+
+        try:
+            store = GameHubStore()
+            players = store.list_player_profiles(limit=1000)
+        except Exception as e:
+            QMessageBox.critical(self, "错误", f"读取 Games Hub 玩家列表失败：{e}")
+            return
+
+        if not players:
+            QMessageBox.information(self, "提示", "当前没有可发放积分补偿的 Games Hub 玩家。")
+            return
+
+        compensation_payload = self._prompt_games_score_compensation(players)
+        if not compensation_payload:
+            return
+
+        selected_player = compensation_payload["player"]
+        selected_identity = str(selected_player.get("identity") or "")
+        amount = int(compensation_payload["amount"])
+        note = compensation_payload["note"]
+
+        confirm = QMessageBox.warning(
+            self,
+            "确认发放积分补偿",
+            (
+                f"确定要给以下玩家发放积分补偿吗？\n\n"
+                f"显示名：{selected_player.get('display_name', '')}\n"
+                f"身份：{selected_identity}\n"
+                f"当前总分：{int(selected_player.get('total_score', 0))}\n"
+                f"补偿积分：{amount}\n"
+                f"备注：{note or '无'}\n\n"
+                f"该补偿会直接写入 Games Hub 积分记录，并影响总分与排行榜。"
+            ),
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+        if confirm != QMessageBox.Yes:
+            return
+
+        try:
+            result = store.grant_score_compensation(
+                selected_identity,
+                amount,
+                note=note,
+                operator="desktop-admin",
+            )
+            updated_summary = store.total_score_summary(selected_identity)
+        except Exception as e:
+            QMessageBox.critical(self, "错误", f"发放 Games Hub 积分补偿失败：{e}")
+            return
+
+        QMessageBox.information(
+            self,
+            "发放完成",
+            (
+                f"已向 {selected_player.get('display_name', selected_identity)} 发放 {amount} 积分补偿。\n\n"
+                f"记录类型：{result.get('game_id', '')}\n"
+                f"补偿后总分：{int(updated_summary.get('total_score', 0))}\n"
+                f"总记录数：{int(updated_summary.get('play_count', 0))}\n"
+                f"备注：{note or '无'}"
+            )
+        )
+
     def _prompt_games_coupon_amounts(self):
         dialog = QDialog(self)
         dialog.setWindowTitle("发放 Games Hub 奖券")
@@ -5096,6 +5194,71 @@ class MainWindow(QMainWindow):
             int(icon_spin.value()),
             int(background_spin.value()),
         )
+
+    def _prompt_games_score_compensation(self, players):
+        dialog = QDialog(self)
+        dialog.setWindowTitle("发放 Games Hub 积分补偿")
+        dialog.resize(720, 280)
+        layout = QVBoxLayout(dialog)
+
+        tips = QLabel("选择玩家、填写补偿积分和备注后确认。该操作会新增一条可追踪的积分记录。", dialog)
+        tips.setWordWrap(True)
+        layout.addWidget(tips)
+
+        form_layout = QFormLayout()
+
+        player_combo = QComboBox(dialog)
+        for item in players:
+            label = (
+                f"{item.get('display_name', '')} | {item.get('identity', '')} | "
+                f"总分 {int(item.get('total_score', 0))} | 记录 {int(item.get('play_count', 0))}"
+            )
+            player_combo.addItem(label, item)
+        form_layout.addRow("补偿玩家：", player_combo)
+
+        amount_spin = QSpinBox(dialog)
+        amount_spin.setRange(1, 100000000)
+        amount_spin.setSingleStep(100)
+        amount_spin.setValue(1000)
+        form_layout.addRow("补偿积分：", amount_spin)
+
+        note_edit = QLineEdit(dialog)
+        note_edit.setMaxLength(200)
+        note_edit.setPlaceholderText("例如：活动补偿、误扣返还、赛事奖励")
+        form_layout.addRow("备注：", note_edit)
+
+        layout.addLayout(form_layout)
+
+        preview_label = QLabel(dialog)
+        preview_label.setWordWrap(True)
+        layout.addWidget(preview_label)
+
+        def refresh_preview():
+            current_player = player_combo.currentData()
+            total_score = int((current_player or {}).get("total_score", 0) or 0)
+            amount = int(amount_spin.value())
+            preview_label.setText(
+                f"发放后预计总分：{total_score + amount} "
+                f"(当前 {total_score} + 补偿 {amount})"
+            )
+
+        player_combo.currentIndexChanged.connect(lambda _: refresh_preview())
+        amount_spin.valueChanged.connect(lambda _: refresh_preview())
+        refresh_preview()
+
+        button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, parent=dialog)
+        button_box.accepted.connect(dialog.accept)
+        button_box.rejected.connect(dialog.reject)
+        layout.addWidget(button_box)
+
+        if dialog.exec_() != QDialog.Accepted:
+            return None
+
+        return {
+            "player": player_combo.currentData(),
+            "amount": int(amount_spin.value()),
+            "note": note_edit.text().strip(),
+        }
 
     def open_settings(self):
         """打开设置对话框"""
