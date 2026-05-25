@@ -200,11 +200,32 @@
         // finalGain = round(enemy.reward * comboScale * waveBonus)
         // comboScale = 1 + min(comboScaleCap, combo * comboScaleStep)
         // waveBonus = 1 + min(waveBonusCap, (wave - 1) * waveBonusStep)
+        // targetScorePerMinuteCap:
+        // 自动模式结算时允许兑现的最高净盈利速度，默认与全局系统一致为 100000 分/分钟。
+        // manualNetProfitMultiplier:
+        // 纯手动模式的正净收益倍率，默认 2 倍；只放大盈利，不放大本金返还。
+        // normalRewardMultiplierMin / Max:
+        // 普通怪的随机奖励倍率区间，当前是 1~3 倍。
+        // bountySpawnChance:
+        // 奖励怪出现概率。
+        // bountyRewardMultiplierMin / Max:
+        // 奖励怪奖励倍率区间，当前是 5~10 倍。
+        // bountyHpMultiplierMin / Max:
+        // 奖励怪生命倍率区间，当前是 2~3 倍。
         // capacitorStatusBonusSpreadFactor / capacitorStatusBonusSlowFlat:
         // 当目标先被电感拉宽、或先被电阻减慢后，再用电容补刀时给额外爆发伤害。
         scoring: {
             waveAdvanceEveryDefeats: 7,
             scoreEqualsCredits: true,
+            targetScorePerMinuteCap: DEFAULT_EXPECTED_SCORE_PER_MINUTE,
+            manualNetProfitMultiplier: 2,
+            normalRewardMultiplierMin: 1,
+            normalRewardMultiplierMax: 3,
+            bountySpawnChance: 0.14,
+            bountyRewardMultiplierMin: 5,
+            bountyRewardMultiplierMax: 10,
+            bountyHpMultiplierMin: 2,
+            bountyHpMultiplierMax: 3,
             comboScaleStep: 0.09,
             comboScaleCap: 1.6,
             waveBonusStep: 0.04,

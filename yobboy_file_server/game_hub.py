@@ -568,6 +568,75 @@ class GameHubStore:
             },
         )
 
+    def adjust_total_score(
+        self,
+        ip: str,
+        target_total_score: Any,
+        note: Any = "",
+        operator: Any = "",
+    ) -> Dict[str, Any]:
+        identity = _sanitize_device_identity(ip)
+        if not identity:
+            raise ValueError("玩家标识不能为空")
+        try:
+            target_value = int(target_total_score)
+        except (TypeError, ValueError):
+            raise ValueError("目标总分必须是整数")
+
+        current_summary = self.total_score_summary(identity)
+        current_total = int((current_summary or {}).get("total_score") or 0)
+        score_delta = target_value - current_total
+        note_value = str(note or "").strip()[:200]
+        operator_value = str(operator or "").strip()[:64]
+
+        if score_delta == 0:
+            return {
+                "id": 0,
+                "ip": identity,
+                "game_id": "admin-adjustment",
+                "score": 0,
+                "mode": "manual-adjustment",
+                "session_key": "",
+                "meta": {
+                    "note": note_value,
+                    "operator": operator_value,
+                    "source": "desktop-admin",
+                    "adjustment_type": "set-total-score",
+                    "previous_total_score": current_total,
+                    "target_total_score": target_value,
+                    "score_delta": 0,
+                },
+                "created_at": "",
+                "week_key": current_week_key(),
+                "duplicate": False,
+                "unique_key": "",
+                "noop": True,
+                "previous_total_score": current_total,
+                "target_total_score": target_value,
+                "score_delta": 0,
+            }
+
+        result = self.record_score(
+            identity,
+            "admin-adjustment",
+            score_delta,
+            mode="manual-adjustment",
+            meta={
+                "note": note_value,
+                "operator": operator_value,
+                "source": "desktop-admin",
+                "adjustment_type": "set-total-score",
+                "previous_total_score": current_total,
+                "target_total_score": target_value,
+                "score_delta": score_delta,
+            },
+        )
+        result["noop"] = False
+        result["previous_total_score"] = current_total
+        result["target_total_score"] = target_value
+        result["score_delta"] = score_delta
+        return result
+
     def delete_player_data(self, ip: str) -> Dict[str, Any]:
         identity = _sanitize_device_identity(ip)
         if not identity:

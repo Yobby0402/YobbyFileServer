@@ -4222,8 +4222,8 @@ class MainWindow(QMainWindow):
         manage_games_action.triggered.connect(self.open_games_data_admin)
         file_menu.addAction(manage_games_action)
 
-        grant_games_score_action = QAction('💎 发放 Games Hub 积分补偿', self)
-        grant_games_score_action.setStatusTip('仅管理员可在桌面 GUI 中给指定 Games Hub 玩家发放积分补偿')
+        grant_games_score_action = QAction('💎 调整 Games Hub 玩家总分', self)
+        grant_games_score_action.setStatusTip('仅管理员可在桌面 GUI 中把指定 Games Hub 玩家的总分调整到目标值，并记录理由')
         grant_games_score_action.triggered.connect(self.open_games_score_compensation_admin)
         file_menu.addAction(grant_games_score_action)
 
@@ -5060,12 +5060,12 @@ class MainWindow(QMainWindow):
         )
 
     def open_games_score_compensation_admin(self):
-        """管理员入口：给指定 Games Hub 玩家发放积分补偿。"""
+        """管理员入口：将指定 Games Hub 玩家的总分调整到目标值。"""
         if self.is_server_running:
             reply = QMessageBox.question(
                 self,
                 "停止服务器？",
-                "发放 Games Hub 积分补偿前建议先停止服务器，是否现在停止？",
+                "调整 Games Hub 玩家总分前建议先停止服务器，是否现在停止？",
                 QMessageBox.Yes | QMessageBox.No,
                 QMessageBox.Yes
             )
@@ -5073,7 +5073,7 @@ class MainWindow(QMainWindow):
                 return
             self.stop_server()
             if not self.wait_for_server_state(expected_running=False, timeout_ms=5000):
-                QMessageBox.warning(self, "错误", "服务器停止失败，已取消积分补偿操作。")
+                QMessageBox.warning(self, "错误", "服务器停止失败，已取消总分调整操作。")
                 return
 
         settings = read_runtime_settings()
@@ -5087,7 +5087,7 @@ class MainWindow(QMainWindow):
         if not ok:
             return
         if admin_pass != current_admin_password:
-            QMessageBox.critical(self, "错误", "管理员密码错误，无法发放积分补偿。")
+            QMessageBox.critical(self, "错误", "管理员密码错误，无法调整玩家总分。")
             return
 
         try:
@@ -5098,7 +5098,7 @@ class MainWindow(QMainWindow):
             return
 
         if not players:
-            QMessageBox.information(self, "提示", "当前没有可发放积分补偿的 Games Hub 玩家。")
+            QMessageBox.information(self, "提示", "当前没有可调整总分的 Games Hub 玩家。")
             return
 
         compensation_payload = self._prompt_games_score_compensation(players)
@@ -5107,20 +5107,33 @@ class MainWindow(QMainWindow):
 
         selected_player = compensation_payload["player"]
         selected_identity = str(selected_player.get("identity") or "")
-        amount = int(compensation_payload["amount"])
+        current_total = int(selected_player.get("total_score", 0) or 0)
+        target_total = int(compensation_payload["target_total"])
+        score_delta = int(compensation_payload["score_delta"])
         note = compensation_payload["note"]
+
+        if score_delta == 0:
+            QMessageBox.information(
+                self,
+                "无需调整",
+                f"{selected_player.get('display_name', selected_identity)} 当前总分已经是 {target_total}，无需新增积分记录。"
+            )
+            return
+
+        action_label = "增加" if score_delta > 0 else "扣除"
 
         confirm = QMessageBox.warning(
             self,
-            "确认发放积分补偿",
+            "确认调整玩家总分",
             (
-                f"确定要给以下玩家发放积分补偿吗？\n\n"
+                f"确定要调整以下玩家的总分吗？\n\n"
                 f"显示名：{selected_player.get('display_name', '')}\n"
                 f"身份：{selected_identity}\n"
-                f"当前总分：{int(selected_player.get('total_score', 0))}\n"
-                f"补偿积分：{amount}\n"
-                f"备注：{note or '无'}\n\n"
-                f"该补偿会直接写入 Games Hub 积分记录，并影响总分与排行榜。"
+                f"当前总分：{current_total}\n"
+                f"目标总分：{target_total}\n"
+                f"本次调整：{action_label} {abs(score_delta)}\n"
+                f"理由：{note or '无'}\n\n"
+                f"该操作会新增一条 Games Hub 积分记录，并影响总分与排行榜。"
             ),
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No
@@ -5129,26 +5142,28 @@ class MainWindow(QMainWindow):
             return
 
         try:
-            result = store.grant_score_compensation(
+            result = store.adjust_total_score(
                 selected_identity,
-                amount,
+                target_total,
                 note=note,
                 operator="desktop-admin",
             )
             updated_summary = store.total_score_summary(selected_identity)
         except Exception as e:
-            QMessageBox.critical(self, "错误", f"发放 Games Hub 积分补偿失败：{e}")
+            QMessageBox.critical(self, "错误", f"调整 Games Hub 玩家总分失败：{e}")
             return
 
         QMessageBox.information(
             self,
-            "发放完成",
+            "调整完成",
             (
-                f"已向 {selected_player.get('display_name', selected_identity)} 发放 {amount} 积分补偿。\n\n"
+                f"已将 {selected_player.get('display_name', selected_identity)} 的总分调整到 {target_total}。\n\n"
+                f"调整前总分：{current_total}\n"
+                f"本次差额：{score_delta:+d}\n"
                 f"记录类型：{result.get('game_id', '')}\n"
-                f"补偿后总分：{int(updated_summary.get('total_score', 0))}\n"
+                f"调整后总分：{int(updated_summary.get('total_score', 0))}\n"
                 f"总记录数：{int(updated_summary.get('play_count', 0))}\n"
-                f"备注：{note or '无'}"
+                f"理由：{note or '无'}"
             )
         )
 
@@ -5197,11 +5212,11 @@ class MainWindow(QMainWindow):
 
     def _prompt_games_score_compensation(self, players):
         dialog = QDialog(self)
-        dialog.setWindowTitle("发放 Games Hub 积分补偿")
+        dialog.setWindowTitle("调整 Games Hub 玩家总分")
         dialog.resize(720, 280)
         layout = QVBoxLayout(dialog)
 
-        tips = QLabel("选择玩家、填写补偿积分和备注后确认。该操作会新增一条可追踪的积分记录。", dialog)
+        tips = QLabel("选择玩家、填写目标总分和理由后确认。程序会自动计算本次应补多少或扣多少，并新增一条可追踪的积分记录。", dialog)
         tips.setWordWrap(True)
         layout.addWidget(tips)
 
@@ -5214,18 +5229,17 @@ class MainWindow(QMainWindow):
                 f"总分 {int(item.get('total_score', 0))} | 记录 {int(item.get('play_count', 0))}"
             )
             player_combo.addItem(label, item)
-        form_layout.addRow("补偿玩家：", player_combo)
+        form_layout.addRow("调整玩家：", player_combo)
 
-        amount_spin = QSpinBox(dialog)
-        amount_spin.setRange(1, 100000000)
-        amount_spin.setSingleStep(100)
-        amount_spin.setValue(1000)
-        form_layout.addRow("补偿积分：", amount_spin)
+        target_total_spin = QSpinBox(dialog)
+        target_total_spin.setRange(-1000000000, 1000000000)
+        target_total_spin.setSingleStep(100)
+        form_layout.addRow("目标总分：", target_total_spin)
 
         note_edit = QLineEdit(dialog)
         note_edit.setMaxLength(200)
-        note_edit.setPlaceholderText("例如：活动补偿、误扣返还、赛事奖励")
-        form_layout.addRow("备注：", note_edit)
+        note_edit.setPlaceholderText("例如：bug 修复、误扣返还、活动奖励、违规扣分")
+        form_layout.addRow("理由：", note_edit)
 
         layout.addLayout(form_layout)
 
@@ -5236,14 +5250,23 @@ class MainWindow(QMainWindow):
         def refresh_preview():
             current_player = player_combo.currentData()
             total_score = int((current_player or {}).get("total_score", 0) or 0)
-            amount = int(amount_spin.value())
+            target_total = int(target_total_spin.value())
+            score_delta = target_total - total_score
+            action_label = "增加" if score_delta > 0 else ("扣除" if score_delta < 0 else "保持不变")
             preview_label.setText(
-                f"发放后预计总分：{total_score + amount} "
-                f"(当前 {total_score} + 补偿 {amount})"
+                f"调整后预计总分：{target_total} "
+                f"(当前 {total_score}，本次将{action_label} {abs(score_delta)})"
             )
 
+        def sync_target_total_from_player():
+            current_player = player_combo.currentData()
+            total_score = int((current_player or {}).get("total_score", 0) or 0)
+            target_total_spin.setValue(total_score)
+
+        player_combo.currentIndexChanged.connect(lambda _: sync_target_total_from_player())
         player_combo.currentIndexChanged.connect(lambda _: refresh_preview())
-        amount_spin.valueChanged.connect(lambda _: refresh_preview())
+        target_total_spin.valueChanged.connect(lambda _: refresh_preview())
+        sync_target_total_from_player()
         refresh_preview()
 
         button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, parent=dialog)
@@ -5256,7 +5279,8 @@ class MainWindow(QMainWindow):
 
         return {
             "player": player_combo.currentData(),
-            "amount": int(amount_spin.value()),
+            "target_total": int(target_total_spin.value()),
+            "score_delta": int(target_total_spin.value()) - int((player_combo.currentData() or {}).get("total_score", 0) or 0),
             "note": note_edit.text().strip(),
         }
 

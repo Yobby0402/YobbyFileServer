@@ -211,6 +211,97 @@
         return preset.label + " " + (1 / preset.reloadSeconds).toFixed(1) + "/s";
     }
 
+    function getProfitPerMinuteCap() {
+        const configured = Number(SCORING_RULES.targetScorePerMinuteCap);
+        if (!Number.isFinite(configured) || configured <= 0) {
+            return 100000;
+        }
+        return configured;
+    }
+
+    function getNetProfitCap(elapsedSeconds) {
+        const safeElapsedSeconds = Math.max(0, Number(elapsedSeconds) || 0);
+        return Math.floor(getProfitPerMinuteCap() * safeElapsedSeconds / 60);
+    }
+
+    function getManualNetProfitMultiplier() {
+        const configured = Number(SCORING_RULES.manualNetProfitMultiplier);
+        if (!Number.isFinite(configured) || configured < 1) {
+            return 2;
+        }
+        return configured;
+    }
+
+    function getScoringInt(name, fallbackValue, minValue) {
+        const configured = Math.round(Number(SCORING_RULES[name]));
+        if (!Number.isFinite(configured)) {
+            return fallbackValue;
+        }
+        return Math.max(minValue == null ? configured : minValue, configured);
+    }
+
+    function getScoringFloat(name, fallbackValue, minValue) {
+        const configured = Number(SCORING_RULES[name]);
+        if (!Number.isFinite(configured)) {
+            return fallbackValue;
+        }
+        return Math.max(minValue == null ? configured : minValue, configured);
+    }
+
+    function randomIntInclusive(minValue, maxValue) {
+        const low = Math.min(minValue, maxValue);
+        const high = Math.max(minValue, maxValue);
+        return low + Math.floor(Math.random() * (high - low + 1));
+    }
+
+    function randomRange(minValue, maxValue) {
+        const low = Math.min(minValue, maxValue);
+        const high = Math.max(minValue, maxValue);
+        return low + Math.random() * (high - low);
+    }
+
+    function getRewardProfile() {
+        return {
+            normalMin: getScoringInt("normalRewardMultiplierMin", 1, 1),
+            normalMax: getScoringInt("normalRewardMultiplierMax", 3, 1),
+            bountyChance: clamp(Number(SCORING_RULES.bountySpawnChance == null ? 0.14 : SCORING_RULES.bountySpawnChance), 0, 1),
+            bountyRewardMin: getScoringInt("bountyRewardMultiplierMin", 5, 1),
+            bountyRewardMax: getScoringInt("bountyRewardMultiplierMax", 10, 1),
+            bountyHpMin: getScoringFloat("bountyHpMultiplierMin", 2, 1),
+            bountyHpMax: getScoringFloat("bountyHpMultiplierMax", 3, 1)
+        };
+    }
+
+    function formatRewardScore(value) {
+        return "+" + Math.max(0, Math.round(Number(value) || 0)).toLocaleString("en-US");
+    }
+
+    function getSessionBuyInTotal(session) {
+        return Math.max(0, toInt(session && session.stakeAmount, 0) + toInt(session && session.loanAmount, 0));
+    }
+
+    function buildCashoutSettlement(session) {
+        const buyInTotal = getSessionBuyInTotal(session);
+        const rawPayout = Math.max(0, Math.round(session.credits));
+        const rawNet = rawPayout - buyInTotal;
+        const isAutoSettlement = Boolean(session.autoAssistUsed);
+        const creditedNet = isAutoSettlement
+            ? Math.min(rawNet, getNetProfitCap(session.elapsedSeconds))
+            : (rawNet > 0 ? Math.round(rawNet * getManualNetProfitMultiplier()) : rawNet);
+        const creditedPayout = Math.max(0, buyInTotal + creditedNet);
+        return {
+            buyInTotal: buyInTotal,
+            rawPayout: rawPayout,
+            creditedPayout: creditedPayout,
+            rawNet: rawNet,
+            creditedNet: creditedNet,
+            netProfitCap: isAutoSettlement ? getNetProfitCap(session.elapsedSeconds) : 0,
+            rateLimited: isAutoSettlement && creditedPayout < rawPayout,
+            settlementMode: isAutoSettlement ? "auto" : "manual",
+            manualBonusApplied: !isAutoSettlement && rawNet > 0 && creditedPayout > rawPayout
+        };
+    }
+
     function getFamilyPreset(key) {
         return COMPONENT_FAMILIES[String(key) || "capacitor"] || COMPONENT_FAMILIES.capacitor;
     }
@@ -312,6 +403,8 @@
             selectedSpecIndex: { capacitor: 3, resistor: 3, inductor: 3 },
             aimAngle: -Math.PI / 2,
             autoFire: false,
+            autoAssistUsed: false,
+            pointerTriggerHeld: false,
             infoText: "等待投入开局",
             scanlineX: 0,
             feedOffset: 0,
@@ -336,6 +429,8 @@
             frequency: Math.max(0.72, Number(raw && raw.frequency) || preset.frequency),
             speed: Math.max(52, Number(raw && raw.speed) || preset.speed),
             reward: Math.max(24, toInt(raw && raw.reward, preset.reward)),
+            rewardMultiplier: Math.max(1, Number(raw && raw.rewardMultiplier) || 1),
+            isBounty: Boolean(raw && raw.isBounty),
             slowTimer: Math.max(0, Number(raw && raw.slowTimer) || 0),
             slowFactor: clamp(Number(raw && raw.slowFactor) || 0, 0, 0.72),
             spreadTimer: Math.max(0, Number(raw && raw.spreadTimer) || 0),
@@ -401,6 +496,8 @@
             session.aimAngle = -Math.PI / 2;
         }
         session.autoFire = Boolean(raw.autoFire);
+        session.autoAssistUsed = Boolean(raw.autoAssistUsed);
+        session.pointerTriggerHeld = false;
         session.infoText = String(raw.infoText || session.infoText);
         session.scanlineX = Math.max(0, Number(raw.scanlineX) || 0);
         session.feedOffset = 0;
@@ -461,6 +558,7 @@
             selectedSpecIndex: session.selectedSpecIndex,
             aimAngle: session.aimAngle,
             autoFire: session.autoFire,
+            autoAssistUsed: session.autoAssistUsed,
             infoText: session.infoText,
             scanlineX: session.scanlineX,
             enemies: session.enemies.slice(0, MAX_PERSISTED_ENEMIES).map(function (enemy) {
@@ -476,6 +574,8 @@
                     frequency: enemy.frequency,
                     speed: enemy.speed,
                     reward: enemy.reward,
+                    rewardMultiplier: enemy.rewardMultiplier,
+                    isBounty: enemy.isBounty,
                     slowTimer: enemy.slowTimer,
                     slowFactor: enemy.slowFactor,
                     spreadTimer: enemy.spreadTimer,
@@ -675,18 +775,27 @@
         const preset = getWavePreset(typeKey);
         const lineIndex = availableTraces[Math.floor(Math.random() * availableTraces.length)];
         const waveScale = 1 + Math.min(SPAWN_BALANCE.hpWaveStepCap, (session.wave - 1) * SPAWN_BALANCE.hpWaveStep);
+        const rewardProfile = getRewardProfile();
+        const isBounty = Math.random() < rewardProfile.bountyChance;
+        const rewardMultiplier = isBounty
+            ? randomIntInclusive(rewardProfile.bountyRewardMin, rewardProfile.bountyRewardMax)
+            : randomIntInclusive(rewardProfile.normalMin, rewardProfile.normalMax);
+        const hpMultiplier = isBounty ? randomRange(rewardProfile.bountyHpMin, rewardProfile.bountyHpMax) : 1;
+        const baseHp = Math.round(preset.hp * waveScale);
         session.enemies.push({
             id: session.nextEnemyId++,
             type: preset.key,
             lineIndex: lineIndex,
             x: -preset.width * 0.5,
-            hp: Math.round(preset.hp * waveScale),
-            maxHp: Math.round(preset.hp * waveScale),
+            hp: Math.max(1, Math.round(baseHp * hpMultiplier)),
+            maxHp: Math.max(1, Math.round(baseHp * hpMultiplier)),
             baseAmplitude: preset.amplitude + Math.min(SPAWN_BALANCE.amplitudeWaveCap, session.wave * SPAWN_BALANCE.amplitudeWaveStep),
             segmentWidth: preset.width + Math.min(SPAWN_BALANCE.widthWaveCap, session.wave * SPAWN_BALANCE.widthWaveStep),
             frequency: preset.frequency + Math.min(SPAWN_BALANCE.frequencyWaveCap, session.wave * SPAWN_BALANCE.frequencyWaveStep),
             speed: getTraceTravelSpeed(session),
-            reward: Math.round(preset.reward * (1 + (session.wave - 1) * SPAWN_BALANCE.rewardWaveStep)),
+            reward: Math.round(preset.reward * (1 + (session.wave - 1) * SPAWN_BALANCE.rewardWaveStep) * rewardMultiplier),
+            rewardMultiplier: rewardMultiplier,
+            isBounty: isBounty,
             slowTimer: 0,
             slowFactor: 0,
             spreadTimer: 0,
@@ -695,7 +804,7 @@
             hitFlash: 0,
             phase: Math.random() * Math.PI * 2
         });
-        session.infoText = TRACE_LABELS[lineIndex] + " 捕获到 " + preset.label;
+        session.infoText = TRACE_LABELS[lineIndex] + (isBounty ? " 奖励怪 " : " 捕获到 ") + preset.label;
     }
 
     function createBullet(session) {
@@ -984,6 +1093,8 @@
         const baseY = TRACE_Y[enemy.lineIndex];
         const preset = getWavePreset(enemy.type);
         const lineColor = TRACE_COLORS[enemy.lineIndex];
+        const rewardText = formatRewardScore(enemy.reward);
+        const labelY = baseY - amplitude - 10;
         ctx2d.save();
         ctx2d.strokeStyle = lineColor;
         ctx2d.shadowColor = lineColor;
@@ -1008,7 +1119,17 @@
         ctx2d.shadowBlur = 0;
         ctx2d.fillStyle = lineColor;
         ctx2d.font = "11px Fira Code, Cascadia Mono, Consolas, monospace";
-        ctx2d.fillText(preset.label, left, baseY - amplitude - 10);
+        ctx2d.fillText(preset.label + " " + rewardText, left, labelY);
+        if (enemy.isBounty) {
+            ctx2d.strokeStyle = "rgba(250,204,21,0.96)";
+            ctx2d.lineWidth = 2;
+            ctx2d.beginPath();
+            ctx2d.arc(left - 14, labelY - 4, 8, 0, Math.PI * 2);
+            ctx2d.stroke();
+            ctx2d.beginPath();
+            ctx2d.arc(centerX, baseY, Math.max(24, Math.min(width * 0.22, 40)), 0, Math.PI * 2);
+            ctx2d.stroke();
+        }
         if (enemy.spreadPixels > 6) {
             ctx2d.strokeStyle = "rgba(251,191,36,0.34)";
             ctx2d.setLineDash([7, 6]);
@@ -1446,7 +1567,7 @@
         }
 
         function sessionBuyInTotal() {
-            return Math.max(0, session.stakeAmount + session.loanAmount);
+            return getSessionBuyInTotal(session);
         }
 
         function sessionNet() {
@@ -1642,6 +1763,8 @@
             session.lastFrameAt = 0;
             session.spawnTimer = 1.05;
             session.reloadTimer = 0;
+            session.autoAssistUsed = session.autoFire;
+            session.pointerTriggerHeld = false;
             session.feedOffset = 0;
             session.feedAdvance = 0;
             session.enemies = [];
@@ -1729,16 +1852,21 @@
             renderHud();
             persist();
 
-            const payout = Math.max(0, Math.round(session.credits));
+            const settlement = buildCashoutSettlement(session);
+            const payout = settlement.creditedPayout;
             const result = {
                 reason: reason || "cashout",
                 payout: payout,
-                net: payout - sessionBuyInTotal(),
+                net: settlement.creditedNet,
                 stake: session.stakeAmount,
                 loan: session.loanAmount,
                 defeated: session.defeated,
                 escaped: session.escaped,
-                elapsedSeconds: session.elapsedSeconds
+                elapsedSeconds: session.elapsedSeconds,
+                rawPayout: settlement.rawPayout,
+                rawNet: settlement.rawNet,
+                netProfitCap: settlement.netProfitCap,
+                rateLimited: settlement.rateLimited
             };
 
             try {
@@ -1746,8 +1874,14 @@
                     await ctx.submitScore(GAME_ID, payout, "trace-cashout", session.sessionKey, {
                         ledger_type: "cash_out",
                         payout: payout,
+                        raw_payout: settlement.rawPayout,
                         net_profit: result.net,
-                        buy_in_total: sessionBuyInTotal(),
+                        raw_net_profit: settlement.rawNet,
+                        net_profit_cap: settlement.netProfitCap,
+                        rate_limited: settlement.rateLimited,
+                        settlement_mode: settlement.settlementMode,
+                        manual_bonus_applied: settlement.manualBonusApplied,
+                        buy_in_total: settlement.buyInTotal,
                         stake_amount: session.stakeAmount,
                         loan_amount: session.loanAmount,
                         defeated: session.defeated,
@@ -1795,6 +1929,9 @@
                 return;
             }
             session.autoFire = !session.autoFire;
+            if (session.autoFire) {
+                session.autoAssistUsed = true;
+            }
             session.infoText = session.autoFire ? "自动瞄准接管。" : "手动瞄准恢复。";
             renderHud();
             persist();
@@ -1830,7 +1967,15 @@
             if (!target) {
                 return;
             }
+            session.autoAssistUsed = true;
             session.aimAngle = target.angle;
+            fire();
+        }
+
+        function maybeHeldManualFire() {
+            if (session.autoFire || !session.pointerTriggerHeld || session.status !== "playing" || session.entryOpen || session.reloadTimer > 0) {
+                return;
+            }
             fire();
         }
 
@@ -1849,15 +1994,26 @@
 
         function handlePointerDown(event) {
             event.preventDefault();
+            if (event.button !== 0) {
+                return;
+            }
             if (session.entryOpen || session.status === "entry") {
                 openEntryOverlay(session.entryMessage || "先完成投入再开火。", true);
                 return;
             }
+            session.pointerTriggerHeld = true;
             session.aimAngle = pointerToAngle(event);
             if (session.status === "paused") {
                 resumeSession();
             }
             fire();
+        }
+
+        function handlePointerUp(event) {
+            if (event && event.button != null && event.button !== 0) {
+                return;
+            }
+            session.pointerTriggerHeld = false;
         }
 
         function handleRootClick(event) {
@@ -1971,6 +2127,7 @@
             try {
                 updateSession(session, deltaSeconds);
                 maybeAutoFire();
+                maybeHeldManualFire();
                 renderCanvas(canvasCtx, session);
                 renderHud();
                 if (session.status === "gameover") {
@@ -2008,6 +2165,8 @@
 
         canvas.addEventListener("mousemove", handlePointerMove);
         canvas.addEventListener("mousedown", handlePointerDown);
+        canvas.addEventListener("mouseleave", handlePointerUp);
+        window.addEventListener("mouseup", handlePointerUp);
         root.addEventListener("click", handleRootClick);
         document.addEventListener("keydown", handleKeyDown);
         entryStartEl.addEventListener("click", function () {
@@ -2037,6 +2196,8 @@
         return function cleanup() {
             canvas.removeEventListener("mousemove", handlePointerMove);
             canvas.removeEventListener("mousedown", handlePointerDown);
+            canvas.removeEventListener("mouseleave", handlePointerUp);
+            window.removeEventListener("mouseup", handlePointerUp);
             root.removeEventListener("click", handleRootClick);
             document.removeEventListener("keydown", handleKeyDown);
             if (animationId) {
