@@ -428,6 +428,26 @@ def _sse(event: str, obj: Any) -> str:
     return f"event: {event}\ndata: {json.dumps(obj, ensure_ascii=False)}\n\n"
 
 
+def _trace_safe_value(value: Any) -> Any:
+    if value is None or isinstance(value, (bool, int, float, str)):
+        return value
+    if isinstance(value, (list, tuple)):
+        return [_trace_safe_value(item) for item in value]
+    if isinstance(value, dict):
+        return {str(k): _trace_safe_value(v) for k, v in value.items()}
+    return str(value)
+
+
+def _local_ai_trace_log(trace_id: str, stage: str, **fields: Any) -> None:
+    payload = {
+        "trace_id": str(trace_id or ""),
+        "stage": str(stage or ""),
+    }
+    for key, value in fields.items():
+        payload[str(key)] = _trace_safe_value(value)
+    current_app.logger.info("[local-ai-trace] %s", json.dumps(payload, ensure_ascii=False, sort_keys=True))
+
+
 def _todo_kb_root_dir() -> str:
     return str(current_app.config.get("ROOT_DIR") or current_app.config.get("BASE_DIR") or "")
 
@@ -499,8 +519,17 @@ def _stream_chat_model_sse(
     *,
     system: Optional[str] = None,
     max_new_tokens: Optional[int] = None,
+    trace_id: str = "",
+    request_started_at: Optional[float] = None,
+    stream_metrics: Optional[Dict[str, Any]] = None,
 ) -> Generator[str, None, None]:
     received_chars = 0
+    stream_started_at = time.perf_counter()
+    first_token_logged = False
+    token_events = 0
+    if stream_metrics is not None:
+        stream_metrics["received_chars"] = 0
+        stream_metrics["token_events"] = 0
     for event in local_ai_engine.stream_generate_events(
         cfg,
         messages,
@@ -513,6 +542,21 @@ def _stream_chat_model_sse(
             if not text:
                 continue
             received_chars += len(text)
+            token_events += 1
+            if stream_metrics is not None:
+                stream_metrics["received_chars"] = received_chars
+                stream_metrics["token_events"] = token_events
+            if trace_id and not first_token_logged:
+                first_token_logged = True
+                trace_payload: Dict[str, Any] = {
+                    "stream_ms": round((time.perf_counter() - stream_started_at) * 1000, 1),
+                    "received_chars": received_chars,
+                }
+                if request_started_at is not None:
+                    trace_payload["since_start_ms"] = round((time.perf_counter() - request_started_at) * 1000, 1)
+                _local_ai_trace_log(trace_id, "first_token", **trace_payload)
+                if stream_metrics is not None:
+                    stream_metrics["first_token_logged"] = True
             yield _sse("token", {"t": text})
             continue
         if event_type == "progress":
@@ -529,11 +573,40 @@ def _stream_chat_model_sse(
             )
             continue
         if event_type == "stats":
+            if trace_id:
+                _local_ai_trace_log(
+                    trace_id,
+                    "generation_stats",
+                    stream_ms=round((time.perf_counter() - stream_started_at) * 1000, 1),
+                    stats=event.get("stats") or {},
+                )
+            if stream_metrics is not None:
+                stream_metrics["generation_stats"] = event.get("stats") or {}
             yield _sse("generation_stats", event.get("stats") or {})
             continue
         if event_type == "error":
+            if trace_id:
+                trace_payload = {
+                    "stream_ms": round((time.perf_counter() - stream_started_at) * 1000, 1),
+                    "received_chars": received_chars,
+                    "token_events": token_events,
+                    "message": str(event.get("message") or "生成失败"),
+                }
+                if request_started_at is not None:
+                    trace_payload["since_start_ms"] = round((time.perf_counter() - request_started_at) * 1000, 1)
+                _local_ai_trace_log(trace_id, "generation_error", **trace_payload)
             yield _sse("error", {"message": str(event.get("message") or "生成失败")})
             return
+    if trace_id:
+        trace_payload = {
+            "stream_ms": round((time.perf_counter() - stream_started_at) * 1000, 1),
+            "received_chars": received_chars,
+            "token_events": token_events,
+            "first_token_logged": first_token_logged,
+        }
+        if request_started_at is not None:
+            trace_payload["since_start_ms"] = round((time.perf_counter() - request_started_at) * 1000, 1)
+        _local_ai_trace_log(trace_id, "generation_done", **trace_payload)
 
 
 def register_local_ai_routes(app) -> None:
@@ -549,7 +622,22 @@ def register_local_ai_routes(app) -> None:
         c = current_app.config
         cfg = _app_ai_config()
         st = local_ai_engine.get_status(cfg)
-        embed_status = embedding_client.probe_connection(cfg, timeout=3.0)
+        include_embedding = str(request.args.get("include_embedding") or "").strip().lower() in (
+            "1",
+            "true",
+            "yes",
+            "on",
+        )
+        if include_embedding:
+            embed_status = embedding_client.probe_connection(cfg, timeout=3.0)
+        else:
+            embed_status = {
+                "success": None,
+                "skipped": True,
+                "api_root": str(cfg.get("LOCAL_AI_EMBED_API_BASE_URL") or ""),
+                "model": str(cfg.get("LOCAL_AI_EMBED_MODEL") or ""),
+                "models": [],
+            }
         skills_dir = c.get("LOCAL_AI_SKILLS_DIR", "") or ""
         models_dir = c.get("LOCAL_AI_MODELS_DIR", "") or ""
         _do = str(c.get("LOCAL_AI_DRAWIO_OUTPUT", "text_dsl") or "text_dsl").strip().lower()
@@ -597,11 +685,14 @@ def register_local_ai_routes(app) -> None:
             return jsonify({"success": False, "error": "messages 不能为空"}), 400
         last_user = _last_user_plain_text(messages)
         page_context = _extract_page_context(body)
+        trace_id = uuid.uuid4().hex[:12]
+        request_started_at = time.perf_counter()
 
         cfg = _app_ai_config()
         tm = current_app.config.get("TODO_MANAGER")
         root_dir = current_app.config.get("ROOT_DIR") or ""
         skills_block = ""
+        skills_started_at = time.perf_counter()
         if mode != "drawio" and cfg.get("LOCAL_AI_APPEND_SKILLS", True):
             _ctx_eff = int(local_ai_engine._effective_lm_context_tokens(cfg))
             _skill_cap = min(12000, max(4096, _ctx_eff * 2))
@@ -609,8 +700,51 @@ def register_local_ai_routes(app) -> None:
                 cfg.get("LOCAL_AI_SKILLS_DIR") or "",
                 max_total_chars=_skill_cap,
             )
+        skills_load_ms = round((time.perf_counter() - skills_started_at) * 1000, 1)
+        _local_ai_trace_log(
+            trace_id,
+            "request_start",
+            mode=mode,
+            message_count=len(messages),
+            history_chars=sum(len(_message_plain_text(item.get("content"))) for item in messages),
+            last_user_chars=len(last_user or ""),
+            append_skills=bool(cfg.get("LOCAL_AI_APPEND_SKILLS", True)),
+            skills_chars=len(skills_block),
+            skills_load_ms=skills_load_ms,
+            has_page_context=bool(page_context),
+        )
 
         def generate() -> Generator[str, None, None]:
+            stream_metrics: Dict[str, Any] = {}
+            trace_flags = {
+                "todo_attach": False,
+                "erp_attach": False,
+                "knowledge_attach": False,
+            }
+            request_completed = False
+
+            def trace_stage(stage: str, stage_started_at: Optional[float] = None, **fields: Any) -> None:
+                payload = {
+                    "since_start_ms": round((time.perf_counter() - request_started_at) * 1000, 1),
+                }
+                if stage_started_at is not None:
+                    payload["stage_ms"] = round((time.perf_counter() - stage_started_at) * 1000, 1)
+                payload.update(fields)
+                _local_ai_trace_log(trace_id, stage, **payload)
+
+            def trace_prompt_ready(system_text: Optional[str], **extra: Any) -> None:
+                built_msgs = local_ai_engine._build_prompt_messages(messages, system=system_text)
+                trace_stage(
+                    "prompt_ready",
+                    system_chars=len(system_text or ""),
+                    prompt_message_count=len(built_msgs),
+                    prompt_est_tokens=local_ai_engine._messages_token_estimate(built_msgs),
+                    todo_attach=trace_flags["todo_attach"],
+                    erp_attach=trace_flags["erp_attach"],
+                    knowledge_attach=trace_flags["knowledge_attach"],
+                    **extra,
+                )
+
             drawio_out_meta = "text_dsl"
             if mode == "drawio":
                 drawio_out_meta = str(
@@ -618,9 +752,9 @@ def register_local_ai_routes(app) -> None:
                 ).strip().lower()
                 if drawio_out_meta not in ("text_dsl", "xml"):
                     drawio_out_meta = "text_dsl"
-                yield _sse("meta", {"mode": mode, "drawio_output": drawio_out_meta})
+                yield _sse("meta", {"mode": mode, "drawio_output": drawio_out_meta, "trace_id": trace_id})
             else:
-                yield _sse("meta", {"mode": mode})
+                yield _sse("meta", {"mode": mode, "trace_id": trace_id})
                 yield _sse("chat_progress", _chat_progress_payload("preparing", "请求成功，正在准备上下文"))
 
             if mode == "drawio":
@@ -1024,30 +1158,57 @@ def register_local_ai_routes(app) -> None:
                 and mode == "general"
                 and todo_ai_bridge.message_suggests_todo_context(last_user)
             ):
+                todo_ctx_started_at = time.perf_counter()
                 yield _sse("chat_progress", _chat_progress_payload("mcp", "正在读取待办上下文"))
                 todo_text = ""
+                todo_kb_started_at = time.perf_counter()
                 kb_ctx, _todo_kb_hits = todo_kb_store.retrieve_for_query(
                     _todo_kb_root_dir(),
                     last_user,
                     top_k=5,
                     app_config=_app_ai_config(),
                 )
+                trace_stage(
+                    "general_todo_kb_lookup",
+                    todo_kb_started_at,
+                    ctx_chars=len(kb_ctx or ""),
+                    hit_count=len(_todo_kb_hits or []),
+                )
                 if kb_ctx:
                     todo_text = kb_ctx
+                todo_mcp_started_at = time.perf_counter()
                 mcp_ctx, mcp_meta = _mcp_call_with_meta(
                     "todo_get_context_preview",
                     {"level": "auto", "q": last_user},
                     timeout_sec=8.0,
                 )
                 yield _sse("mcp_call", mcp_meta)
+                trace_stage(
+                    "general_todo_mcp_preview",
+                    todo_mcp_started_at,
+                    ok=bool(mcp_ctx and mcp_ctx.get("ok")),
+                    mcp_elapsed_ms=mcp_meta.get("elapsed_ms"),
+                )
                 if not todo_text and mcp_ctx and mcp_ctx.get("ok"):
                     todo_text = str((mcp_ctx.get("data") or {}).get("text") or "")
                 if not todo_text:
+                    todo_local_started_at = time.perf_counter()
                     todo_text = todo_ai_bridge.build_adaptive_todo_context_for_llm(tm, last_user)
+                    trace_stage(
+                        "general_todo_local_context_build",
+                        todo_local_started_at,
+                        ctx_chars=len(todo_text or ""),
+                    )
                 todo_attach = (
                     todo_ai_bridge.TODO_LLM_SCHEMA_GUIDE
                     + "\n\n[当前待办快照 — 按问题选层级；仅用于待办相关回答，勿编造]\n"
                     + todo_text
+                )
+                trace_flags["todo_attach"] = bool(todo_attach)
+                trace_stage(
+                    "general_todo_context_ready",
+                    todo_ctx_started_at,
+                    attach_chars=len(todo_attach),
                 )
                 yield _sse("chat_progress", _chat_progress_payload("processing", "待办上下文已就绪"))
 
@@ -1060,21 +1221,41 @@ def register_local_ai_routes(app) -> None:
                 or (mode == "knowledge" and _message_suggests_erp_context(last_user))
             )
             if should_attach_erp:
+                erp_ctx_started_at = time.perf_counter()
                 yield _sse("chat_progress", _chat_progress_payload("mcp", "正在读取 ERP 上下文"))
+                erp_mcp_started_at = time.perf_counter()
                 mcp_erp, mcp_meta = _mcp_call_with_meta(
                     "erp_get_context",
                     {"query_text": last_user, "page_context": page_context},
                     timeout_sec=8.0,
                 )
                 yield _sse("mcp_call", mcp_meta)
+                trace_stage(
+                    "erp_mcp_context",
+                    erp_mcp_started_at,
+                    ok=bool(mcp_erp and mcp_erp.get("ok")),
+                    mcp_elapsed_ms=mcp_meta.get("elapsed_ms"),
+                )
                 if mcp_erp and mcp_erp.get("ok"):
                     erp_context_data = (mcp_erp.get("data") or {}) if isinstance(mcp_erp.get("data"), dict) else None
                 if not erp_context_data:
+                    erp_local_started_at = time.perf_counter()
                     erp_context_data = _build_erp_context(last_user, page_context)
+                    trace_stage(
+                        "erp_local_context_build",
+                        erp_local_started_at,
+                        has_context=bool(erp_context_data and str(erp_context_data.get("text") or "").strip()),
+                    )
                 if erp_context_data and str(erp_context_data.get("text") or "").strip():
                     erp_attach = (
                         "\n\n--- ERP 本地数据快照 ---\n\n"
                         + str(erp_context_data.get("text") or "").strip()
+                    )
+                    trace_flags["erp_attach"] = True
+                    trace_stage(
+                        "erp_context_ready",
+                        erp_ctx_started_at,
+                        attach_chars=len(erp_attach),
                     )
                     yield _sse("chat_progress", _chat_progress_payload("processing", "ERP 上下文已就绪"))
                 elif mode == "erp":
@@ -1090,6 +1271,7 @@ def register_local_ai_routes(app) -> None:
                     for k in ("知识库", "文档", "根据文档", "根据知识库", "资料里", "README", ".md")
                 )
                 if ask_kb:
+                    kb_ctx_started_at = time.perf_counter()
                     yield _sse("chat_progress", _chat_progress_payload("mcp", "正在检索知识库"))
                     ctx = ""
                     hits: List[Dict[str, Any]] = []
@@ -1097,41 +1279,70 @@ def register_local_ai_routes(app) -> None:
                     todo_hits: List[Dict[str, Any]] = []
                     product_compare_hits: List[Dict[str, Any]] = []
                     knowledge_sections: List[str] = []
+                    kb_mcp_started_at = time.perf_counter()
                     mcp_kb, mcp_meta = _mcp_call_with_meta(
                         "kb_retrieve",
                         {"query": last_user, "top_k": 6, "max_file_bytes": 200000},
                         timeout_sec=10.0,
                     )
                     yield _sse("mcp_call", mcp_meta)
+                    trace_stage(
+                        "knowledge_mcp_retrieve",
+                        kb_mcp_started_at,
+                        ok=bool(mcp_kb and mcp_kb.get("ok")),
+                        mcp_elapsed_ms=mcp_meta.get("elapsed_ms"),
+                    )
                     if mcp_kb and mcp_kb.get("ok"):
                         kb_data = mcp_kb.get("data") or {}
                         ctx = str(kb_data.get("context") or "")
                         hits = list(kb_data.get("hits") or [])
                         names = list(kb_data.get("name_suggestions") or [])
                     if not ctx and not hits and not names:
+                        kb_local_started_at = time.perf_counter()
                         ctx, hits, names = knowledge_store.retrieve_for_query(
                             root_dir,
                             last_user,
                             app_config=_app_ai_config(),
                         )
+                        trace_stage(
+                            "knowledge_local_retrieve",
+                            kb_local_started_at,
+                            ctx_chars=len(ctx or ""),
+                            hit_count=len(hits or []),
+                            name_count=len(names or []),
+                        )
                     if ctx.strip():
                         knowledge_sections.append(_kb_section("文件知识库", ctx.strip()))
                     if mode == "knowledge":
+                        todo_knowledge_started_at = time.perf_counter()
                         todo_ctx, todo_hits = todo_kb_store.retrieve_for_query(
                             _todo_kb_root_dir(),
                             last_user,
                             top_k=5,
                             app_config=_app_ai_config(),
                         )
+                        trace_stage(
+                            "knowledge_mode_todo_retrieve",
+                            todo_knowledge_started_at,
+                            ctx_chars=len(todo_ctx or ""),
+                            hit_count=len(todo_hits or []),
+                        )
                         if todo_ctx.strip():
                             knowledge_sections.append(_kb_section("待办知识库", todo_ctx.strip()))
                         compare_manager = current_app.config.get("PRODUCT_COMPARE_MANAGER")
                         if compare_manager is not None:
+                            product_knowledge_started_at = time.perf_counter()
                             compare_ctx, product_compare_hits = product_compare_kb_store.retrieve_for_query(
                                 _product_compare_kb_root_dir(),
                                 last_user,
                                 top_k=5,
                                 app_config=_app_ai_config(),
+                            )
+                            trace_stage(
+                                "knowledge_mode_product_retrieve",
+                                product_knowledge_started_at,
+                                ctx_chars=len(compare_ctx or ""),
+                                hit_count=len(product_compare_hits or []),
                             )
                             if compare_ctx.strip():
                                 knowledge_sections.append(_kb_section("产品对比知识库", compare_ctx.strip()))
@@ -1148,6 +1359,13 @@ def register_local_ai_routes(app) -> None:
                         "todo_hits": todo_hits,
                         "product_compare_hits": product_compare_hits,
                     }
+                    trace_flags["knowledge_attach"] = bool(knowledge_attach)
+                    trace_stage(
+                        "knowledge_context_ready",
+                        kb_ctx_started_at,
+                        attach_chars=len(knowledge_attach),
+                        section_count=len(knowledge_sections),
+                    )
                     yield _sse("chat_progress", _chat_progress_payload("processing", "知识库上下文已就绪"))
 
             if mode == "erp":
@@ -1157,9 +1375,19 @@ def register_local_ai_routes(app) -> None:
                     + (erp_attach or "\n\n--- ERP 本地数据快照 ---\n\n(当前没有可用 ERP 上下文)"),
                     skills_block,
                 )
+                trace_prompt_ready(system, branch="erp")
                 yield _sse("chat_progress", _chat_progress_payload("generating", "ERP 上下文已准备完成，正在生成回答"))
-                for event_chunk in _stream_chat_model_sse(cfg, messages, system=system):
+                for event_chunk in _stream_chat_model_sse(
+                    cfg,
+                    messages,
+                    system=system,
+                    trace_id=trace_id,
+                    request_started_at=request_started_at,
+                    stream_metrics=stream_metrics,
+                ):
                     yield event_chunk
+                request_completed = True
+                trace_stage("request_done", branch="erp", stream=stream_metrics)
                 yield _sse("done", {})
                 return
 
@@ -1271,9 +1499,19 @@ def register_local_ai_routes(app) -> None:
                     + overview_extra,
                     skills_block,
                 )
+                trace_prompt_ready(system, branch="todo_read")
                 yield _sse("chat_progress", _chat_progress_payload("generating", "上下文已准备完成，正在生成回答"))
-                for event_chunk in _stream_chat_model_sse(cfg, messages, system=system):
+                for event_chunk in _stream_chat_model_sse(
+                    cfg,
+                    messages,
+                    system=system,
+                    trace_id=trace_id,
+                    request_started_at=request_started_at,
+                    stream_metrics=stream_metrics,
+                ):
                     yield event_chunk
+                request_completed = True
+                trace_stage("request_done", branch="todo_read", stream=stream_metrics)
                 yield _sse("done", {})
                 return
 
@@ -1335,9 +1573,19 @@ def register_local_ai_routes(app) -> None:
                 if knowledge_meta is not None:
                     yield _sse("knowledge_meta", knowledge_meta)
 
+            trace_prompt_ready(system, branch=mode or "general")
             yield _sse("chat_progress", _chat_progress_payload("generating", "上下文已准备完成，正在生成回答"))
-            for event_chunk in _stream_chat_model_sse(cfg, messages, system=system):
+            for event_chunk in _stream_chat_model_sse(
+                cfg,
+                messages,
+                system=system,
+                trace_id=trace_id,
+                request_started_at=request_started_at,
+                stream_metrics=stream_metrics,
+            ):
                 yield event_chunk
+            request_completed = True
+            trace_stage("request_done", branch=mode or "general", stream=stream_metrics)
             yield _sse("done", {})
 
         return Response(

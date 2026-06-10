@@ -83,3 +83,10 @@ AI/models/**
 
 # 根目录大型依赖归档（可选本地保留）
 llama_cpp_python-*.tar.gz
+
+# Playwright
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+/playwright/.auth/

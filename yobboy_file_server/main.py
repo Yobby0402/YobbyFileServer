@@ -34,8 +34,13 @@ from .shared_serial_hub import (
 )
 from .paths import project_base_dir
 from .paths import get_data_dir, get_logs_dir as get_runtime_logs_dir, resolve_path
+from .game_chat import init_games_chat_socketio
+from .game_gomoku import init_gomoku_socketio
+from .game_zhajinhua import init_zhajinhua_socketio
+from .game_hub import GameHubStore
 
 DEFAULT_MAX_UPLOAD_SIZE_MB = 0
+DEFAULT_TOPDOWN_SCORE_SOFT_CAP = 100000
 
 
 def normalize_max_upload_size_mb(value, default=DEFAULT_MAX_UPLOAD_SIZE_MB):
@@ -55,11 +60,21 @@ def apply_upload_size_config(app, value=None):
     )
 
 
+def normalize_topdown_score_soft_cap(value, default=DEFAULT_TOPDOWN_SCORE_SOFT_CAP):
+    """Normalize the topdown score soft cap. Values below 0 fall back to default."""
+    try:
+        score_cap = int(value)
+    except (TypeError, ValueError):
+        score_cap = default
+    return max(score_cap, 0)
+
+
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                                 QPushButton, QTextEdit, QLabel, QGroupBox, QMessageBox,
                                 QSystemTrayIcon, QMenu, QAction, QDialog, QLineEdit,
                                 QFileDialog, QFormLayout, QMenuBar, QInputDialog, QCheckBox,
-                                QListWidget, QListWidgetItem, QComboBox, QTabWidget, QScrollArea)
+                                QListWidget, QListWidgetItem, QComboBox, QTabWidget, QScrollArea,
+                                QSpinBox, QDialogButtonBox)
 from PyQt5.QtCore import QProcess, QTimer, Qt, pyqtSignal, QObject, QThread, QUrl
 from PyQt5.QtCore import QEventLoop
 from PyQt5.QtGui import QIcon, QTextCursor, QDesktopServices
@@ -482,6 +497,18 @@ def create_app(debug=False):
                       ping_timeout=60,
                       ping_interval=25)
     init_serial_socketio(socketio)
+    init_gomoku_socketio(
+        socketio,
+        profile_resolver=lambda req: routes.resolve_game_profile_payload(req),
+    )
+    init_games_chat_socketio(
+        socketio,
+        profile_resolver=lambda req: routes.resolve_game_profile_payload(req),
+    )
+    init_zhajinhua_socketio(
+        socketio,
+        profile_resolver=lambda req: routes.resolve_game_profile_payload(req),
+    )
     app.socketio = socketio
 
     configure_flask_app_logger(app)
@@ -1314,6 +1341,9 @@ def load_or_create_config(app):
             max_upload_size_mb = normalize_max_upload_size_mb(
                 settings.get('max_upload_size', DEFAULT_MAX_UPLOAD_SIZE_MB)
             )
+            topdown_score_soft_cap = normalize_topdown_score_soft_cap(
+                settings.get('topdown_score_soft_cap', DEFAULT_TOPDOWN_SCORE_SOFT_CAP)
+            )
             remote_serial_enabled = settings.get('remote_serial_enabled', 'false').lower() == 'true'
             remote_serial_https_mode = normalize_remote_serial_https_mode(
                 settings.get('remote_serial_https_mode', REMOTE_SERIAL_HTTPS_MODE_FULL)
@@ -1339,6 +1369,7 @@ def load_or_create_config(app):
             app.config['GIT_WORKDIR'] = os.path.normpath(git_workdir) if git_workdir else ''
             app.config['GIT_EXTERNAL_APP_PATH'] = git_external_app_path if git_external_app_path else ''
             apply_upload_size_config(app, max_upload_size_mb)
+            app.config['TOPDOWN_SCORE_SOFT_CAP'] = topdown_score_soft_cap
             app.config['REMOTE_SERIAL_ENABLED'] = remote_serial_enabled
             app.config['REMOTE_SERIAL_HTTPS_MODE'] = remote_serial_https_mode
             app.config['SERIAL_HTTPS_PORT'] = serial_https_port
@@ -1375,6 +1406,7 @@ def load_or_create_config(app):
             app.config['GIT_ENABLED'] = False
             app.config['GIT_WORKDIR'] = ''
             apply_upload_size_config(app)
+            app.config['TOPDOWN_SCORE_SOFT_CAP'] = DEFAULT_TOPDOWN_SCORE_SOFT_CAP
             app.config['REMOTE_SERIAL_ENABLED'] = False
             app.config['REMOTE_SERIAL_HTTPS_MODE'] = REMOTE_SERIAL_HTTPS_MODE_FULL
             app.config['SERIAL_HTTPS_PORT'] = default_serial_https_port(app.config['PORT'])
@@ -1397,6 +1429,7 @@ def load_or_create_config(app):
         app.config['GIT_ENABLED'] = False
         app.config['GIT_WORKDIR'] = ''
         apply_upload_size_config(app)
+        app.config['TOPDOWN_SCORE_SOFT_CAP'] = DEFAULT_TOPDOWN_SCORE_SOFT_CAP
         app.config['REMOTE_SERIAL_ENABLED'] = False
         app.config['REMOTE_SERIAL_HTTPS_MODE'] = REMOTE_SERIAL_HTTPS_MODE_FULL
         app.config['SERIAL_HTTPS_PORT'] = default_serial_https_port(app.config['PORT'])
@@ -1429,6 +1462,7 @@ def read_runtime_settings(create_if_missing=True, config_file=None):
         'GIT_WORKDIR': '',
         'GIT_EXTERNAL_APP_PATH': '',
         'MAX_UPLOAD_SIZE_MB': DEFAULT_MAX_UPLOAD_SIZE_MB,
+        'TOPDOWN_SCORE_SOFT_CAP': DEFAULT_TOPDOWN_SCORE_SOFT_CAP,
         'REMOTE_SERIAL_ENABLED': False,
         'REMOTE_SERIAL_HTTPS_MODE': REMOTE_SERIAL_HTTPS_MODE_FULL,
         'SERIAL_HTTPS_PORT': default_serial_https_port(5000),
@@ -1467,6 +1501,9 @@ def read_runtime_settings(create_if_missing=True, config_file=None):
             settings_data['GIT_EXTERNAL_APP_PATH'] = settings.get('git_external_app_path', '')
             settings_data['MAX_UPLOAD_SIZE_MB'] = normalize_max_upload_size_mb(
                 settings.get('max_upload_size', DEFAULT_MAX_UPLOAD_SIZE_MB)
+            )
+            settings_data['TOPDOWN_SCORE_SOFT_CAP'] = normalize_topdown_score_soft_cap(
+                settings.get('topdown_score_soft_cap', DEFAULT_TOPDOWN_SCORE_SOFT_CAP)
             )
             settings_data['REMOTE_SERIAL_ENABLED'] = settings.get('remote_serial_enabled', 'false').lower() == 'true'
             settings_data['REMOTE_SERIAL_HTTPS_MODE'] = normalize_remote_serial_https_mode(
@@ -1510,6 +1547,7 @@ def save_runtime_settings(settings_data, config_file=None):
     existing_https_key_file = ''
     existing_log_level = 'INFO'
     existing_max_upload_size_mb = DEFAULT_MAX_UPLOAD_SIZE_MB
+    existing_topdown_score_soft_cap = DEFAULT_TOPDOWN_SCORE_SOFT_CAP
     existing_data_dir = get_data_dir(config_file=config_file, create=False)
     existing_log_dir = get_runtime_logs_dir(config_file=config_file, create=False)
     if os.path.exists(config_file):
@@ -1520,6 +1558,9 @@ def save_runtime_settings(settings_data, config_file=None):
             existing_log_level = (existing_settings.get('log_level', 'INFO') or 'INFO').strip() or 'INFO'
             existing_max_upload_size_mb = normalize_max_upload_size_mb(
                 existing_settings.get('max_upload_size', DEFAULT_MAX_UPLOAD_SIZE_MB)
+            )
+            existing_topdown_score_soft_cap = normalize_topdown_score_soft_cap(
+                existing_settings.get('topdown_score_soft_cap', DEFAULT_TOPDOWN_SCORE_SOFT_CAP)
             )
             existing_remote_serial_enabled = existing_settings.get('remote_serial_enabled', 'false').lower() == 'true'
             existing_remote_serial_https_mode = normalize_remote_serial_https_mode(
@@ -1555,6 +1596,9 @@ def save_runtime_settings(settings_data, config_file=None):
     max_upload_size_mb = normalize_max_upload_size_mb(
         settings_data.get('MAX_UPLOAD_SIZE_MB', existing_max_upload_size_mb)
     )
+    topdown_score_soft_cap = normalize_topdown_score_soft_cap(
+        settings_data.get('TOPDOWN_SCORE_SOFT_CAP', existing_topdown_score_soft_cap)
+    )
 
     config = configparser.ConfigParser()
     if os.path.exists(config_file):
@@ -1571,6 +1615,7 @@ def save_runtime_settings(settings_data, config_file=None):
         'git_workdir': settings_data.get('GIT_WORKDIR', ''),
         'git_external_app_path': settings_data.get('GIT_EXTERNAL_APP_PATH', ''),
         'max_upload_size': str(max_upload_size_mb),
+        'topdown_score_soft_cap': str(topdown_score_soft_cap),
         'remote_serial_enabled': str(remote_serial_enabled).lower(),
         'remote_serial_https_mode': remote_serial_https_mode,
         'serial_https_port': str(serial_https_port),
@@ -1600,6 +1645,7 @@ def save_config(app):
         'GIT_WORKDIR': app.config.get('GIT_WORKDIR', ''),
         'GIT_EXTERNAL_APP_PATH': app.config.get('GIT_EXTERNAL_APP_PATH', ''),
         'MAX_UPLOAD_SIZE_MB': app.config.get('MAX_UPLOAD_SIZE_MB', DEFAULT_MAX_UPLOAD_SIZE_MB),
+        'TOPDOWN_SCORE_SOFT_CAP': app.config.get('TOPDOWN_SCORE_SOFT_CAP', DEFAULT_TOPDOWN_SCORE_SOFT_CAP),
         'REMOTE_SERIAL_ENABLED': app.config.get('REMOTE_SERIAL_ENABLED', False),
         'REMOTE_SERIAL_HTTPS_MODE': app.config.get('REMOTE_SERIAL_HTTPS_MODE', REMOTE_SERIAL_HTTPS_MODE_FULL),
         'SERIAL_HTTPS_PORT': app.config.get('SERIAL_HTTPS_PORT', default_serial_https_port(app.config.get('PORT', 5000))),
@@ -4171,6 +4217,21 @@ class MainWindow(QMainWindow):
         settings_action.triggered.connect(self.open_settings)
         file_menu.addAction(settings_action)
 
+        manage_games_action = QAction('🗑️ 删除游戏用户数据', self)
+        manage_games_action.setStatusTip('仅管理员可在桌面 GUI 中删除 Games Hub 用户数据')
+        manage_games_action.triggered.connect(self.open_games_data_admin)
+        file_menu.addAction(manage_games_action)
+
+        grant_games_score_action = QAction('💎 调整 Games Hub 玩家总分', self)
+        grant_games_score_action.setStatusTip('仅管理员可在桌面 GUI 中把指定 Games Hub 玩家的总分调整到目标值，并记录理由')
+        grant_games_score_action.triggered.connect(self.open_games_score_compensation_admin)
+        file_menu.addAction(grant_games_score_action)
+
+        grant_games_coupons_action = QAction('🎟️ 发 Games Hub 奖券', self)
+        grant_games_coupons_action.setStatusTip('仅管理员可给所有当前 Games Hub 用户发放三个奖池的抽奖券')
+        grant_games_coupons_action.triggered.connect(self.open_games_coupon_admin)
+        file_menu.addAction(grant_games_coupons_action)
+
         file_menu.addSeparator()
 
         # 退出
@@ -4815,6 +4876,413 @@ class MainWindow(QMainWindow):
             webbrowser.open(help_url)
         except Exception as e:
             QMessageBox.warning(self, "错误", f"无法打开浏览器：{e}")
+
+    def open_games_data_admin(self):
+        """管理员入口：删除 Games Hub 用户数据。"""
+        if self.is_server_running:
+            reply = QMessageBox.question(
+                self,
+                "停止服务器",
+                "删除游戏用户数据前建议先停止服务器，是否现在停止？",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.Yes
+            )
+            if reply != QMessageBox.Yes:
+                return
+            self.stop_server()
+            if not self.wait_for_server_state(expected_running=False, timeout_ms=5000):
+                QMessageBox.warning(self, "错误", "服务器停止失败，已取消删除操作。")
+                return
+
+        settings = read_runtime_settings()
+        current_admin_password = settings.get('ADMIN_PASSWORD', 'admin123')
+        admin_pass, ok = QInputDialog.getText(
+            self,
+            "验证管理员密码",
+            "请输入管理员密码：",
+            QLineEdit.Password
+        )
+        if not ok:
+            return
+        if admin_pass != current_admin_password:
+            QMessageBox.critical(self, "错误", "管理员密码错误，无法删除游戏用户数据。")
+            return
+
+        try:
+            store = GameHubStore()
+            players = store.list_player_profiles(limit=1000)
+        except Exception as e:
+            QMessageBox.critical(self, "错误", f"读取游戏用户数据失败：{e}")
+            return
+
+        if not players:
+            QMessageBox.information(self, "提示", "当前没有可删除的 Games Hub 用户数据。")
+            return
+
+        labels = [
+            f"{item.get('display_name', '')} | {item.get('identity', '')} | 总分 {int(item.get('total_score', 0))} | 记录 {int(item.get('play_count', 0))} | 存档 {int(item.get('state_count', 0))}"
+            for item in players
+        ]
+        selected_label, ok = QInputDialog.getItem(
+            self,
+            "选择用户",
+            "请选择要删除的游戏用户数据：",
+            labels,
+            0,
+            False
+        )
+        if not ok or not selected_label:
+            return
+
+        selected_index = labels.index(selected_label)
+        selected_player = players[selected_index]
+        selected_identity = str(selected_player.get('identity') or '')
+        confirm = QMessageBox.warning(
+            self,
+            "确认删除",
+            (
+                f"确定删除以下用户的 Games Hub 数据吗？\n\n"
+                f"显示名：{selected_player.get('display_name', '')}\n"
+                f"身份：{selected_identity}\n"
+                f"总分：{int(selected_player.get('total_score', 0))}\n"
+                f"历史记录：{int(selected_player.get('play_count', 0))}\n"
+                f"游戏存档：{int(selected_player.get('state_count', 0))}\n\n"
+                f"此操作不可撤销。"
+            ),
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+        if confirm != QMessageBox.Yes:
+            return
+
+        try:
+            result = store.delete_player_data(selected_identity)
+        except Exception as e:
+            QMessageBox.critical(self, "错误", f"删除游戏用户数据失败：{e}")
+            return
+
+        QMessageBox.information(
+            self,
+            "删除完成",
+            (
+                f"已删除 {selected_player.get('display_name', selected_identity)} 的 Games Hub 数据。\n\n"
+                f"成绩记录：{result.get('deleted_scores', 0)}\n"
+                f"游戏存档：{result.get('deleted_states', 0)}\n"
+                f"在线状态：{result.get('deleted_presence', 0)}\n"
+                f"资料记录：{result.get('deleted_profile', 0)}\n"
+                f"头像文件：{'已删除' if result.get('avatar_deleted') else '无或未删除'}"
+            )
+        )
+
+    def open_games_coupon_admin(self):
+        """管理员入口：给所有当前 Games Hub 用户发放三个奖池的奖券。"""
+        if self.is_server_running:
+            reply = QMessageBox.question(
+                self,
+                "停止服务器",
+                "发放 Games Hub 奖券前建议先停止服务器，是否现在停止？",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.Yes
+            )
+            if reply != QMessageBox.Yes:
+                return
+            self.stop_server()
+            if not self.wait_for_server_state(expected_running=False, timeout_ms=5000):
+                QMessageBox.warning(self, "错误", "服务器停止失败，已取消发券操作。")
+                return
+
+        settings = read_runtime_settings()
+        current_admin_password = settings.get('ADMIN_PASSWORD', 'admin123')
+        admin_pass, ok = QInputDialog.getText(
+            self,
+            "验证管理员密码",
+            "请输入管理员密码：",
+            QLineEdit.Password
+        )
+        if not ok:
+            return
+        if admin_pass != current_admin_password:
+            QMessageBox.critical(self, "错误", "管理员密码错误，无法发放 Games Hub 奖券。")
+            return
+
+        coupon_counts = self._prompt_games_coupon_amounts()
+        if not coupon_counts:
+            return
+        color_count, icon_count, background_count = coupon_counts
+
+        if color_count <= 0 and icon_count <= 0 and background_count <= 0:
+            QMessageBox.information(self, "提示", "三个奖池的发券数量都为 0，未执行任何操作。")
+            return
+
+        confirm = QMessageBox.warning(
+            self,
+            "确认发券",
+            (
+                "将向所有当前 Games Hub 用户发放以下奖券：\n\n"
+                f"颜色奖券：{color_count}\n"
+                f"图标奖券：{icon_count}\n"
+                f"背景奖券：{background_count}\n\n"
+                "此操作会直接写入 topdown-shooter-meta 存档，是否继续？"
+            ),
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+        if confirm != QMessageBox.Yes:
+            return
+
+        try:
+            store = GameHubStore()
+            result = store.grant_topdown_meta_pulls_to_all_users(
+                color_pulls=color_count,
+                icon_pulls=icon_count,
+                background_pulls=background_count,
+            )
+        except Exception as e:
+            QMessageBox.critical(self, "错误", f"发放 Games Hub 奖券失败：{e}")
+            return
+
+        updated_count = int(result.get("updated_count", 0) or 0)
+        if updated_count <= 0:
+            QMessageBox.information(self, "提示", "当前没有可发券的 Games Hub 用户。")
+            return
+
+        QMessageBox.information(
+            self,
+            "发券完成",
+            (
+                f"已向 {updated_count} 个当前用户发放奖券。\n\n"
+                f"颜色奖券：+{int(result.get('color_pulls', 0) or 0)}\n"
+                f"图标奖券：+{int(result.get('icon_pulls', 0) or 0)}\n"
+                f"背景奖券：+{int(result.get('background_pulls', 0) or 0)}\n"
+                f"新建局外养成存档：{int(result.get('created_state_count', 0) or 0)}\n\n"
+                "已打开的游戏页面需要重新打开局外养成弹窗，或重新进入相关游戏，才能看到最新奖券数。"
+            )
+        )
+
+    def open_games_score_compensation_admin(self):
+        """管理员入口：将指定 Games Hub 玩家的总分调整到目标值。"""
+        if self.is_server_running:
+            reply = QMessageBox.question(
+                self,
+                "停止服务器？",
+                "调整 Games Hub 玩家总分前建议先停止服务器，是否现在停止？",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.Yes
+            )
+            if reply != QMessageBox.Yes:
+                return
+            self.stop_server()
+            if not self.wait_for_server_state(expected_running=False, timeout_ms=5000):
+                QMessageBox.warning(self, "错误", "服务器停止失败，已取消总分调整操作。")
+                return
+
+        settings = read_runtime_settings()
+        current_admin_password = settings.get('ADMIN_PASSWORD', 'admin123')
+        admin_pass, ok = QInputDialog.getText(
+            self,
+            "验证管理员密码",
+            "请输入管理员密码：",
+            QLineEdit.Password
+        )
+        if not ok:
+            return
+        if admin_pass != current_admin_password:
+            QMessageBox.critical(self, "错误", "管理员密码错误，无法调整玩家总分。")
+            return
+
+        try:
+            store = GameHubStore()
+            players = store.list_player_profiles(limit=1000)
+        except Exception as e:
+            QMessageBox.critical(self, "错误", f"读取 Games Hub 玩家列表失败：{e}")
+            return
+
+        if not players:
+            QMessageBox.information(self, "提示", "当前没有可调整总分的 Games Hub 玩家。")
+            return
+
+        compensation_payload = self._prompt_games_score_compensation(players)
+        if not compensation_payload:
+            return
+
+        selected_player = compensation_payload["player"]
+        selected_identity = str(selected_player.get("identity") or "")
+        current_total = int(selected_player.get("total_score", 0) or 0)
+        target_total = int(compensation_payload["target_total"])
+        score_delta = int(compensation_payload["score_delta"])
+        note = compensation_payload["note"]
+
+        if score_delta == 0:
+            QMessageBox.information(
+                self,
+                "无需调整",
+                f"{selected_player.get('display_name', selected_identity)} 当前总分已经是 {target_total}，无需新增积分记录。"
+            )
+            return
+
+        action_label = "增加" if score_delta > 0 else "扣除"
+
+        confirm = QMessageBox.warning(
+            self,
+            "确认调整玩家总分",
+            (
+                f"确定要调整以下玩家的总分吗？\n\n"
+                f"显示名：{selected_player.get('display_name', '')}\n"
+                f"身份：{selected_identity}\n"
+                f"当前总分：{current_total}\n"
+                f"目标总分：{target_total}\n"
+                f"本次调整：{action_label} {abs(score_delta)}\n"
+                f"理由：{note or '无'}\n\n"
+                f"该操作会新增一条 Games Hub 积分记录，并影响总分与排行榜。"
+            ),
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+        if confirm != QMessageBox.Yes:
+            return
+
+        try:
+            result = store.adjust_total_score(
+                selected_identity,
+                target_total,
+                note=note,
+                operator="desktop-admin",
+            )
+            updated_summary = store.total_score_summary(selected_identity)
+        except Exception as e:
+            QMessageBox.critical(self, "错误", f"调整 Games Hub 玩家总分失败：{e}")
+            return
+
+        QMessageBox.information(
+            self,
+            "调整完成",
+            (
+                f"已将 {selected_player.get('display_name', selected_identity)} 的总分调整到 {target_total}。\n\n"
+                f"调整前总分：{current_total}\n"
+                f"本次差额：{score_delta:+d}\n"
+                f"记录类型：{result.get('game_id', '')}\n"
+                f"调整后总分：{int(updated_summary.get('total_score', 0))}\n"
+                f"总记录数：{int(updated_summary.get('play_count', 0))}\n"
+                f"理由：{note or '无'}"
+            )
+        )
+
+    def _prompt_games_coupon_amounts(self):
+        dialog = QDialog(self)
+        dialog.setWindowTitle("发放 Games Hub 奖券")
+        layout = QVBoxLayout(dialog)
+
+        form_layout = QFormLayout()
+        color_spin = QSpinBox(dialog)
+        color_spin.setRange(0, 1000000)
+        color_spin.setSingleStep(1)
+        color_spin.setValue(0)
+
+        icon_spin = QSpinBox(dialog)
+        icon_spin.setRange(0, 1000000)
+        icon_spin.setSingleStep(1)
+        icon_spin.setValue(0)
+
+        background_spin = QSpinBox(dialog)
+        background_spin.setRange(0, 1000000)
+        background_spin.setSingleStep(1)
+        background_spin.setValue(0)
+
+        form_layout.addRow("颜色奖券：", color_spin)
+        form_layout.addRow("图标奖券：", icon_spin)
+        form_layout.addRow("背景奖券：", background_spin)
+        layout.addLayout(form_layout)
+
+        tips = QLabel("一次性填写三个奖池的发券数量，确认后会统一发放给所有当前 Games Hub 用户。", dialog)
+        tips.setWordWrap(True)
+        layout.addWidget(tips)
+
+        button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, parent=dialog)
+        button_box.accepted.connect(dialog.accept)
+        button_box.rejected.connect(dialog.reject)
+        layout.addWidget(button_box)
+
+        if dialog.exec_() != QDialog.Accepted:
+            return None
+        return (
+            int(color_spin.value()),
+            int(icon_spin.value()),
+            int(background_spin.value()),
+        )
+
+    def _prompt_games_score_compensation(self, players):
+        dialog = QDialog(self)
+        dialog.setWindowTitle("调整 Games Hub 玩家总分")
+        dialog.resize(720, 280)
+        layout = QVBoxLayout(dialog)
+
+        tips = QLabel("选择玩家、填写目标总分和理由后确认。程序会自动计算本次应补多少或扣多少，并新增一条可追踪的积分记录。", dialog)
+        tips.setWordWrap(True)
+        layout.addWidget(tips)
+
+        form_layout = QFormLayout()
+
+        player_combo = QComboBox(dialog)
+        for item in players:
+            label = (
+                f"{item.get('display_name', '')} | {item.get('identity', '')} | "
+                f"总分 {int(item.get('total_score', 0))} | 记录 {int(item.get('play_count', 0))}"
+            )
+            player_combo.addItem(label, item)
+        form_layout.addRow("调整玩家：", player_combo)
+
+        target_total_spin = QSpinBox(dialog)
+        target_total_spin.setRange(-1000000000, 1000000000)
+        target_total_spin.setSingleStep(100)
+        form_layout.addRow("目标总分：", target_total_spin)
+
+        note_edit = QLineEdit(dialog)
+        note_edit.setMaxLength(200)
+        note_edit.setPlaceholderText("例如：bug 修复、误扣返还、活动奖励、违规扣分")
+        form_layout.addRow("理由：", note_edit)
+
+        layout.addLayout(form_layout)
+
+        preview_label = QLabel(dialog)
+        preview_label.setWordWrap(True)
+        layout.addWidget(preview_label)
+
+        def refresh_preview():
+            current_player = player_combo.currentData()
+            total_score = int((current_player or {}).get("total_score", 0) or 0)
+            target_total = int(target_total_spin.value())
+            score_delta = target_total - total_score
+            action_label = "增加" if score_delta > 0 else ("扣除" if score_delta < 0 else "保持不变")
+            preview_label.setText(
+                f"调整后预计总分：{target_total} "
+                f"(当前 {total_score}，本次将{action_label} {abs(score_delta)})"
+            )
+
+        def sync_target_total_from_player():
+            current_player = player_combo.currentData()
+            total_score = int((current_player or {}).get("total_score", 0) or 0)
+            target_total_spin.setValue(total_score)
+
+        player_combo.currentIndexChanged.connect(lambda _: sync_target_total_from_player())
+        player_combo.currentIndexChanged.connect(lambda _: refresh_preview())
+        target_total_spin.valueChanged.connect(lambda _: refresh_preview())
+        sync_target_total_from_player()
+        refresh_preview()
+
+        button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, parent=dialog)
+        button_box.accepted.connect(dialog.accept)
+        button_box.rejected.connect(dialog.reject)
+        layout.addWidget(button_box)
+
+        if dialog.exec_() != QDialog.Accepted:
+            return None
+
+        return {
+            "player": player_combo.currentData(),
+            "target_total": int(target_total_spin.value()),
+            "score_delta": int(target_total_spin.value()) - int((player_combo.currentData() or {}).get("total_score", 0) or 0),
+            "note": note_edit.text().strip(),
+        }
 
     def open_settings(self):
         """打开设置对话框"""

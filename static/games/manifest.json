@@ -1,0 +1,69 @@
+{
+  "title": "Yobboy Games",
+  "games": [
+    {
+      "id": "2048",
+      "title": "2048",
+      "summary": "带过渡动画、用时记录、自动续玩和分数入库的 2048。",
+      "engine": "builtin",
+      "status": "ready",
+      "tags": ["单机", "数字", "计时"]
+    },
+    {
+      "id": "sudoku",
+      "title": "数独",
+      "summary": "包含经典 9x9 与 16 进制模式，支持续玩、计时和积分结算。",
+      "engine": "builtin",
+      "status": "ready",
+      "tags": ["单机", "逻辑", "进度保存"]
+    },
+    {
+      "id": "gomoku",
+      "title": "联机五子棋",
+      "summary": "局域网房间式五子棋，支持创建房间、准备、同步落子与历史对局结果。",
+      "engine": "builtin",
+      "status": "ready",
+      "tags": ["联机", "棋类", "对战"]
+    },
+    {
+      "id": "zhajinhua",
+      "title": "联机炸金花",
+      "summary": "房主设置底注的实时炸金花牌局，支持 2-10 人上桌、观战聊天、每局重洗与积分结算。",
+      "engine": "builtin",
+      "status": "beta",
+      "tags": ["联机", "扑克", "房间制"]
+    },
+    {
+      "id": "frontline",
+      "title": "攻占前线",
+      "summary": "固定地图原型版线路占领 RTS，支持自动存档、单机 AI 对战和积分结算。",
+      "engine": "builtin",
+      "status": "beta",
+      "tags": ["单机", "策略", "原型"]
+    },
+    {
+      "id": "shi",
+      "title": "士",
+      "summary": "单线双侧动作构筑原型，支持 W / S 双攻击模式切换、左右攻击、方向格挡、装备掉落与自动存档。",
+      "engine": "builtin",
+      "status": "beta",
+      "tags": ["单机", "动作", "构筑"]
+    },
+    {
+      "id": "hardware-daren",
+      "title": "硬件达人",
+      "summary": "复古示波器风格的波形射击原型，使用电容、电感、电阻压制正弦波、方波、三角波、锯齿波与噪声信号。",
+      "engine": "builtin",
+      "status": "beta",
+      "tags": ["单机", "射击", "硬件", "示波器"]
+    },
+    {
+      "id": "topdown-shooter",
+      "title": "Top-Down Shooter",
+      "summary": "键鼠或键盘操作的俯视角射击，支持波次、续玩和积分记录。",
+      "engine": "builtin",
+      "status": "ready",
+      "tags": ["单机", "动作", "射击"]
+    }
+  ]
+}

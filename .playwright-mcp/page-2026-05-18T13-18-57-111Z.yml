@@ -1,0 +1,57 @@
+- generic [ref=e2]:
+  - generic "六位密码输入区域" [ref=e4]:
+    - generic [ref=e5]:
+      - generic [ref=e6]:
+        - generic [ref=e7]: Yobboy Server
+        - heading "ACCESS GATE" [level=1] [ref=e8]
+        - paragraph [ref=e9]: 6 位口令输入后仅回显 Yobboy，真实密码不会被直接暴露。
+      - generic:
+        - textbox [active]
+      - generic [ref=e10]:
+        - generic [ref=e11]:
+          - generic [ref=e12]: I
+          - generic [ref=e15]: "?"
+          - generic [ref=e16]: ~
+          - generic [ref=e17]: A
+          - generic [ref=e18]: O
+          - generic [ref=e19]: "&"
+        - generic [ref=e20]:
+          - generic [ref=e21]: E
+          - generic [ref=e24]: R
+          - generic [ref=e25]: G
+          - generic [ref=e26]: "&"
+          - generic [ref=e27]: +
+          - generic [ref=e28]: I
+        - generic [ref=e29]:
+          - generic [ref=e30]: "]"
+          - generic [ref=e33]: "6"
+          - generic [ref=e34]: I
+          - generic [ref=e35]: "!"
+          - generic [ref=e36]: \
+          - generic [ref=e37]: "|"
+        - generic [ref=e38]:
+          - generic [ref=e39]: A
+          - generic [ref=e42]: "1"
+          - generic [ref=e43]: "!"
+          - generic [ref=e44]: P
+          - generic [ref=e45]: P
+          - generic [ref=e46]: U
+        - generic [ref=e47]:
+          - generic [ref=e48]: T
+          - generic [ref=e51]: "!"
+          - generic [ref=e52]: T
+          - generic [ref=e53]: L
+          - generic [ref=e54]: L
+          - generic [ref=e55]: A
+        - generic [ref=e56]:
+          - generic [ref=e57]: S
+          - generic [ref=e60]: C
+          - generic [ref=e61]: M
+          - generic [ref=e62]: "&"
+          - generic [ref=e63]: C
+          - generic [ref=e64]: V
+      - generic [ref=e65]:
+        - generic [ref=e66]: INPUT SLOT 01
+        - button "切换到俄罗斯方块登录" [ref=e67] [cursor=pointer]
+      - text: 
+  - text:  

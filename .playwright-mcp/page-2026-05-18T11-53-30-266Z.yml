@@ -1,0 +1,38 @@
+- generic [ref=e2]:
+  - complementary [ref=e3]:
+    - generic [ref=e4]:
+      - text: Dev Game
+      - heading "Games Hub" [level=1] [ref=e5]
+      - paragraph [ref=e6]: 把访客状态、游戏入口、在线信息和本地联机入口集中到一个页面里，方便随时开玩和继续进度。
+    - generic [ref=e7]:
+      - generic [ref=e8]:
+        - generic [ref=e10]: 访
+        - generic [ref=e11]:
+          - generic [ref=e12]: 当前访客
+          - generic [ref=e13]: 正在识别设备...
+          - generic [ref=e14]: 设备 3653cb3b
+      - generic [ref=e15]:
+        - generic [ref=e16]: 空闲中
+        - button "编辑资料" [ref=e18] [cursor=pointer]
+      - button "★ 局外养成 抽奖 / 装备 / 全游戏外观" [ref=e19] [cursor=pointer]:
+        - generic [ref=e20]: ★
+        - generic [ref=e21]:
+          - strong [ref=e22]: 局外养成
+          - generic [ref=e23]: 抽奖 / 装备 / 全游戏外观
+      - generic [ref=e24]: 老板键可修改，触发后会立刻切到安全目录；当前游玩状态会展示给同一局域网内的在线访客。
+      - generic [ref=e25]: 准备就绪
+    - generic [ref=e27]: 在线访客
+    - generic [ref=e29]: 游戏入口
+    - link " 返回入口页" [ref=e31] [cursor=pointer]:
+      - /url: /
+      - generic [ref=e32]: 
+      - text: 返回入口页
+  - main [ref=e33]:
+    - generic [ref=e34]:
+      - button "榜单" [ref=e35] [cursor=pointer]
+      - generic [ref=e36]:
+        - generic [ref=e37]:
+          - generic [ref=e38]: 当前游戏
+          - generic [ref=e39]: "2048"
+          - generic [ref=e40]: 支持自动续玩、用时记录、积分榜和老板键切换。
+        - 'button "主题: 暗色" [ref=e42] [cursor=pointer]'
