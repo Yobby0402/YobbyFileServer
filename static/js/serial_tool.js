@@ -12,6 +12,7 @@ class SerialToolApp {
         this.sendFormat = 'text'; // 发送数据格式
         this.rxBytes = 0; // 接收字节数
         this.txBytes = 0; // 发送字节数
+        this.portStats = new Map(); // 每个串口独立的收发统计
         this.startTime = null; // 开始时间
         this.uptimeInterval = null; // 运行时间定时器
         this.timerInterval = null; // 定时发送定时器
@@ -1016,29 +1017,32 @@ class SerialToolApp {
 
             item.innerHTML = `
                 <div>
-                    <div class="fw-bold">${session.device || session.port_id}</div>
+                    <div class="fw-bold">${this.escapeHtml(session.device || session.port_id)}</div>
                     <div class="session-meta small">
-                        波特率 ${config.baudrate || '--'} · 数据位 ${config.bytesize || '--'} · 停止位 ${config.stopbits || '--'} · 校验 ${parityLabel}<br>
-                        启动时间：${startedAt}<br>
-                        <strong>记录时长：</strong><span class="capture-duration" data-started-at="${session.started_at || ''}">${durationStr}</span>
-                        <strong class="ms-2">记录长度：</strong><span class="capture-bytes">${bytesStr}</span>
+                        波特率 ${this.escapeHtml(config.baudrate || '--')} · 数据位 ${this.escapeHtml(config.bytesize || '--')} · 停止位 ${this.escapeHtml(config.stopbits || '--')} · 校验 ${this.escapeHtml(parityLabel)}<br>
+                        启动时间：${this.escapeHtml(startedAt)}<br>
+                        <strong>记录时长：</strong><span class="capture-duration" data-started-at="${this.escapeHtml(session.started_at || '')}">${this.escapeHtml(durationStr)}</span>
+                        <strong class="ms-2">记录长度：</strong><span class="capture-bytes">${this.escapeHtml(bytesStr)}</span>
                     </div>
                 </div>
                 <div class="capture-session-actions btn-group btn-group-sm flex-wrap" role="group">
-                    <button type="button" class="btn btn-outline-secondary" data-action="view-log" data-port-id="${session.port_id}" title="在弹窗中查看记录内容">
+                    <button type="button" class="btn btn-outline-secondary" data-action="view-log" title="在弹窗中查看记录内容">
                         <i class="fas fa-external-link-alt me-1"></i>弹窗查看
                     </button>
-                    <button type="button" class="btn btn-outline-secondary" data-action="load-log" data-port-id="${session.port_id}" title="将历史记录加载到下方数据监控区">
+                    <button type="button" class="btn btn-outline-secondary" data-action="load-log" title="将历史记录加载到下方数据监控区">
                         <i class="fas fa-tv me-1"></i>加载到监控区
                     </button>
-                    <button type="button" class="btn btn-outline-secondary" data-action="open-port" data-port-id="${session.port_id}" title="连接此串口进行收发">
+                    <button type="button" class="btn btn-outline-secondary" data-action="open-port" title="连接此串口进行收发">
                         <i class="fas fa-plug me-1"></i>连接
                     </button>
-                    <button type="button" class="btn btn-outline-danger" data-action="stop-log" data-port-id="${session.port_id}" title="停止持续日志">
+                    <button type="button" class="btn btn-outline-danger" data-action="stop-log" title="停止持续日志">
                         <i class="fas fa-stop me-1"></i>停止
                     </button>
                 </div>
             `;
+            item.querySelectorAll('[data-action]').forEach((button) => {
+                button.dataset.portId = String(session.port_id || '');
+            });
             list.appendChild(item);
         });
     }
@@ -1124,6 +1128,7 @@ class SerialToolApp {
             }
             this.addLog(`已启动持续日志：${device}`, 'info');
             await this.loadCaptureStatus(true);
+            return result.session || null;
         } catch (error) {
             console.error('开启持续日志失败:', error);
             alert(`开启持续日志失败：${error.message || error}`);
@@ -1332,9 +1337,12 @@ class SerialToolApp {
     
     // 自动保存当前会话日志到服务器
     async autoSaveLog() {
-        if (this.dataLog.length === 0 || !this.currentPort) {
+        if (!this.currentPort) {
             return;
         }
+
+        const portRecords = this.dataLog.filter((record) => record.portId === this.currentPort);
+        if (portRecords.length === 0) return;
         
         const portInfo = this.ports.get(this.currentPort);
         if (!portInfo) return;
@@ -1343,23 +1351,22 @@ class SerialToolApp {
             let logContent = '=== 串口调试日志 ===\n';
             logContent += `端口: ${portInfo.name}\n`;
             logContent += `生成时间: ${new Date().toLocaleString('zh-CN')}\n`;
-            logContent += `总接收: ${this.rxBytes} 字节\n`;
-            logContent += `总发送: ${this.txBytes} 字节\n`;
+            const stats = this.getPortStats(this.currentPort, false);
+            logContent += `总接收: ${stats.rxBytes} 字节\n`;
+            logContent += `总发送: ${stats.txBytes} 字节\n`;
             logContent += '=' .repeat(50) + '\n\n';
             
-            this.dataLog.forEach(data => {
-                if (data.portId === this.currentPort) {
-                    // 格式化时间戳，包含毫秒
-                    const date = data.timestamp instanceof Date ? data.timestamp : new Date(data.timestamp);
-                    const hours = date.getHours().toString().padStart(2, '0');
-                    const minutes = date.getMinutes().toString().padStart(2, '0');
-                    const seconds = date.getSeconds().toString().padStart(2, '0');
-                    const milliseconds = date.getMilliseconds().toString().padStart(3, '0');
-                    const timestamp = `${hours}:${minutes}:${seconds}.${milliseconds}`;
-                    const direction = data.direction === 'rx' ? 'RX' : 'TX';
-                    const content = new TextDecoder().decode(data.data);
-                    logContent += `[${timestamp}] ${direction}: ${content}\n`;
-                }
+            portRecords.forEach(data => {
+                // 格式化时间戳，包含毫秒
+                const date = data.timestamp instanceof Date ? data.timestamp : new Date(data.timestamp);
+                const hours = date.getHours().toString().padStart(2, '0');
+                const minutes = date.getMinutes().toString().padStart(2, '0');
+                const seconds = date.getSeconds().toString().padStart(2, '0');
+                const milliseconds = date.getMilliseconds().toString().padStart(3, '0');
+                const timestamp = `${hours}:${minutes}:${seconds}.${milliseconds}`;
+                const direction = data.direction === 'rx' ? 'RX' : 'TX';
+                const content = new TextDecoder().decode(data.data);
+                logContent += `[${timestamp}] ${direction}: ${content}\n`;
             });
             
             const response = await fetch('/save_serial_log', {
@@ -1386,6 +1393,12 @@ class SerialToolApp {
     
     // 绑定事件
     bindEvents() {
+        if ('serial' in navigator && typeof navigator.serial.addEventListener === 'function') {
+            navigator.serial.addEventListener('disconnect', (event) => {
+                this.handleLocalSerialDisconnect(event.target);
+            });
+        }
+
         // 模式切换
         document.querySelectorAll('input[name="connectionMode"]').forEach(radio => {
             radio.addEventListener('change', (e) => {
@@ -1503,7 +1516,7 @@ class SerialToolApp {
             bubbleIncludeDelimiter.addEventListener('change', onBubbleSettingChanged);
         }
         
-        // 真实终端交互 - 实时发送字符
+        // REPL 终端交互 - 行缓冲输入与即时控制字符
         this.setupInteractiveTerminal();
         
         // 终端快捷键按钮（延迟绑定，因为按钮在页面加载时存在）
@@ -1514,7 +1527,7 @@ class SerialToolApp {
         if (localEchoCheckbox) {
             localEchoCheckbox.addEventListener('change', (e) => {
                 this.localEcho = e.target.checked;
-                console.log('Local echo:', this.localEcho ? 'ON' : 'OFF');
+                this.renderTerminalInputEcho();
             });
         }
 
@@ -1607,11 +1620,59 @@ class SerialToolApp {
                 }
             }
         });
+
+        this.bindAdditionalEvents();
     }
+
+    bindAdditionalEvents() {}
     
     sanitizeDeviceName(device) {
         if (!device) return 'serial';
         return device.replace(/[^a-zA-Z0-9]/g, '_').replace(/_+/g, '_').replace(/^_+|_+$/g, '') || 'serial';
+    }
+
+    getPortStats(portId, create = true) {
+        if (!portId) return SerialToolUtils.createPortStats(0);
+        if (!this.portStats.has(portId) && create) {
+            this.portStats.set(portId, SerialToolUtils.createPortStats());
+        }
+        return this.portStats.get(portId) || SerialToolUtils.createPortStats(0);
+    }
+
+    addPortBytes(portId, direction, byteCount) {
+        const stats = this.getPortStats(portId);
+        SerialToolUtils.addPortBytes(stats, direction, byteCount);
+        if (portId === this.currentPort) {
+            this.updateStats();
+        }
+    }
+
+    resetPortStats(portId) {
+        if (!portId) return;
+        this.portStats.set(portId, SerialToolUtils.createPortStats());
+        if (portId === this.currentPort) {
+            this.updateStats();
+        }
+    }
+
+    handleLocalSerialDisconnect(port) {
+        const matched = Array.from(this.ports.entries()).find(([, info]) => info?.type === 'local' && info.port === port);
+        if (!matched) return;
+
+        const [portId, portInfo] = matched;
+        portInfo.connected = false;
+        portInfo.reader = null;
+        this.ports.set(portId, portInfo);
+        this.flushBubbleRxPort(portId);
+
+        if (this.currentPort === portId) {
+            this.haltScheduledSend('串口设备已断开');
+            const sendBtn = document.getElementById('sendBtn');
+            if (sendBtn) sendBtn.disabled = true;
+        }
+
+        this.renderPortList();
+        this.addLog(`串口设备已断开: ${portInfo.name || portId}`, 'error');
     }
 
     normalizeParityForForm(parity) {
@@ -1975,78 +2036,62 @@ class SerialToolApp {
     
     // 连接 WebSocket
     async connectWebSocket() {
-        return new Promise((resolve, reject) => {
-            try {
-                if (this.websocket && this.websocket.connected) {
-                    resolve();
-                    return;
-                }
-                this.ensureSocketIoLoaded().then(() => {
-                    if (typeof io === 'undefined') {
-                        throw new Error('Socket.IO not loaded');
-                    }
+        if (this.websocket && this.websocket.connected) return;
 
-                    // 连接到服务器
-                    const socket = io('/serial', {
-                        transports: ['polling', 'websocket']
-                    });
-
-                    this.websocket = socket;
-
-                    // 连接成功
-                    socket.on('connected', (data) => {
-                        console.log('WebSocket 已连接:', data.client_id);
-                        this.addLog('已连接到服务器', 'info');
-                        resolve();
-                    });
-
-                    // 连接错误
-                    socket.on('connect_error', (error) => {
-                        console.error('WebSocket 连接失败:', error);
-                        this.addLog(`连接服务器失败: ${error}`, 'error');
-                        reject(error);
-                    });
-
-                    // 断开连接
-                    socket.on('disconnect', () => {
-                        console.log('WebSocket 已断开');
-                        this.addLog('与服务器断开连接', 'info');
-                    });
-
-                    // 接收串口列表
-                    socket.on('ports_list', (data) => {
-                        this.handleRemotePortsList(data);
-                    });
-
-                    // 接收串口打开结果
-                    socket.on('port_opened', (data) => {
-                        this.handleRemotePortOpened(data);
-                    });
-
-                    // 接收串口关闭结果
-                    socket.on('port_closed', (data) => {
-                        this.handleRemotePortClosed(data);
-                    });
-
-                    // 接收串口数据
-                    socket.on('serial_data', (data) => {
-                        this.handleRemoteSerialData(data);
-                    });
-
-                    // 接收数据写入结果
-                    socket.on('data_written', (data) => {
-                        this.handleRemoteDataWritten(data);
-                    });
-                }).catch((error) => {
-                    alert('Socket.IO 客户端未加载\n请刷新页面重试');
-                    reject(error);
-                });
-                
-            } catch (error) {
-                console.error('创建 WebSocket 失败:', error);
-                reject(error);
+        try {
+            await this.ensureSocketIoLoaded();
+            if (typeof io === 'undefined') {
+                throw new Error('Socket.IO not loaded');
             }
+        } catch (error) {
+            alert('Socket.IO 客户端未加载\n请刷新页面重试');
+            throw error;
+        }
+
+        return new Promise((resolve, reject) => {
+            const socket = io('/serial', {
+                transports: ['polling', 'websocket']
+            });
+            let settled = false;
+            const finishResolve = () => {
+                if (!settled) {
+                    settled = true;
+                    resolve();
+                }
+            };
+            const finishReject = (error) => {
+                if (!settled) {
+                    settled = true;
+                    reject(error);
+                }
+            };
+
+            this.websocket = socket;
+            socket.on('connected', (data) => {
+                console.log('WebSocket 已连接:', data.client_id);
+                this.addLog('已连接到服务器', 'info');
+                finishResolve();
+            });
+            socket.on('connect_error', (error) => {
+                console.error('WebSocket 连接失败:', error);
+                this.addLog(`连接服务器失败: ${error}`, 'error');
+                finishReject(error);
+            });
+            socket.on('disconnect', () => {
+                console.log('WebSocket 已断开');
+                this.addLog('与服务器断开连接', 'info');
+                this.renderPortList();
+            });
+            this.bindSerialSocketFeatureEvents(socket);
         });
+    }
+
+    bindSerialSocketFeatureEvents(socket) {
+        socket.on('ports_list', (data) => this.handleRemotePortsList(data));
+        socket.on('port_opened', (data) => this.handleRemotePortOpened(data));
+        socket.on('port_closed', (data) => this.handleRemotePortClosed(data));
+        socket.on('serial_data', (data) => this.handleRemoteSerialData(data));
+        socket.on('data_written', (data) => this.handleRemoteDataWritten(data));
     }
     
     // 处理远程串口列表
@@ -2069,11 +2114,6 @@ class SerialToolApp {
     
     // 显示远程串口选择对话框
     showRemotePortSelector(ports) {
-        // 创建选择HTML
-        let options = ports.map((port, index) => {
-            return `<option value="${index}">${port.device} - ${port.name}</option>`;
-        }).join('');
-        
         // 使用 Bootstrap Modal 显示
         const modalHtml = `
             <div class="modal fade" id="remotePortModal" tabindex="-1">
@@ -2086,9 +2126,7 @@ class SerialToolApp {
                         <div class="modal-body">
                             <div class="mb-3">
                                 <label class="form-label">可用串口：</label>
-                                <select class="form-select" id="remotePortSelect">
-                                    ${options}
-                                </select>
+                                <select class="form-select" id="remotePortSelect"></select>
                             </div>
                         </div>
                         <div class="modal-footer">
@@ -2106,6 +2144,14 @@ class SerialToolApp {
         
         // 添加新模态框
         document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+        const select = document.getElementById('remotePortSelect');
+        ports.forEach((port, index) => {
+            const option = document.createElement('option');
+            option.value = String(index);
+            option.textContent = `${port.device || ''} - ${port.name || ''}`;
+            select.appendChild(option);
+        });
         
         const modal = new bootstrap.Modal(document.getElementById('remotePortModal'));
         modal.show();
@@ -2215,8 +2261,7 @@ class SerialToolApp {
         const timestamp = data.timestamp ? new Date(data.timestamp) : new Date();
         
         // 更新接收字节数
-        this.rxBytes += dataBytes.length;
-        this.updateStats();
+        this.addPortBytes(portId, 'rx', dataBytes.length);
 
         this.ingestRxForDisplay(portId, dataBytes, timestamp);
     }
@@ -2266,8 +2311,7 @@ class SerialToolApp {
         if (!portInfo) return;
         
         // 更新接收字节数
-        this.rxBytes += value.length;
-        this.updateStats();
+        this.addPortBytes(portId, 'rx', value.length);
 
         this.ingestRxForDisplay(portId, value, new Date());
 
@@ -2313,10 +2357,8 @@ class SerialToolApp {
     refreshTerminalDisplay() {
         const display = document.getElementById('terminalDisplay');
         if (!display) return;
-        
-        display.innerHTML = '';
-        
-        // 重新显示所有历史数据
+
+        let terminalText = '';
         this.dataLog.forEach((data) => {
             if (data.portId === this.currentPort) {
                 if (this.isTerminalReplMode() && data.direction === 'tx') {
@@ -2343,19 +2385,58 @@ class SerialToolApp {
                 }
                 const prefix = this.formatTerminalTimePrefix(data.timestamp);
                 const directionPrefix = data.direction === 'tx' ? '[TX] ' : '';
-                this.appendToTerminalDisplay(prefix + directionPrefix + content);
+                terminalText += prefix + directionPrefix + content;
             }
         });
-        
-        // 添加初始光标
+
+        this.resetTerminalDisplay(terminalText);
+        const input = document.getElementById('terminalInput');
+        if (input && this.isTerminalReplMode()) input.focus();
+    }
+
+    resetTerminalDisplay(outputText = '') {
+        const display = document.getElementById('terminalDisplay');
+        if (!display) return null;
+
+        display.innerHTML = '';
+        const output = document.createElement('span');
+        output.className = 'terminal-output-text';
+        if (outputText) output.appendChild(document.createTextNode(outputText));
+
+        const inputEcho = document.createElement('span');
+        inputEcho.className = 'terminal-input-echo';
+
         const cursor = document.createElement('span');
         cursor.className = 'terminal-cursor';
         cursor.textContent = '\u00A0';
-        display.appendChild(cursor);
-        
-        // 聚焦到输入框
-        const input = document.getElementById('terminalInput');
-        if (input && this.isTerminalReplMode()) input.focus();
+
+        display.append(output, inputEcho, cursor);
+        this.renderTerminalInputEcho();
+        return { display, output, inputEcho, cursor };
+    }
+
+    ensureTerminalDisplayParts() {
+        const display = document.getElementById('terminalDisplay');
+        if (!display) return null;
+        const output = display.querySelector('.terminal-output-text');
+        const inputEcho = display.querySelector('.terminal-input-echo');
+        const cursor = display.querySelector('.terminal-cursor');
+        if (output && inputEcho && cursor) {
+            return { display, output, inputEcho, cursor };
+        }
+        return this.resetTerminalDisplay(display.textContent || '');
+    }
+
+    renderTerminalInputEcho() {
+        const parts = this.ensureTerminalDisplayParts();
+        if (!parts) return;
+        parts.inputEcho.textContent = this.isTerminalReplMode() && this.localEcho
+            ? this.termLineBuffer
+            : '';
+        parts.cursor.style.display = this.isTerminalReplMode() ? 'inline-block' : 'none';
+        if (this.autoScroll) {
+            parts.display.scrollTop = parts.display.scrollHeight;
+        }
     }
     
     // 在终端模式显示数据
@@ -2403,25 +2484,17 @@ class SerialToolApp {
         for (const [id, charCode] of Object.entries(buttons)) {
             const btn = document.getElementById(id);
             if (btn) {
-                console.log(`Binding button: ${id}`);
                 btn.addEventListener('click', async () => {
-                    console.log(`Button clicked: ${id}, sending char: 0x${charCode.toString(16)}`);
                     await this.sendControlChar(charCode);
                 });
-            } else {
-                console.warn(`Button not found: ${id}`);
             }
         }
         
         const clearBtn = document.getElementById('termClearScreen');
         if (clearBtn) {
-            console.log('Binding clear screen button');
             clearBtn.addEventListener('click', () => {
-                console.log('Clear screen clicked');
                 this.clearTerminalScreen();
             });
-        } else {
-            console.warn('Clear screen button not found');
         }
     }
     
@@ -2457,24 +2530,21 @@ class SerialToolApp {
                 if (e.key === 'c') {
                     e.preventDefault();
                     this.termLineBuffer = '';
+                    this.renderTerminalInputEcho();
                     if (this.localEcho) this.appendToTerminalDisplay('^C\n');
                     if (needsPort) this.sendRawBytes([0x03]);
                     input.value = '';
                     handled = true;
                 } else if (e.key === 'd') {
                     e.preventDefault();
-                    if (this.termLineBuffer.length === 0) {
-                        if (this.localEcho) this.appendToTerminalDisplay('^D\n');
-                        if (needsPort) this.sendRawBytes([0x04]);
-                    } else {
-                        this.termLineBuffer = this.termLineBuffer.slice(0, -1);
-                        if (this.localEcho) this.handleBackspaceInTerminal();
-                    }
+                    if (this.localEcho) this.appendToTerminalDisplay('^D\n');
+                    if (needsPort) this.sendRawBytes([0x04]);
                     input.value = '';
                     handled = true;
                 } else if (e.key === 'z') {
                     e.preventDefault();
                     this.termLineBuffer = '';
+                    this.renderTerminalInputEcho();
                     if (this.localEcho) this.appendToTerminalDisplay('^Z\n');
                     if (needsPort) this.sendRawBytes([0x1A]);
                     input.value = '';
@@ -2488,24 +2558,24 @@ class SerialToolApp {
                 }
             } else if (e.key === 'Enter') {
                 e.preventDefault();
+                const completedLine = this.termLineBuffer;
                 if (needsPort) {
-                    const lineBytes = new TextEncoder().encode(this.termLineBuffer);
+                    const lineBytes = new TextEncoder().encode(completedLine);
                     const payload = new Uint8Array(lineBytes.length + 2);
                     payload.set(lineBytes);
                     payload.set([0x0d, 0x0a], lineBytes.length);
                     this.sendRawBytes(Array.from(payload));
                 }
-                if (this.localEcho) {
-                    this.appendToTerminalDisplay('\n');
-                }
                 this.termLineBuffer = '';
+                this.renderTerminalInputEcho();
+                if (this.localEcho) this.appendToTerminalDisplay(`${completedLine}\n`);
                 input.value = '';
                 handled = true;
             } else if (e.key === 'Backspace') {
                 e.preventDefault();
                 if (this.termLineBuffer.length > 0) {
                     this.termLineBuffer = this.termLineBuffer.slice(0, -1);
-                    if (this.localEcho) this.handleBackspaceInTerminal();
+                    this.renderTerminalInputEcho();
                 } else if (needsPort) {
                     this.sendRawBytes([0x08]);
                 }
@@ -2514,7 +2584,7 @@ class SerialToolApp {
             } else if (e.key === 'Tab') {
                 e.preventDefault();
                 this.termLineBuffer += '\t';
-                if (this.localEcho) this.appendToTerminalDisplay('\t');
+                this.renderTerminalInputEcho();
                 input.value = '';
                 handled = true;
             } else if (e.key === 'Escape') {
@@ -2539,7 +2609,7 @@ class SerialToolApp {
             } else if (e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
                 e.preventDefault();
                 this.termLineBuffer += e.key;
-                if (this.localEcho) this.appendToTerminalDisplay(e.key);
+                this.renderTerminalInputEcho();
                 input.value = '';
                 handled = true;
             }
@@ -2557,8 +2627,8 @@ class SerialToolApp {
             input.value = '';
             for (const ch of value) {
                 this.termLineBuffer += ch;
-                if (this.localEcho) this.appendToTerminalDisplay(ch);
             }
+            this.renderTerminalInputEcho();
             resetInputCaret();
         });
         
@@ -2585,125 +2655,70 @@ class SerialToolApp {
             if (!text) return;
             for (const ch of text) {
                 this.termLineBuffer += ch;
-                if (this.localEcho) {
-                    this.appendToTerminalDisplay(ch === '\r' ? '' : ch === '\n' ? '\n' : ch);
-                }
             }
+            this.renderTerminalInputEcho();
             resetInputCaret();
         });
     }
     
     // 追加文本到终端显示区域
     appendToTerminalDisplay(text) {
-        const display = document.getElementById('terminalDisplay');
-        if (!display) return;
-        
-        console.log('appendToTerminalDisplay called with:', JSON.stringify(text), 'length:', text.length);
-        
-        // 移除所有旧光标（可能有多个）
-        const oldCursors = display.querySelectorAll('.terminal-cursor');
-        oldCursors.forEach(cursor => cursor.remove());
-        
-        const textNode = document.createTextNode(text);
-        display.appendChild(textNode);
-        
-        // 添加新光标（只添加一个）
-        const cursor = document.createElement('span');
-        cursor.className = 'terminal-cursor';
-        cursor.textContent = '\u00A0'; // 不间断空格
-        display.appendChild(cursor);
-        
-        // 自动滚动
+        if (!text) return;
+        const parts = this.ensureTerminalDisplayParts();
+        if (!parts) return;
+        parts.output.appendChild(document.createTextNode(text));
         if (this.autoScroll) {
-            display.scrollTop = display.scrollHeight;
+            parts.display.scrollTop = parts.display.scrollHeight;
         }
     }
     
     // 处理终端中的退格
     handleBackspaceInTerminal() {
-        const display = document.getElementById('terminalDisplay');
-        if (!display) return;
-        
-        // 移除所有光标
-        const oldCursors = display.querySelectorAll('.terminal-cursor');
-        oldCursors.forEach(cursor => cursor.remove());
-        
-        // 删除最后一个文本节点
-        const lastChild = display.lastChild;
-        if (lastChild && lastChild.nodeType === Node.TEXT_NODE) {
-            const text = lastChild.textContent;
-            if (text.length > 0) {
-                lastChild.textContent = text.slice(0, -1);
-            } else {
-                lastChild.remove();
-            }
-        } else if (lastChild && lastChild.nodeType === Node.ELEMENT_NODE) {
-            // 如果最后一个是元素（光标），删除它前面的文本节点
-            const prevSibling = lastChild.previousSibling;
-            if (prevSibling && prevSibling.nodeType === Node.TEXT_NODE) {
-                const text = prevSibling.textContent;
-                if (text.length > 0) {
-                    prevSibling.textContent = text.slice(0, -1);
-                } else {
-                    prevSibling.remove();
-                }
-            }
-        }
-        
-        // 重新添加光标
-        const cursor = document.createElement('span');
-        cursor.className = 'terminal-cursor';
-        cursor.textContent = '\u00A0';
-        display.appendChild(cursor);
+        this.renderTerminalInputEcho();
     }
-    
+
+    async writePortData(portId, portInfo, data) {
+        if (portInfo.type === 'remote') {
+            if (!this.websocket || !this.websocket.connected) {
+                throw new Error('远程串口连接已断开');
+            }
+            this.websocket.emit('write_data', {
+                port_id: portId,
+                data: Array.from(data),
+            });
+            return { awaitRemoteRecord: false };
+        }
+
+        const writer = portInfo.port.writable.getWriter();
+        try {
+            await writer.write(data);
+        } finally {
+            writer.releaseLock();
+        }
+        if (typeof this.mirrorLocalSharedTx === 'function') {
+            await this.mirrorLocalSharedTx(portId, data);
+        }
+        return { awaitRemoteRecord: false };
+    }
+
     // 发送原始字节
     async sendRawBytes(bytes) {
-        console.log('sendRawBytes called with:', bytes, 'currentPort:', this.currentPort);
-        
         if (!this.currentPort) {
-            console.warn('No current port');
             return;
         }
         
         const portInfo = this.ports.get(this.currentPort);
-        console.log('Port info:', portInfo);
-        console.log('Port info details - type:', portInfo?.type, 'writer:', portInfo?.writer, 'connected:', portInfo?.connected);
-        
         if (!portInfo) {
-            console.warn('Port info not found for:', this.currentPort);
             return;
         }
         
         try {
             const data = new Uint8Array(bytes);
-            console.log('Sending bytes:', Array.from(data), 'to port type:', portInfo.type);
-            
-            if (portInfo.type === 'local') {
-                // 每次使用时临时获取 writer，使用后立即释放
-                const writer = portInfo.port.writable.getWriter();
-                try {
-                    await writer.write(data);
-                    console.log('Data written to local port successfully');
-                } finally {
-                    writer.releaseLock();
-                }
-                if (typeof this.mirrorLocalSharedTx === 'function') {
-                    await this.mirrorLocalSharedTx(this.currentPort, data);
-                }
-            } else if (portInfo.type === 'remote') {
-                if (this.websocket && this.websocket.connected) {
-                    this.websocket.emit('write_data', {
-                        port_id: this.currentPort,
-                        data: Array.from(data)
-                    });
-                    console.log('Data sent to remote port via WebSocket');
-                }
+
+            const result = await this.writePortData(this.currentPort, portInfo, data);
+            if (!result?.awaitRemoteRecord) {
+                this.addPortBytes(this.currentPort, 'tx', data.length);
             }
-            
-            this.txBytes += data.length;
-            this.updateStats();
-            console.log('TX bytes updated:', this.txBytes);
             
         } catch (error) {
             console.error('发送数据失败:', error);
@@ -2729,6 +2744,7 @@ class SerialToolApp {
         if (this.isTerminalReplMode()) {
             if (charCode === 0x03 || charCode === 0x1a) {
                 this.termLineBuffer = '';
+                this.renderTerminalInputEcho();
             }
         }
         
@@ -2750,14 +2766,7 @@ class SerialToolApp {
     // 清空终端屏幕
     clearTerminalScreen() {
         this.termLineBuffer = '';
-        const display = document.getElementById('terminalDisplay');
-        if (display) {
-            display.innerHTML = '';
-            const cursor = document.createElement('span');
-            cursor.className = 'terminal-cursor';
-            cursor.textContent = '\u00A0';
-            display.appendChild(cursor);
-        }
+        this.resetTerminalDisplay('');
         const input = document.getElementById('terminalInput');
         if (input) {
             input.focus();
@@ -2892,15 +2901,6 @@ class SerialToolApp {
             return;
         }
 
-        if (this.sendFormat === 'hex') {
-            const hexStr = input.replace(/\s+/g, '');
-            if (!/^[0-9A-Fa-f]*$/.test(hexStr)) {
-                if (timerActive) this.haltScheduledSend('HEX 格式错误');
-                else alert('HEX 格式错误，请输入有效的十六进制字符');
-                return;
-            }
-        }
-
         if (timerActive) {
             this._sendDataInProgress = true;
         }
@@ -2909,12 +2909,7 @@ class SerialToolApp {
             let dataToSend;
 
             if (this.sendFormat === 'hex') {
-                const hexStr = input.replace(/\s+/g, '');
-                const bytes = [];
-                for (let i = 0; i < hexStr.length; i += 2) {
-                    bytes.push(parseInt(hexStr.substr(i, 2), 16));
-                }
-                dataToSend = new Uint8Array(bytes);
+                dataToSend = SerialToolUtils.parseHexBytes(input);
             } else {
                 let text = input;
                 if (document.getElementById('appendCRLF').checked) {
@@ -2923,22 +2918,13 @@ class SerialToolApp {
                 dataToSend = new TextEncoder().encode(text);
             }
 
-            if (portInfo.type === 'remote') {
-                this.websocket.emit('write_data', {
-                    port_id: this.currentPort,
-                    data: Array.from(dataToSend)
-                });
-            } else {
-                const writer = portInfo.port.writable.getWriter();
-                await writer.write(dataToSend);
-                writer.releaseLock();
-                if (typeof this.mirrorLocalSharedTx === 'function') {
-                    await this.mirrorLocalSharedTx(this.currentPort, dataToSend);
-                }
+            const result = await this.writePortData(this.currentPort, portInfo, dataToSend);
+            if (result?.awaitRemoteRecord) {
+                console.log('数据已提交，等待远程串口回传记录');
+                return;
             }
 
-            this.txBytes += dataToSend.length;
-            this.updateStats();
+            this.addPortBytes(this.currentPort, 'tx', dataToSend.length);
 
             const data = {
                 portId: this.currentPort,
@@ -3028,6 +3014,7 @@ class SerialToolApp {
         this.currentPort = portId;
         const portInfo = this.ports.get(portId);
         const { resetHistory = false } = options;
+        this.getPortStats(portId);
         
         document.getElementById('portConfigCard').style.display = 'block';
         document.getElementById('currentPortName').textContent = portInfo?.name || portId;
@@ -3038,6 +3025,8 @@ class SerialToolApp {
         if (sendBtn) {
             sendBtn.disabled = !(portInfo && portInfo.connected);
         }
+        this.updateStats();
+        this.startUptimeTimer();
         
         // 刷新显示
         this.renderPortList();
@@ -3045,6 +3034,27 @@ class SerialToolApp {
         this.refreshDataDisplay();
     }
     
+    async disconnectPortTransport(portId, portInfo) {
+        if (portInfo.type === 'remote') {
+            if (this.websocket && this.websocket.connected) {
+                this.websocket.emit('close_port', { port_id: portId });
+            }
+            return { removePort: true };
+        }
+
+        if (portInfo.reader) {
+            await portInfo.reader.cancel();
+            portInfo.reader.releaseLock();
+        }
+        if (portInfo.writer) {
+            portInfo.writer.releaseLock();
+        }
+        if (portInfo.port) {
+            await portInfo.port.close();
+        }
+        return { removePort: true };
+    }
+
     // 断开串口
     async disconnectPort(portId) {
         const portInfo = this.ports.get(portId);
@@ -3063,36 +3073,21 @@ class SerialToolApp {
                 await this.autoSaveLog();
             }
             
-            // 判断是本地串口还是远程串口
-            if (portInfo.type === 'remote') {
-                // 远程串口：通知服务器关闭
-                this.websocket.emit('close_port', {
-                    port_id: portId
-                });
-            } else {
-                // 本地串口：直接关闭
-                if (portInfo.reader) {
-                    await portInfo.reader.cancel();
-                    portInfo.reader.releaseLock();
-                }
-                
-                if (portInfo.writer) {
-                    portInfo.writer.releaseLock();
-                }
-                
-                if (portInfo.port) {
-                    await portInfo.port.close();
-                }
+            const transportResult = await this.disconnectPortTransport(portId, portInfo);
+            const removePort = transportResult?.removePort !== false;
+            if (removePort) {
+                this.ports.delete(portId);
+                this.portStats.delete(portId);
             }
-            
-            // 移除串口
-            this.ports.delete(portId);
             
             // 如果是当前串口，清空选择
             if (this.currentPort === portId) {
-                this.currentPort = null;
-                document.getElementById('portConfigCard').style.display = 'none';
+                if (removePort) {
+                    this.currentPort = null;
+                    document.getElementById('portConfigCard').style.display = 'none';
+                }
                 document.getElementById('sendBtn').disabled = true;
+                this.updateStats();
             }
             
             // 刷新列表
@@ -3126,10 +3121,14 @@ class SerialToolApp {
         document.getElementById('dataDisplay').innerHTML = '';
         const terminalDisplay = document.getElementById('terminalDisplay');
         if (terminalDisplay) terminalDisplay.innerHTML = '';
-        this.dataLog = [];
-        this.rxBytes = 0;
-        this.txBytes = 0;
-        this.updateStats();
+        if (this.currentPort) {
+            this.dataLog = this.dataLog.filter((record) => record.portId !== this.currentPort);
+            this.resetPortStats(this.currentPort);
+        } else {
+            this.dataLog = [];
+            this.portStats.clear();
+            this.updateStats();
+        }
         this.termLineBuffer = '';
         
         this.dataBuffer = { rx: null, tx: null };
@@ -3137,11 +3136,20 @@ class SerialToolApp {
             clearTimeout(this.bufferTimeout);
             this.bufferTimeout = null;
         }
-        this.bubbleRxByPort.forEach((sess) => {
-            this.clearBubbleRxIdleTimer(sess);
-            this.removeBubblePartialDom(sess);
-        });
-        this.bubbleRxByPort.clear();
+        if (this.currentPort) {
+            const session = this.bubbleRxByPort.get(this.currentPort);
+            if (session) {
+                this.clearBubbleRxIdleTimer(session);
+                this.removeBubblePartialDom(session);
+                this.bubbleRxByPort.delete(this.currentPort);
+            }
+        } else {
+            this.bubbleRxByPort.forEach((session) => {
+                this.clearBubbleRxIdleTimer(session);
+                this.removeBubblePartialDom(session);
+            });
+            this.bubbleRxByPort.clear();
+        }
     }
     
     // 切换暂停
@@ -3161,7 +3169,10 @@ class SerialToolApp {
     
     // 保存日志（改为保存到服务器）
     async saveLog() {
-        if (this.dataLog.length === 0) {
+        const portRecords = this.currentPort
+            ? this.dataLog.filter((record) => record.portId === this.currentPort)
+            : [];
+        if (portRecords.length === 0) {
             alert('没有数据可保存');
             return;
         }
@@ -3176,8 +3187,13 @@ class SerialToolApp {
     
     // 更新统计信息
     updateStats() {
-        document.getElementById('rxBytes').textContent = this.formatBytes(this.rxBytes);
-        document.getElementById('txBytes').textContent = this.formatBytes(this.txBytes);
+        const stats = this.getPortStats(this.currentPort, false);
+        this.rxBytes = stats.rxBytes;
+        this.txBytes = stats.txBytes;
+        this.startTime = stats.startedAt || null;
+        document.getElementById('rxBytes').textContent = this.formatBytes(stats.rxBytes);
+        document.getElementById('txBytes').textContent = this.formatBytes(stats.txBytes);
+        this.updateUptime();
     }
     
     // 格式化字节数
@@ -3189,15 +3205,20 @@ class SerialToolApp {
     
     // 启动运行时间计时器
     startUptimeTimer() {
+        if (this.uptimeInterval) return;
         this.uptimeInterval = setInterval(() => {
-            const elapsed = Date.now() - this.startTime;
-            const hours = Math.floor(elapsed / 3600000);
-            const minutes = Math.floor((elapsed % 3600000) / 60000);
-            const seconds = Math.floor((elapsed % 60000) / 1000);
-            
-            const timeStr = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
-            document.getElementById('uptime').textContent = timeStr;
+            this.updateUptime();
         }, 1000);
+    }
+
+    updateUptime() {
+        const stats = this.getPortStats(this.currentPort, false);
+        const elapsed = stats.startedAt ? Math.max(0, Date.now() - stats.startedAt) : 0;
+        const hours = Math.floor(elapsed / 3600000);
+        const minutes = Math.floor((elapsed % 3600000) / 60000);
+        const seconds = Math.floor((elapsed % 60000) / 1000);
+        const timeStr = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+        document.getElementById('uptime').textContent = timeStr;
     }
     
     // 显示添加快捷指令模态框
@@ -3253,20 +3274,35 @@ class SerialToolApp {
         this.commands.forEach(cmd => {
             const item = document.createElement('div');
             item.className = 'command-item';
-            item.innerHTML = `
-                <div class="command-info">
-                    <div class="command-name">${cmd.name}</div>
-                    <div class="command-content">${cmd.content}</div>
-                </div>
-                <div class="command-actions">
-                    <button class="btn btn-sm btn-primary" onclick="serialApp.sendCommand('${cmd.id}')">
-                        <i class="fas fa-paper-plane"></i>
-                    </button>
-                    <button class="btn btn-sm btn-danger" onclick="serialApp.deleteCommand('${cmd.id}')">
-                        <i class="fas fa-trash"></i>
-                    </button>
-                </div>
-            `;
+
+            const info = document.createElement('div');
+            info.className = 'command-info';
+            const name = document.createElement('div');
+            name.className = 'command-name';
+            name.textContent = String(cmd.name || '');
+            const content = document.createElement('div');
+            content.className = 'command-content';
+            content.textContent = String(cmd.content || '');
+            info.append(name, content);
+
+            const actions = document.createElement('div');
+            actions.className = 'command-actions';
+            const sendButton = document.createElement('button');
+            sendButton.type = 'button';
+            sendButton.className = 'btn btn-sm btn-primary';
+            sendButton.title = '发送快捷指令';
+            sendButton.setAttribute('aria-label', '发送快捷指令');
+            sendButton.innerHTML = '<i class="fas fa-paper-plane"></i>';
+            sendButton.addEventListener('click', () => this.sendCommand(cmd.id));
+            const deleteButton = document.createElement('button');
+            deleteButton.type = 'button';
+            deleteButton.className = 'btn btn-sm btn-danger';
+            deleteButton.title = '删除快捷指令';
+            deleteButton.setAttribute('aria-label', '删除快捷指令');
+            deleteButton.innerHTML = '<i class="fas fa-trash"></i>';
+            deleteButton.addEventListener('click', () => this.deleteCommand(cmd.id));
+            actions.append(sendButton, deleteButton);
+            item.append(info, actions);
             
             commandList.appendChild(item);
         });
@@ -3296,12 +3332,31 @@ class SerialToolApp {
     // 启动定时发送
     startTimerSend() {
         const interval = parseInt(document.getElementById('timerInterval').value);
-        if (interval < 100) {
-            alert('间隔时间不能小于 100 毫秒');
+        const portInfo = this.currentPort ? this.ports.get(this.currentPort) : null;
+        const input = document.getElementById('sendInput').value;
+        let errorMessage = '';
+
+        if (!portInfo || !portInfo.connected) {
+            errorMessage = '请先选择并连接一个串口';
+        } else if (!input) {
+            errorMessage = '请输入要定时发送的数据';
+        } else if (!Number.isFinite(interval) || interval < 100 || interval > 60000) {
+            errorMessage = '间隔时间必须在 100 到 60000 毫秒之间';
+        } else if (this.sendFormat === 'hex') {
+            try {
+                SerialToolUtils.parseHexBytes(input);
+            } catch (error) {
+                errorMessage = error.message;
+            }
+        }
+
+        if (errorMessage) {
+            alert(errorMessage);
             document.getElementById('enableTimer').checked = false;
             return;
         }
-        
+
+        this.stopTimerSend();
         this.timerInterval = setInterval(() => {
             this.sendData();
         }, interval);
@@ -3389,24 +3444,23 @@ class SerialToolApp {
                     item.innerHTML = `
                         <div class="d-flex justify-content-between align-items-center">
                             <div>
-                                <h6 class="mb-1"><i class="fas fa-file-alt"></i> ${log.filename}</h6>
+                                <h6 class="mb-1"><i class="fas fa-file-alt"></i> ${this.escapeHtml(log.filename)}</h6>
                                 <small class="text-muted">
-                                    <i class="fas fa-clock"></i> ${dateStr} | 
-                                    <i class="fas fa-database"></i> ${sizeStr}
+                                    <i class="fas fa-clock"></i> ${this.escapeHtml(dateStr)} |
+                                    <i class="fas fa-database"></i> ${this.escapeHtml(sizeStr)}
                                 </small>
                             </div>
-                            <button class="btn btn-sm btn-primary" onclick="serialApp.viewHistoryLog('${log.filename}')">
+                            <button type="button" class="btn btn-sm btn-primary">
                                 <i class="fas fa-eye"></i> 查看
                             </button>
                         </div>
                     `;
+                    item.querySelector('button').addEventListener('click', () => this.viewHistoryLog(log.filename));
                     
                     historyList.appendChild(item);
                 });
             } else {
-                historyList.innerHTML = `
-                    <div class="alert alert-danger">加载失败: ${result.error}</div>
-                `;
+                historyList.innerHTML = `<div class="alert alert-danger">加载失败: ${this.escapeHtml(result.error)}</div>`;
             }
         } catch (error) {
             console.error('加载历史记录失败:', error);
@@ -3461,9 +3515,7 @@ class SerialToolApp {
     
     // HTML 转义
     escapeHtml(text) {
-        const div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
+        return SerialToolUtils.escapeHtml(text);
     }
 }
 

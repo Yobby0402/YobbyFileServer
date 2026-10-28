@@ -1,0 +1,71 @@
+- generic [active] [ref=f1e1]:
+  - generic [ref=f1e2]:
+    - banner [ref=f1e3]:
+      - button "Yobboy Server 工作区" [ref=f1e4] [cursor=pointer]:
+        - generic [aria-hidden] [ref=f1e5]: "Y"
+        - generic [ref=f1e6]:
+          - generic [ref=f1e7]: Yobboy Server
+          - generic [ref=f1e8]: 工作区入口
+      - navigation "页面操作" [ref=f1e9]:
+        - button "主题" [ref=f1e11] [cursor=pointer]:
+          - generic [aria-hidden] [ref=f1e12]: 
+          - generic [aria-hidden] [ref=f1e14]: 
+        - link "帮助" [ref=f1e15] [cursor=pointer]:
+          - /url: /help
+          - generic [aria-hidden] [ref=f1e16]: 
+        - link "退出" [ref=f1e18] [cursor=pointer]:
+          - /url: /logout
+          - generic [aria-hidden] [ref=f1e19]: 
+    - main [ref=f1e21]:
+      - region [ref=f1e22]:
+        - paragraph [ref=f1e23]: WORKSPACE / 入口选择
+        - heading "选择一个工作区" [level=1] [ref=f1e24]
+        - paragraph [ref=f1e25]: 从这里进入你的文件、任务、设计和设备工具。
+      - region "工作区列表" [ref=f1e26]:
+        - link "文件浏览器 浏览、检索与共享本地文件。" [ref=f1e27] [cursor=pointer]:
+          - /url: /file_browser
+          - generic [ref=f1e29]: 
+          - generic [ref=f1e30]:
+            - generic [ref=f1e31]: 文件浏览器
+            - generic [ref=f1e32]: 浏览、检索与共享本地文件。
+          - generic [ref=f1e34]: 
+        - link "ToDo 任务管理 规划、跟踪和推进当前任务。" [ref=f1e35] [cursor=pointer]:
+          - /url: /todo/v2
+          - generic [ref=f1e37]: 
+          - generic [ref=f1e38]:
+            - generic [ref=f1e39]: ToDo 任务管理
+            - generic [ref=f1e40]: 规划、跟踪和推进当前任务。
+          - generic [ref=f1e42]: 
+        - link "产品对比 整理参数并快速比较产品。" [ref=f1e43] [cursor=pointer]:
+          - /url: /product_compare
+          - generic [ref=f1e45]: 
+          - generic [ref=f1e46]:
+            - generic [ref=f1e47]: 产品对比
+            - generic [ref=f1e48]: 整理参数并快速比较产品。
+          - generic [ref=f1e50]: 
+        - link "本地离线 ERP 管理物料、工单和生产流程。" [ref=f1e51] [cursor=pointer]:
+          - /url: /erp
+          - generic [ref=f1e53]: 
+          - generic [ref=f1e54]:
+            - generic [ref=f1e55]: 本地离线 ERP
+            - generic [ref=f1e56]: 管理物料、工单和生产流程。
+          - generic [ref=f1e58]: 
+        - link "Draw.io 编辑器 创建流程图、架构图和示意图。" [ref=f1e59] [cursor=pointer]:
+          - /url: /drawio_main
+          - generic [ref=f1e61]: 
+          - generic [ref=f1e62]:
+            - generic [ref=f1e63]: Draw.io 编辑器
+            - generic [ref=f1e64]: 创建流程图、架构图和示意图。
+          - generic [ref=f1e66]: 
+        - link "串口调试助手 连接设备，实时收发并定位问题。" [ref=f1e67] [cursor=pointer]:
+          - /url: /serial_tool
+          - generic [ref=f1e69]: 
+          - generic [ref=f1e70]:
+            - generic [ref=f1e71]: 串口调试助手
+            - generic [ref=f1e72]: 连接设备，实时收发并定位问题。
+          - generic [ref=f1e74]: 
+    - contentinfo [ref=f1e75]:
+      - generic [ref=f1e76]: Yobboy Server
+      - generic [aria-hidden] [ref=f1e77]: /
+      - generic [ref=f1e78]: 选择入口后即可继续工作
+  - text: 

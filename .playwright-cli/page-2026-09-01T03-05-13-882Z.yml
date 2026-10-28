@@ -1,0 +1,128 @@
+- generic [ref=f2e1]:
+  - generic [ref=f2e2]:
+    - banner [ref=f2e3]:
+      - heading "ToDo 任务管理" [level=1] [ref=f2e4]
+      - generic [ref=f2e5]:
+        - generic [ref=f2e7]:
+          - generic [ref=f2e8]:
+            - generic [ref=f2e9]: 
+            - text: 数据文件
+          - textbox "默认使用todo_v2文件" [ref=f2e10]
+          - button " 选择文件" [ref=f2e11] [cursor=pointer]:
+            - generic [ref=f2e12]: 
+            - text: 选择文件
+          - button " 重置" [ref=f2e13] [cursor=pointer]:
+            - generic [ref=f2e14]: 
+            - text: 重置
+        - generic [ref=f2e16]:
+          - generic [ref=f2e17]:
+            - generic [ref=f2e18]: 搜索
+            - textbox "项目名称 / 任务简述 / 描述" [ref=f2e19]
+          - generic [ref=f2e20]:
+            - generic [ref=f2e21]:
+              - generic [ref=f2e22]: 字体大小：
+              - slider [ref=f2e23]: "14"
+              - generic [ref=f2e24]: "14"
+              - generic [ref=f2e25]: px
+            - group "显示风格切换" [ref=f2e27]:
+              - button " 卷轴" [ref=f2e28] [cursor=pointer]:
+                - generic [ref=f2e29]: 
+                - text: 卷轴
+              - button " 表格" [ref=f2e30] [cursor=pointer]:
+                - generic [ref=f2e31]: 
+                - text: 表格
+              - button " 时间轴" [ref=f2e32] [cursor=pointer]:
+                - generic [ref=f2e33]: 
+                - text: 时间轴
+              - button " 汇报" [ref=f2e34] [cursor=pointer]:
+                - generic [ref=f2e35]: 
+                - text: 汇报
+            - button "+ 新建项目" [ref=f2e36] [cursor=pointer]:
+              - generic [ref=f2e37]: +
+              - text: 新建项目
+            - button " 导出Excel" [ref=f2e38] [cursor=pointer]:
+              - generic [ref=f2e39]: 
+              - text: 导出Excel
+            - button " 已归档项目 7" [ref=f2e40] [cursor=pointer]:
+              - generic [ref=f2e41]: 
+              - text: 已归档项目
+              - generic [ref=f2e42]: "7"
+            - text:  
+    - text: 
+    - main [ref=f2e43]:
+      - text: +                                                          +                                                                                                                 +                                                 +                                                         +                      
+      - generic [ref=f2e44]:
+        - generic [ref=f2e45]:
+          - generic [ref=f2e46]:
+            - heading "进行中任务时间轴" [level=2] [ref=f2e47]
+            - paragraph [ref=f2e48]: 按创建时间与预计完成时间展示任务跨度
+          - generic [ref=f2e49]:
+            - generic [ref=f2e50]: 
+            - text: 自动缩放，长周期可横向滚动
+        - generic [ref=f2e51]:
+          - generic [ref=f2e52]: 
+          - paragraph [ref=f2e53]: 暂无进行中的任务
+      - text: 
+  - text: 
+  - dialog [active] [ref=f2e62]:
+    - generic [ref=f2e63]:
+      - generic [ref=f2e64]:
+        - heading "📝 会议记录" [level=5] [ref=f2e65]
+        - button "Close" [ref=f2e66] [cursor=pointer]
+      - generic [ref=f2e68]:
+        - generic [ref=f2e69]:
+          - generic [ref=f2e70]:
+            - heading "历史笔记" [level=6] [ref=f2e71]
+            - button "+ 新建" [ref=f2e72] [cursor=pointer]:
+              - generic [ref=f2e73]: +
+              - text: 新建
+          - generic [ref=f2e74]:
+            - generic [ref=f2e75]:
+              - textbox "搜索笔记内容..." [ref=f2e76]
+              - button "" [ref=f2e77] [cursor=pointer]
+              - text: 
+            - combobox [ref=f2e80]:
+              - option "按日期降序" [selected]
+              - option "按日期升序"
+              - option "按更新时间降序"
+              - option "按更新时间升序"
+          - paragraph [ref=f2e82]: 暂无笔记
+        - generic [ref=f2e83]:
+          - generic [ref=f2e84]:
+            - generic [ref=f2e85]: 日期
+            - textbox [ref=f2e86]: 2026-09-01
+          - generic [ref=f2e87]:
+            - generic [ref=f2e88]:
+              - group "语音记录" [ref=f2e89]:
+                - button "" [disabled]
+                - button "" [disabled]
+                - button "" [disabled]
+              - generic [ref=f2e90]: 00:00
+              - generic [ref=f2e91]: 语音服务未启用
+              - button "" [ref=f2e92] [cursor=pointer]
+            - text: +
+          - generic [ref=f2e94]:
+            - button " 编辑" [ref=f2e96] [cursor=pointer]:
+              - generic [ref=f2e97]: 
+              - text: 编辑
+            - paragraph [ref=f2e99]: 暂无内容
+      - button "关闭" [ref=f2e101] [cursor=pointer]
+  - text:      + +           
+  - generic [ref=f2e54]:
+    - button " 本地 AI" [ref=f2e55] [cursor=pointer]:
+      - generic [ref=f2e56]: 
+      - generic: 本地 AI
+    - button "切换主题" [ref=f2e57] [cursor=pointer]:
+      - generic [ref=f2e58]: 
+    - link "🏠 返回主界面" [ref=f2e59] [cursor=pointer]:
+      - /url: /
+      - text: 🏠
+      - generic: 返回主界面
+    - button "📝 会议记录" [ref=f2e60] [cursor=pointer]:
+      - text: 📝
+      - generic: 会议记录
+    - button "📊 日报 / 周报" [ref=f2e61] [cursor=pointer]:
+      - text: 📊
+      - generic: 日报 / 周报
+  - text: 
+  - tooltip

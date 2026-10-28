@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ filename }} - DSN 查看器</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap.min.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/all.min.css') }}">
+    <style>
+        html, body { height: 100%; margin: 0; }
+        body { display: flex; flex-direction: column; background: #111827; }
+        .viewer-toolbar { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: #fff; }
+        .viewer-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; font-weight: 600; }
+        .viewer-frame { flex: 1; width: 100%; border: 0; }
+    </style>
+</head>
+<body>
+    <header class="viewer-toolbar">
+        <a href="{{ back_url }}" class="btn btn-sm btn-outline-secondary" title="返回文件列表">
+            <i class="fas fa-arrow-left"></i>
+        </a>
+        <span class="viewer-title">{{ filename }}</span>
+        {% if download_url %}
+        <a href="{{ download_url }}" class="btn btn-sm btn-outline-primary" title="下载文件">
+            <i class="fas fa-download"></i>
+        </a>
+        {% endif %}
+    </header>
+    <iframe class="viewer-frame" src="{{ viewer_url }}" title="{{ filename }} DSN 查看器"></iframe>
+</body>
+</html>

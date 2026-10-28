@@ -22,6 +22,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 import xml.etree.ElementTree as ET
 
 from . import drawio_text_dsl
+from . import knowledge_ai_bridge
 from . import knowledge_store
 from . import todo_ai_bridge
 from .local_erp_manager import LocalERPManager
@@ -158,6 +159,20 @@ def _find_project_by_name(data: Dict[str, Any], name: str) -> Dict[str, Any]:
     if len(contains) > 1:
         names = [str(x.get("name") or "") for x in contains[:8]]
         raise MCPError("AMBIGUOUS_PROJECT", "project_name 模糊匹配到多个项目", {"project_name": q, "candidates": names})
+    scored = []
+    for p in projects:
+        name = str(p.get("name") or "")
+        score = todo_ai_bridge._project_match_score(q, name)
+        if score:
+            scored.append((score, name, p))
+    if scored:
+        scored.sort(key=lambda x: -x[0])
+        top_score = scored[0][0]
+        top = [x for x in scored if x[0] == top_score]
+        if len(top) == 1:
+            return top[0][2]
+        names = [x[1] for x in top[:8]]
+        raise MCPError("AMBIGUOUS_PROJECT", "project_name 短码匹配到多个项目", {"project_name": q, "candidates": names})
     raise MCPError("PROJECT_NOT_FOUND", "找不到指定项目", {"project_name": q})
 
 
@@ -640,7 +655,13 @@ class YFSMCPServer:
                 "description": "列出知识库条目",
                 "inputSchema": {
                     "type": "object",
-                    "properties": {},
+                    "properties": {
+                        "limit": {"type": "integer", "minimum": 1, "maximum": 500},
+                        "offset": {"type": "integer", "minimum": 0, "default": 0},
+                        "q": {"type": "string"},
+                        "query": {"type": "string"},
+                        "problem_first": {"type": "boolean", "default": False},
+                    },
                     "additionalProperties": False,
                 },
                 "handler": self.kb_list_entries,
@@ -655,6 +676,19 @@ class YFSMCPServer:
                 },
                 "handler": self.kb_get_entry,
             },
+            "kb_preview_entry": {
+                "description": "preview knowledge file text",
+                "inputSchema": {
+                    "type": "object",
+                    "required": ["path"],
+                    "properties": {
+                        "path": {"type": "string", "minLength": 1},
+                        "max_chars": {"type": "integer", "minimum": 1, "maximum": 200000, "default": 20000},
+                    },
+                    "additionalProperties": False,
+                },
+                "handler": self.kb_preview_entry,
+            },
             "kb_set_entry": {
                 "description": "添加/更新知识库条目（仅 md/txt）",
                 "inputSchema": {
@@ -664,6 +698,8 @@ class YFSMCPServer:
                         "path": {"type": "string", "minLength": 1},
                         "tags": {"type": "array", "items": {"type": "string"}},
                         "note": {"type": "string"},
+                        "async": {"type": "boolean", "default": False},
+                        "run_async": {"type": "boolean", "default": False},
                     },
                     "additionalProperties": False,
                 },
@@ -684,7 +720,11 @@ class YFSMCPServer:
                 "inputSchema": {
                     "type": "object",
                     "required": ["path"],
-                    "properties": {"path": {"type": "string", "minLength": 1}},
+                    "properties": {
+                        "path": {"type": "string", "minLength": 1},
+                        "async": {"type": "boolean", "default": False},
+                        "run_async": {"type": "boolean", "default": False},
+                    },
                     "additionalProperties": False,
                 },
                 "handler": self.kb_rebuild_entry,
@@ -697,6 +737,53 @@ class YFSMCPServer:
                     "additionalProperties": False,
                 },
                 "handler": self.kb_index_status,
+            },
+            "kb_scan_files": {
+                "description": "scan supported knowledge files",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "async": {"type": "boolean", "default": True},
+                        "run_async": {"type": "boolean", "default": True},
+                    },
+                    "additionalProperties": False,
+                },
+                "handler": self.kb_scan_files,
+            },
+            "kb_bulk_index": {
+                "description": "queue folder or file entries for indexing",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "folder_path": {"type": "string"},
+                        "paths": {"type": "array", "items": {"type": "string"}},
+                    },
+                    "additionalProperties": False,
+                },
+                "handler": self.kb_bulk_index,
+            },
+            "kb_list_jobs": {
+                "description": "list knowledge background jobs",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "limit": {"type": "integer", "minimum": 1, "maximum": 200, "default": 50},
+                        "source_type": {"type": "string"},
+                        "source_key": {"type": "string"},
+                    },
+                    "additionalProperties": False,
+                },
+                "handler": self.kb_list_jobs,
+            },
+            "kb_get_job": {
+                "description": "get knowledge background job detail",
+                "inputSchema": {
+                    "type": "object",
+                    "required": ["id"],
+                    "properties": {"id": {"type": "string", "minLength": 1}},
+                    "additionalProperties": False,
+                },
+                "handler": self.kb_get_job,
             },
             "kb_list_snippets": {
                 "description": "list snippet knowledge items",
@@ -837,6 +924,13 @@ class YFSMCPServer:
         ref_question = str(args.get("ref_question") or args.get("message") or "").strip()
         cat = todo_ai_bridge.build_mutate_ref_catalog_only(self.todo_manager, ref_question)
         ops = todo_ai_bridge.expand_natural_todo_refs(ops, cat)
+        ops, normalize_err = todo_ai_bridge.normalize_todo_ops_for_user_message(
+            self.todo_manager,
+            ref_question,
+            ops,
+        )
+        if normalize_err:
+            raise MCPError("VALIDATION_ERROR", normalize_err)
         auto_due_date = bool(args.get("auto_due_date", True))
         if auto_due_date and ref_question:
             ops = todo_ai_bridge.enrich_todo_ops_due_dates(ops, ref_question)
@@ -1020,16 +1114,45 @@ class YFSMCPServer:
         page_context = args.get("page_context") if isinstance(args.get("page_context"), dict) else {}
         return _ok(self.erp_manager.build_ai_context(query_text, page_context), trace_id)
 
-    def kb_list_entries(self, _args: Dict[str, Any], trace_id: str) -> Dict[str, Any]:
-        items = knowledge_store.list_entries(self.root_dir)
-        return _ok({"items": items, "count": len(items)}, trace_id)
+    def kb_list_entries(self, args: Dict[str, Any], trace_id: str) -> Dict[str, Any]:
+        query = _safe_len_text(args.get("q") or args.get("query") or "", _MAX_TEXT_FIELD, "query").strip()
+        limit_raw = args.get("limit")
+        offset_raw = args.get("offset", 0)
+        problem_first = bool(args.get("problem_first", False))
+        try:
+            limit = None if limit_raw in (None, "") else int(limit_raw)
+            offset = int(offset_raw or 0)
+        except Exception:
+            raise MCPError("VALIDATION_ERROR", "limit/offset 参数无效")
+        page = knowledge_ai_bridge.list_entries_page(
+            self.root_dir,
+            limit=limit,
+            offset=max(0, offset),
+            problem_first=problem_first,
+            query=query,
+        )
+        return _ok(page, trace_id)
 
     def kb_get_entry(self, args: Dict[str, Any], trace_id: str) -> Dict[str, Any]:
         path = _safe_len_text(args.get("path"), _MAX_TEXT_FIELD, "path").strip()
         if not path:
             raise MCPError("VALIDATION_ERROR", "path 不能为空")
-        meta = knowledge_store.get_meta(path, root_dir=self.root_dir)
-        return _ok({"path": path, "in_knowledge": meta is not None, "meta": meta}, trace_id)
+        return _ok(knowledge_ai_bridge.get_entry(self.root_dir, path), trace_id)
+
+    def kb_preview_entry(self, args: Dict[str, Any], trace_id: str) -> Dict[str, Any]:
+        path = _safe_len_text(args.get("path"), _MAX_TEXT_FIELD, "path").strip()
+        if not path:
+            raise MCPError("VALIDATION_ERROR", "path 不能为空")
+        try:
+            max_chars = int(args.get("max_chars", _DEFAULT_KB_FILE_BYTES))
+        except Exception:
+            raise MCPError("VALIDATION_ERROR", "max_chars 参数无效")
+        max_chars = max(1, min(max_chars, 200000))
+        try:
+            data = knowledge_ai_bridge.preview_entry(self.root_dir, path, max_chars=max_chars)
+        except ValueError as e:
+            raise MCPError("VALIDATION_ERROR", str(e))
+        return _ok(data, trace_id)
 
     def kb_set_entry(self, args: Dict[str, Any], trace_id: str) -> Dict[str, Any]:
         path = _safe_len_text(args.get("path"), _MAX_TEXT_FIELD, "path").strip()
@@ -1037,34 +1160,83 @@ class YFSMCPServer:
         tags = args.get("tags")
         if tags is not None and not isinstance(tags, list):
             raise MCPError("VALIDATION_ERROR", "tags 必须为字符串数组")
+        run_async = bool(args.get("async") or args.get("run_async"))
         try:
-            entry = knowledge_store.set_entry(self.root_dir, path, tags=tags, note=note)
+            data = knowledge_ai_bridge.set_entry(
+                self.root_dir,
+                path,
+                tags=tags,
+                note=note,
+                run_async=run_async,
+            )
         except ValueError as e:
             raise MCPError("VALIDATION_ERROR", str(e))
-        return _ok({"entry": entry}, trace_id)
+        return _ok(data, trace_id)
 
     def kb_remove_entry(self, args: Dict[str, Any], trace_id: str) -> Dict[str, Any]:
         path = _safe_len_text(args.get("path"), _MAX_TEXT_FIELD, "path").strip()
         try:
-            knowledge_store.remove_entry(self.root_dir, path)
+            data = knowledge_ai_bridge.remove_entry(self.root_dir, path)
         except ValueError as e:
             raise MCPError("VALIDATION_ERROR", str(e))
-        return _ok({"removed": True, "path": path}, trace_id)
+        return _ok(data, trace_id)
 
     def kb_rebuild_entry(self, args: Dict[str, Any], trace_id: str) -> Dict[str, Any]:
         path = _safe_len_text(args.get("path"), _MAX_TEXT_FIELD, "path").strip()
+        run_async = bool(args.get("async") or args.get("run_async"))
         try:
-            entry = knowledge_store.rebuild_entry(self.root_dir, path)
+            data = knowledge_ai_bridge.rebuild_entry(self.root_dir, path, run_async=run_async)
         except ValueError as e:
             raise MCPError("VALIDATION_ERROR", str(e))
-        return _ok({"entry": entry}, trace_id)
+        return _ok(data, trace_id)
 
     def kb_index_status(self, _args: Dict[str, Any], trace_id: str) -> Dict[str, Any]:
-        return _ok(knowledge_store.get_index_status(self.root_dir), trace_id)
+        return _ok(knowledge_ai_bridge.index_status(self.root_dir), trace_id)
+
+    def kb_scan_files(self, args: Dict[str, Any], trace_id: str) -> Dict[str, Any]:
+        run_async = bool(args.get("async", args.get("run_async", True)))
+        try:
+            data = knowledge_ai_bridge.scan_files(self.root_dir, run_async=run_async)
+        except ValueError as e:
+            raise MCPError("VALIDATION_ERROR", str(e))
+        return _ok(data, trace_id)
+
+    def kb_bulk_index(self, args: Dict[str, Any], trace_id: str) -> Dict[str, Any]:
+        folder_path = _safe_len_text(args.get("folder_path") or "", _MAX_TEXT_FIELD, "folder_path").strip()
+        paths = args.get("paths") or []
+        if not isinstance(paths, list):
+            raise MCPError("VALIDATION_ERROR", "paths 必须为字符串数组")
+        try:
+            data = knowledge_ai_bridge.bulk_index(
+                self.root_dir,
+                folder_path=folder_path,
+                paths=[str(path or "") for path in paths],
+            )
+        except ValueError as e:
+            raise MCPError("VALIDATION_ERROR", str(e))
+        return _ok(data, trace_id)
+
+    def kb_list_jobs(self, args: Dict[str, Any], trace_id: str) -> Dict[str, Any]:
+        try:
+            limit = int(args.get("limit", 50))
+        except Exception:
+            raise MCPError("VALIDATION_ERROR", "limit 参数无效")
+        data = knowledge_ai_bridge.list_jobs(
+            self.root_dir,
+            limit=limit,
+            source_type=(str(args.get("source_type") or "").strip() or None),
+            source_key=(str(args.get("source_key") or "").strip() or None),
+        )
+        return _ok(data, trace_id)
+
+    def kb_get_job(self, args: Dict[str, Any], trace_id: str) -> Dict[str, Any]:
+        job_id = _safe_len_text(args.get("id"), 128, "id").strip()
+        if not job_id:
+            raise MCPError("VALIDATION_ERROR", "id 不能为空")
+        return _ok(knowledge_ai_bridge.get_job(job_id), trace_id)
 
     def kb_list_snippets(self, _args: Dict[str, Any], trace_id: str) -> Dict[str, Any]:
-        items = knowledge_store.list_snippets(self.root_dir)
-        return _ok({"items": items, "count": len(items)}, trace_id)
+        return _ok(knowledge_ai_bridge.list_snippets(self.root_dir), trace_id)
 
     def kb_add_snippet(self, args: Dict[str, Any], trace_id: str) -> Dict[str, Any]:
         text = _safe_len_text(args.get("text"), _MAX_TEXT_FIELD, "text").strip()
@@ -1076,10 +1248,10 @@ class YFSMCPServer:
         if tags is not None and not isinstance(tags, list):
             raise MCPError("VALIDATION_ERROR", "tags 蹇呴』涓哄瓧绗︿覆鏁扮粍")
         try:
-            item = knowledge_store.add_snippet(self.root_dir, text, title=title, note=note, tags=tags)
+            data = knowledge_ai_bridge.add_snippet(self.root_dir, text, title=title, note=note, tags=tags)
         except ValueError as e:
             raise MCPError("VALIDATION_ERROR", str(e))
-        return _ok({"item": item}, trace_id)
+        return _ok(data, trace_id)
 
     def kb_update_snippet(self, args: Dict[str, Any], trace_id: str) -> Dict[str, Any]:
         snippet_id = _safe_len_text(args.get("id"), 128, "id").strip()
@@ -1092,7 +1264,7 @@ class YFSMCPServer:
         if tags is not None and not isinstance(tags, list):
             raise MCPError("VALIDATION_ERROR", "tags 蹇呴』涓哄瓧绗︿覆鏁扮粍")
         try:
-            item = knowledge_store.update_snippet(
+            data = knowledge_ai_bridge.update_snippet(
                 self.root_dir,
                 snippet_id,
                 text=text,
@@ -1102,14 +1274,13 @@ class YFSMCPServer:
             )
         except ValueError as e:
             raise MCPError("VALIDATION_ERROR", str(e))
-        return _ok({"item": item}, trace_id)
+        return _ok(data, trace_id)
 
     def kb_remove_snippet(self, args: Dict[str, Any], trace_id: str) -> Dict[str, Any]:
         snippet_id = _safe_len_text(args.get("id"), 128, "id").strip()
         if not snippet_id:
             raise MCPError("VALIDATION_ERROR", "id 涓嶈兘涓虹┖")
-        knowledge_store.remove_snippet(self.root_dir, snippet_id)
-        return _ok({"removed": True, "id": snippet_id}, trace_id)
+        return _ok(knowledge_ai_bridge.remove_snippet(self.root_dir, snippet_id), trace_id)
 
     def kb_retrieve(self, args: Dict[str, Any], trace_id: str) -> Dict[str, Any]:
         query = _safe_len_text(args.get("query"), _MAX_TEXT_FIELD, "query").strip()
@@ -1122,8 +1293,15 @@ class YFSMCPServer:
             raise MCPError("VALIDATION_ERROR", "top_k / max_file_bytes 参数无效")
         top_k = max(1, min(top_k, _MAX_TOP_K))
         max_file_bytes = max(1000, min(max_file_bytes, _MAX_FILE_BYTES))
-        context, hits, names = knowledge_store.retrieve_for_query(self.root_dir, query, top_k=top_k, max_file_bytes=max_file_bytes)
-        return _ok({"context": context, "hits": hits, "name_suggestions": names}, trace_id)
+        return _ok(
+            knowledge_ai_bridge.retrieve_for_query(
+                self.root_dir,
+                query,
+                top_k=top_k,
+                max_file_bytes=max_file_bytes,
+            ),
+            trace_id,
+        )
 
     def _parse_drawio_xml(self, raw: Any, field_name: str = "xml") -> Tuple[str, Optional[ET.Element], Optional[str]]:
         txt = _safe_len_text(raw, _MAX_XML_CHARS, field_name)

@@ -30,6 +30,8 @@ from .serial_manager import serial_manager
 from .shared_serial_hub import (
     SOURCE_BROWSER_SERIAL,
     SOURCE_SERVER_PYSERIAL,
+    STATE_ACTIVE,
+    STATE_ACTIVATING,
     shared_serial_hub,
 )
 from .paths import project_base_dir
@@ -38,9 +40,22 @@ from .game_chat import init_games_chat_socketio
 from .game_gomoku import init_gomoku_socketio
 from .game_zhajinhua import init_zhajinhua_socketio
 from .game_hub import GameHubStore
+from .todo_audio_settings import (
+    SPEECH_CONFIG_KEYS,
+    append_speech_to_settings_data,
+    apply_speech_config,
+    speech_settings_dict_from_ini,
+    write_speech_section_to_config,
+)
+from .todo_speech_service_manager import read_speech_service_status
+from .speech_model_settings_widget import SpeechModelFolderWidget
 
 DEFAULT_MAX_UPLOAD_SIZE_MB = 0
 DEFAULT_TOPDOWN_SCORE_SOFT_CAP = 100000
+
+
+def default_pcb_assembly_dir(root_dir):
+    return os.path.join(root_dir or os.path.expanduser("~"), "PCB装配")
 
 
 def normalize_max_upload_size_mb(value, default=DEFAULT_MAX_UPLOAD_SIZE_MB):
@@ -74,7 +89,7 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QH
                                 QSystemTrayIcon, QMenu, QAction, QDialog, QLineEdit,
                                 QFileDialog, QFormLayout, QMenuBar, QInputDialog, QCheckBox,
                                 QListWidget, QListWidgetItem, QComboBox, QTabWidget, QScrollArea,
-                                QSpinBox, QDialogButtonBox)
+                                QSpinBox, QDialogButtonBox, QSizePolicy)
 from PyQt5.QtCore import QProcess, QTimer, Qt, pyqtSignal, QObject, QThread, QUrl
 from PyQt5.QtCore import QEventLoop
 from PyQt5.QtGui import QIcon, QTextCursor, QDesktopServices
@@ -714,6 +729,13 @@ def init_serial_socketio(socketio):
             namespace='/serial'
         )
 
+    def emit_serial_relays():
+        socketio.emit(
+            'serial_relays',
+            {'success': True, 'relays': shared_serial_hub.list_relays()},
+            namespace='/serial',
+        )
+
     def emit_channel_state(channel_id):
         channel = shared_serial_hub.get_channel(channel_id)
         if channel:
@@ -747,12 +769,16 @@ def init_serial_socketio(socketio):
             action_type = action.get('type')
             channel_id = action.get('channel_id')
             if action_type == 'server_open':
+                current_channel = shared_serial_hub.get_channel(channel_id)
+                if not current_channel or current_channel.get('state') != STATE_ACTIVE:
+                    continue
                 config = action.get('config', {})
                 listener_id = f"hub:{channel_id}"
 
                 def on_data_received(_pid, data_bytes, current_channel_id=channel_id):
                     entry = shared_serial_hub.append_rx_entry(current_channel_id, data_bytes)
                     emit_serial_entry(entry)
+                    forward_relay_rx(current_channel_id, data_bytes)
 
                 success = serial_manager.open_port(
                     port_id=channel_id,
@@ -771,6 +797,9 @@ def init_serial_socketio(socketio):
                 )
                 emit_channel_state(channel_id)
                 if not success:
+                    relay_info = shared_serial_hub.get_relay_target(channel_id)
+                    if relay_info:
+                        stop_relay_after_error(relay_info['relay_id'], 'server_open_failed')
                     socketio.emit(
                         'channel_error',
                         {
@@ -791,6 +820,13 @@ def init_serial_socketio(socketio):
                 emit_channel_state(channel_id)
                 catalog_dirty = True
             elif action_type == 'browser_activate':
+                current_channel = shared_serial_hub.get_channel(channel_id)
+                if (
+                    not current_channel
+                    or current_channel.get('state') != STATE_ACTIVATING
+                    or current_channel.get('owner_sid') != action.get('owner_sid')
+                ):
+                    continue
                 socketio.emit(
                     'browser_channel_activate',
                     {
@@ -828,9 +864,60 @@ def init_serial_socketio(socketio):
         if catalog_dirty:
             emit_shared_channels()
 
+    def stop_relay_after_error(relay_id, error):
+        stopped, actions, _stop_error = shared_serial_hub.stop_relay(relay_id, reason=error)
+        if not stopped:
+            return
+        apply_serial_actions(actions)
+        emit_serial_relays()
+        emit_shared_channels()
+        for channel_id in (stopped.get('channel_a'), stopped.get('channel_b')):
+            if channel_id:
+                emit_channel_state(channel_id)
+        socketio.emit(
+            'relay_error',
+            {'success': False, 'relay_id': relay_id, 'error': error},
+            namespace='/serial',
+        )
+
+    def forward_relay_rx(source_channel_id, data_bytes):
+        relay_info = shared_serial_hub.get_relay_target(source_channel_id)
+        if not relay_info or not data_bytes:
+            return
+
+        relay_id = relay_info['relay_id']
+        target = relay_info['target_channel']
+        target_id = target['channel_id']
+        actor = f"relay:{source_channel_id}"
+        if target['source_type'] == SOURCE_SERVER_PYSERIAL:
+            bytes_written = serial_manager.write_data(target_id, data_bytes)
+            if bytes_written < 0:
+                stop_relay_after_error(relay_id, 'relay_target_write_failed')
+                return
+            entry = shared_serial_hub.append_tx_entry(target_id, data_bytes, actor=actor)
+            emit_serial_entry(entry)
+            return
+
+        if target['source_type'] == SOURCE_BROWSER_SERIAL:
+            action, error = shared_serial_hub.build_browser_write_request(
+                channel_id=target_id,
+                requester_sid=f"relay:{relay_id}",
+                data=data_bytes,
+                actor=actor,
+            )
+            if error or not action:
+                if error not in ('channel_not_active',):
+                    stop_relay_after_error(relay_id, error or 'relay_target_write_failed')
+                return
+            apply_serial_actions([action])
+            return
+
+        stop_relay_after_error(relay_id, 'relay_target_type_unsupported')
+
     socketio.serial_action_runner = apply_serial_actions
     socketio.serial_emit_shared_channels = emit_shared_channels
     socketio.serial_emit_channel_state = emit_channel_state
+    socketio.serial_emit_relays = emit_serial_relays
 
     @socketio.on('connect', namespace='/serial')
     def handle_connect():
@@ -840,6 +927,7 @@ def init_serial_socketio(socketio):
         app_logger.info('[Serial WebSocket] 客户端连接: %s', request.sid)
         emit('connected', {'client_id': request.sid})
         emit('shared_channels', {'success': True, 'channels': shared_serial_hub.list_channels()})
+        emit('serial_relays', {'success': True, 'relays': shared_serial_hub.list_relays()})
         return True
 
     @socketio.on('disconnect', namespace='/serial')
@@ -848,6 +936,9 @@ def init_serial_socketio(socketio):
         failed_writes = shared_serial_hub.fail_browser_writes_for_owner(request.sid)
         changed_channels, actions = shared_serial_hub.handle_socket_disconnect(request.sid)
         for failed in failed_writes:
+            requester_sid = failed.get('requester_sid') or ''
+            if requester_sid.startswith('relay:'):
+                continue
             socketio.emit(
                 'data_written',
                 {
@@ -858,13 +949,14 @@ def init_serial_socketio(socketio):
                     'error': failed.get('error', 'owner_disconnected'),
                 },
                 namespace='/serial',
-                room=failed.get('requester_sid'),
+                room=requester_sid,
             )
         apply_serial_actions(actions)
         if changed_channels or failed_writes:
             emit_shared_channels()
             for channel in changed_channels:
                 emit_channel_state(channel['channel_id'])
+        emit_serial_relays()
 
     @socketio.on('list_ports', namespace='/serial')
     def handle_list_ports():
@@ -877,6 +969,43 @@ def init_serial_socketio(socketio):
     @socketio.on('list_channels', namespace='/serial')
     def handle_list_channels():
         emit('shared_channels', {'success': True, 'channels': shared_serial_hub.list_channels()})
+
+    @socketio.on('list_relays', namespace='/serial')
+    def handle_list_relays():
+        emit('serial_relays', {'success': True, 'relays': shared_serial_hub.list_relays()})
+
+    @socketio.on('start_relay', namespace='/serial')
+    def handle_start_relay(data):
+        relay, actions, error = shared_serial_hub.start_relay(
+            channel_a=(data.get('channel_a') or '').strip(),
+            channel_b=(data.get('channel_b') or '').strip(),
+            started_by=request.sid,
+        )
+        if error or not relay:
+            emit('relay_started', {'success': False, 'error': error or 'relay_start_failed'})
+            return
+        apply_serial_actions(actions)
+        emit('relay_started', {'success': True, 'relay': relay})
+        emit_serial_relays()
+        emit_shared_channels()
+        emit_channel_state(relay['channel_a'])
+        emit_channel_state(relay['channel_b'])
+
+    @socketio.on('stop_relay', namespace='/serial')
+    def handle_stop_relay(data):
+        relay, actions, error = shared_serial_hub.stop_relay(
+            relay_id=(data.get('relay_id') or '').strip(),
+            reason='manual',
+        )
+        if error or not relay:
+            emit('relay_stopped', {'success': False, 'error': error or 'relay_stop_failed'})
+            return
+        apply_serial_actions(actions)
+        emit('relay_stopped', {'success': True, 'relay': relay})
+        emit_serial_relays()
+        emit_shared_channels()
+        emit_channel_state(relay['channel_a'])
+        emit_channel_state(relay['channel_b'])
 
     @socketio.on('register_browser_port', namespace='/serial')
     def handle_register_browser_port(data):
@@ -909,6 +1038,7 @@ def init_serial_socketio(socketio):
             apply_serial_actions(actions)
             emit('browser_port_unregistered', {'success': True, 'channel_id': channel_id})
             emit_shared_channels()
+            emit_serial_relays()
         except Exception as e:
             emit('browser_port_unregistered', {'success': False, 'error': str(e)})
 
@@ -1055,6 +1185,14 @@ def init_serial_socketio(socketio):
             error=(data.get('error') or '').strip() or None,
         )
         if channel:
+            if not channel.get('state') == STATE_ACTIVE and channel.get('last_error'):
+                stopped_relays, actions = shared_serial_hub.stop_relays_for_channel(
+                    channel_id,
+                    'browser_activation_failed',
+                )
+                if stopped_relays:
+                    apply_serial_actions(actions)
+                    emit_serial_relays()
             emit_channel_state(channel_id)
             emit_shared_channels()
 
@@ -1063,8 +1201,10 @@ def init_serial_socketio(socketio):
         channel_id = (data.get('channel_id') or '').strip()
         if not shared_serial_hub.is_browser_owner(channel_id, request.sid):
             return
-        entry = shared_serial_hub.append_rx_entry(channel_id, bytes(data.get('data', [])))
+        data_bytes = bytes(data.get('data', []))
+        entry = shared_serial_hub.append_rx_entry(channel_id, data_bytes)
         emit_serial_entry(entry)
+        forward_relay_rx(channel_id, data_bytes)
 
     @socketio.on('browser_port_tx', namespace='/serial')
     def handle_browser_port_tx(data):
@@ -1084,18 +1224,22 @@ def init_serial_socketio(socketio):
         )
         if error or not ack:
             return
-        socketio.emit(
-            'data_written',
-            {
-                'success': ack['success'],
-                'port_id': ack['channel_id'],
-                'channel_id': ack['channel_id'],
-                'bytes_written': ack.get('bytes_written', 0),
-                'error': ack.get('error', ''),
-            },
-            namespace='/serial',
-            room=ack.get('requester_sid'),
-        )
+        requester_sid = ack.get('requester_sid') or ''
+        if requester_sid.startswith('relay:') and not ack['success']:
+            stop_relay_after_error(requester_sid.split(':', 1)[1], ack.get('error') or 'relay_target_write_failed')
+        if requester_sid and not requester_sid.startswith('relay:'):
+            socketio.emit(
+                'data_written',
+                {
+                    'success': ack['success'],
+                    'port_id': ack['channel_id'],
+                    'channel_id': ack['channel_id'],
+                    'bytes_written': ack.get('bytes_written', 0),
+                    'error': ack.get('error', ''),
+                },
+                namespace='/serial',
+                room=requester_sid,
+            )
         if entry:
             emit_serial_entry(entry)
 
@@ -1155,7 +1299,7 @@ def local_ai_settings_dict_from_ini(ini_config=None):
         'LOCAL_AI_APPEND_SKILLS': True,
         'LOCAL_AI_DEVICE': 'auto',
         'LOCAL_AI_TORCH_DTYPE': 'bfloat16',
-        'LOCAL_AI_MAX_NEW_TOKENS': 512,
+        'LOCAL_AI_MAX_NEW_TOKENS': 2048,
         'LOCAL_AI_DRAWIO_MAX_NEW_TOKENS': 8192,
         'LOCAL_AI_DRAWIO_OUTPUT': 'text_dsl',
         'LOCAL_AI_TEMPERATURE': 0.7,
@@ -1207,7 +1351,7 @@ def local_ai_settings_dict_from_ini(ini_config=None):
         if (la.get('torch_dtype') or '').strip():
             d['LOCAL_AI_TORCH_DTYPE'] = la.get('torch_dtype').strip()
         try:
-            d['LOCAL_AI_MAX_NEW_TOKENS'] = int(la.get('max_new_tokens', '512'))
+            d['LOCAL_AI_MAX_NEW_TOKENS'] = int(la.get('max_new_tokens', '2048'))
         except ValueError:
             pass
         try:
@@ -1243,7 +1387,7 @@ def local_ai_settings_dict_from_ini(ini_config=None):
         except ValueError:
             pass
         if (la.get('use_mcp_bridge') or '').strip():
-            d['LOCAL_AI_USE_MCP_BRIDGE'] = la.get('use_mcp_bridge', 'true').strip().lower() in (
+            d['LOCAL_AI_USE_MCP_BRIDGE'] = la.get('use_mcp_bridge', 'false').strip().lower() in (
                 '1',
                 'true',
                 'yes',
@@ -1298,7 +1442,7 @@ def _write_local_ai_section_to_config(config, settings_data):
     la['append_skills'] = str(bool(settings_data.get('LOCAL_AI_APPEND_SKILLS', True))).lower()
     la['device'] = str(settings_data.get('LOCAL_AI_DEVICE', 'auto') or 'auto')
     la['torch_dtype'] = str(settings_data.get('LOCAL_AI_TORCH_DTYPE', 'bfloat16') or 'bfloat16')
-    la['max_new_tokens'] = str(int(settings_data.get('LOCAL_AI_MAX_NEW_TOKENS', 512) or 512))
+    la['max_new_tokens'] = str(int(settings_data.get('LOCAL_AI_MAX_NEW_TOKENS', 2048) or 2048))
     la['drawio_max_new_tokens'] = str(int(settings_data.get('LOCAL_AI_DRAWIO_MAX_NEW_TOKENS', 8192) or 8192))
     _dout_w = str(settings_data.get('LOCAL_AI_DRAWIO_OUTPUT', 'text_dsl') or 'text_dsl').strip().lower()
     if _dout_w not in ('text_dsl', 'xml'):
@@ -1331,6 +1475,7 @@ def load_or_create_config(app):
         if 'settings' in config:
             settings = config['settings']
             root_dir = settings.get('root_dir', app.config['DEFAULT_ROOT_DIR'])
+            pcb_assembly_dir = settings.get('pcb_assembly_dir', default_pcb_assembly_dir(root_dir))
             password = settings.get('password', 'password')
             admin_password = settings.get('admin_password', 'admin123')  # 管理员密码
             close_to_tray = settings.get('close_to_tray', 'false').lower() == 'true'  # 关闭到托盘
@@ -1359,6 +1504,7 @@ def load_or_create_config(app):
 
             # 保存配置到app中（即使路径不存在也保留用户设置）
             app.config['ROOT_DIR'] = os.path.normpath(root_dir) if root_dir else app.config['DEFAULT_ROOT_DIR']
+            app.config['PCB_ASSEMBLY_DIR'] = os.path.normpath(pcb_assembly_dir)
             app.config['DATA_DIR'] = resolve_path(settings.get('data_dir', 'data'), project_base_dir())
             app.config['LOG_DIR'] = resolve_path(settings.get('log_dir', 'logs'), project_base_dir())
             app.config['PASSWORD'] = password
@@ -1376,6 +1522,7 @@ def load_or_create_config(app):
             app.config['HTTPS_CERT_FILE'] = https_cert_file
             app.config['HTTPS_KEY_FILE'] = https_key_file
             apply_local_ai_config(app, config)
+            apply_speech_config(app, config)
             apply_log_level_from_sources(ini_level=app.config['LOG_LEVEL'], app_debug=app.debug)
 
             # 检查路径是否有效（仅警告，不修改配置）
@@ -1397,6 +1544,7 @@ def load_or_create_config(app):
             # 配置文件格式错误，使用默认值并保存
             app_logger.warning("[警告] 配置文件格式错误，使用默认配置")
             app.config['ROOT_DIR'] = app.config['DEFAULT_ROOT_DIR']
+            app.config['PCB_ASSEMBLY_DIR'] = default_pcb_assembly_dir(app.config['ROOT_DIR'])
             app.config['DATA_DIR'] = get_data_dir(config_file=config_file, create=False)
             app.config['LOG_DIR'] = get_runtime_logs_dir(config_file=config_file, create=False)
             app.config['PASSWORD'] = 'password'
@@ -1414,12 +1562,14 @@ def load_or_create_config(app):
             app.config['HTTPS_KEY_FILE'] = ''
             app.config['LOG_LEVEL'] = 'INFO'
             apply_local_ai_config(app, config)
+            apply_speech_config(app, config)
             apply_log_level_from_sources(ini_level='INFO', app_debug=app.debug)
             save_config(app)
     else:
         # 配置文件不存在，创建默认配置
         app_logger.info("配置文件不存在，创建默认配置")
         app.config['ROOT_DIR'] = app.config['DEFAULT_ROOT_DIR']
+        app.config['PCB_ASSEMBLY_DIR'] = default_pcb_assembly_dir(app.config['ROOT_DIR'])
         app.config['DATA_DIR'] = get_data_dir(config_file=config_file, create=False)
         app.config['LOG_DIR'] = get_runtime_logs_dir(config_file=config_file, create=False)
         app.config['PASSWORD'] = 'password'
@@ -1437,6 +1587,7 @@ def load_or_create_config(app):
         app.config['HTTPS_KEY_FILE'] = ''
         app.config['LOG_LEVEL'] = 'INFO'
         apply_local_ai_config(app, None)
+        apply_speech_config(app, None)
         apply_log_level_from_sources(ini_level='INFO', app_debug=app.debug)
         save_config(app)
 
@@ -1452,6 +1603,7 @@ def read_runtime_settings(create_if_missing=True, config_file=None):
     settings_data = {
         'CONFIG_FILE': config_file,
         'ROOT_DIR': default_root_dir,
+        'PCB_ASSEMBLY_DIR': default_pcb_assembly_dir(default_root_dir),
         'DATA_DIR': get_data_dir(config_file=config_file, create=False),
         'LOG_DIR': get_runtime_logs_dir(config_file=config_file, create=False),
         'PASSWORD': 'password',
@@ -1479,6 +1631,9 @@ def read_runtime_settings(create_if_missing=True, config_file=None):
             settings = config['settings']
             root_dir = settings.get('root_dir', default_root_dir)
             settings_data['ROOT_DIR'] = os.path.normpath(root_dir) if root_dir else default_root_dir
+            settings_data['PCB_ASSEMBLY_DIR'] = os.path.normpath(
+                settings.get('pcb_assembly_dir', default_pcb_assembly_dir(settings_data['ROOT_DIR']))
+            )
             settings_data['DATA_DIR'] = resolve_path(
                 settings.get('data_dir', settings_data['DATA_DIR']),
                 project_base_dir(),
@@ -1519,18 +1674,22 @@ def read_runtime_settings(create_if_missing=True, config_file=None):
                 (settings.get('log_level', 'INFO') or 'INFO').strip() or 'INFO'
             ).upper()
             _append_local_ai_to_settings_data(settings_data, config)
+            append_speech_to_settings_data(settings_data, config)
             return settings_data
         app_logger.warning("[警告] 配置文件缺少 [settings] 段，使用默认配置")
     elif not create_if_missing:
         _append_local_ai_to_settings_data(settings_data, None)
+        append_speech_to_settings_data(settings_data, None)
         return settings_data
     else:
         app_logger.info("配置文件不存在，创建默认配置")
 
     if config_read_from_disk:
         _append_local_ai_to_settings_data(settings_data, config)
+        append_speech_to_settings_data(settings_data, config)
     else:
         _append_local_ai_to_settings_data(settings_data, None)
+        append_speech_to_settings_data(settings_data, None)
 
     if create_if_missing:
         save_runtime_settings(settings_data, config_file=config_file)
@@ -1550,6 +1709,7 @@ def save_runtime_settings(settings_data, config_file=None):
     existing_topdown_score_soft_cap = DEFAULT_TOPDOWN_SCORE_SOFT_CAP
     existing_data_dir = get_data_dir(config_file=config_file, create=False)
     existing_log_dir = get_runtime_logs_dir(config_file=config_file, create=False)
+    existing_pcb_assembly_dir = default_pcb_assembly_dir(settings_data.get('ROOT_DIR', os.path.expanduser("~")))
     if os.path.exists(config_file):
         existing_config = configparser.ConfigParser()
         existing_config.read(config_file, encoding='utf-8')
@@ -1574,6 +1734,10 @@ def save_runtime_settings(settings_data, config_file=None):
             existing_https_key_file = existing_settings.get('https_key_file', '').strip()
             existing_data_dir = resolve_path(existing_settings.get('data_dir', existing_data_dir), project_base_dir())
             existing_log_dir = resolve_path(existing_settings.get('log_dir', existing_log_dir), project_base_dir())
+            existing_pcb_assembly_dir = existing_settings.get(
+                'pcb_assembly_dir',
+                default_pcb_assembly_dir(existing_settings.get('root_dir', settings_data.get('ROOT_DIR'))),
+            )
 
     remote_serial_enabled_value = settings_data.get('REMOTE_SERIAL_ENABLED', existing_remote_serial_enabled)
     if isinstance(remote_serial_enabled_value, str):
@@ -1593,6 +1757,10 @@ def save_runtime_settings(settings_data, config_file=None):
     https_key_file = (settings_data.get('HTTPS_KEY_FILE', existing_https_key_file) or '').strip()
     data_dir = resolve_path(settings_data.get('DATA_DIR', existing_data_dir), project_base_dir())
     log_dir = resolve_path(settings_data.get('LOG_DIR', existing_log_dir), project_base_dir())
+    pcb_assembly_dir = os.path.normpath(
+        settings_data.get('PCB_ASSEMBLY_DIR', existing_pcb_assembly_dir)
+        or default_pcb_assembly_dir(settings_data.get('ROOT_DIR'))
+    )
     max_upload_size_mb = normalize_max_upload_size_mb(
         settings_data.get('MAX_UPLOAD_SIZE_MB', existing_max_upload_size_mb)
     )
@@ -1605,6 +1773,7 @@ def save_runtime_settings(settings_data, config_file=None):
         config.read(config_file, encoding='utf-8')
     config['settings'] = {
         'root_dir': settings_data.get('ROOT_DIR', os.path.expanduser("~")),
+        'pcb_assembly_dir': pcb_assembly_dir,
         'data_dir': data_dir,
         'log_dir': log_dir,
         'password': settings_data.get('PASSWORD', 'password'),
@@ -1625,6 +1794,8 @@ def save_runtime_settings(settings_data, config_file=None):
     }
     if any(k in settings_data for k in LOCAL_AI_CONFIG_KEYS):
         _write_local_ai_section_to_config(config, settings_data)
+    if any(k in settings_data for k in SPEECH_CONFIG_KEYS):
+        write_speech_section_to_config(config, settings_data)
     with open(config_file, 'w', encoding='utf-8') as f:
         config.write(f)
 
@@ -1635,6 +1806,9 @@ def save_config(app):
     settings_data = {
         'CONFIG_FILE': app.config['CONFIG_FILE'],
         'ROOT_DIR': app.config['ROOT_DIR'],
+        'PCB_ASSEMBLY_DIR': app.config.get(
+            'PCB_ASSEMBLY_DIR', default_pcb_assembly_dir(app.config['ROOT_DIR'])
+        ),
         'DATA_DIR': app.config.get('DATA_DIR', get_data_dir(config_file=app.config['CONFIG_FILE'], create=False)),
         'LOG_DIR': app.config.get('LOG_DIR', get_runtime_logs_dir(config_file=app.config['CONFIG_FILE'], create=False)),
         'PASSWORD': app.config['PASSWORD'],
@@ -1655,6 +1829,9 @@ def save_config(app):
     }
     for k in LOCAL_AI_CONFIG_KEYS:
         settings_data[k] = app.config.get(k, la_defaults.get(k))
+    speech_defaults = speech_settings_dict_from_ini(None)
+    for k in SPEECH_CONFIG_KEYS:
+        settings_data[k] = app.config.get(k, speech_defaults.get(k))
     save_runtime_settings(settings_data, config_file=app.config['CONFIG_FILE'])
     app_logger.info("配置已保存到: %s", app.config['CONFIG_FILE'])
 
@@ -2839,6 +3016,7 @@ class SettingsDialog(QDialog):
         current_root='',
         current_data_dir='',
         current_log_dir='',
+        current_pcb_assembly_dir='',
         current_password='',
         current_admin_password='',
         current_close_to_tray=False,
@@ -2852,6 +3030,8 @@ class SettingsDialog(QDialog):
         current_https_cert_file='',
         current_https_key_file='',
         local_ai_settings=None,
+        speech_settings=None,
+        speech_status_path='',
     ):
         super().__init__(parent)
         self.setWindowTitle("服务器设置")
@@ -2860,6 +3040,7 @@ class SettingsDialog(QDialog):
         self.current_root = current_root
         self.current_data_dir = current_data_dir
         self.current_log_dir = current_log_dir
+        self.current_pcb_assembly_dir = current_pcb_assembly_dir or default_pcb_assembly_dir(current_root)
         self.current_password = current_password
         self.current_admin_password = current_admin_password
         self.current_close_to_tray = current_close_to_tray
@@ -2878,6 +3059,7 @@ class SettingsDialog(QDialog):
         self.new_root = current_root
         self.new_data_dir = current_data_dir
         self.new_log_dir = current_log_dir
+        self.new_pcb_assembly_dir = self.current_pcb_assembly_dir
         self.new_password = current_password
         self.new_admin_password = current_admin_password
         self.new_close_to_tray = current_close_to_tray
@@ -2895,6 +3077,12 @@ class SettingsDialog(QDialog):
             for _k, _v in local_ai_settings.items():
                 if _k in LOCAL_AI_CONFIG_KEYS and _v is not None:
                     self._local_ai_saved[_k] = _v
+        self._speech_saved = speech_settings_dict_from_ini(None)
+        if speech_settings:
+            for _k, _v in speech_settings.items():
+                if _k in SPEECH_CONFIG_KEYS and _v is not None:
+                    self._speech_saved[_k] = _v
+        self._speech_status_path = speech_status_path
 
         # 设置窗口样式
         self.setStyleSheet("""
@@ -2996,12 +3184,15 @@ class SettingsDialog(QDialog):
 
         # Tab布局（避免单页过长）
         tab_widget = QTabWidget()
+        tab_widget.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         basic_tab = QWidget()
         advanced_tab = QWidget()
         tab_widget.addTab(basic_tab, "基础")
         tab_widget.addTab(advanced_tab, "高级")
         ai_tab = QWidget()
         tab_widget.addTab(ai_tab, "本地 AI")
+        speech_tab = QWidget()
+        tab_widget.addTab(speech_tab, "语音记录")
 
         basic_layout = QVBoxLayout(basic_tab)
         basic_layout.setContentsMargins(0, 8, 0, 0)
@@ -3009,6 +3200,8 @@ class SettingsDialog(QDialog):
         advanced_layout.setContentsMargins(0, 8, 0, 0)
         ai_layout = QVBoxLayout(ai_tab)
         ai_layout.setContentsMargins(0, 8, 0, 0)
+        speech_layout = QVBoxLayout(speech_tab)
+        speech_layout.setContentsMargins(0, 8, 0, 0)
 
         basic_form_layout = QFormLayout()
         basic_form_layout.setSpacing(15)
@@ -3019,10 +3212,52 @@ class SettingsDialog(QDialog):
         ai_form_layout = QFormLayout()
         ai_form_layout.setSpacing(12)
         ai_form_layout.setContentsMargins(0, 10, 0, 10)
+        speech_form_layout = QFormLayout()
+        speech_form_layout.setSpacing(12)
+        speech_form_layout.setContentsMargins(0, 10, 0, 10)
 
         basic_layout.addLayout(basic_form_layout)
         advanced_layout.addLayout(advanced_form_layout)
         ai_layout.addLayout(ai_form_layout)
+        speech_layout.addLayout(speech_form_layout)
+
+        self.speech_enabled_checkbox = QCheckBox("启用 ToDo 本地语音记录")
+        self.speech_enabled_checkbox.setChecked(bool(self._speech_saved['TODO_SPEECH_ENABLED']))
+        self.speech_enabled_checkbox.setStyleSheet(
+            "QCheckBox { font-size: 10pt; color: #2c3e50; font-weight: normal; padding: 5px; }"
+        )
+        speech_form_layout.addRow(QLabel("语音记录："), self.speech_enabled_checkbox)
+
+        self.speech_model_folder = SpeechModelFolderWidget(self._speech_saved['TODO_SPEECH_MODEL_DIR'])
+        speech_form_layout.addRow(QLabel("识别模型："), self.speech_model_folder)
+
+        speech_hint = QLabel(
+            "启用后不会在主程序启动时下载或占用 GPU。仅在 ToDo 开始录音或上传录音时启动；"
+            "转写队列空闲 60 秒后自动停止。"
+        )
+        speech_hint.setWordWrap(True)
+        speech_hint.setStyleSheet(
+            "font-size: 9pt; color: #3498db; font-weight: normal; padding: 6px; "
+            "background: #e3f2fd; border-radius: 4px;"
+        )
+        speech_form_layout.addRow("", speech_hint)
+
+        self.speech_status_label = QLabel()
+        self.speech_status_label.setWordWrap(True)
+        self.speech_status_label.setStyleSheet(
+            "font-size: 9pt; color: #2c3e50; font-weight: normal; padding: 6px; "
+            "background: white; border: 1px solid #dfe6e9; border-radius: 4px;"
+        )
+        speech_form_layout.addRow(QLabel("下载状态："), self.speech_status_label)
+
+        speech_refresh_button = QPushButton("刷新状态")
+        speech_refresh_button.setObjectName("browseButton")
+        speech_refresh_button.clicked.connect(self.refresh_speech_status)
+        speech_form_layout.addRow("", speech_refresh_button)
+        self.speech_status_timer = QTimer(self)
+        self.speech_status_timer.timeout.connect(self.refresh_speech_status)
+        self.speech_status_timer.start(1000)
+        self.refresh_speech_status()
 
         # 默认先写入基础页
         form_layout = basic_form_layout
@@ -3072,6 +3307,29 @@ class SettingsDialog(QDialog):
             border-radius: 4px;
         """)
         form_layout.addRow("", data_dir_hint)
+
+        pcb_dir_label = QLabel("PCB 装配目录：")
+        pcb_dir_widget = QWidget()
+        pcb_dir_layout = QHBoxLayout(pcb_dir_widget)
+        pcb_dir_layout.setContentsMargins(0, 0, 0, 0)
+        pcb_dir_layout.setSpacing(10)
+
+        self.pcb_assembly_dir_edit = QLineEdit(self.current_pcb_assembly_dir)
+        self.pcb_assembly_dir_edit.setReadOnly(True)
+        pcb_dir_layout.addWidget(self.pcb_assembly_dir_edit, 1)
+
+        pcb_dir_browse_button = QPushButton("📁 浏览")
+        pcb_dir_browse_button.setObjectName("browseButton")
+        pcb_dir_browse_button.clicked.connect(self.browse_pcb_assembly_directory)
+        pcb_dir_layout.addWidget(pcb_dir_browse_button)
+        form_layout.addRow(pcb_dir_label, pcb_dir_widget)
+
+        pcb_dir_hint = QLabel(
+            "保存简单装配生成的 GLB；该目录必须位于文件服务器根目录内。"
+        )
+        pcb_dir_hint.setWordWrap(True)
+        pcb_dir_hint.setStyleSheet("font-size: 9pt; color: #3498db; font-weight: normal; padding: 5px;")
+        form_layout.addRow("", pcb_dir_hint)
         # 登录密码设置
         password_label = QLabel("登录密码（固定 6 位）：")
         self.password_edit = QLineEdit(self.current_password)
@@ -3471,8 +3729,11 @@ class SettingsDialog(QDialog):
         ai_form_layout.addRow(QLabel("LM Studio API："), self.local_ai_api_base_edit)
 
         self.local_ai_api_model_edit = QLineEdit(str(lai.get('LOCAL_AI_API_MODEL', '') or ''))
-        self.local_ai_api_model_edit.setPlaceholderText("留空则自动使用 LM Studio 当前第一个已加载模型")
-        ai_form_layout.addRow(QLabel("模型 ID："), self.local_ai_api_model_edit)
+        self.local_ai_api_model_edit.setPlaceholderText("例如 Qwen/Qwen3-8B-GGUF（建议明确填写）")
+        self.local_ai_api_model_edit.setToolTip(
+            "建议从 LM Studio 复制已加载的对话模型 ID。留空仅会使用当前第一个已加载的非 Embedding 模型。"
+        )
+        ai_form_layout.addRow(QLabel("对话模型 ID："), self.local_ai_api_model_edit)
 
         self.local_ai_embed_api_base_edit = QLineEdit(
             str(lai.get('LOCAL_AI_EMBED_API_BASE_URL', lai.get('LOCAL_AI_API_BASE_URL', '')) or '')
@@ -3550,9 +3811,20 @@ class SettingsDialog(QDialog):
         self.local_ai_use_mcp_cb.setStyleSheet("QCheckBox { font-size: 10pt; font-weight: normal; }")
         ai_form_layout.addRow("", self.local_ai_use_mcp_cb)
 
-        self.local_ai_max_tokens_edit = QLineEdit(str(int(lai.get('LOCAL_AI_MAX_NEW_TOKENS', 512) or 512)))
-        self.local_ai_max_tokens_edit.setPlaceholderText("512")
+        self.local_ai_max_tokens_edit = QLineEdit(str(int(lai.get('LOCAL_AI_MAX_NEW_TOKENS', 2048) or 2048)))
+        self.local_ai_max_tokens_edit.setPlaceholderText("2048")
+        self.local_ai_max_tokens_edit.setToolTip(
+            "开启思考的 Qwen3.8 建议至少 2048；复杂问题可设 4096。过小会只有推理而没有最终回答。"
+        )
         ai_form_layout.addRow(QLabel("最大输出 (tokens)："), self.local_ai_max_tokens_edit)
+
+        self.local_ai_temperature_edit = QLineEdit(str(float(lai.get('LOCAL_AI_TEMPERATURE', 0.7) or 0.7)))
+        self.local_ai_temperature_edit.setToolTip("Qwen3.8 思考模式推荐 1.0；Qwen3-8B 思考模式推荐 0.6。")
+        ai_form_layout.addRow(QLabel("Temperature："), self.local_ai_temperature_edit)
+
+        self.local_ai_top_p_edit = QLineEdit(str(float(lai.get('LOCAL_AI_TOP_P', 0.95) or 0.95)))
+        self.local_ai_top_p_edit.setToolTip("Qwen3 / Qwen3.8 思考模式推荐 0.95。")
+        ai_form_layout.addRow(QLabel("Top P："), self.local_ai_top_p_edit)
 
         self.local_ai_drawio_max_tokens_edit = QLineEdit(
             str(int(lai.get('LOCAL_AI_DRAWIO_MAX_NEW_TOKENS', 8192) or 8192))
@@ -3619,8 +3891,37 @@ class SettingsDialog(QDialog):
 
         self.setLayout(main_layout)
 
+    def refresh_speech_status(self):
+        enabled = self.speech_enabled_checkbox.isChecked()
+        status = read_speech_service_status(self._speech_status_path, enabled)
+        state_labels = {
+            'disabled': '未启用',
+            'stopped': '已停止',
+            'starting': '正在启动',
+            'creating_environment': '正在创建 Python 3.10 环境',
+            'installing_pytorch': '正在安装 CUDA 版 PyTorch',
+            'installing_dependencies': '正在安装依赖',
+            'loading_models': '正在从本地缓存加载模型',
+            'transcribing': '正在转写',
+            'ready': '已就绪',
+            'failed': '失败',
+        }
+        state = str(status.get('state') or 'stopped')
+        label = state_labels.get(state, state)
+        message = str(status.get('message') or '').strip()
+        updated_at = str(status.get('updated_at') or '').strip()
+        details = message or '等待录音或上传后自动启动。'
+        if updated_at:
+            details = f"{details}\n更新时间：{updated_at}"
+        self.speech_status_label.setText(f"{label}\n{details}")
+
+    def closeEvent(self, event):
+        self.speech_status_timer.stop()
+        super().closeEvent(event)
+
     def browse_directory(self):
         """浏览选择目录"""
+        previous_root = self.root_edit.text()
         directory = QFileDialog.getExistingDirectory(
             self,
             "选择服务器根目录",
@@ -3631,6 +3932,11 @@ class SettingsDialog(QDialog):
         if directory:
             self.root_edit.setText(directory)
             self.new_root = directory
+            if os.path.normcase(self.pcb_assembly_dir_edit.text()) == os.path.normcase(
+                default_pcb_assembly_dir(previous_root)
+            ):
+                self.new_pcb_assembly_dir = default_pcb_assembly_dir(directory)
+                self.pcb_assembly_dir_edit.setText(self.new_pcb_assembly_dir)
 
     def browse_data_directory(self):
         directory = QFileDialog.getExistingDirectory(
@@ -3643,6 +3949,20 @@ class SettingsDialog(QDialog):
         if directory:
             self.data_dir_edit.setText(directory)
             self.new_data_dir = directory
+
+    def browse_pcb_assembly_directory(self):
+        start_dir = self.pcb_assembly_dir_edit.text()
+        if not os.path.isdir(start_dir):
+            start_dir = self.root_edit.text() or os.path.expanduser("~")
+        directory = QFileDialog.getExistingDirectory(
+            self,
+            "选择 PCB 装配保存目录",
+            start_dir,
+            QFileDialog.ShowDirsOnly | QFileDialog.DontResolveSymlinks,
+        )
+        if directory:
+            self.pcb_assembly_dir_edit.setText(directory)
+            self.new_pcb_assembly_dir = directory
 
     def browse_git_workdir(self):
         """浏览选择Git工作目录"""
@@ -3818,9 +4138,12 @@ class SettingsDialog(QDialog):
 
     def accept(self):
         """确认保存"""
+        if self.speech_enabled_checkbox.isChecked() and not self.speech_model_folder.validate_folder():
+            return
         # 验证输入
         self.new_root = self.root_edit.text()
         self.new_data_dir = self.data_dir_edit.text().strip()
+        self.new_pcb_assembly_dir = self.pcb_assembly_dir_edit.text().strip()
         self.new_password = self.password_edit.text()
         self.new_admin_password = self.admin_password_edit.text()
         self.new_close_to_tray = self.close_to_tray_checkbox.isChecked()
@@ -3851,6 +4174,18 @@ class SettingsDialog(QDialog):
 
         if not self.new_data_dir:
             QMessageBox.warning(self, "错误", "请选择有效的数据目录")
+            return
+        if not self.new_pcb_assembly_dir:
+            QMessageBox.warning(self, "错误", "请选择 PCB 装配保存目录")
+            return
+        try:
+            root_path = os.path.realpath(self.new_root)
+            pcb_path = os.path.realpath(self.new_pcb_assembly_dir)
+            if os.path.commonpath([root_path, pcb_path]) != root_path:
+                raise ValueError
+            os.makedirs(pcb_path, exist_ok=True)
+        except (OSError, ValueError):
+            QMessageBox.warning(self, "错误", "PCB 装配目录必须位于文件服务器根目录内")
             return
         if not self.new_password:
             QMessageBox.warning(self, "错误", "登录密码不能为空")
@@ -3917,7 +4252,10 @@ class SettingsDialog(QDialog):
             )
 
         # 检查是否修改了根目录
-        if self.new_root != self.current_root:
+        if (
+            self.new_root != self.current_root
+            or self.new_pcb_assembly_dir != self.current_pcb_assembly_dir
+        ):
             # 需要验证管理员密码
             admin_pass, ok = QInputDialog.getText(
                 self,
@@ -3939,6 +4277,22 @@ class SettingsDialog(QDialog):
                 raise ValueError("range")
         except ValueError:
             QMessageBox.warning(self, "错误", "本地 AI 页中的最大输出 token 参数无效")
+            return
+
+        try:
+            temperature = float(self.local_ai_temperature_edit.text().strip())
+            if temperature < 0 or temperature > 2:
+                raise ValueError("temperature")
+        except ValueError:
+            QMessageBox.warning(self, "错误", "Temperature 须为 0～2 之间的数字")
+            return
+
+        try:
+            top_p = float(self.local_ai_top_p_edit.text().strip())
+            if top_p <= 0 or top_p > 1:
+                raise ValueError("top_p")
+        except ValueError:
+            QMessageBox.warning(self, "错误", "Top P 须为大于 0 且不超过 1 的数字")
             return
 
         try:
@@ -3994,10 +4348,13 @@ class SettingsDialog(QDialog):
             'LOCAL_AI_LLAMA_GPU_LAYERS': prev.get(
                 'LOCAL_AI_LLAMA_GPU_LAYERS', la_defaults['LOCAL_AI_LLAMA_GPU_LAYERS']
             ),
-            'LOCAL_AI_TEMPERATURE': prev.get('LOCAL_AI_TEMPERATURE', la_defaults['LOCAL_AI_TEMPERATURE']),
-            'LOCAL_AI_TOP_P': prev.get('LOCAL_AI_TOP_P', la_defaults['LOCAL_AI_TOP_P']),
+            'LOCAL_AI_TEMPERATURE': temperature,
+            'LOCAL_AI_TOP_P': top_p,
             'LOCAL_AI_USE_MCP_BRIDGE': self.local_ai_use_mcp_cb.isChecked(),
         }
+        self._speech_saved = dict(self._speech_saved)
+        self._speech_saved['TODO_SPEECH_ENABLED'] = self.speech_enabled_checkbox.isChecked()
+        self._speech_saved['TODO_SPEECH_MODEL_DIR'] = self.speech_model_folder.folder()
 
         super().accept()
 
@@ -4012,6 +4369,7 @@ class SettingsDialog(QDialog):
             self.new_root,
             self.new_data_dir,
             self.new_log_dir,
+            self.new_pcb_assembly_dir,
             self.new_password,
             self.new_admin_password,
             self.new_close_to_tray,
@@ -4025,6 +4383,7 @@ class SettingsDialog(QDialog):
             self.new_https_cert_file,
             self.new_https_key_file,
             self._local_ai_saved,
+            self._speech_saved,
         )
 
 
@@ -4067,7 +4426,19 @@ class FlaskServerProcess(QProcess):
             return
 
         if process_state != QProcess.NotRunning:
-            self.terminate()
+            # Stop speech descendants before a settings-driven model switch.
+            if os.name == "nt" and self.processId():
+                result = subprocess.run(
+                    ["taskkill", "/PID", str(self.processId()), "/T", "/F"],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                    check=False,
+                )
+                if result.returncode:
+                    self.terminate()
+            else:
+                self.terminate()
             try:
                 finished = self.waitForFinished(5000)
             except RuntimeError as e:
@@ -5309,6 +5680,9 @@ class MainWindow(QMainWindow):
         current_root = settings.get('ROOT_DIR', os.path.expanduser('~'))
         current_data_dir = settings.get('DATA_DIR', get_data_dir(create=False))
         current_log_dir = settings.get('LOG_DIR', get_runtime_logs_dir(create=False))
+        current_pcb_assembly_dir = settings.get(
+            'PCB_ASSEMBLY_DIR', default_pcb_assembly_dir(current_root)
+        )
         current_password = settings.get('PASSWORD', 'password')
         current_admin_password = settings.get('ADMIN_PASSWORD', 'admin123')
         current_close_to_tray = settings.get('CLOSE_TO_TRAY', False)
@@ -5322,6 +5696,8 @@ class MainWindow(QMainWindow):
         current_https_cert_file = settings.get('HTTPS_CERT_FILE', '')
         current_https_key_file = settings.get('HTTPS_KEY_FILE', '')
         current_local_ai = {k: settings.get(k) for k in LOCAL_AI_CONFIG_KEYS}
+        current_speech = {k: settings.get(k) for k in SPEECH_CONFIG_KEYS}
+        speech_status_path = os.path.join(current_data_dir, 'todos', 'speech_service_status.json')
 
         # 显示设置对话框
         dialog = SettingsDialog(
@@ -5329,6 +5705,7 @@ class MainWindow(QMainWindow):
             current_root,
             current_data_dir,
             current_log_dir,
+            current_pcb_assembly_dir,
             current_password,
             current_admin_password,
             current_close_to_tray,
@@ -5342,12 +5719,15 @@ class MainWindow(QMainWindow):
             current_https_cert_file,
             current_https_key_file,
             local_ai_settings=current_local_ai,
+            speech_settings=current_speech,
+            speech_status_path=speech_status_path,
         )
         if dialog.exec_() == QDialog.Accepted:
             (
                 new_root,
                 new_data_dir,
                 new_log_dir,
+                new_pcb_assembly_dir,
                 new_password,
                 new_admin_password,
                 new_close_to_tray,
@@ -5361,6 +5741,7 @@ class MainWindow(QMainWindow):
                 new_https_cert_file,
                 new_https_key_file,
                 new_local_ai,
+                new_speech,
             ) = dialog.get_settings()
 
             # 保存配置
@@ -5372,6 +5753,7 @@ class MainWindow(QMainWindow):
                     'ROOT_DIR': new_root,
                     'DATA_DIR': new_data_dir,
                     'LOG_DIR': new_log_dir,
+                    'PCB_ASSEMBLY_DIR': new_pcb_assembly_dir,
                     'PASSWORD': new_password,
                     'ADMIN_PASSWORD': new_admin_password,
                     'CLOSE_TO_TRAY': new_close_to_tray,
@@ -5387,13 +5769,15 @@ class MainWindow(QMainWindow):
                     'LOG_LEVEL': prev_rt.get('LOG_LEVEL', 'INFO'),
                 }
                 save_payload.update(new_local_ai)
+                save_payload.update(new_speech)
                 save_runtime_settings(save_payload, config_file=config_file)
 
                 close_behavior_text = "最小化到托盘" if new_close_to_tray else "直接退出程序"
                 git_enabled_text = "已启用" if new_git_enabled else "已禁用"
                 git_workdir_text = new_git_workdir if new_git_workdir else "未设置"
                 remote_serial_text = "已启用" if new_remote_serial_enabled else "已禁用"
-                mcp_enabled_text = "已启用" if bool(new_local_ai.get('LOCAL_AI_USE_MCP_BRIDGE', True)) else "已禁用"
+                mcp_enabled_text = "已启用" if bool(new_local_ai.get('LOCAL_AI_USE_MCP_BRIDGE', False)) else "已禁用"
+                speech_enabled_text = "已启用" if bool(new_speech.get('TODO_SPEECH_ENABLED', False)) else "已禁用"
                 remote_serial_mode_text = (
                      "兼容模式（主站 HTTP + 串口 HTTPS）"
                     if new_remote_serial_https_mode == REMOTE_SERIAL_HTTPS_MODE_COMPAT
@@ -5411,6 +5795,7 @@ class MainWindow(QMainWindow):
                     f"根目录: {new_root}\n"
                     f"数据目录: {new_data_dir}\n"
                     f"日志目录: {new_log_dir}\n"
+                    f"PCB 装配目录: {new_pcb_assembly_dir}\n"
                     f"登录密码: {'*' * len(new_password)} (已加密显示)\n"
                     f"管理员密码: {'*' * len(new_admin_password)} (已加密显示)\n"
                     f"服务器端口: {new_port}\n"
@@ -5425,12 +5810,14 @@ class MainWindow(QMainWindow):
                     f"LM Studio 模型: {new_local_ai.get('LOCAL_AI_API_MODEL', '') or '（自动取当前已加载模型）'}\n"
                     f"知识库存储: {new_local_ai.get('LOCAL_AI_KB_STORAGE_DIR', '')}\n"
                     f"MCP 工具调用: {mcp_enabled_text}\n"
+                    f"ToDo 本地语音记录: {speech_enabled_text}\n"
                     f"（[local_ai] 已写入配置文件，网页面板将直接复用 LM Studio 连接）\n\n"
                     f"您可以重新启动服务器使用新配置。"
                 )
 
                 app_logger.info("配置已保存到: %s", config_file)
                 app_logger.info("根目录: %s", new_root)
+                app_logger.info("PCB 装配目录: %s", new_pcb_assembly_dir)
                 app_logger.info("登录密码长度: %s", len(new_password))
                 app_logger.info("管理员密码长度: %s", len(new_admin_password))
                 app_logger.info("服务器端口: %s", new_port)
@@ -5441,6 +5828,7 @@ class MainWindow(QMainWindow):
                 if new_remote_serial_enabled and new_remote_serial_https_mode == REMOTE_SERIAL_HTTPS_MODE_COMPAT:
                     app_logger.info("串口 HTTPS 端口: %s", new_serial_https_port)
                 app_logger.info("HTTPS证书: %s", cert_summary)
+                app_logger.info("ToDo 本地语音记录: %s", speech_enabled_text)
 
                 # 更新主窗口的关闭行为配置
                 self.close_to_tray = new_close_to_tray

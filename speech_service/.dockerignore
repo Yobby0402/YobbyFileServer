@@ -1,0 +1,4 @@
+__pycache__
+.venv
+wheels
+speech_service_status.json

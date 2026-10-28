@@ -48,6 +48,25 @@
 - 作用：返回分层上下文（summary/project/task/full），用于调试与解释。
 - 对应现有能力：`build_adaptive_todo_context_and_meta`。
 
+### 2.1.1 Todo 数据源原则
+
+Todo 是结构化业务状态，不是普通文档语料。所有 Todo 问答和写入规划必须遵守：
+
+- **结构化主源**：项目、任务、进度、截止日期、优先级、评论数量、历史数量、写入目标等，必须优先来自 `TodoManager` / MCP Todo tools 的实时结构化数据。
+- **todo-kb 仅作长文本补充源**：`todo-kb` / 向量检索只用于补充 `description`、`comments`、`update_history`、`weekly_plan`、`conclusion` 等长文本字段的语义命中，不能作为判断“哪个项目/哪条任务/该写入哪里”的主依据。
+- **写入链路禁止依赖 RAG 定位目标**：`todo_plan_ops`、`todo_validate_ops`、`todo_apply_ops` 必须使用结构化快照、自然引用表或真实 ID 校验目标；todo-kb 命中只能作为说明材料。
+- **项目别名/短码要先尝试匹配**：用户说 `1521有什么待办`、`1521的任务` 这类问题时，应把 `1521` 当作项目名中的数字短码/项目代号候选，先查项目与任务，不应直接反问“1521 是什么”。
+- **歧义时才追问**：只有短码命中多个项目、或结构化数据确实没有命中时，才要求用户补充更完整项目名。
+
+### 2.1.2 本地 AI 路由原则
+
+- **MCP-first**：本地 AI 先尝试通过 MCP 获取 Todo / 知识库 / ERP / Draw.io 的实时数据，再组织回答。
+- **本地回退**：只有 MCP 不可用、超时、或当前场景确实不支持时，才回退到本地适配层。
+- **RAG 只补长文本**：RAG / `todo-kb` 只补描述、评论、历史这类长文本语义，不负责定位主对象。
+- **修改必须可追踪**：写入类请求必须先生成预览，再确认，再执行；模型不能直接越过确认写库。
+- **统一上下文计划**：本地 AI 先生成 `context_plan`，明确本轮是否需要 Todo / Knowledge / ERP，以及计划调用的工具；随后把实际工具调用审计注入 prompt，要求模型按已调用数据回答。
+- **统一入口归属**：`yobboy_file_server/context_orchestrator.py` 是“先计划工具、再取数、再回答”的唯一上下文编排入口。聊天流（如 `/api/local-ai/chat/stream`）只负责调用 `prepare_context(...)`、消费 `context_plan/tool_audit/*_attach`，不应在 SSE 分支里重复实现 Todo / Knowledge / ERP 的规划和取数逻辑。
+
 ### 2.2 Todo 写入工具（推荐双阶段）
 
 #### `todo_plan_ops`
@@ -85,6 +104,16 @@
 #### `kb_retrieve`
 - 作用：按 query 检索知识库片段，返回命中与建议文件名。
 - 对应现有能力：`knowledge_store.retrieve_for_query`。
+
+### 2.3.1 Knowledge 数据源原则
+
+Knowledge 文件库和 Todo 一样必须保持清晰分层，避免退回“所有东西都塞进 RAG”的模式：
+
+- **文件知识库是文档问答主源**：`kb_retrieve`、`kb_list_entries`、`kb_get_entry`、`kb_preview_entry` 应优先通过 MCP 读取真实文件知识库状态和索引状态，再组织回答。
+- **Todo / 产品对比 KB 只能作为补充源**：在 `mode=knowledge` 时可以追加 `todo-kb`、`product-compare-kb` 的长文本摘录，但不能把它们混同为文件知识库主源，也不能用它们替代 Todo 的结构化工具定位业务对象。
+- **知识库管理入口 MCP-first**：`kb_set_entry`、`kb_remove_entry`、`kb_rebuild_entry`、`kb_index_status` 属于知识库管理工具，Web 路由和外部 AI 客户端都应优先走 MCP，只有 MCP 不可用或超时时才允许本地回退。
+- **写入/重建要可追踪**：知识库写入和重建应返回 `trace_id`、`mcp_call`、`queued/job` 等结构化结果，便于定位“AI 到底调用了什么数据/动作”。
+- **后台管理也走统一入口**：`kb_scan_files`、`kb_bulk_index`、`kb_list_jobs`、`kb_get_job`、`kb_list_snippets`、`kb_add_snippet`、`kb_update_snippet`、`kb_remove_snippet` 也属于 Knowledge MCP 管理面，前端路由应优先复用这些工具。
 
 ---
 
@@ -315,6 +344,10 @@
   - ops 预览校验：`validate_and_describe_ops`
   - 执行：`apply_todo_ops`
   - 分层上下文：`build_adaptive_todo_context_and_meta`
+- `yobboy_file_server/context_router.py`：
+  - 本地 AI 上下文计划：判断本轮需要 Todo / Knowledge / ERP 哪些数据源，并列出计划工具
+- `yobboy_file_server/knowledge_ai_bridge.py`：
+  - Knowledge MCP 业务适配层：负责参数规整、同步/异步写入选择、返回形状统一
 - `yobboy_file_server/knowledge_store.py`：
   - `list_entries/get_meta/set_entry/remove_entry/retrieve_for_query`
 

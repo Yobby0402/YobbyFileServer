@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Docker 服务设置</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap.min.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/font-awesome.min.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/jasmine_base.css') }}">
+    <style>
+        body { background: var(--jasmine-gradient-main); font-family: "Microsoft YaHei", sans-serif; min-height: 100vh; padding: 28px 16px; }
+        .settings-shell { max-width: 640px; margin: 0 auto; }
+        .settings-card { background: var(--jasmine-panel-gradient); border: 1px solid rgba(95, 191, 174, .2); box-shadow: var(--jasmine-shadow-lg); padding: 28px; }
+        .settings-card h1 { color: var(--jasmine-green-700); font-size: 24px; margin-bottom: 8px; }
+        .settings-note { color: var(--jasmine-muted); margin-bottom: 24px; }
+        .form-check { padding: 14px 14px 14px 38px; border: 1px solid rgba(95, 191, 174, .25); background: rgba(255,255,255,.45); }
+        .form-check-input { margin-top: .35rem; }
+    </style>
+</head>
+<body>
+    <main class="settings-shell">
+        <section class="settings-card">
+            <h1><i class="fas fa-lock"></i> Docker HTTPS 设置</h1>
+            <p class="settings-note">HTTP 主站保持在 5001；启用后，HTTPS 使用下方端口和本地持久化证书。保存后需重建 Docker 服务。</p>
+            {% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
+            {% if success %}<div class="alert alert-success">{{ success }}</div>{% endif %}
+            <form method="post">
+                <div class="form-check mb-3">
+                    <input class="form-check-input" type="checkbox" name="https_enabled" id="httpsEnabled" {% if https_enabled %}checked{% endif %}>
+                    <label class="form-check-label" for="httpsEnabled">启用 HTTPS</label>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label" for="httpsPort">HTTPS 端口</label>
+                    <input class="form-control" type="number" min="1" max="65535" id="httpsPort" name="https_port" value="{{ https_port }}" required>
+                </div>
+                <div class="mb-4">
+                    <label class="form-label" for="adminPassword">管理员密码</label>
+                    <input class="form-control" type="password" id="adminPassword" name="admin_password" required autocomplete="current-password">
+                </div>
+                <button class="btn btn-primary" type="submit"><i class="fas fa-save"></i> 保存 HTTPS 设置</button>
+                <a class="btn btn-outline-secondary ms-2" href="{{ url_for('index') }}">返回</a>
+            </form>
+        </section>
+    </main>
+</body>
+</html>

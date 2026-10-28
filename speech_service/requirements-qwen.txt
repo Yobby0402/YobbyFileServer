@@ -1,0 +1,13 @@
+# Runtime dependencies only; launcher installs qwen-asr itself with --no-deps.
+# Keep the existing CUDA stack, excluding the upstream web demo and vLLM.
+torch==2.3.1
+torchaudio==2.3.1
+numpy>=1.24,<2
+transformers==4.57.6
+accelerate==1.12.0
+nagisa==0.2.11
+soynlp==0.0.493
+qwen-omni-utils==0.0.9
+sox==1.5.0
+librosa>=0.11,<0.12
+soundfile>=0.13,<1

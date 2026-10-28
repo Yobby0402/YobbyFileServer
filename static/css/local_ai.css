@@ -8,7 +8,7 @@
     position: fixed;
     inset: 0;
     background: rgba(0, 0, 0, 0.25);
-    z-index: 1040;
+    z-index: 10010;
 }
 
 .local-ai-panel-backdrop.visible {
@@ -26,7 +26,7 @@
     min-height: 260px;
     max-width: calc(100vw - 16px);
     max-height: calc(100vh - 16px);
-    z-index: 1050;
+    z-index: 10020;
     flex-direction: column;
     background: var(--t-surface, #fff);
     border: 1px solid rgba(0, 0, 0, 0.12);
@@ -103,6 +103,40 @@
     background: rgba(0, 0, 0, 0.04);
     color: var(--t-text-muted, #666);
     line-height: 1.4;
+}
+
+.local-ai-model-strip {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    padding: 4px 12px 6px;
+    background: rgba(0, 0, 0, 0.04);
+    color: var(--t-text-muted, #666);
+    font-size: 11px;
+}
+
+.local-ai-model-role {
+    flex: 0 0 auto;
+    padding: 1px 5px;
+    border: 1px solid rgba(0, 0, 0, 0.12);
+    border-radius: 4px;
+    color: var(--t-text, #334155);
+    font-size: 10px;
+    line-height: 1.35;
+}
+
+.local-ai-model-value {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--t-text, #334155);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.local-ai-model-value + .local-ai-model-role {
+    margin-left: 4px;
 }
 
 #localAiRunStatusLine {
@@ -446,6 +480,31 @@
 
 .local-ai-msg.assistant .local-ai-md {
     min-height: 1em;
+}
+
+.local-ai-reasoning {
+    margin: 0 0 8px;
+    border: 1px solid rgba(14, 116, 144, 0.28);
+    border-radius: 6px;
+    background: rgba(14, 116, 144, 0.06);
+    color: var(--t-text-muted, #475569);
+    font-size: 12px;
+}
+
+.local-ai-reasoning summary {
+    padding: 6px 8px;
+    cursor: pointer;
+    color: #0f766e;
+    font-weight: 600;
+}
+
+.local-ai-reasoning-body {
+    max-height: 220px;
+    overflow: auto;
+    padding: 0 8px 8px;
+    white-space: pre-wrap;
+    word-break: break-word;
+    line-height: 1.5;
 }
 
 /* 若未加载 github-markdown-light，仍保证基本可读 */

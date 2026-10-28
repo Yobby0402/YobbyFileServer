@@ -12,7 +12,7 @@
     <script>
         (function () {
             const savedTheme = localStorage.getItem('site_theme') || 'jasmine';
-            document.body.setAttribute('data-theme', savedTheme);
+            document.documentElement.setAttribute('data-theme', savedTheme);
         })();
     </script>
 </head>

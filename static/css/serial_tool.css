@@ -470,6 +470,10 @@ body {
     cursor: default;
 }
 
+.terminal-container.terminal-repl .terminal-wrapper:focus-within {
+    box-shadow: inset 0 0 0 2px rgba(100, 180, 255, 0.55);
+}
+
 .terminal-hidden-input:focus {
     outline: none;
 }
@@ -487,20 +491,20 @@ body {
     50% { opacity: 0; }
 }
 
-.terminal-output::-webkit-scrollbar {
+.terminal-display::-webkit-scrollbar {
     width: 8px;
 }
 
-.terminal-output::-webkit-scrollbar-track {
+.terminal-display::-webkit-scrollbar-track {
     background: #2d2d2d;
 }
 
-.terminal-output::-webkit-scrollbar-thumb {
+.terminal-display::-webkit-scrollbar-thumb {
     background: #555;
     border-radius: 4px;
 }
 
-.terminal-output::-webkit-scrollbar-thumb:hover {
+.terminal-display::-webkit-scrollbar-thumb:hover {
     background: #666;
 }
 
@@ -532,6 +536,12 @@ body {
 .terminal-shortcuts .btn i {
     margin-right: 4px;
     font-size: 12px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .terminal-cursor {
+        animation: none;
+    }
 }
 
 /* 终端输入行 */

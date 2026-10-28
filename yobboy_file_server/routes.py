@@ -23,12 +23,23 @@ import posixpath # 用于处理 URL 路径
 from .share_links import ShareLinkManager  # 导入分享链接管理器
 from .todo_manager import todo_manager
 from .todo_extended_manager import todo_extended_manager
+from .todo_audio_manager import todo_audio_manager
+from .todo_audio_worker import TodoAudioWorker
+from .todo_live_transcription import TodoLiveTranscriptionManager
+from .todo_speech_service_manager import TodoSpeechServiceManager
 from . import todo_report_builder
 from .serial_manager import serial_manager
 from .shared_serial_hub import shared_serial_hub
 from .product_compare_manager import product_compare_manager
 from .logging_setup import parse_log_level
 from .paths import get_data_path as runtime_data_path, get_logs_path, project_base_dir, project_path
+from .model_review_routes import (
+    model_capabilities,
+    register_model_review_routes,
+    resolve_model_file,
+    ModelFileError,
+)
+from .pcb_assembly_routes import register_pcb_assembly_routes
 from .game_hub import (
     GameHubStore,
     allowed_avatar_extension,
@@ -43,6 +54,7 @@ from . import product_compare_kb_store
 
 _routes_logger = logging.getLogger('yobboy_file_server.routes')
 _game_hub_store_singleton = GameHubStore()
+_TODO_AUDIO_EXTENSIONS = {'.wav', '.mp3', '.m4a', '.flac', '.ogg', '.opus', '.webm'}
 
 
 def resolve_game_profile_payload(request_obj) -> Dict[str, Any]:
@@ -911,6 +923,7 @@ VIDEO_EXTENSIONS = ['.mp4', '.avi', '.mov', '.wmv', '.webm', '.m4v']
 AUDIO_EXTENSIONS = ['.mp3', '.wav', '.flac', '.ogg', '.wma', '.m4a', '.aac', '.opus', '.weba', '.aiff', '.aif', '.amr']  # 音频文件格式
 DRAWIO_EXTENSIONS = ['.drawio', '.diagram', '.dio', '.xml']  # 添加.xml作为draw.io格式
 MODEL_3D_EXTENSIONS = ['.gltf', '.glb', '.obj', '.stl', '.fbx', '.step', '.stp']  # 3D模型文件格式
+DSN_EXTENSIONS = ['.dsn']
 
 # 获取data文件夹路径
 def get_data_path(relative_path=''):
@@ -1099,6 +1112,9 @@ def init_app(app):
     from .local_erp_routes import register_local_erp_routes
     register_local_erp_routes(app)
 
+    register_model_review_routes(app, is_logged_in)
+    register_pcb_assembly_routes(app, is_logged_in)
+
     def _todo_kb_root_dir() -> str:
         return str(app.config.get('ROOT_DIR') or project_base_dir())
 
@@ -1122,6 +1138,60 @@ def init_app(app):
         return None
 
     def _product_compare_kb_rebuild_all_async() -> None:
+        return None
+
+    audio_manager = app.config.get('TODO_AUDIO_MANAGER') or todo_audio_manager
+    app.config['TODO_AUDIO_MANAGER'] = audio_manager
+    audio_service = app.config.get('TODO_SPEECH_SERVICE_MANAGER') or TodoSpeechServiceManager(
+        enabled=app.config.get('TODO_SPEECH_ENABLED', False),
+        service_url=app.config.get('TODO_SPEECH_SERVICE_URL', ''),
+        timeout_seconds=app.config.get('TODO_SPEECH_TIMEOUT_SECONDS', 900),
+        idle_shutdown_seconds=app.config.get('TODO_SPEECH_IDLE_SHUTDOWN_SECONDS', 60),
+        model_dir=app.config.get('TODO_SPEECH_MODEL_DIR', ''),
+    )
+    app.config['TODO_SPEECH_SERVICE_MANAGER'] = audio_service
+    audio_worker = None
+    if app.config.get('TODO_SPEECH_ENABLED', False):
+        audio_worker = TodoAudioWorker(
+            audio_manager,
+            todo_extended_manager,
+            service_url=app.config.get('TODO_SPEECH_SERVICE_URL', ''),
+            timeout_seconds=app.config.get('TODO_SPEECH_TIMEOUT_SECONDS', 900),
+            queue_limit=app.config.get('TODO_SPEECH_QUEUE_LIMIT', 20),
+            on_completed=_todo_kb_rebuild_all_async,
+            before_transcribe=audio_service.wait_until_ready,
+            on_work_enqueued=audio_service.work_enqueued,
+            on_idle=audio_service.schedule_idle_shutdown,
+        )
+        audio_worker.start()
+    app.config['TODO_AUDIO_WORKER'] = audio_worker
+    live_transcription = None
+    if app.config.get('TODO_SPEECH_ENABLED', False):
+        live_transcription = TodoLiveTranscriptionManager(
+            service_url=app.config.get('TODO_SPEECH_SERVICE_URL', ''),
+            timeout_seconds=app.config.get('TODO_SPEECH_TIMEOUT_SECONDS', 900),
+            queue_limit=app.config.get('TODO_SPEECH_QUEUE_LIMIT', 20) * 3,
+            before_transcribe=audio_service.wait_until_ready,
+            on_work_enqueued=audio_service.work_enqueued,
+            on_idle=audio_service.schedule_idle_shutdown,
+        )
+        live_transcription.start()
+    app.config['TODO_LIVE_TRANSCRIPTION_MANAGER'] = live_transcription
+
+    def _todo_audio_access():
+        """Return (mode, token_id), refusing the unauthenticated direct ToDo entry."""
+        authorization = str(request.headers.get('Authorization') or '').strip()
+        if authorization.lower().startswith('bearer '):
+            token_id = audio_manager.authenticate_token(authorization[7:].strip())
+            if token_id:
+                return 'token', token_id
+        if is_logged_in():
+            return 'session', ''
+        return '', ''
+
+    def _todo_audio_enabled_response():
+        if not app.config.get('TODO_SPEECH_ENABLED', False) or not audio_worker:
+            return jsonify({'success': False, 'error': '本地语音转写服务未启用'}), 503
         return None
 
     # 初始化Draw.io静态文件目录（静默检查，不影响运行）
@@ -1430,13 +1500,18 @@ def init_app(app):
         if not is_logged_in():
             return redirect(url_for('login'))
         session.pop('todo_direct_access', None)
-        return render_template('todo_v2.html', direct_access=False)
+        todo_https_url = ''
+        if current_app.config.get('SERIAL_HTTPS_ACTIVE', False):
+            todo_https_url = build_serial_https_url('/todo/v2')
+        return render_template(
+            'todo_v2.html', direct_access=False, todo_https_url=todo_https_url
+        )
 
     @app.route('/todo/v2/direct')
     def todo_v2_direct():
         """新版ToDo后门入口（免登录）"""
         session['todo_direct_access'] = True
-        return render_template('todo_v2.html', direct_access=True)
+        return render_template('todo_v2.html', direct_access=True, todo_https_url='')
 
     @app.route('/todo/v2/preview')
     def todo_v2_preview():
@@ -1937,6 +2012,7 @@ def init_app(app):
         if not date_str:
             return jsonify({'success': False, 'error': '日期不能为空'}), 400
 
+        content = audio_manager.merge_completed_markdown(date_str, content)
         extended_manager.set_meeting_note(date_str, content)
         _todo_kb_rebuild_all_async()
         return jsonify({'success': True})
@@ -1958,6 +2034,7 @@ def init_app(app):
         if request.method == 'PUT':
             payload = request.json or {}
             content = payload.get('content', '')
+            content = audio_manager.merge_completed_markdown(date_str, content)
             extended_manager.set_meeting_note(date_str, content)
             _todo_kb_rebuild_all_async()
             return jsonify({'success': True})
@@ -1983,6 +2060,218 @@ def init_app(app):
             return jsonify({'success': True, 'html': html_content})
         except Exception as exc:
             return jsonify({'success': False, 'error': str(exc)}), 500
+
+    @app.route('/api/todo/v2/audio/health', methods=['GET'])
+    def todo_v2_audio_health():
+        if not is_logged_in():
+            return jsonify({'success': False, 'error': '未授权'}), 401
+        enabled = bool(app.config.get('TODO_SPEECH_ENABLED', False) and audio_worker)
+        payload = {
+            'success': True,
+            'enabled': enabled,
+            'queue_size': audio_worker.queue.qsize() if audio_worker else 0,
+            'service': audio_service.status(),
+        }
+        return jsonify(payload)
+
+    @app.route('/api/todo/v2/audio/service/start', methods=['POST'])
+    def todo_v2_audio_service_start():
+        if not is_logged_in():
+            return jsonify({'success': False, 'error': '未授权'}), 401
+        disabled = _todo_audio_enabled_response()
+        if disabled:
+            return disabled
+        try:
+            lease_id = audio_service.begin_recording()
+            return jsonify({'success': True, 'service': audio_service.status(), 'lease_id': lease_id}), 202
+        except RuntimeError as exc:
+            return jsonify({'success': False, 'error': str(exc), 'service': audio_service.status()}), 503
+
+    @app.route('/api/todo/v2/audio/service/release', methods=['POST'])
+    def todo_v2_audio_service_release():
+        if not is_logged_in():
+            return jsonify({'success': False, 'error': '未授权'}), 401
+        lease_id = str((request.get_json(silent=True) or {}).get('lease_id') or '').strip()
+        if lease_id:
+            audio_service.finish_recording(lease_id)
+        return jsonify({'success': True, 'service': audio_service.status()})
+
+    @app.route('/api/todo/v2/audio/live-sessions', methods=['POST'])
+    def todo_v2_live_transcription_start():
+        if not is_logged_in():
+            return jsonify({'success': False, 'error': '未授权'}), 401
+        disabled = _todo_audio_enabled_response()
+        if disabled:
+            return disabled
+        if not live_transcription:
+            return jsonify({'success': False, 'error': '实时转写不可用'}), 503
+        return jsonify({'success': True, 'session': live_transcription.create_session()}), 201
+
+    @app.route('/api/todo/v2/audio/live-sessions/<session_id>/chunks', methods=['POST'])
+    def todo_v2_live_transcription_chunk(session_id):
+        if not is_logged_in():
+            return jsonify({'success': False, 'error': '未授权'}), 401
+        disabled = _todo_audio_enabled_response()
+        if disabled:
+            return disabled
+        if not live_transcription:
+            return jsonify({'success': False, 'error': '实时转写不可用'}), 503
+        if request.content_length and request.content_length > 512 * 1024:
+            return jsonify({'success': False, 'error': '实时音频片段大小无效'}), 413
+        chunk = request.get_data(cache=False)
+        if not chunk or len(chunk) > 512 * 1024:
+            return jsonify({'success': False, 'error': '实时音频片段大小无效'}), 400
+        try:
+            offset_ms = int(request.headers.get('X-Todo-Live-Offset-Ms') or 0)
+            if not live_transcription.enqueue_chunk(session_id, offset_ms, chunk):
+                return jsonify({'success': False, 'error': '实时转写队列已满'}), 503
+        except (TypeError, ValueError) as exc:
+            return jsonify({'success': False, 'error': str(exc)}), 400
+        return jsonify({'success': True}), 202
+
+    @app.route('/api/todo/v2/audio/live-sessions/<session_id>', methods=['GET', 'POST'])
+    def todo_v2_live_transcription_session(session_id):
+        if not is_logged_in():
+            return jsonify({'success': False, 'error': '未授权'}), 401
+        disabled = _todo_audio_enabled_response()
+        if disabled:
+            return disabled
+        if not live_transcription:
+            return jsonify({'success': False, 'error': '实时转写不可用'}), 503
+        try:
+            if request.method == 'POST':
+                return jsonify({'success': True, 'session': live_transcription.stop_session(session_id)})
+            after = int(request.args.get('after') or 0)
+            return jsonify({'success': True, **live_transcription.get_captions(session_id, after)})
+        except (TypeError, ValueError) as exc:
+            return jsonify({'success': False, 'error': str(exc)}), 400
+
+    @app.route('/api/todo/v2/audio-notes', methods=['POST'])
+    def todo_v2_audio_note_upload():
+        access_mode, token_id = _todo_audio_access()
+        if not access_mode:
+            return jsonify({'success': False, 'error': '未授权'}), 401
+        disabled = _todo_audio_enabled_response()
+        if disabled:
+            return disabled
+        file_storage = request.files.get('file')
+        if not file_storage or not file_storage.filename:
+            return jsonify({'success': False, 'error': '请上传录音文件'}), 400
+        try:
+            filename = _clean_upload_filename(file_storage.filename)
+        except ValueError as exc:
+            return jsonify({'success': False, 'error': str(exc)}), 400
+        extension = os.path.splitext(filename)[1].lower()
+        if extension not in _TODO_AUDIO_EXTENSIONS:
+            return jsonify({'success': False, 'error': '仅支持 wav、mp3、m4a、flac、ogg、opus 或 webm 录音'}), 400
+        max_bytes = int(app.config.get('TODO_SPEECH_MAX_UPLOAD_MB', 512) or 512) * 1024 * 1024
+        if request.content_length and request.content_length > max_bytes:
+            return jsonify({'success': False, 'error': '录音文件超过语音上传大小限制'}), 413
+        note_date = str(request.form.get('date') or datetime.now().date().isoformat())
+        try:
+            record, source_path = audio_manager.reserve_upload(
+                note_date,
+                filename,
+                content_type=file_storage.mimetype or '',
+                title=request.form.get('title') or '',
+                token_id=token_id,
+            )
+            temporary_path = f'{source_path}.uploading'
+            try:
+                file_storage.save(temporary_path)
+                if not os.path.getsize(temporary_path):
+                    raise ValueError('录音文件为空')
+                if os.path.getsize(temporary_path) > max_bytes:
+                    raise ValueError('录音文件超过语音上传大小限制')
+                os.replace(temporary_path, source_path)
+            finally:
+                if os.path.exists(temporary_path):
+                    os.remove(temporary_path)
+        except (OSError, ValueError) as exc:
+            if 'record' in locals():
+                audio_manager.discard_reserved_upload(record['id'])
+            return jsonify({'success': False, 'error': f'保存录音失败：{exc}'}), 400
+        if not audio_worker.enqueue(record['id']):
+            failed = audio_manager.mark_failed(record['id'], '转写队列已满，请稍后重试')
+            return jsonify({'success': False, 'error': '转写队列已满', 'record': failed}), 503
+        return jsonify({'success': True, 'record': audio_manager.get_record(record['id'])}), 202
+
+    @app.route('/api/todo/v2/audio-notes/<record_id>', methods=['GET', 'DELETE'])
+    def todo_v2_audio_note_detail(record_id):
+        access_mode, token_id = _todo_audio_access()
+        if not access_mode:
+            return jsonify({'success': False, 'error': '未授权'}), 401
+        record = audio_manager.get_record(record_id)
+        if not record:
+            return jsonify({'success': False, 'error': '录音不存在'}), 404
+        if access_mode == 'token' and not audio_manager.token_owns_record(token_id, record_id):
+            return jsonify({'success': False, 'error': '无权访问该录音'}), 403
+        if request.method == 'GET':
+            return jsonify({'success': True, 'record': record})
+        if access_mode != 'session':
+            return jsonify({'success': False, 'error': '设备令牌不能删除录音'}), 403
+        removed = audio_manager.delete_record(record_id)
+        return jsonify({'success': True, 'record': removed})
+
+    @app.route('/api/todo/v2/audio-notes/<record_id>/retry', methods=['POST'])
+    def todo_v2_audio_note_retry(record_id):
+        if not is_logged_in():
+            return jsonify({'success': False, 'error': '未授权'}), 401
+        disabled = _todo_audio_enabled_response()
+        if disabled:
+            return disabled
+        record = audio_manager.retry_record(record_id)
+        if not record:
+            return jsonify({'success': False, 'error': '只有失败的录音可以重试'}), 400
+        if not audio_worker.enqueue(record_id):
+            failed = audio_manager.mark_failed(record_id, '转写队列已满，请稍后重试')
+            return jsonify({'success': False, 'error': '转写队列已满', 'record': failed}), 503
+        return jsonify({'success': True, 'record': audio_manager.get_record(record_id)}), 202
+
+    @app.route('/api/todo/v2/meeting_notes/<date_str>/audio-notes', methods=['GET'])
+    def todo_v2_audio_note_list(date_str):
+        if not is_logged_in():
+            return jsonify({'success': False, 'error': '未授权'}), 401
+        try:
+            return jsonify({'success': True, 'records': audio_manager.list_records(date_str)})
+        except ValueError as exc:
+            return jsonify({'success': False, 'error': str(exc)}), 400
+
+    @app.route('/api/todo/v2/audio-notes/<record_id>/file', methods=['GET'])
+    def todo_v2_audio_note_file(record_id):
+        if not is_logged_in():
+            return jsonify({'success': False, 'error': '未授权'}), 401
+        record = audio_manager.get_record(record_id)
+        source_path = audio_manager.get_source_path(record_id)
+        if not record or not source_path:
+            return jsonify({'success': False, 'error': '录音文件不存在'}), 404
+        return send_file(
+            source_path,
+            mimetype=record.get('content_type') or None,
+            download_name=record.get('original_filename') or 'audio',
+            conditional=True,
+        )
+
+    @app.route('/api/todo/v2/audio-tokens', methods=['GET', 'POST'])
+    def todo_v2_audio_tokens():
+        if not is_logged_in():
+            return jsonify({'success': False, 'error': '未授权'}), 401
+        if request.method == 'GET':
+            return jsonify({'success': True, 'tokens': audio_manager.list_tokens()})
+        payload = request.json or {}
+        try:
+            token, raw_token = audio_manager.create_token(payload.get('label') or '')
+        except ValueError as exc:
+            return jsonify({'success': False, 'error': str(exc)}), 400
+        return jsonify({'success': True, 'token': token, 'secret': raw_token}), 201
+
+    @app.route('/api/todo/v2/audio-tokens/<token_id>', methods=['DELETE'])
+    def todo_v2_audio_token(token_id):
+        if not is_logged_in():
+            return jsonify({'success': False, 'error': '未授权'}), 401
+        if not audio_manager.revoke_token(token_id):
+            return jsonify({'success': False, 'error': '设备令牌不存在或已撤销'}), 404
+        return jsonify({'success': True})
 
     @app.route('/api/todo/v2/reports/<report_type>', methods=['GET'])
     def todo_v2_report_list(report_type):
@@ -4100,53 +4389,197 @@ def init_app(app):
             })
         except Exception as e:
             return jsonify({'error': f'保存配置失败: {e}'}), 500
+
+    @app.route('/docker-settings', methods=['GET', 'POST'])
+    def docker_settings():
+        """Manage Docker HTTPS settings behind the administrator password."""
+        if not is_logged_in():
+            return redirect(url_for('login'))
+
+        https_enabled = bool(current_app.config.get('REMOTE_SERIAL_ENABLED', False))
+        https_port = current_app.config.get('SERIAL_HTTPS_PORT', 5002)
+        if request.method == 'POST':
+            admin_password = request.form.get('admin_password', '')
+            if admin_password != current_app.config.get('ADMIN_PASSWORD', 'admin123'):
+                return render_template(
+                    'docker_settings.html',
+                    error='管理员密码错误，未保存 HTTPS 设置。',
+                    https_enabled=https_enabled,
+                    https_port=https_port,
+                ), 403
+            try:
+                https_port = int(request.form.get('https_port', 5002))
+                if not 1 <= https_port <= 65535:
+                    raise ValueError
+            except (TypeError, ValueError):
+                return render_template(
+                    'docker_settings.html',
+                    error='HTTPS 端口必须介于 1 和 65535 之间。',
+                    https_enabled=https_enabled,
+                    https_port=request.form.get('https_port', 5002),
+                ), 400
+
+            current_app.config['REMOTE_SERIAL_ENABLED'] = request.form.get('https_enabled') == 'on'
+            current_app.config['REMOTE_SERIAL_HTTPS_MODE'] = 'compat'
+            current_app.config['SERIAL_HTTPS_PORT'] = https_port
+            from .main import save_config
+            save_config(current_app)
+            dotenv_path = project_path('.env')
+            try:
+                lines = []
+                if os.path.exists(dotenv_path):
+                    with open(dotenv_path, 'r', encoding='utf-8') as source:
+                        lines = source.read().splitlines()
+                key = 'YFS_HTTPS_PORT='
+                replacement = f'{key}{https_port}'
+                if any(line.startswith(key) for line in lines):
+                    lines = [replacement if line.startswith(key) else line for line in lines]
+                else:
+                    lines.append(replacement)
+                with open(dotenv_path, 'w', encoding='utf-8', newline='\n') as target:
+                    target.write('\n'.join(lines) + '\n')
+            except OSError as exc:
+                return render_template(
+                    'docker_settings.html',
+                    error=f'HTTPS 设置已保存，但无法更新 Docker 端口映射：{exc}',
+                    https_enabled=current_app.config['REMOTE_SERIAL_ENABLED'],
+                    https_port=https_port,
+                ), 500
+            return render_template(
+                'docker_settings.html',
+                success='HTTPS 设置已保存。请执行 docker compose up -d --force-recreate 使端口配置生效。',
+                https_enabled=current_app.config['REMOTE_SERIAL_ENABLED'],
+                https_port=https_port,
+            )
+
+        return render_template(
+            'docker_settings.html',
+            https_enabled=https_enabled,
+            https_port=https_port,
+        )
     
+    def _resolve_dsn_file(filepath, git_root=''):
+        """Resolve a DSN path from either the file root or a Git worktree."""
+        if git_root:
+            git_workdir = current_app.config.get('GIT_WORKDIR', '')
+            if not git_workdir:
+                abort(404)
+
+            if os.path.isabs(git_root):
+                base_path = os.path.normpath(git_root)
+            else:
+                base_path = os.path.normpath(os.path.join(git_workdir, git_root))
+
+            if not base_path.startswith(os.path.normpath(git_workdir)):
+                abort(404)
+        else:
+            base_path = current_app.config.get('ROOT_DIR')
+            if not base_path:
+                abort(404)
+            base_path = os.path.normpath(base_path)
+
+        full_path = os.path.normpath(os.path.join(base_path, filepath))
+        if not full_path.startswith(base_path):
+            abort(404)
+        if not os.path.exists(full_path) or os.path.isdir(full_path):
+            abort(404)
+
+        _, ext = os.path.splitext(full_path.lower())
+        if ext not in DSN_EXTENSIONS:
+            abort(400)
+        return full_path
+
+    def _render_dsn_viewer(filepath, git_root=''):
+        full_path = _resolve_dsn_file(filepath, git_root)
+        filename = os.path.basename(full_path)
+        parent_dir = posixpath.dirname(filepath)
+        back_url = url_for('file_browser', path=parent_dir) if parent_dir else url_for('file_browser')
+        content_args = {'path': filepath}
+        if git_root:
+            content_args['root'] = git_root
+        file_url = url_for('dsn_content', **content_args)
+        viewer_url = f"{url_for('static', filename='dsn-viewer/index.html')}?file={quote(file_url, safe='')}"
+
+        return render_template(
+            'dsn_viewer.html',
+            filename=filename,
+            filepath=filepath,
+            back_url=back_url,
+            download_url=None if git_root else url_for('download_file', filepath=filepath),
+            viewer_url=viewer_url,
+        )
+
     @app.route('/view_model/<path:filepath>')
     def view_model(filepath):
         """3D模型查看器页面"""
         if 'logged_in' not in session:
             return redirect(url_for('login'))
-        
-        root_dir = current_app.config.get('ROOT_DIR')
-        if not root_dir:
-            abort(404)
-        
-        full_path = os.path.join(root_dir, filepath)
-        
-        # 安全检查
+
         try:
-            full_path = os.path.normpath(full_path)
-            if not full_path.startswith(os.path.normpath(root_dir)):
-                abort(404)
-        except Exception:
-            abort(404)
-        
-        if not os.path.exists(full_path) or os.path.isdir(full_path):
-            abort(404)
-        
+            normalized_path, full_path, ext = resolve_model_file(
+                current_app.config.get('ROOT_DIR', ''),
+                filepath,
+                MODEL_3D_EXTENSIONS,
+            )
+        except ModelFileError as exc:
+            abort(exc.status_code)
+
         filename = os.path.basename(full_path)
-        _, ext = os.path.splitext(filename.lower())
-        
-        # 检查是否是3D模型文件
-        if ext not in MODEL_3D_EXTENSIONS:
+        viewer_mode = request.args.get('mode', 'review').strip().lower()
+        if viewer_mode not in {'preview', 'review'}:
             abort(400)
-        
-        # 生成模型URL
-        model_url = url_for('preview_file', filepath=filepath)
-        
-        # 返回按钮URL
-        parent_dir = posixpath.dirname(filepath)
-        if not parent_dir:
-            back_url = url_for('file_browser')
-        else:
-            back_url = url_for('file_browser', path=parent_dir)
-        
+        embedded_viewer = request.args.get('embed', '').strip() == '1'
+
         return render_template('model_viewer.html',
                              filename=filename,
-                             filepath=filepath,
+                             filepath=normalized_path,
                              file_ext=ext,
-                             model_url=model_url,
-                             back_url=back_url)
+                             model_url=url_for('preview_file', filepath=normalized_path),
+                             viewer_mode=viewer_mode,
+                             embedded_viewer=embedded_viewer,
+                             capabilities=model_capabilities(ext))
+
+    @app.route('/view_dsn/<path:filepath>')
+    def view_dsn(filepath):
+        """Specctra DSN PCB viewer page."""
+        if 'logged_in' not in session:
+            return redirect(url_for('login'))
+
+        return _render_dsn_viewer(filepath)
+
+    @app.route('/dsn-viewer')
+    @app.route('/dsn-viewer/')
+    @app.route('/view_dsn')
+    def dsn_viewer_home():
+        """Open the DSN viewer without selecting a server file."""
+        if 'logged_in' not in session:
+            return redirect(url_for('login'))
+
+        filepath = request.args.get('path', '')
+        git_root = request.args.get('root', '')
+        if filepath:
+            return _render_dsn_viewer(filepath, git_root)
+
+        return render_template(
+            'dsn_viewer.html',
+            filename='Specctra DSN Viewer',
+            back_url=url_for('file_browser'),
+            download_url=None,
+            viewer_url=url_for('static', filename='dsn-viewer/index.html'),
+        )
+
+    @app.route('/dsn-content')
+    def dsn_content():
+        """Serve a DSN file to the embedded local viewer."""
+        if 'logged_in' not in session:
+            abort(401)
+
+        filepath = request.args.get('path', '')
+        if not filepath:
+            abort(400)
+
+        full_path = _resolve_dsn_file(filepath, request.args.get('root', ''))
+        return send_file(full_path, mimetype='text/plain; charset=utf-8')
     
     @app.route('/get_preview_content', methods=['POST'])
     def get_preview_content():
@@ -4265,7 +4698,7 @@ def init_app(app):
         elif ext in MODEL_3D_EXTENSIONS:
             file_type = '3d_model'
             # 3D模型预览 - iframe嵌入方式
-            view_model_url = url_for('view_model', filepath=filepath)
+            view_model_url = url_for('view_model', filepath=filepath, mode='preview')
             content_html = f'''
             <div class="model-3d-container" style="width: 100%; height: 700px; position: relative; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.1);">
                 <iframe src="{view_model_url}" 
@@ -4280,6 +4713,19 @@ def init_app(app):
                 <p style="margin: 5px 0; color: #666;"><strong>💡 操作提示:</strong></p>
                 <p style="margin: 5px 0; color: #666;">🖱️ <strong>鼠标左键</strong> - 旋转模型 | <strong>右键</strong> - 平移视角 | <strong>滚轮</strong> - 缩放</p>
                 <p style="margin: 5px 0; color: #666;">🛠️ 使用右上角工具栏可以: 重置视角、切换线框模式、显示网格、改变背景色等</p>
+            </div>
+            '''
+        elif ext in DSN_EXTENSIONS:
+            file_type = 'dsn'
+            if git_root:
+                dsn_viewer_url = url_for('dsn_viewer_home', path=filepath, root=git_root)
+            else:
+                dsn_viewer_url = url_for('view_dsn', filepath=filepath)
+            content_html = f'''
+            <div class="dsn-viewer-container" style="height: min(800px, 80vh); min-height: 520px;">
+                <iframe src="{dsn_viewer_url}" title="{filename} DSN 查看器"
+                        style="width: 100%; height: 100%; border: none; display: block;">
+                </iframe>
             </div>
             '''
         elif ext in CODE_EXTENSIONS:
@@ -4725,19 +5171,35 @@ def init_app(app):
             return jsonify({'success': False, 'error': 'invalid_limit'}), 400
 
         before_seq_raw = (request.args.get('before_seq') or '').strip()
+        after_seq_raw = (request.args.get('after_seq') or '').strip()
+        if before_seq_raw and after_seq_raw:
+            return jsonify({'success': False, 'error': 'history_cursor_conflict'}), 400
         before_seq = None
+        after_seq = None
         if before_seq_raw:
             try:
                 before_seq = int(before_seq_raw)
             except ValueError:
                 return jsonify({'success': False, 'error': 'invalid_before_seq'}), 400
+        if after_seq_raw:
+            try:
+                after_seq = int(after_seq_raw)
+            except ValueError:
+                return jsonify({'success': False, 'error': 'invalid_after_seq'}), 400
 
         try:
-            entries, next_cursor, has_more, error = shared_serial_hub.get_history(
-                channel_id=port_id,
-                before_seq=before_seq,
-                limit=max(1, min(limit, 1000)),
-            )
+            if after_seq is not None:
+                entries, next_cursor, has_more, error = shared_serial_hub.get_history_after(
+                    channel_id=port_id,
+                    after_seq=after_seq,
+                    limit=max(1, min(limit, 1000)),
+                )
+            else:
+                entries, next_cursor, has_more, error = shared_serial_hub.get_history(
+                    channel_id=port_id,
+                    before_seq=before_seq,
+                    limit=max(1, min(limit, 1000)),
+                )
             if error:
                 return jsonify({'success': False, 'error': error}), 404
             return jsonify(

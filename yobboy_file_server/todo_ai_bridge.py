@@ -450,6 +450,9 @@ def expand_natural_todo_refs(
     tmap: Dict[Tuple[int, int], str] = catalog.get("tasks") or {}
     cmap: Dict[Tuple[int, int, int], str] = catalog.get("comments") or {}
 
+    def missing_ref(v: Any) -> bool:
+        return v is None or (isinstance(v, str) and not v.strip())
+
     def exp_proj(v: Any) -> Any:
         if not isinstance(v, str):
             return v
@@ -489,6 +492,22 @@ def expand_natural_todo_refs(
     for op in out:
         if not isinstance(op, dict):
             continue
+        raw_task_id = op.get("task_id")
+        if isinstance(raw_task_id, str):
+            m = _REF_TASK.match(raw_task_id.strip())
+            if m:
+                pi, _ti = int(m.group(1)), int(m.group(2))
+                if missing_ref(op.get("project_id")) and pmap.get(pi):
+                    op["project_id"] = pmap.get(pi)
+        raw_comment_id = op.get("comment_id")
+        if isinstance(raw_comment_id, str):
+            m = _REF_COMMENT.match(raw_comment_id.strip())
+            if m:
+                pi, ti = int(m.group(1)), int(m.group(2))
+                if missing_ref(op.get("project_id")) and pmap.get(pi):
+                    op["project_id"] = pmap.get(pi)
+                if missing_ref(op.get("task_id")) and tmap.get((pi, ti)):
+                    op["task_id"] = tmap.get((pi, ti))
         if "project_id" in op and op["project_id"] is not None:
             op["project_id"] = exp_proj(str(op["project_id"]))
         if "task_id" in op and op["task_id"] is not None:
@@ -644,6 +663,91 @@ def _find_task_target_for_update(
     return None
 
 
+def _message_mentions_field(message: str, field: str) -> bool:
+    m = str(message or "")
+    field_terms = {
+        "summary": ("标题", "名称", "重命名", "改名"),
+        "description": ("描述", "说明", "内容"),
+        "due_date": ("截止", "日期", "期限"),
+        "task_type": ("任务类型", "类型"),
+        "weekly_plan": ("周计划", "周报"),
+        "conclusion": ("结论",),
+        "show_in_report": ("周报显示", "显示在周报", "不显示", "隐藏"),
+    }
+    return any(term in m for term in field_terms.get(field, ()))
+
+
+def normalize_todo_ops_for_user_message(
+    tm: TodoManager,
+    user_message: str,
+    ops: List[Dict[str, Any]],
+) -> Tuple[List[Dict[str, Any]], Optional[str]]:
+    """
+    Server-side sanity pass for model-produced ops.
+
+    The model may copy template fields as null/empty placeholders or choose the
+    wrong task ref even though the user names a task directly. Keep the LLM's
+    field values only after deterministic target and placeholder checks.
+    """
+    if not ops:
+        return ops, None
+    data = tm.list_all()
+    projects = list(data.get("projects") or [])
+    message_project, amb_names = _pick_project_for_question(user_message, projects)
+    out = copy.deepcopy(ops)
+    nullable_update_fields = (
+        "summary",
+        "description",
+        "priority",
+        "due_date",
+        "task_type",
+        "weekly_plan",
+        "conclusion",
+        "show_in_report",
+    )
+
+    for op in out:
+        if not isinstance(op, dict):
+            continue
+        kind = str(op.get("op") or "")
+        if kind == "update_task":
+            for key in nullable_update_fields:
+                if key not in op:
+                    continue
+                value = op.get(key)
+                if value is None:
+                    op.pop(key, None)
+                elif isinstance(value, str) and value == "" and not _message_mentions_field(user_message, key):
+                    op.pop(key, None)
+
+            if amb_names:
+                return out, f"目标项目不唯一，请用更完整项目名重试：{amb_names}"
+            search_projects = [message_project] if message_project else projects
+            target = _find_task_target_for_update(user_message, search_projects, op)
+            if target:
+                project, task = target
+                op["project_id"] = project.get("id")
+                op["task_id"] = task.get("id")
+            elif message_project:
+                op_project = _project_by_id(projects, op.get("project_id"))
+                if op_project and op_project.get("id") != message_project.get("id"):
+                    return out, (
+                        "模型选择的项目与用户指定项目不一致；"
+                        f"用户指定「{message_project.get('name')}」，但操作指向「{op_project.get('name')}」。"
+                    )
+        elif kind in ("add_task_comment", "delete_task"):
+            if amb_names:
+                return out, f"目标项目不唯一，请用更完整项目名重试：{amb_names}"
+            search_projects = [message_project] if message_project else projects
+            target = _find_task_target_for_update(user_message, search_projects, op)
+            if target:
+                project, task = target
+                op["project_id"] = project.get("id")
+                op["task_id"] = task.get("id")
+
+    return out, None
+
+
 def _should_rename_task(message: str) -> bool:
     return any(term in str(message or "") for term in ("标题", "名称", "重命名", "改名"))
 
@@ -742,18 +846,38 @@ def build_todo_summary_text_for_llm(tm: TodoManager) -> str:
     return "\n".join(lines)
 
 
+def _project_query_tokens(text: str) -> set[str]:
+    return {x.lower() for x in re.findall(r"[A-Za-z0-9]+", text or "") if len(x) >= 2}
+
+
+def _project_match_score(question: str, project_name: str) -> int:
+    name = (project_name or "").strip()
+    q = (question or "").strip()
+    if not name or not q:
+        return 0
+    if name in q:
+        return 10000 + len(name)
+    name_tokens = _project_query_tokens(name)
+    query_tokens = _project_query_tokens(q)
+    hits = name_tokens & query_tokens
+    if not hits:
+        return 0
+    return 1000 + sum(len(x) for x in hits)
+
+
 def _pick_project_for_question(q: str, projects: List[Dict[str, Any]]) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
-    """在问题文本中按「项目全名子串」匹配；优先最长名称，避免「测试」误匹配\"测试2\""""
+    """在问题文本中匹配完整项目名或项目短码；优先最长/最具体命中。"""
     scored: List[Tuple[int, str, Dict[str, Any]]] = []
     for p in projects:
         name = str(p.get("name") or "")
-        if name and name in q:
-            scored.append((len(name), name, p))
+        score = _project_match_score(q, name)
+        if score:
+            scored.append((score, name, p))
     if not scored:
         return None, None
     scored.sort(key=lambda x: -x[0])
-    best_len = scored[0][0]
-    top = [x for x in scored if x[0] == best_len]
+    best_score = scored[0][0]
+    top = [x for x in scored if x[0] == best_score]
     names = [x[1] for x in top]
     if len(top) > 1 and len(set(names)) > 1:
         return None, "、".join(f"「{n}」" for n in sorted(set(names), key=len, reverse=True))
@@ -824,6 +948,7 @@ def _wants_project_task_list(q: str) -> bool:
             "多少条任务",
             "列出任务",
             "罗列出",
+            "待办",
         )
     )
 
@@ -1174,6 +1299,79 @@ def message_suggests_todo_context(message: str) -> bool:
     return False
 
 
+def todo_query_needs_semantic_kb(message: str) -> bool:
+    """
+    Return True only when todo chat may benefit from semantic search over long
+    text fields. Core todo routing should still use live structured data.
+    """
+    m = (message or "").strip()
+    if not m:
+        return False
+    detail_words = (
+        "描述",
+        "详情",
+        "详细",
+        "评论",
+        "备注",
+        "记录",
+        "历史",
+        "结论",
+        "周计划",
+        "背景",
+        "原因",
+        "提到",
+        "包含",
+        "搜",
+        "搜索",
+        "查找",
+        "找一下",
+        "关键词",
+    )
+    return any(w in m for w in detail_words)
+
+
+def build_todo_context_strategy(message: str, *, mode: str = "todo") -> Dict[str, Any]:
+    """
+    Decide which todo data sources should be attached.
+
+    Todo data is structured operational state, so the primary source is always
+    the live manager/MCP snapshot. The todo vector KB is only a secondary source
+    for semantic lookup in long descriptions, comments, and history.
+    """
+    m = (message or "").strip()
+    intent = _heuristic_intent(m) if m else "unknown"
+    needs_todo = mode == "todo" or message_suggests_todo_context(m)
+    explicit_search = any(w in m for w in ("搜", "搜索", "查找", "找一下", "提到", "包含", "关键词"))
+    strong_mutate = any(
+        w in m
+        for w in (
+            "创建",
+            "新建",
+            "添加",
+            "加任务",
+            "删除",
+            "移除",
+            "归档",
+            "修改",
+            "更新",
+            "设为",
+            "改为",
+        )
+    )
+    use_semantic_kb = bool(
+        needs_todo
+        and todo_query_needs_semantic_kb(m)
+        and (intent != "mutate" or (explicit_search and not strong_mutate))
+    )
+    return {
+        "needs_todo": needs_todo,
+        "intent": intent,
+        "primary_source": "structured",
+        "use_semantic_kb": use_semantic_kb,
+        "reason": "semantic_long_text" if use_semantic_kb else "structured_live_state",
+    }
+
+
 def _heuristic_intent(message: str) -> str:
     m = message.strip()
     if any(
@@ -1294,13 +1492,23 @@ def propose_todo_ops_json(tm: TodoManager, user_message: str, llm_generate_fn) -
     if not isinstance(ops, list):
         return {"ok": False, "error": "缺少 ops 数组", "raw": raw, "preview": None}
     ops_expanded = expand_natural_todo_refs(ops, catalog)
+    ops_expanded, normalize_err = normalize_todo_ops_for_user_message(tm, user_message, ops_expanded)
+    if normalize_err:
+        return {"ok": False, "error": normalize_err, "raw": raw, "preview": None}
     ops_expanded = _coerce_mistaken_create_task_updates(tm, user_message, ops_expanded)
     ops_expanded = enrich_todo_ops_due_dates(ops_expanded, user_message)
     preview, err = validate_and_describe_ops(tm, ops_expanded)
     if err:
         return {"ok": False, "error": err, "raw": raw, "preview": preview}
     ops_display = display_todo_ops_with_refs(ops_expanded, catalog)
-    return {"ok": True, "summary": data.get("summary", ""), "ops": ops_display, "preview": preview, "raw": raw}
+    return {
+        "ok": True,
+        "summary": data.get("summary", ""),
+        "ops": ops_expanded,
+        "ops_display": ops_display,
+        "preview": preview,
+        "raw": raw,
+    }
 
 
 def validate_and_describe_ops(tm: TodoManager, ops: List[Dict[str, Any]]) -> Tuple[Optional[List[str]], Optional[str]]:
@@ -1353,7 +1561,7 @@ def validate_and_describe_ops(tm: TodoManager, ops: List[Dict[str, Any]]) -> Tup
             t = next((x for x in p.get("tasks", []) if x.get("id") == tid), None)
             if not t:
                 return None, f"update_task: 无效 task_id {tid}"
-            lines.append(f"更新任务: 「{t.get('summary')}」")
+            lines.append(f"更新任务: 项目「{p.get('name')}」 / 「{t.get('summary')}」")
             ch: List[str] = []
             if "summary" in op:
                 ch.append(f"标题→{op.get('summary')}")
@@ -1387,7 +1595,7 @@ def validate_and_describe_ops(tm: TodoManager, ops: List[Dict[str, Any]]) -> Tup
             t = next((x for x in p.get("tasks", []) if x.get("id") == tid), None)
             if not t:
                 return None, f"delete_task: 无效 task_id {tid}"
-            lines.append(f"删除任务: 「{t.get('summary')}」")
+            lines.append(f"删除任务: 项目「{p.get('name')}」 / 「{t.get('summary')}」")
         elif kind == "update_project":
             pid = op.get("project_id")
             p = proj_by_id.get(pid)
@@ -1419,7 +1627,7 @@ def validate_and_describe_ops(tm: TodoManager, ops: List[Dict[str, Any]]) -> Tup
             if not tx:
                 return None, "add_task_comment: text 不能为空"
             preview = tx[:60] + ("…" if len(tx) > 60 else "")
-            lines.append(f"向任务「{t.get('summary')}」添加评论: {preview}")
+            lines.append(f"向项目「{p.get('name')}」任务「{t.get('summary')}」添加评论: {preview}")
         elif kind == "delete_task_comment":
             pid, tid = op.get("project_id"), op.get("task_id")
             cid = (op.get("comment_id") or "").strip()
@@ -1455,6 +1663,9 @@ def apply_todo_ops(
     if expand_refs:
         cat = build_mutate_ref_catalog_only(tm, ref_question)
         ops = expand_natural_todo_refs(ops, cat)
+        ops, normalize_err = normalize_todo_ops_for_user_message(tm, ref_question, ops)
+        if normalize_err:
+            return False, normalize_err
         ops = enrich_todo_ops_due_dates(ops, ref_question)
     for op in ops:
         kind = op.get("op")

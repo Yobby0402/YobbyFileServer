@@ -1,0 +1,7 @@
+fastapi>=0.115,<1
+uvicorn[standard]>=0.30,<1
+python-multipart>=0.0.12,<1
+# Use a PyPI release so a transient GitHub connection failure cannot block startup.
+funasr==1.4.11
+numpy>=1.24,<2
+transformers>=4.37,<5

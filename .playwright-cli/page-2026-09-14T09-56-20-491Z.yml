@@ -1,0 +1,163 @@
+- generic [ref=f1e1]:
+  - banner "3D 查看工具" [ref=f1e2]:
+    - generic [ref=f1e3]:
+      - button "返回文件列表" [ref=f1e4] [cursor=pointer]:
+        - generic [aria-hidden] [ref=f1e5]: 
+      - generic [aria-hidden] [ref=f1e6]: 
+      - generic [ref=f1e7]:
+        - strong [ref=f1e8]: explosion_groups_model.gltf
+        - generic [ref=f1e9]: GLTF · 高级审阅
+    - generic [ref=f1e10]:
+      - text: 
+      - button "复位视角" [ref=f1e11] [cursor=pointer]:
+        - generic [aria-hidden] [ref=f1e12]: 
+      - button "切换线框" [ref=f1e13] [cursor=pointer]:
+        - generic [aria-hidden] [ref=f1e14]: 
+      - button "切换网格" [ref=f1e15] [cursor=pointer]:
+        - generic [aria-hidden] [ref=f1e16]: 
+      - button "切换坐标轴" [ref=f1e17] [cursor=pointer]:
+        - generic [aria-hidden] [ref=f1e18]: 
+      - button "切换背景" [ref=f1e19] [cursor=pointer]:
+        - generic [aria-hidden] [ref=f1e20]: 
+      - button "隐藏所有评论" [ref=f1e21] [cursor=pointer]:
+        - generic [aria-hidden] [ref=f1e22]: 
+      - button "显示所有评论连线" [ref=f1e23] [cursor=pointer]:
+        - generic [aria-hidden] [ref=f1e24]: 
+      - button "切换自动旋转" [ref=f1e25] [cursor=pointer]:
+        - generic [aria-hidden] [ref=f1e26]: 
+      - text: 
+      - button "切换全屏" [ref=f1e27] [cursor=pointer]:
+        - generic [aria-hidden] [ref=f1e28]: 
+      - button "添加评论" [ref=f1e30] [cursor=pointer]:
+        - generic [aria-hidden] [ref=f1e31]: 
+      - button "导出报告" [ref=f1e33] [cursor=pointer]:
+        - generic [aria-hidden] [ref=f1e34]: 
+      - text: 
+  - main [ref=f1e36]:
+    - complementary "零件树" [ref=f1e37]:
+      - generic [ref=f1e38]:
+        - generic [ref=f1e39]:
+          - text: 装配体
+          - heading "零件" [level=2] [ref=f1e40]
+        - generic [ref=f1e41]:
+          - button "显示全部零件" [ref=f1e42] [cursor=pointer]:
+            - generic [aria-hidden] [ref=f1e43]: 
+          - text: 
+      - generic [ref=f1e44]: 已识别 12 个节点
+      - tree [ref=f1e45]:
+        - treeitem [ref=f1e145]:
+          - button "折叠" [ref=f1e146] [cursor=pointer]:
+            - generic [aria-hidden] [ref=f1e147]: 
+          - button "AssemblyA" [ref=f1e148] [cursor=pointer]
+          - button "解锁整组零件" [pressed] [ref=f1e149] [cursor=pointer]:
+            - generic [aria-hidden] [ref=f1e150]: 
+          - button "隐藏零件" [ref=f1e151] [cursor=pointer]:
+            - generic [aria-hidden] [ref=f1e152]: 
+        - treeitem [ref=f1e153]:
+          - button "A1" [ref=f1e154] [cursor=pointer]
+          - button "与父级一起爆炸" [pressed] [ref=f1e155] [cursor=pointer]:
+            - generic [aria-hidden] [ref=f1e156]: 
+          - button "隐藏零件" [ref=f1e157] [cursor=pointer]:
+            - generic [aria-hidden] [ref=f1e158]: 
+        - treeitem [ref=f1e159]:
+          - button "A2" [ref=f1e160] [cursor=pointer]
+          - button "与父级一起爆炸" [pressed] [ref=f1e161] [cursor=pointer]:
+            - generic [aria-hidden] [ref=f1e162]: 
+          - button "隐藏零件" [ref=f1e163] [cursor=pointer]:
+            - generic [aria-hidden] [ref=f1e164]: 
+        - treeitem [ref=f1e165]:
+          - button "A3" [ref=f1e166] [cursor=pointer]
+          - button "与父级一起爆炸" [pressed] [ref=f1e167] [cursor=pointer]:
+            - generic [aria-hidden] [ref=f1e168]: 
+          - button "隐藏零件" [ref=f1e169] [cursor=pointer]:
+            - generic [aria-hidden] [ref=f1e170]: 
+        - treeitem [ref=f1e171]:
+          - button "A4" [ref=f1e172] [cursor=pointer]
+          - button "与父级一起爆炸" [pressed] [ref=f1e173] [cursor=pointer]:
+            - generic [aria-hidden] [ref=f1e174]: 
+          - button "隐藏零件" [ref=f1e175] [cursor=pointer]:
+            - generic [aria-hidden] [ref=f1e176]: 
+        - treeitem [ref=f1e177]:
+          - button "A5" [ref=f1e178] [cursor=pointer]
+          - button "与父级一起爆炸" [pressed] [ref=f1e179] [cursor=pointer]:
+            - generic [aria-hidden] [ref=f1e180]: 
+          - button "隐藏零件" [ref=f1e181] [cursor=pointer]:
+            - generic [aria-hidden] [ref=f1e182]: 
+        - treeitem [ref=f1e183]:
+          - button "折叠" [ref=f1e184] [cursor=pointer]:
+            - generic [aria-hidden] [ref=f1e185]: 
+          - button "AssemblyB" [ref=f1e186] [cursor=pointer]
+          - button "解锁整组零件" [pressed] [ref=f1e187] [cursor=pointer]:
+            - generic [aria-hidden] [ref=f1e188]: 
+          - button "隐藏零件" [ref=f1e189] [cursor=pointer]:
+            - generic [aria-hidden] [ref=f1e190]: 
+        - treeitem [ref=f1e191]:
+          - button "B1" [ref=f1e192] [cursor=pointer]
+          - button "与父级一起爆炸" [pressed] [ref=f1e193] [cursor=pointer]:
+            - generic [aria-hidden] [ref=f1e194]: 
+          - button "隐藏零件" [ref=f1e195] [cursor=pointer]:
+            - generic [aria-hidden] [ref=f1e196]: 
+        - treeitem [ref=f1e197]:
+          - button "B2" [ref=f1e198] [cursor=pointer]
+          - button "与父级一起爆炸" [pressed] [ref=f1e199] [cursor=pointer]:
+            - generic [aria-hidden] [ref=f1e200]: 
+          - button "隐藏零件" [ref=f1e201] [cursor=pointer]:
+            - generic [aria-hidden] [ref=f1e202]: 
+        - treeitem [ref=f1e203]:
+          - button "B3" [ref=f1e204] [cursor=pointer]
+          - button "与父级一起爆炸" [pressed] [ref=f1e205] [cursor=pointer]:
+            - generic [aria-hidden] [ref=f1e206]: 
+          - button "隐藏零件" [ref=f1e207] [cursor=pointer]:
+            - generic [aria-hidden] [ref=f1e208]: 
+        - treeitem [ref=f1e209]:
+          - button "B4" [ref=f1e210] [cursor=pointer]
+          - button "与父级一起爆炸" [pressed] [ref=f1e211] [cursor=pointer]:
+            - generic [aria-hidden] [ref=f1e212]: 
+          - button "隐藏零件" [ref=f1e213] [cursor=pointer]:
+            - generic [aria-hidden] [ref=f1e214]: 
+        - treeitem [ref=f1e215]:
+          - button "B5" [ref=f1e216] [cursor=pointer]
+          - button "与父级一起爆炸" [pressed] [ref=f1e217] [cursor=pointer]:
+            - generic [aria-hidden] [ref=f1e218]: 
+          - button "隐藏零件" [ref=f1e219] [cursor=pointer]:
+            - generic [aria-hidden] [ref=f1e220]: 
+    - region "3D 模型画布" [ref=f1e122]:
+      - application "视角立方体" [ref=f1e125]
+      - button "1. A1 检查点" [ref=f1e127] [cursor=pointer]
+      - button "1 A1 检查点" [active] [ref=f1e128] [cursor=pointer]:
+        - generic [ref=f1e129]: "1"
+        - generic [ref=f1e130]: A1 检查点
+      - generic [ref=f1e131]:
+        - generic [ref=f1e132]: 爆炸视图
+        - slider "爆炸视图" [ref=f1e133]: "80"
+        - status [ref=f1e134]: 80%
+    - complementary "评论面板" [ref=f1e135]:
+      - generic [ref=f1e136]:
+        - generic [ref=f1e137]:
+          - text: 模型审阅
+          - heading "评论" [level=2] [ref=f1e138]
+        - text: 
+      - button "1 A1 检查点 已关联模型零件" [ref=f1e140] [cursor=pointer]:
+        - generic [ref=f1e141]: "1"
+        - generic [ref=f1e142]:
+          - strong [ref=f1e143]: A1 检查点
+          - generic [ref=f1e144]: 已关联模型零件
+      - text: 
+      - generic [ref=f1e221]:
+        - generic [ref=f1e222]:
+          - generic [ref=f1e223]: "1"
+          - heading "A1 检查点" [level=3] [ref=f1e224]
+          - button "关闭评论详情" [ref=f1e225] [cursor=pointer]:
+            - generic [aria-hidden] [ref=f1e226]: 
+        - generic [ref=f1e228]:
+          - button "编辑" [ref=f1e229] [cursor=pointer]:
+            - generic [aria-hidden] [ref=f1e230]: 
+            - text: 编辑
+          - button "重新定位" [ref=f1e231] [cursor=pointer]:
+            - generic [aria-hidden] [ref=f1e232]: 
+            - text: 重新定位
+          - button "删除" [ref=f1e233] [cursor=pointer]:
+            - generic [aria-hidden] [ref=f1e234]: 
+            - text: 删除
+      - text:  
+  - text:         

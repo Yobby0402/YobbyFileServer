@@ -182,20 +182,14 @@ a:focus {
 .form-select,
 .form-check-input {
     border-radius: 14px;
-    background: rgba(255, 255, 255, 0.5);
-    /* Semi-transparent white for inputs */
+    background: var(--t-input-bg);
     border: 1px solid var(--t-border);
     transition: border-color 0.2s ease, box-shadow 0.2s ease;
-    color: var(--t-text-main);
+    color: var(--t-input-text);
 }
 
-/* Dark mode adjustment for inputs if needed, generic solution: */
-[data-theme="cyberpunk"] .form-control,
-[data-theme="aurora"] .form-control,
-[data-theme="mist-forest"] .form-control {
-    background: rgba(0, 0, 0, 0.2);
-    border-color: var(--t-border);
-    color: var(--t-text-main);
+.form-control::placeholder {
+    color: var(--t-text-muted);
 }
 
 .form-control:focus,
@@ -203,12 +197,8 @@ a:focus {
 .form-check-input:focus {
     border-color: var(--t-primary);
     box-shadow: var(--t-focus-ring);
-    background: rgba(255, 255, 255, 0.8);
-}
-
-[data-theme="cyberpunk"] .form-control:focus,
-[data-theme="aurora"] .form-control:focus {
-    background: rgba(0, 0, 0, 0.4);
+    background: var(--t-input-bg);
+    color: var(--t-input-text);
 }
 
 .alert {

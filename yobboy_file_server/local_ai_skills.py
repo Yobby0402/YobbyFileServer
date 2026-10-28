@@ -4,7 +4,11 @@
 from __future__ import annotations
 
 import os
-from typing import List, Optional
+import threading
+from typing import Dict, List, Optional, Tuple
+
+_skills_cache_lock = threading.RLock()
+_skills_text_cache: Dict[Tuple[str, int], Tuple[Tuple[Tuple[str, float, int], ...], str]] = {}
 
 
 def list_skill_files(skills_dir: str) -> List[str]:
@@ -53,6 +57,21 @@ def load_drawio_local_skill(skills_dir: str, max_chars: int = 14000) -> str:
 
 def load_skills_text(skills_dir: str, max_total_chars: int = 8000) -> str:
     files = list_skill_files(skills_dir)
+    signature = []
+    for fn in files:
+        path = os.path.join(skills_dir, fn)
+        try:
+            st = os.stat(path)
+        except OSError:
+            continue
+        signature.append((fn, st.st_mtime, st.st_size))
+    sig_tuple = tuple(signature)
+    cache_key = (os.path.abspath(skills_dir or ""), int(max_total_chars or 0))
+    with _skills_cache_lock:
+        cached = _skills_text_cache.get(cache_key)
+        if cached and cached[0] == sig_tuple:
+            return cached[1]
+
     parts: List[str] = []
     for fn in files:
         path = os.path.join(skills_dir, fn)
@@ -67,12 +86,16 @@ def load_skills_text(skills_dir: str, max_total_chars: int = 8000) -> str:
     if len(text) > max_total_chars:
         text = text[:max_total_chars] + "\n\n...[Skill 内容过长已截断]"
     if not text:
-        return ""
-    return (
-        "以下由服务器管理员放置在 AI/skills/ 中的说明为你的专用 Skill，"
-        "请在与本服务器、文件共享、知识库、待办相关的对话中遵守。\n\n"
-        + text
-    )
+        result = ""
+    else:
+        result = (
+            "以下由服务器管理员放置在 AI/skills/ 中的说明为你的专用 Skill，"
+            "请在与本服务器、文件共享、知识库、待办相关的对话中遵守。\n\n"
+            + text
+        )
+    with _skills_cache_lock:
+        _skills_text_cache[cache_key] = (sig_tuple, result)
+    return result
 
 
 def prefix_system(base: Optional[str], skills_block: str) -> Optional[str]:

@@ -7,9 +7,11 @@ Pillow>=10.0.0
 flask-socketio>=5.3.0
 python-socketio>=5.10.0
 simple-websocket>=1.0.0
+websockets>=13.1,<16
 pyserial>=3.5
 openpyxl>=3.1.0
 reportlab>=4.4.10,<5
+python-docx>=1.2.0,<2
 markdown
 GitPython>=3.1.40
 cryptography
@@ -32,3 +34,6 @@ colorama>=0.4.6
 
 # Git功能（可选）
 # 如需使用Git集成功能，请在设置中启用Git功能，然后确保已安装：GitPython>=3.1.40
+trimesh==5.1.0
+
+cadquery-ocp==7.9.3.1.1

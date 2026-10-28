@@ -1,0 +1,5 @@
+- main [ref=e3]:
+  - generic [ref=e4]:
+    - heading "Specctra DSN Viewer" [level=1] [ref=e5]
+    - paragraph [ref=e6]: 将 DSN 文件拖到这里以查看 PCB。
+    - button "加载 DSN session" [ref=e7] [cursor=pointer]

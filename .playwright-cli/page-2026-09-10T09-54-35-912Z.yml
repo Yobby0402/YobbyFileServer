@@ -1,0 +1,83 @@
+- generic [active] [ref=f3e1]:
+  - banner "3D 查看工具" [ref=f3e2]:
+    - generic [ref=f3e3]:
+      - generic [aria-hidden] [ref=f3e4]: 
+      - generic [ref=f3e5]:
+        - strong [ref=f3e6]: two_part_model.gltf
+        - generic [ref=f3e7]: GLTF · 高级审阅
+    - generic [ref=f3e8]:
+      - button "打开零件树" [ref=f3e9] [cursor=pointer]:
+        - generic [aria-hidden] [ref=f3e10]: 
+      - button "复位视角" [ref=f3e11] [cursor=pointer]:
+        - generic [aria-hidden] [ref=f3e12]: 
+      - button "切换线框" [ref=f3e13] [cursor=pointer]:
+        - generic [aria-hidden] [ref=f3e14]: 
+      - button "切换网格" [ref=f3e15] [cursor=pointer]:
+        - generic [aria-hidden] [ref=f3e16]: 
+      - button "切换坐标轴" [ref=f3e17] [cursor=pointer]:
+        - generic [aria-hidden] [ref=f3e18]: 
+      - button "切换背景" [ref=f3e19] [cursor=pointer]:
+        - generic [aria-hidden] [ref=f3e20]: 
+      - button "切换自动旋转" [ref=f3e21] [cursor=pointer]:
+        - generic [aria-hidden] [ref=f3e22]: 
+      - button "在模型表面放置评论" [ref=f3e23] [cursor=pointer]:
+        - generic [aria-hidden] [ref=f3e24]: 
+      - button "打开评论面板" [ref=f3e25] [cursor=pointer]:
+        - generic [aria-hidden] [ref=f3e26]: 
+  - main [ref=f3e27]:
+    - complementary "零件树" [ref=f3e28]:
+      - generic [ref=f3e29]:
+        - generic [ref=f3e30]:
+          - text: 装配体
+          - heading "零件" [level=2] [ref=f3e31]
+        - generic [ref=f3e32]:
+          - button "显示全部零件" [ref=f3e33] [cursor=pointer]:
+            - generic [aria-hidden] [ref=f3e34]: 
+          - button "关闭零件树" [ref=f3e35] [cursor=pointer]:
+            - generic [aria-hidden] [ref=f3e36]: 
+      - generic [ref=f3e37]: 已识别 3 个节点
+      - tree [ref=f3e38]:
+        - treeitem [ref=f3e39]:
+          - button "折叠" [ref=f3e40] [cursor=pointer]:
+            - generic [aria-hidden] [ref=f3e41]: 
+          - button "Assembly" [ref=f3e42] [cursor=pointer]
+          - button "隐藏零件" [ref=f3e43] [cursor=pointer]:
+            - generic [aria-hidden] [ref=f3e44]: 
+        - treeitem [ref=f3e45]:
+          - button "LeftPart" [ref=f3e46] [cursor=pointer]
+          - button "隐藏零件" [ref=f3e47] [cursor=pointer]:
+            - generic [aria-hidden] [ref=f3e48]: 
+        - treeitem [ref=f3e49]:
+          - button "RightPart" [ref=f3e50] [cursor=pointer]
+          - button "隐藏零件" [ref=f3e51] [cursor=pointer]:
+            - generic [aria-hidden] [ref=f3e52]: 
+    - region "3D 模型画布" [ref=f3e53]:
+      - generic:
+        - button "1. 左侧外壳" [ref=f3e56] [cursor=pointer]
+        - button "2. 右侧" [ref=f3e57] [cursor=pointer]
+      - generic:
+        - button "1" [ref=f3e58] [cursor=pointer]
+        - button "2" [ref=f3e60] [cursor=pointer]
+      - generic [ref=f3e62]:
+        - generic [ref=f3e63]: 爆炸视图
+        - slider "爆炸视图" [ref=f3e64]: "0"
+        - status [ref=f3e65]: 0%
+    - complementary "评论面板" [ref=f3e66]:
+      - generic [ref=f3e67]:
+        - generic [ref=f3e68]:
+          - text: 模型审阅
+          - heading "评论" [level=2] [ref=f3e69]
+        - button "关闭评论面板" [ref=f3e70] [cursor=pointer]:
+          - generic [aria-hidden] [ref=f3e71]: 
+      - generic [ref=f3e72]:
+        - button "1 左侧外壳 已关联模型零件" [ref=f3e73] [cursor=pointer]:
+          - generic [ref=f3e74]: "1"
+          - generic [ref=f3e75]:
+            - strong [ref=f3e76]: 左侧外壳
+            - generic [ref=f3e77]: 已关联模型零件
+        - button "2 右侧 已关联模型零件" [ref=f3e78] [cursor=pointer]:
+          - generic [ref=f3e79]: "2"
+          - generic [ref=f3e80]:
+            - strong [ref=f3e81]: 右侧
+            - generic [ref=f3e82]: 已关联模型零件
+      - text:       

@@ -19,6 +19,7 @@ class RuntimeSettingsTests(unittest.TestCase):
             settings = read_runtime_settings(create_if_missing=False, config_file=config_path)
             self.assertEqual(settings["PORT"], 5000)
             self.assertEqual(settings["PASSWORD"], "password")
+            self.assertTrue(settings["LOCAL_AI_USE_MCP_BRIDGE"])
             self.assertFalse(os.path.exists(config_path))
 
     def test_save_and_read_roundtrip(self):
@@ -36,7 +37,10 @@ class RuntimeSettingsTests(unittest.TestCase):
                 "GIT_ENABLED": True,
                 "GIT_WORKDIR": tmpdir,
                 "GIT_EXTERNAL_APP_PATH": "C:\\tool\\code.exe",
+                "PCB_ASSEMBLY_DIR": os.path.join(tmpdir, "assemblies"),
                 "LOG_LEVEL": "WARNING",
+                "TODO_SPEECH_ENABLED": True,
+                "TODO_SPEECH_IDLE_SHUTDOWN_SECONDS": 75,
             }
             save_runtime_settings(expected, config_file=config_path)
             actual = read_runtime_settings(create_if_missing=False, config_file=config_path)
@@ -50,7 +54,10 @@ class RuntimeSettingsTests(unittest.TestCase):
             self.assertEqual(actual["GIT_ENABLED"], expected["GIT_ENABLED"])
             self.assertEqual(actual["GIT_WORKDIR"], expected["GIT_WORKDIR"])
             self.assertEqual(actual["GIT_EXTERNAL_APP_PATH"], expected["GIT_EXTERNAL_APP_PATH"])
+            self.assertEqual(actual["PCB_ASSEMBLY_DIR"], expected["PCB_ASSEMBLY_DIR"])
             self.assertEqual(actual["LOG_LEVEL"], "WARNING")
+            self.assertTrue(actual["TODO_SPEECH_ENABLED"])
+            self.assertEqual(actual["TODO_SPEECH_IDLE_SHUTDOWN_SECONDS"], 75)
 
     def test_create_default_file_when_missing(self):
         with tempfile.TemporaryDirectory() as tmpdir:

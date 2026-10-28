@@ -1,0 +1,39 @@
+.view-cube-host {
+    position: absolute;
+    z-index: 9;
+    top: 14px;
+    right: 14px;
+    width: 92px;
+    height: 92px;
+    overflow: hidden;
+    border: 1px solid rgba(190, 201, 208, 0.5);
+    border-radius: 7px;
+    background: rgba(28, 33, 37, 0.62);
+    box-shadow: 0 5px 18px rgba(0, 0, 0, 0.2);
+    cursor: grab;
+    touch-action: none;
+}
+
+.view-cube-host:active {
+    cursor: grabbing;
+}
+
+.view-cube-host:focus-visible {
+    outline: 2px solid #55a9df;
+    outline-offset: 2px;
+}
+
+.view-cube-host canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+}
+
+@media (max-width: 760px) {
+    .view-cube-host {
+        top: 9px;
+        right: 9px;
+        width: 72px;
+        height: 72px;
+    }
+}

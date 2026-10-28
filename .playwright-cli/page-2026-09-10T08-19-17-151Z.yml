@@ -1,0 +1,40 @@
+- generic [ref=f4e1]:
+  - generic [ref=f4e4]:
+    - heading " 控制工具" [level=5] [ref=f4e5]:
+      - generic [ref=f4e6]: 
+      - text: 控制工具
+    - button " 重置视角" [ref=f4e7] [cursor=pointer]:
+      - generic [ref=f4e8]: 
+      - text: 重置视角
+    - button " 线框模式" [ref=f4e9] [cursor=pointer]:
+      - generic [ref=f4e10]: 
+      - text: 线框模式
+    - button " 显示网格" [active] [ref=f4e11] [cursor=pointer]:
+      - generic [ref=f4e12]: 
+      - text: 显示网格
+    - button " 显示坐标轴" [ref=f4e13] [cursor=pointer]:
+      - generic [ref=f4e14]: 
+      - text: 显示坐标轴
+    - button " 切换背景" [ref=f4e15] [cursor=pointer]:
+      - generic [ref=f4e16]: 
+      - text: 切换背景
+    - button " 自动旋转" [ref=f4e17] [cursor=pointer]:
+      - generic [ref=f4e18]: 
+      - text: 自动旋转
+  - generic [ref=f4e19]:
+    - heading " preview_triangle.stl" [level=4] [ref=f4e20]:
+      - generic [ref=f4e21]: 
+      - text: preview_triangle.stl
+    - paragraph [ref=f4e22]:
+      - strong [ref=f4e23]: "格式:"
+      - text: .STL
+    - paragraph [ref=f4e24]:
+      - strong [ref=f4e25]: "操作:"
+      - text: 鼠标左键旋转 | 右键平移 | 滚轮缩放
+    - paragraph [ref=f4e26]:
+      - strong [ref=f4e27]: "顶点数:"
+      - text: "3"
+      - strong [ref=f4e28]: "三角形:"
+      - text: "1"
+      - strong [ref=f4e29]: "尺寸:"
+      - text: 1.00 × 1.00 × 0.00

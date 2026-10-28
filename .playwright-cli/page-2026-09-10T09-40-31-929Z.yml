@@ -1,0 +1,90 @@
+- generic [active] [ref=e1]:
+  - banner "3D 查看工具" [ref=e2]:
+    - generic [ref=e3]:
+      - generic [aria-hidden] [ref=e4]: 
+      - generic [ref=e5]:
+        - strong [ref=e6]: two_part_model.gltf
+        - generic [ref=e7]: GLTF · 高级审阅
+    - generic [ref=e8]:
+      - text: 
+      - button "复位视角" [ref=e9] [cursor=pointer]:
+        - generic [aria-hidden] [ref=e10]: 
+      - button "切换线框" [ref=e11] [cursor=pointer]:
+        - generic [aria-hidden] [ref=e12]: 
+      - button "切换网格" [ref=e13] [cursor=pointer]:
+        - generic [aria-hidden] [ref=e14]: 
+      - button "切换坐标轴" [ref=e15] [cursor=pointer]:
+        - generic [aria-hidden] [ref=e16]: 
+      - button "切换背景" [ref=e17] [cursor=pointer]:
+        - generic [aria-hidden] [ref=e18]: 
+      - button "切换自动旋转" [ref=e19] [cursor=pointer]:
+        - generic [aria-hidden] [ref=e20]: 
+      - button "添加评论" [ref=e22] [cursor=pointer]:
+        - generic [aria-hidden] [ref=e23]: 
+      - text: 
+  - main [ref=e25]:
+    - complementary "零件树" [ref=e26]:
+      - generic [ref=e27]:
+        - generic [ref=e28]:
+          - text: 装配体
+          - heading "零件" [level=2] [ref=e29]
+        - generic [ref=e30]:
+          - button "显示全部零件" [ref=e31] [cursor=pointer]:
+            - generic [aria-hidden] [ref=e32]: 
+          - text: 
+      - generic [ref=e33]: 已识别 3 个节点
+      - tree [ref=e34]:
+        - treeitem [ref=e105]:
+          - button "折叠" [ref=e106] [cursor=pointer]:
+            - generic [aria-hidden] [ref=e107]: 
+          - button "Assembly" [ref=e108] [cursor=pointer]
+          - button "隐藏零件" [ref=e109] [cursor=pointer]:
+            - generic [aria-hidden] [ref=e110]: 
+        - treeitem [ref=e111]:
+          - button "LeftPart" [ref=e112] [cursor=pointer]
+          - button "隐藏零件" [ref=e113] [cursor=pointer]:
+            - generic [aria-hidden] [ref=e114]: 
+        - treeitem [ref=e115]:
+          - button "RightPart" [ref=e116] [cursor=pointer]
+          - button "显示零件" [ref=e117] [cursor=pointer]:
+            - generic [aria-hidden] [ref=e118]: 
+    - region "3D 模型画布" [ref=e49]:
+      - generic [ref=e52]:
+        - generic [ref=e53]: 爆炸视图
+        - slider "爆炸视图" [ref=e54]: "0"
+        - status [ref=e55]: 0%
+    - complementary "评论面板" [ref=e56]:
+      - generic [ref=e57]:
+        - generic [ref=e58]:
+          - text: 模型审阅
+          - heading "评论" [level=2] [ref=e59]
+        - text: 
+      - generic [ref=e60]: 已保存
+      - button "1 左侧外壳 已关联模型零件" [ref=e83] [cursor=pointer]:
+        - generic [ref=e84]: "1"
+        - generic [ref=e85]:
+          - strong [ref=e86]: 左侧外壳
+          - generic [ref=e87]: 已关联模型零件
+      - text: 
+      - generic [ref=e88]:
+        - generic [ref=e89]:
+          - generic [ref=e90]: "1"
+          - heading "左侧外壳" [level=3] [ref=e91]
+          - button "关闭评论详情" [ref=e92] [cursor=pointer]:
+            - generic [aria-hidden] [ref=e93]: 
+        - paragraph [ref=e95]:
+          - text: 这里需要确认
+          - strong [ref=e96]: 装配间隙
+          - text: 。
+          - code [ref=e97]: <script>alert(1)</script>
+        - generic [ref=e98]:
+          - button "编辑" [ref=e99] [cursor=pointer]:
+            - generic [aria-hidden] [ref=e100]: 
+            - text: 编辑
+          - button "重新定位" [ref=e101] [cursor=pointer]:
+            - generic [aria-hidden] [ref=e102]: 
+            - text: 重新定位
+          - button "删除" [ref=e103] [cursor=pointer]:
+            - generic [aria-hidden] [ref=e104]: 
+            - text: 删除
+      - text:  

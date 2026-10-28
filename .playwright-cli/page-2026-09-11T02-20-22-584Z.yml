@@ -1,0 +1,181 @@
+- generic [ref=e1]:
+  - banner "3D 查看工具" [ref=e2]:
+    - generic [ref=e3]:
+      - button "返回文件列表" [ref=e4] [cursor=pointer]:
+        - generic [aria-hidden] [ref=e5]: 
+      - generic [aria-hidden] [ref=e6]: 
+      - generic [ref=e7]:
+        - strong [ref=e8]: explosion_groups_model.gltf
+        - generic [ref=e9]: GLTF · 高级审阅
+    - generic [ref=e10]:
+      - text: 
+      - button "复位视角" [ref=e11] [cursor=pointer]:
+        - generic [aria-hidden] [ref=e12]: 
+      - button "切换线框" [ref=e13] [cursor=pointer]:
+        - generic [aria-hidden] [ref=e14]: 
+      - button "切换网格" [ref=e15] [cursor=pointer]:
+        - generic [aria-hidden] [ref=e16]: 
+      - button "切换坐标轴" [ref=e17] [cursor=pointer]:
+        - generic [aria-hidden] [ref=e18]: 
+      - button "切换背景" [ref=e19] [cursor=pointer]:
+        - generic [aria-hidden] [ref=e20]: 
+      - button "切换自动旋转" [ref=e21] [cursor=pointer]:
+        - generic [aria-hidden] [ref=e22]: 
+      - text: 
+      - button "切换全屏" [ref=e23] [cursor=pointer]:
+        - generic [aria-hidden] [ref=e24]: 
+      - button "添加评论" [ref=e26] [cursor=pointer]:
+        - generic [aria-hidden] [ref=e27]: 
+      - button "导出报告" [ref=e29] [cursor=pointer]:
+        - generic [aria-hidden] [ref=e30]: 
+      - text: 
+  - main [ref=e32]:
+    - complementary "零件树" [ref=e33]:
+      - generic [ref=e34]:
+        - generic [ref=e35]:
+          - text: 装配体
+          - heading "零件" [level=2] [ref=e36]
+        - generic [ref=e37]:
+          - button "显示全部零件" [ref=e38] [cursor=pointer]:
+            - generic [aria-hidden] [ref=e39]: 
+          - text: 
+      - generic [ref=e40]: 已识别 12 个节点
+      - tree [ref=e41]:
+        - treeitem [ref=e332]:
+          - button "折叠" [ref=e333] [cursor=pointer]:
+            - generic [aria-hidden] [ref=e334]: 
+          - button "AssemblyA" [ref=e335] [cursor=pointer]
+          - button "锁定整组零件" [ref=e336] [cursor=pointer]:
+            - generic [aria-hidden] [ref=e337]: 
+          - button "隐藏零件" [ref=e338] [cursor=pointer]:
+            - generic [aria-hidden] [ref=e339]: 
+        - treeitem [ref=e340]:
+          - button "A1" [ref=e341] [cursor=pointer]
+          - button "作为独立爆炸组" [ref=e342] [cursor=pointer]:
+            - generic [aria-hidden] [ref=e343]: 
+          - button "隐藏零件" [ref=e344] [cursor=pointer]:
+            - generic [aria-hidden] [ref=e345]: 
+        - treeitem [ref=e346]:
+          - button "A2" [ref=e347] [cursor=pointer]
+          - button "与父级一起爆炸" [pressed] [ref=e348] [cursor=pointer]:
+            - generic [aria-hidden] [ref=e349]: 
+          - button "隐藏零件" [ref=e350] [cursor=pointer]:
+            - generic [aria-hidden] [ref=e351]: 
+        - treeitem [ref=e352]:
+          - button "A3" [ref=e353] [cursor=pointer]
+          - button "与父级一起爆炸" [pressed] [ref=e354] [cursor=pointer]:
+            - generic [aria-hidden] [ref=e355]: 
+          - button "隐藏零件" [ref=e356] [cursor=pointer]:
+            - generic [aria-hidden] [ref=e357]: 
+        - treeitem [ref=e358]:
+          - button "A4" [ref=e359] [cursor=pointer]
+          - button "与父级一起爆炸" [pressed] [ref=e360] [cursor=pointer]:
+            - generic [aria-hidden] [ref=e361]: 
+          - button "隐藏零件" [ref=e362] [cursor=pointer]:
+            - generic [aria-hidden] [ref=e363]: 
+        - treeitem [ref=e364]:
+          - button "A5" [ref=e365] [cursor=pointer]
+          - button "与父级一起爆炸" [pressed] [ref=e366] [cursor=pointer]:
+            - generic [aria-hidden] [ref=e367]: 
+          - button "隐藏零件" [ref=e368] [cursor=pointer]:
+            - generic [aria-hidden] [ref=e369]: 
+        - treeitem [ref=e370]:
+          - button "折叠" [ref=e371] [cursor=pointer]:
+            - generic [aria-hidden] [ref=e372]: 
+          - button "AssemblyB" [ref=e373] [cursor=pointer]
+          - button "解锁整组零件" [pressed] [ref=e374] [cursor=pointer]:
+            - generic [aria-hidden] [ref=e375]: 
+          - button "隐藏零件" [ref=e376] [cursor=pointer]:
+            - generic [aria-hidden] [ref=e377]: 
+        - treeitem [ref=e378]:
+          - button "B1" [ref=e379] [cursor=pointer]
+          - button "与父级一起爆炸" [pressed] [ref=e380] [cursor=pointer]:
+            - generic [aria-hidden] [ref=e381]: 
+          - button "隐藏零件" [ref=e382] [cursor=pointer]:
+            - generic [aria-hidden] [ref=e383]: 
+        - treeitem [ref=e384]:
+          - button "B2" [ref=e385] [cursor=pointer]
+          - button "与父级一起爆炸" [pressed] [ref=e386] [cursor=pointer]:
+            - generic [aria-hidden] [ref=e387]: 
+          - button "隐藏零件" [ref=e388] [cursor=pointer]:
+            - generic [aria-hidden] [ref=e389]: 
+        - treeitem [ref=e390]:
+          - button "B3" [ref=e391] [cursor=pointer]
+          - button "与父级一起爆炸" [pressed] [ref=e392] [cursor=pointer]:
+            - generic [aria-hidden] [ref=e393]: 
+          - button "隐藏零件" [ref=e394] [cursor=pointer]:
+            - generic [aria-hidden] [ref=e395]: 
+        - treeitem [ref=e396]:
+          - button "B4" [ref=e397] [cursor=pointer]
+          - button "与父级一起爆炸" [pressed] [ref=e398] [cursor=pointer]:
+            - generic [aria-hidden] [ref=e399]: 
+          - button "隐藏零件" [ref=e400] [cursor=pointer]:
+            - generic [aria-hidden] [ref=e401]: 
+        - treeitem [ref=e402]:
+          - button "B5" [ref=e403] [cursor=pointer]
+          - button "与父级一起爆炸" [pressed] [ref=e404] [cursor=pointer]:
+            - generic [aria-hidden] [ref=e405]: 
+          - button "隐藏零件" [ref=e406] [cursor=pointer]:
+            - generic [aria-hidden] [ref=e407]: 
+    - region "3D 模型画布" [ref=e118]:
+      - generic [ref=e121]:
+        - generic [ref=e122]: 爆炸视图
+        - slider "爆炸视图" [ref=e123]: "50"
+        - status [ref=e124]: 50%
+    - complementary "评论面板" [ref=e125]:
+      - generic [ref=e126]:
+        - generic [ref=e127]:
+          - text: 模型审阅
+          - heading "评论" [level=2] [ref=e128]
+        - text: 
+      - generic [ref=e131]:
+        - generic [aria-hidden] [ref=e132]: 
+        - strong [ref=e133]: 暂无评论
+        - generic [ref=e134]: 在工具栏开启添加模式，然后点击模型表面。
+      - text:      
+  - dialog [ref=e287]:
+    - generic [ref=e288]:
+      - banner [ref=e289]:
+        - generic [ref=e290]:
+          - text: 审阅交付
+          - heading "导出报告" [level=2] [ref=e291]
+        - button "关闭导出设置" [ref=e292] [cursor=pointer]:
+          - generic [aria-hidden] [ref=e293]: 
+      - generic [ref=e294]:
+        - generic [ref=e295]:
+          - generic [ref=e296]: 主要标题
+          - textbox "主要标题" [active] [ref=e297]: explosion_groups_model 3D 审阅报告
+        - group "输出格式" [ref=e298]:
+          - generic [ref=e300] [cursor=pointer]:
+            - checkbox "PDF" [checked]
+            - generic [aria-hidden] [ref=e301]: 
+            - generic [ref=e302]: PDF
+          - generic [ref=e303] [cursor=pointer]:
+            - checkbox "Word" [checked]
+            - generic [aria-hidden] [ref=e304]: 
+            - generic [ref=e305]: Word
+        - group "基础预览数量" [ref=e306]:
+          - generic [ref=e308] [cursor=pointer]:
+            - radio "6 张" [checked]
+            - generic [ref=e309]: 6 张
+          - generic [ref=e310] [cursor=pointer]:
+            - radio "8 张"
+            - generic [ref=e311]: 8 张
+          - generic [ref=e312] [cursor=pointer]:
+            - radio "10 张"
+            - generic [ref=e313]: 10 张
+          - generic [ref=e314] [cursor=pointer]:
+            - radio "12 张"
+            - generic [ref=e315]: 12 张
+          - generic [ref=e316] [cursor=pointer]:
+            - radio "14 张"
+            - generic [ref=e317]: 14 张
+        - generic [ref=e318]:
+          - checkbox "包含评论页面 当前模型没有评论" [disabled]
+          - generic [ref=e319]:
+            - strong [ref=e320]: 包含评论页面
+            - generic [ref=e321]: 当前模型没有评论
+      - contentinfo [ref=e322]:
+        - button "取消" [ref=e323] [cursor=pointer]
+        - button "生成报告" [ref=e324] [cursor=pointer]:
+          - generic [aria-hidden] [ref=e325]: 

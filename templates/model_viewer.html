@@ -1,227 +1,217 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-    {% include '_theme_bootstrap.html' %}
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>3D模型查看器 - {{ filename }}</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap.min.css') }}">
-        <!-- Theme System -->
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/themes.css') }}">
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/app_style.css') }}">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>3D 审阅 - {{ filename }}</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/all.min.css') }}">
-    <style>
-        body {
-            margin: 0;
-            overflow: hidden;
-            font-family: 'Arial', 'Microsoft YaHei', sans-serif;
-            background: linear-gradient(135deg, var(--jasmine-green-600) 0%, var(--jasmine-green-400) 100%);
-        }
-
-        #canvas-container {
-            width: 100vw;
-            height: 100vh;
-            position: relative;
-        }
-
-        #toolbar {
-            position: fixed;
-            top: 20px;
-            right: 20px;
-            background: rgba(0, 0, 0, 0.8);
-            backdrop-filter: blur(10px);
-            padding: 15px;
-            border-radius: 10px;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
-            z-index: 1000;
-            color: white;
-            min-width: 200px;
-            pointer-events: auto;
-        }
-
-        #toolbar h5 {
-            margin: 0 0 15px 0;
-            font-size: 14px;
-            color: #67c23a;
-            font-weight: bold;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.2);
-            padding-bottom: 8px;
-        }
-
-        .toolbar-btn {
-            display: block;
-            width: 100%;
-            margin: 8px 0;
-            padding: 10px;
-            background: rgba(255, 255, 255, 0.1);
-            border: 1px solid rgba(255, 255, 255, 0.3);
-            color: white;
-            border-radius: 5px;
-            cursor: pointer;
-            transition: all 0.3s;
-            font-size: 13px;
-            pointer-events: auto;
-        }
-
-        .toolbar-btn:hover {
-            background: rgba(255, 255, 255, 0.2);
-            transform: translateX(-3px);
-        }
-
-        .toolbar-btn i {
-            margin-right: 8px;
-            width: 16px;
-            display: inline-block;
-        }
-
-        #info-panel {
-            position: fixed;
-            bottom: 20px;
-            left: 20px;
-            background: rgba(0, 0, 0, 0.8);
-            backdrop-filter: blur(10px);
-            padding: 15px 20px;
-            border-radius: 10px;
-            color: white;
-            font-size: 13px;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
-            z-index: 1000;
-        }
-
-        #info-panel h4 {
-            margin: 0 0 10px 0;
-            font-size: 16px;
-            color: #409EFF;
-        }
-
-        #info-panel p {
-            margin: 5px 0;
-            line-height: 1.6;
-        }
-
-        #loading {
-            position: fixed;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            background: rgba(0, 0, 0, 0.9);
-            padding: 30px 50px;
-            border-radius: 15px;
-            color: white;
-            font-size: 18px;
-            z-index: 2000;
-            text-align: center;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
-        }
-
-        .spinner {
-            border: 4px solid rgba(255, 255, 255, 0.3);
-            border-top: 4px solid #67c23a;
-            border-radius: 50%;
-            width: 50px;
-            height: 50px;
-            animation: spin 1s linear infinite;
-            margin: 0 auto 15px;
-        }
-
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-
-        .back-btn {
-            position: fixed;
-            top: 20px;
-            left: 20px;
-            background: rgba(0, 0, 0, 0.8);
-            color: white;
-            padding: 12px 20px;
-            border-radius: 8px;
-            text-decoration: none;
-            font-size: 14px;
-            z-index: 1000;
-            transition: all 0.3s;
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
-        }
-
-        .back-btn:hover {
-            background: rgba(255, 255, 255, 0.2);
-            color: white;
-            text-decoration: none;
-            transform: translateY(-2px);
-        }
-
-        .back-btn i {
-            margin-right: 8px;
-        }
-
-        #error-message {
-            position: fixed;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            background: rgba(255, 0, 0, 0.9);
-            padding: 30px;
-            border-radius: 10px;
-            color: white;
-            font-size: 16px;
-            z-index: 2000;
-            display: none;
-            max-width: 500px;
-            text-align: center;
-        }
-    </style>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/model_viewer.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/view_cube.css') }}">
 </head>
-<body>
-    <!-- 返回按钮 -->
-    <a href="{{ back_url }}" class="back-btn">
-        <i class="fas fa-arrow-left"></i>返回文件列表
-    </a>
+<body class="model-viewer model-viewer--{{ viewer_mode }}{% if embedded_viewer %} model-viewer--embedded{% endif %}">
+    <header class="review-toolbar" aria-label="3D 查看工具">
+        <div class="review-toolbar__identity">
+            <button class="icon-button review-only" type="button" data-action="back" title="返回文件列表" aria-label="返回文件列表"><i class="fas fa-arrow-left" aria-hidden="true"></i></button>
+            <i class="fas fa-cube" aria-hidden="true"></i>
+            <div>
+                <strong>{{ filename }}</strong>
+                <span>{{ file_ext[1:]|upper }}{% if viewer_mode == 'review' %} · 高级审阅{% else %} · 预览{% endif %}</span>
+            </div>
+        </div>
+        <div class="review-toolbar__actions">
+            <button class="icon-button review-only mobile-panel-button" type="button" data-action="toggle-parts" title="零件树" aria-label="打开零件树"><i class="fas fa-sitemap" aria-hidden="true"></i></button>
+            <button class="icon-button" type="button" data-action="reset-view" title="复位视角" aria-label="复位视角"><i class="fas fa-home" aria-hidden="true"></i></button>
+            <button class="icon-button" type="button" data-action="wireframe" title="线框" aria-label="切换线框" aria-pressed="false"><i class="fas fa-border-all" aria-hidden="true"></i></button>
+            <button class="icon-button" type="button" data-action="grid" title="网格" aria-label="切换网格" aria-pressed="false"><i class="fas fa-th" aria-hidden="true"></i></button>
+            <button class="icon-button" type="button" data-action="axes" title="坐标轴" aria-label="切换坐标轴" aria-pressed="false"><i class="fas fa-arrows-alt" aria-hidden="true"></i></button>
+            <button class="icon-button" type="button" data-action="background" title="背景" aria-label="切换背景"><i class="fas fa-adjust" aria-hidden="true"></i></button>
+            <button class="icon-button review-only" type="button" data-action="toggle-annotations" title="隐藏所有评论" aria-label="隐藏所有评论" aria-pressed="false"><i class="fas fa-eye-slash" aria-hidden="true"></i></button>
+            <button class="icon-button review-only" type="button" data-action="toggle-all-lines" title="显示所有连线" aria-label="显示所有评论连线" aria-pressed="false"><i class="fas fa-link" aria-hidden="true"></i></button>
+            <button class="icon-button" type="button" data-action="auto-rotate" title="自动旋转" aria-label="切换自动旋转" aria-pressed="false"><i class="fas fa-sync-alt" aria-hidden="true"></i></button>
+            <button class="icon-button preview-only" type="button" data-action="open-review" title="在新窗口打开高级审阅" aria-label="在新窗口打开高级审阅"><i class="fas fa-external-link-alt" aria-hidden="true"></i></button>
+            <button class="icon-button" type="button" data-action="fullscreen" title="全屏" aria-label="切换全屏" aria-pressed="false"><i class="fas fa-expand" aria-hidden="true"></i></button>
+            <span class="toolbar-divider review-only" aria-hidden="true"></span>
+            <button class="command-button review-only" type="button" data-action="add-annotation" title="在模型表面放置评论 (C)" aria-keyshortcuts="C"><i class="fas fa-map-marker-alt" aria-hidden="true"></i><span>添加评论</span></button>
+            <button class="command-button review-only" type="button" data-action="export-model" title="导出 GLB、STL、3MF 或 STEP 模型"><i class="fas fa-cube" aria-hidden="true"></i><span>导出模型</span></button>
+            <button class="command-button review-only" type="button" data-action="export-report" title="导出 PDF 或 Word 审阅报告"><i class="fas fa-file-export" aria-hidden="true"></i><span>导出报告</span></button>
+            <button class="icon-button review-only mobile-panel-button" type="button" data-action="toggle-comments" title="评论" aria-label="打开评论面板"><i class="fas fa-comments" aria-hidden="true"></i></button>
+        </div>
+    </header>
 
-    <!-- 3D画布容器 -->
-    <div id="canvas-container"></div>
+    <main class="review-workspace">
+        <aside class="side-panel parts-panel review-only" id="parts-panel" aria-label="零件树">
+            <div class="panel-heading">
+                <div><span class="panel-eyebrow">装配体</span><h2>零件</h2></div>
+                <div class="panel-heading__actions">
+                    <button class="icon-button icon-button--small" type="button" data-action="show-all-parts" title="全部显示" aria-label="显示全部零件"><i class="fas fa-eye" aria-hidden="true"></i></button>
+                    <button class="icon-button icon-button--small mobile-panel-close" type="button" data-action="close-panels" title="关闭" aria-label="关闭零件树"><i class="fas fa-times" aria-hidden="true"></i></button>
+                </div>
+            </div>
+            <div class="panel-message" id="parts-message">模型加载后显示零件层级</div>
+            <div class="part-tree" id="part-tree" role="tree"></div>
+        </aside>
 
-    <!-- 工具栏 -->
-    <div id="toolbar">
-        <h5><i class="fas fa-tools"></i> 控制工具</h5>
-        <button class="toolbar-btn" onclick="resetCamera()">
-            <i class="fas fa-redo"></i>重置视角
-        </button>
-        <button class="toolbar-btn" onclick="toggleWireframe()">
-            <i class="fas fa-border-all"></i>线框模式
-        </button>
-        <button class="toolbar-btn" onclick="toggleGrid()">
-            <i class="fas fa-th"></i>显示网格
-        </button>
-        <button class="toolbar-btn" onclick="toggleAxes()">
-            <i class="fas fa-arrows-alt"></i>显示坐标轴
-        </button>
-        <button class="toolbar-btn" onclick="changeBackground()">
-            <i class="fas fa-palette"></i>切换背景
-        </button>
-        <button class="toolbar-btn" onclick="toggleAutoRotate()">
-            <i class="fas fa-sync-alt"></i>自动旋转
-        </button>
-    </div>
+        <section class="model-stage" id="model-stage" aria-label="3D 模型画布">
+            <div id="canvas-container"></div>
+            <div class="view-cube-host" id="model-view-cube" aria-label="视角立方体"></div>
+            <svg class="annotation-lines review-only" id="annotation-lines" aria-hidden="true"></svg>
+            <div class="annotation-points review-only" id="annotation-points"></div>
+            <div class="annotation-bubbles review-only" id="annotation-bubbles"></div>
+            <div class="preview-info preview-only"><strong>{{ filename }}</strong><span id="model-stats">正在读取模型</span></div>
+            <div class="loading-state" id="loading"><span class="loading-spinner" aria-hidden="true"></span><strong id="loading-label">正在加载模型</strong></div>
+            <div class="error-state" id="error-message" role="alert" hidden></div>
+            <div class="placement-hint review-only" id="placement-hint" hidden>点击可见模型表面放置评论，按 Esc 取消</div>
+            <div class="explode-control review-only" id="explode-control">
+                <label for="explode-slider">爆炸视图</label>
+                <input id="explode-slider" type="range" min="0" max="100" value="0" step="1" disabled>
+                <output id="explode-value" for="explode-slider">0%</output>
+            </div>
+        </section>
 
-    <!-- 信息面板 -->
-    <div id="info-panel">
-        <h4><i class="fas fa-cube"></i> {{ filename }}</h4>
-        <p><strong>格式:</strong> {{ file_ext.upper() }}</p>
-        <p><strong>操作:</strong> 鼠标左键旋转 | 右键平移 | 滚轮缩放</p>
-        <p id="model-stats">加载中...</p>
-    </div>
+        <aside class="side-panel comments-panel review-only" id="comments-panel" aria-label="评论面板">
+            <div class="panel-heading">
+                <div><span class="panel-eyebrow">模型审阅</span><h2>评论</h2></div>
+                <button class="icon-button icon-button--small mobile-panel-close" type="button" data-action="close-panels" title="关闭" aria-label="关闭评论面板"><i class="fas fa-times" aria-hidden="true"></i></button>
+            </div>
+            <div class="annotation-status" id="annotation-status" aria-live="polite"></div>
+            <div class="annotation-list" id="annotation-list"></div>
+            <div class="panel-empty" id="annotation-empty"><i class="far fa-comment-alt" aria-hidden="true"></i><strong>暂无评论</strong><span>在工具栏开启添加模式，然后点击模型表面。</span></div>
+            <section class="annotation-detail" id="annotation-detail" hidden>
+                <div class="annotation-detail__heading">
+                    <span class="annotation-index" id="annotation-detail-index"></span>
+                    <h3 id="annotation-detail-title"></h3>
+                    <button class="icon-button icon-button--small" type="button" data-action="close-detail" title="关闭详情" aria-label="关闭评论详情"><i class="fas fa-times" aria-hidden="true"></i></button>
+                </div>
+                <div class="markdown-body" id="annotation-detail-body"></div>
+                <div class="annotation-detail__actions">
+                    <button class="text-button" type="button" data-action="edit-annotation"><i class="fas fa-pen" aria-hidden="true"></i> 编辑</button>
+                    <button class="text-button" type="button" data-action="reposition-annotation"><i class="fas fa-crosshairs" aria-hidden="true"></i> 重新定位</button>
+                    <button class="text-button text-button--danger" type="button" data-action="delete-annotation"><i class="fas fa-trash-alt" aria-hidden="true"></i> 删除</button>
+                </div>
+            </section>
+            <form class="annotation-editor" id="annotation-editor" hidden>
+                <div class="annotation-editor__heading">
+                    <h3 id="annotation-editor-heading">添加评论</h3>
+                    <button class="icon-button icon-button--small" type="button" data-action="cancel-annotation" title="取消" aria-label="取消编辑"><i class="fas fa-times" aria-hidden="true"></i></button>
+                </div>
+                <label for="annotation-title">短标题</label>
+                <input id="annotation-title" name="title" type="text" maxlength="120" required autocomplete="off">
+                <label for="annotation-markdown">Markdown</label>
+                <textarea id="annotation-markdown" name="markdown" maxlength="20000"></textarea>
+                <div class="annotation-editor__actions">
+                    <button class="command-button" type="submit"><i class="fas fa-check" aria-hidden="true"></i> 保存</button>
+                    <button class="text-button" type="button" data-action="cancel-annotation">取消</button>
+                </div>
+            </form>
+        </aside>
+    </main>
+    <div class="panel-scrim review-only" id="panel-scrim" data-action="close-panels"></div>
 
-    <!-- 加载提示 -->
-    <div id="loading">
-        <div class="spinner"></div>
-        <div>正在加载3D模型...</div>
-    </div>
+    <dialog class="report-dialog review-only" id="report-dialog" aria-labelledby="report-dialog-title">
+        <form class="report-form" id="report-form">
+            <header class="report-dialog__header">
+                <div><span class="panel-eyebrow">审阅交付</span><h2 id="report-dialog-title">导出报告</h2></div>
+                <button class="icon-button icon-button--small" type="button" data-action="close-report" title="关闭" aria-label="关闭导出设置"><i class="fas fa-times" aria-hidden="true"></i></button>
+            </header>
+            <div class="report-dialog__body">
+                <label class="report-field" for="report-title">
+                    <span>主要标题</span>
+                    <input id="report-title" name="title" type="text" maxlength="160" required>
+                </label>
+                <fieldset class="report-fieldset">
+                    <legend>输出格式</legend>
+                    <label class="report-choice"><input name="output_mode" type="radio" value="pdf"><i class="fas fa-file-pdf" aria-hidden="true"></i><span>仅 PDF</span></label>
+                    <label class="report-choice"><input name="output_mode" type="radio" value="docx"><i class="fas fa-file-word" aria-hidden="true"></i><span>仅 Word</span></label>
+                    <label class="report-choice"><input name="output_mode" type="radio" value="both" checked><i class="fas fa-file-archive" aria-hidden="true"></i><span>PDF + Word ZIP</span></label>
+                </fieldset>
+                <fieldset class="report-fieldset report-fieldset--views">
+                    <legend>基础预览数量</legend>
+                    {% for count in [6, 8, 10, 12, 14] %}
+                    <label class="report-segment"><input name="preview_count" type="radio" value="{{ count }}"{% if count == 6 %} checked{% endif %}><span><i class="fas fa-check" aria-hidden="true"></i>{{ count }} 张</span></label>
+                    {% endfor %}
+                </fieldset>
+                <output class="report-selection-summary" id="report-preview-count" aria-live="polite">已选择 6 张，将生成 6 页基础预览</output>
+                <label class="report-toggle">
+                    <input id="report-include-annotations" name="include_annotations" type="checkbox" checked>
+                    <span><strong>包含评论页面</strong><small id="report-annotation-count">模型中的每条评论各占一页</small></span>
+                </label>
+                <fieldset class="report-fieldset report-fieldset--views" id="report-annotation-views">
+                    <legend>每条评论的视角数量</legend>
+                    {% for count in [1, 2, 3, 4] %}
+                    <label class="report-segment"><input name="annotation_view_count" type="radio" value="{{ count }}"{% if count == 2 %} checked{% endif %}><span><i class="fas fa-check" aria-hidden="true"></i>{{ count }} 个</span></label>
+                    {% endfor %}
+                </fieldset>
+                <output class="report-selection-summary" id="report-annotation-view-summary" aria-live="polite">每条评论将生成 2 个完整模型视角</output>
+                <label class="report-toggle" id="report-include-3d-row">
+                    <input id="report-include-3d" name="include_3d" type="checkbox" checked>
+                    <span><strong>嵌入交互式 3D 模型</strong><small>仅用于 Word；关闭后生成普通静态文档</small></span>
+                </label>
+                <label class="report-toggle" id="report-separate-3d-row">
+                    <input id="report-separate-3d" name="separate_3d" type="checkbox">
+                    <span><strong>分别嵌入顶层板子</strong><small id="report-separate-3d-hint">识别到多个顶层板子后可用</small></span>
+                </label>
+                <div class="report-progress" id="report-progress" hidden>
+                    <div><strong id="report-progress-label">正在准备导出</strong><output id="report-progress-value">0%</output></div>
+                    <progress id="report-progress-bar" max="100" value="0"></progress>
+                </div>
+                <div class="report-error" id="report-error" role="alert" hidden></div>
+            </div>
+            <footer class="report-dialog__footer">
+                <button class="text-button" type="button" data-action="close-report">取消</button>
+                <button class="command-button" id="report-submit" type="submit"><i class="fas fa-download" aria-hidden="true"></i><span>生成报告</span></button>
+            </footer>
+        </form>
+    </dialog>
 
-    <!-- 错误提示 -->
-    <div id="error-message"></div>
+    <dialog class="report-dialog review-only" id="model-export-dialog" aria-labelledby="model-export-title">
+        <form class="report-form" id="model-export-form">
+            <header class="report-dialog__header">
+                <div><span class="panel-eyebrow">模型交付</span><h2 id="model-export-title">导出模型</h2></div>
+                <button class="icon-button icon-button--small" type="button" data-action="close-model-export" title="关闭" aria-label="关闭模型导出"><i class="fas fa-times" aria-hidden="true"></i></button>
+            </header>
+            <div class="report-dialog__body">
+                <label class="report-field" for="model-export-format">
+                    <span>文件格式</span>
+                    <select id="model-export-format" name="model_export_format">
+                        <option value="glb">GLB</option>
+                        <option value="stl">STL</option>
+                        <option value="3mf">3MF</option>
+                        <option value="step">STEP</option>
+                    </select>
+                </label>
+                <fieldset class="report-fieldset model-export-selection">
+                    <legend>包含的顶层零件</legend>
+                    <label class="model-export-select-all"><input id="model-export-select-all" type="checkbox" checked><span>全部选择</span></label>
+                    <div class="model-export-parts" id="model-export-parts"></div>
+                </fieldset>
+                <output class="report-selection-summary" id="model-export-summary" aria-live="polite"></output>
+                <div class="report-progress" id="model-export-progress" hidden>
+                    <div><strong id="model-export-progress-label">正在准备模型</strong></div>
+                    <progress max="100"></progress>
+                </div>
+                <div class="report-error" id="model-export-error" role="alert" hidden></div>
+            </div>
+            <footer class="report-dialog__footer">
+                <button class="text-button" type="button" data-action="close-model-export">取消</button>
+                <button class="command-button" id="model-export-submit" type="submit"><i class="fas fa-download" aria-hidden="true"></i><span>导出文件</span></button>
+            </footer>
+        </form>
+    </dialog>
 
-    <!-- Three.js ES6模块 -->
+    <script id="model-viewer-config" type="application/json">{{ {
+        'filename': filename,
+        'filepath': filepath,
+        'fileExt': file_ext,
+        'modelUrl': model_url,
+        'reviewUrl': url_for('view_model', filepath=filepath),
+        'returnUrl': url_for('file_browser', path=filepath.rsplit('/', 1)[0]) if '/' in filepath else url_for('file_browser'),
+        'mode': viewer_mode,
+        'embedded': embedded_viewer,
+        'capabilities': capabilities,
+        'annotationsUrl': url_for('model_review_annotations'),
+        'reportsUrl': url_for('model_review_reports'),
+        'modelExportUrl': url_for('model_review_model_export')
+    }|tojson }}</script>
     <script type="importmap">
     {
         "imports": {
@@ -230,303 +220,8 @@
         }
     }
     </script>
-    
-    <script type="module">
-        // 导入Three.js核心和加载器
-        import * as THREE from 'three';
-        import { GLTFLoader } from '{{ url_for('static', filename='libs/three/GLTFLoader.js') }}';
-        import { OBJLoader } from '{{ url_for('static', filename='libs/three/OBJLoader.js') }}';
-        import { STLLoader } from '{{ url_for('static', filename='libs/three/STLLoader.js') }}';
-        import { OrbitControls } from '{{ url_for('static', filename='libs/three/OrbitControls.js') }}';
-
-        // 全局变量
-        let scene, camera, renderer, controls;
-        let model, wireframeHelper, gridHelper, axesHelper;
-        let isWireframe = false;
-        let autoRotate = false;
-        let currentBgIndex = 0;
-        const backgrounds = [
-            { color: 0x1a1a2e, name: '深蓝' },
-            { color: 0x2d3436, name: '深灰' },
-            { color: 0xffffff, name: '白色' },
-            { color: 0x000000, name: '黑色' },
-            { color: 0x16213e, name: 'midnight-blue' }
-        ];
-
-        // 初始化场景
-        function init() {
-            const container = document.getElementById('canvas-container');
-
-            // 创建场景
-            scene = new THREE.Scene();
-            scene.background = new THREE.Color(backgrounds[currentBgIndex].color);
-
-            // 创建相机
-            camera = new THREE.PerspectiveCamera(
-                75,
-                window.innerWidth / window.innerHeight,
-                0.1,
-                1000
-            );
-            camera.position.set(5, 5, 5);
-
-            // 创建渲染器
-            renderer = new THREE.WebGLRenderer({ antialias: true });
-            renderer.setSize(window.innerWidth, window.innerHeight);
-            renderer.setPixelRatio(window.devicePixelRatio);
-            renderer.shadowMap.enabled = true;
-            container.appendChild(renderer.domElement);
-
-            // 添加灯光
-            const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
-            scene.add(ambientLight);
-
-            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
-            directionalLight.position.set(10, 10, 5);
-            directionalLight.castShadow = true;
-            scene.add(directionalLight);
-
-            const pointLight = new THREE.PointLight(0xffffff, 0.5);
-            pointLight.position.set(-10, -10, -5);
-            scene.add(pointLight);
-
-            // 添加控制器
-            controls = new OrbitControls(camera, renderer.domElement);
-            controls.enableDamping = true;
-            controls.dampingFactor = 0.05;
-            controls.screenSpacePanning = false;
-            controls.minDistance = 1;
-            controls.maxDistance = 100;
-
-            // 添加网格辅助
-            gridHelper = new THREE.GridHelper(20, 20, 0x888888, 0x444444);
-            gridHelper.visible = false;
-            scene.add(gridHelper);
-
-            // 添加坐标轴辅助
-            axesHelper = new THREE.AxesHelper(5);
-            axesHelper.visible = false;
-            scene.add(axesHelper);
-
-            // 窗口大小调整
-            window.addEventListener('resize', onWindowResize, false);
-
-            // 加载模型
-            loadModel();
-
-            // 开始渲染循环
-            animate();
-        }
-
-        // 加载模型
-        function loadModel() {
-            const modelUrl = '{{ model_url }}';
-            const fileExt = '{{ file_ext }}'.toLowerCase();
-
-            let loader;
-            if (fileExt === '.gltf' || fileExt === '.glb') {
-                loader = new GLTFLoader();
-                loader.load(
-                    modelUrl,
-                    (gltf) => {
-                        model = gltf.scene;
-                        onModelLoaded(model);
-                    },
-                    onProgress,
-                    onError
-                );
-            } else if (fileExt === '.obj') {
-                loader = new OBJLoader();
-                loader.load(
-                    modelUrl,
-                    (obj) => {
-                        model = obj;
-                        onModelLoaded(model);
-                    },
-                    onProgress,
-                    onError
-                );
-            } else if (fileExt === '.stl') {
-                loader = new STLLoader();
-                loader.load(
-                    modelUrl,
-                    (geometry) => {
-                        const material = new THREE.MeshPhongMaterial({
-                            color: 0x67c23a,
-                            specular: 0x111111,
-                            shininess: 200
-                        });
-                        model = new THREE.Mesh(geometry, material);
-                        onModelLoaded(model);
-                    },
-                    onProgress,
-                    onError
-                );
-            } else if (fileExt === '.step' || fileExt === '.stp') {
-                // STEP 文件是 CAD 格式，Three.js 不直接支持
-                // 显示友好的提示信息
-                document.getElementById('loading').style.display = 'none';
-                showError(
-                    'STEP 文件格式暂不支持直接预览。<br><br>' +
-                    '<strong>建议解决方案：</strong><br>' +
-                    '1. 使用 CAD 软件（如 FreeCAD、Blender）将 STEP 文件转换为 STL 或 OBJ 格式<br>' +
-                    '2. 或使用在线转换工具进行格式转换<br><br>' +
-                    '<small>当前支持的格式：GLTF/GLB、OBJ、STL、FBX</small>'
-                );
-            } else {
-                showError('不支持的文件格式: ' + fileExt);
-            }
-        }
-
-        // 模型加载完成
-        function onModelLoaded(loadedModel) {
-            scene.add(loadedModel);
-
-            // 计算模型包围盒并居中
-            const box = new THREE.Box3().setFromObject(loadedModel);
-            const center = box.getCenter(new THREE.Vector3());
-            const size = box.getSize(new THREE.Vector3());
-
-            // 将模型移到原点
-            loadedModel.position.sub(center);
-
-            // 调整相机位置以适应模型
-            const maxDim = Math.max(size.x, size.y, size.z);
-            const fov = camera.fov * (Math.PI / 180);
-            let cameraZ = Math.abs(maxDim / 2 / Math.tan(fov / 2));
-            cameraZ *= 1.5; // 留一些空间
-            camera.position.set(cameraZ, cameraZ, cameraZ);
-            camera.lookAt(0, 0, 0);
-            controls.target.set(0, 0, 0);
-            controls.update();
-
-            // 更新统计信息
-            updateStats(loadedModel, size);
-
-            // 隐藏加载提示
-            document.getElementById('loading').style.display = 'none';
-        }
-
-        // 加载进度
-        function onProgress(xhr) {
-            if (xhr.lengthComputable) {
-                const percentComplete = (xhr.loaded / xhr.total * 100).toFixed(0);
-                document.getElementById('loading').innerHTML = `
-                    <div class="spinner"></div>
-                    <div>加载中 ${percentComplete}%</div>
-                `;
-            }
-        }
-
-        // 加载错误
-        function onError(error) {
-            console.error('加载模型失败:', error);
-            showError('加载模型失败: ' + error.message);
-        }
-
-        // 显示错误
-        function showError(message) {
-            document.getElementById('loading').style.display = 'none';
-            const errorDiv = document.getElementById('error-message');
-            errorDiv.innerHTML = `
-                <i class="fas fa-exclamation-triangle" style="font-size: 32px; margin-bottom: 10px;"></i><br>
-                ${message}
-            `;
-            errorDiv.style.display = 'block';
-        }
-
-        // 更新统计信息
-        function updateStats(model, size) {
-            let triangles = 0;
-            model.traverse((child) => {
-                if (child.isMesh) {
-                    const geometry = child.geometry;
-                    if (geometry.index !== null) {
-                        triangles += geometry.index.count / 3;
-                    } else {
-                        triangles += geometry.attributes.position.count / 3;
-                    }
-                }
-            });
-
-            document.getElementById('model-stats').innerHTML = `
-                <strong>顶点数:</strong> ${Math.floor(triangles * 3).toLocaleString()}<br>
-                <strong>三角形:</strong> ${Math.floor(triangles).toLocaleString()}<br>
-                <strong>尺寸:</strong> ${size.x.toFixed(2)} × ${size.y.toFixed(2)} × ${size.z.toFixed(2)}
-            `;
-        }
-
-        // 窗口大小调整
-        function onWindowResize() {
-            camera.aspect = window.innerWidth / window.innerHeight;
-            camera.updateProjectionMatrix();
-            renderer.setSize(window.innerWidth, window.innerHeight);
-        }
-
-        // 动画循环
-        function animate() {
-            requestAnimationFrame(animate);
-            
-            if (autoRotate && model) {
-                model.rotation.y += 0.01;
-            }
-            
-            controls.update();
-            renderer.render(scene, camera);
-        }
-
-        // 全局函数 - 重置相机
-        window.resetCamera = function() {
-            if (model) {
-                const box = new THREE.Box3().setFromObject(model);
-                const size = box.getSize(new THREE.Vector3());
-                const maxDim = Math.max(size.x, size.y, size.z);
-                const fov = camera.fov * (Math.PI / 180);
-                let cameraZ = Math.abs(maxDim / 2 / Math.tan(fov / 2));
-                cameraZ *= 1.5;
-                camera.position.set(cameraZ, cameraZ, cameraZ);
-                camera.lookAt(0, 0, 0);
-                controls.target.set(0, 0, 0);
-                controls.update();
-            }
-        };
-
-        // 切换线框模式
-        window.toggleWireframe = function() {
-            if (!model) return;
-            isWireframe = !isWireframe;
-            model.traverse((child) => {
-                if (child.isMesh) {
-                    child.material.wireframe = isWireframe;
-                }
-            });
-        };
-
-        // 切换网格
-        window.toggleGrid = function() {
-            gridHelper.visible = !gridHelper.visible;
-        };
-
-        // 切换坐标轴
-        window.toggleAxes = function() {
-            axesHelper.visible = !axesHelper.visible;
-        };
-
-        // 切换背景
-        window.changeBackground = function() {
-            currentBgIndex = (currentBgIndex + 1) % backgrounds.length;
-            scene.background = new THREE.Color(backgrounds[currentBgIndex].color);
-        };
-
-        // 切换自动旋转
-        window.toggleAutoRotate = function() {
-            autoRotate = !autoRotate;
-        };
-
-        // 初始化
-        init();
-    </script>
-<script src="{{ url_for('static', filename='js/theme_floater.js') }}"></script>
+    <script src="{{ url_for('static', filename='libs/marked/marked.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='libs/purify/purify.min.js') }}"></script>
+    <script type="module" src="{{ url_for('static', filename='js/model_viewer.js') }}"></script>
 </body>
 </html>
-

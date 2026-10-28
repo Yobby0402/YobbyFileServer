@@ -16,6 +16,8 @@ from typing import Any, Dict, Generator, List, Optional
 
 from flask import Response, current_app, jsonify, request, session, stream_with_context
 
+from . import context_orchestrator
+from . import context_router
 from . import drawio_text_dsl
 from . import embedding_client
 from . import knowledge_store
@@ -260,32 +262,11 @@ def _extract_page_context(body: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _is_erp_page_context(page_context: Dict[str, Any]) -> bool:
-    return str((page_context or {}).get("source") or "").strip().lower() == "erp"
+    return context_router.is_erp_page_context(page_context)
 
 
 def _message_suggests_erp_context(message: str) -> bool:
-    m = str(message or "").strip().lower()
-    if not m:
-        return False
-    keywords = (
-        "erp",
-        "物料",
-        "库存",
-        "仓库",
-        "bom",
-        "工单",
-        "单据",
-        "批次",
-        "追踪",
-        "追溯",
-        "流向",
-        "领料",
-        "退料",
-        "完工",
-        "安全库存",
-        "预警",
-    )
-    return any(keyword in m for keyword in keywords)
+    return context_router.message_suggests_erp_context(message)
 
 
 def _build_erp_context(query_text: str, page_context: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -408,7 +389,7 @@ def _app_ai_config() -> Dict[str, Any]:
         "LOCAL_AI_EMBED_BATCH_SIZE": c.get("LOCAL_AI_EMBED_BATCH_SIZE", 16),
         "LOCAL_AI_MODEL_DIR": c.get("LOCAL_AI_MODEL_DIR", ""),
         "LOCAL_AI_GGUF_PATH": c.get("LOCAL_AI_GGUF_PATH", ""),
-        "LOCAL_AI_MAX_NEW_TOKENS": c.get("LOCAL_AI_MAX_NEW_TOKENS", 512),
+        "LOCAL_AI_MAX_NEW_TOKENS": c.get("LOCAL_AI_MAX_NEW_TOKENS", 2048),
         "LOCAL_AI_TEMPERATURE": c.get("LOCAL_AI_TEMPERATURE", 0.7),
         "LOCAL_AI_TOP_P": c.get("LOCAL_AI_TOP_P", 0.95),
         "LOCAL_AI_LLAMA_CTX": c.get("LOCAL_AI_LLAMA_CTX", 4096),
@@ -527,6 +508,7 @@ def _stream_chat_model_sse(
     stream_started_at = time.perf_counter()
     first_token_logged = False
     token_events = 0
+    reasoning_chars = 0
     if stream_metrics is not None:
         stream_metrics["received_chars"] = 0
         stream_metrics["token_events"] = 0
@@ -558,6 +540,20 @@ def _stream_chat_model_sse(
                 if stream_metrics is not None:
                     stream_metrics["first_token_logged"] = True
             yield _sse("token", {"t": text})
+            continue
+        if event_type == "reasoning":
+            text = str(event.get("text") or "")
+            if not text:
+                continue
+            reasoning_chars += len(text)
+            if stream_metrics is not None:
+                stream_metrics["reasoning_chars"] = reasoning_chars
+            yield _sse("reasoning", {"t": text})
+            continue
+        if event_type == "model":
+            model = str(event.get("model") or "")
+            if model:
+                yield _sse("model_instance", {"model": model, "source": str(event.get("source") or "")})
             continue
         if event_type == "progress":
             yield _sse(
@@ -602,6 +598,7 @@ def _stream_chat_model_sse(
             "stream_ms": round((time.perf_counter() - stream_started_at) * 1000, 1),
             "received_chars": received_chars,
             "token_events": token_events,
+            "reasoning_chars": reasoning_chars,
             "first_token_logged": first_token_logged,
         }
         if request_started_at is not None:
@@ -721,6 +718,8 @@ def register_local_ai_routes(app) -> None:
                 "erp_attach": False,
                 "knowledge_attach": False,
             }
+            tool_audit: List[Dict[str, Any]] = []
+            context_plan: Dict[str, Any] = {}
             request_completed = False
 
             def trace_stage(stage: str, stage_started_at: Optional[float] = None, **fields: Any) -> None:
@@ -1151,222 +1150,52 @@ def register_local_ai_routes(app) -> None:
                 yield _sse("done", {})
                 return
 
-            # 用户在 UI 中常停留在「通用 / 知识库」却询问项目与任务；仅 mode=todo 时注入会导致模型看不到数据。
-            todo_attach = ""
-            if (
-                tm
-                and mode == "general"
-                and todo_ai_bridge.message_suggests_todo_context(last_user)
+            prepared_context: Dict[str, Any] = {}
+            for context_event in context_orchestrator.iter_prepare_context_events(
+                question=last_user,
+                mode=mode,
+                page_context=page_context,
+                root_dir=root_dir,
+                tm=tm,
+                use_mcp=_use_mcp_bridge(),
+                mcp_call=lambda tool, args, timeout: _mcp_call_with_meta(tool, args, timeout_sec=timeout),
+                local_erp_context=_build_erp_context,
+                todo_kb_root_dir=_todo_kb_root_dir(),
+                product_compare_kb_root_dir=_product_compare_kb_root_dir(),
+                has_product_compare=current_app.config.get("PRODUCT_COMPARE_MANAGER") is not None,
+                app_config=_app_ai_config(),
+                trace=trace_stage,
             ):
-                todo_ctx_started_at = time.perf_counter()
-                yield _sse("chat_progress", _chat_progress_payload("mcp", "正在读取待办上下文"))
-                todo_text = ""
-                todo_kb_started_at = time.perf_counter()
-                kb_ctx, _todo_kb_hits = todo_kb_store.retrieve_for_query(
-                    _todo_kb_root_dir(),
-                    last_user,
-                    top_k=5,
-                    app_config=_app_ai_config(),
-                )
-                trace_stage(
-                    "general_todo_kb_lookup",
-                    todo_kb_started_at,
-                    ctx_chars=len(kb_ctx or ""),
-                    hit_count=len(_todo_kb_hits or []),
-                )
-                if kb_ctx:
-                    todo_text = kb_ctx
-                todo_mcp_started_at = time.perf_counter()
-                mcp_ctx, mcp_meta = _mcp_call_with_meta(
-                    "todo_get_context_preview",
-                    {"level": "auto", "q": last_user},
-                    timeout_sec=8.0,
-                )
-                yield _sse("mcp_call", mcp_meta)
-                trace_stage(
-                    "general_todo_mcp_preview",
-                    todo_mcp_started_at,
-                    ok=bool(mcp_ctx and mcp_ctx.get("ok")),
-                    mcp_elapsed_ms=mcp_meta.get("elapsed_ms"),
-                )
-                if not todo_text and mcp_ctx and mcp_ctx.get("ok"):
-                    todo_text = str((mcp_ctx.get("data") or {}).get("text") or "")
-                if not todo_text:
-                    todo_local_started_at = time.perf_counter()
-                    todo_text = todo_ai_bridge.build_adaptive_todo_context_for_llm(tm, last_user)
-                    trace_stage(
-                        "general_todo_local_context_build",
-                        todo_local_started_at,
-                        ctx_chars=len(todo_text or ""),
+                context_event_type = str(context_event.get("type") or "")
+                if context_event_type == "progress":
+                    yield _sse(
+                        "chat_progress",
+                        _chat_progress_payload(
+                            str(context_event.get("state") or "processing"),
+                            str(context_event.get("message") or ""),
+                        ),
                     )
-                todo_attach = (
-                    todo_ai_bridge.TODO_LLM_SCHEMA_GUIDE
-                    + "\n\n[当前待办快照 — 按问题选层级；仅用于待办相关回答，勿编造]\n"
-                    + todo_text
-                )
-                trace_flags["todo_attach"] = bool(todo_attach)
-                trace_stage(
-                    "general_todo_context_ready",
-                    todo_ctx_started_at,
-                    attach_chars=len(todo_attach),
-                )
-                yield _sse("chat_progress", _chat_progress_payload("processing", "待办上下文已就绪"))
-
-            # 通用模式下若明显在问「知识库/文档」，也自动挂知识库摘录，避免用户忘记切到知识库模式。
-            erp_attach = ""
-            erp_context_data: Optional[Dict[str, Any]] = None
-            should_attach_erp = (
-                mode == "erp"
-                or (mode in ("general", "knowledge") and _is_erp_page_context(page_context))
-                or (mode == "knowledge" and _message_suggests_erp_context(last_user))
-            )
-            if should_attach_erp:
-                erp_ctx_started_at = time.perf_counter()
-                yield _sse("chat_progress", _chat_progress_payload("mcp", "正在读取 ERP 上下文"))
-                erp_mcp_started_at = time.perf_counter()
-                mcp_erp, mcp_meta = _mcp_call_with_meta(
-                    "erp_get_context",
-                    {"query_text": last_user, "page_context": page_context},
-                    timeout_sec=8.0,
-                )
-                yield _sse("mcp_call", mcp_meta)
-                trace_stage(
-                    "erp_mcp_context",
-                    erp_mcp_started_at,
-                    ok=bool(mcp_erp and mcp_erp.get("ok")),
-                    mcp_elapsed_ms=mcp_meta.get("elapsed_ms"),
-                )
-                if mcp_erp and mcp_erp.get("ok"):
-                    erp_context_data = (mcp_erp.get("data") or {}) if isinstance(mcp_erp.get("data"), dict) else None
-                if not erp_context_data:
-                    erp_local_started_at = time.perf_counter()
-                    erp_context_data = _build_erp_context(last_user, page_context)
-                    trace_stage(
-                        "erp_local_context_build",
-                        erp_local_started_at,
-                        has_context=bool(erp_context_data and str(erp_context_data.get("text") or "").strip()),
-                    )
-                if erp_context_data and str(erp_context_data.get("text") or "").strip():
-                    erp_attach = (
-                        "\n\n--- ERP 本地数据快照 ---\n\n"
-                        + str(erp_context_data.get("text") or "").strip()
-                    )
-                    trace_flags["erp_attach"] = True
-                    trace_stage(
-                        "erp_context_ready",
-                        erp_ctx_started_at,
-                        attach_chars=len(erp_attach),
-                    )
-                    yield _sse("chat_progress", _chat_progress_payload("processing", "ERP 上下文已就绪"))
-                elif mode == "erp":
-                    yield _sse("error", {"message": "ERP 上下文不可用，请先确认 ERP 已初始化并存在本地数据。"})
-                    yield _sse("done", {})
-                    return
-
-            knowledge_attach = ""
-            knowledge_meta: Optional[Dict[str, Any]] = None
-            if root_dir and mode in ("general", "knowledge"):
-                ask_kb = (mode == "knowledge") or any(
-                    k in (last_user or "")
-                    for k in ("知识库", "文档", "根据文档", "根据知识库", "资料里", "README", ".md")
-                )
-                if ask_kb:
-                    kb_ctx_started_at = time.perf_counter()
-                    yield _sse("chat_progress", _chat_progress_payload("mcp", "正在检索知识库"))
-                    ctx = ""
-                    hits: List[Dict[str, Any]] = []
-                    names: List[str] = []
-                    todo_hits: List[Dict[str, Any]] = []
-                    product_compare_hits: List[Dict[str, Any]] = []
-                    knowledge_sections: List[str] = []
-                    kb_mcp_started_at = time.perf_counter()
-                    mcp_kb, mcp_meta = _mcp_call_with_meta(
-                        "kb_retrieve",
-                        {"query": last_user, "top_k": 6, "max_file_bytes": 200000},
-                        timeout_sec=10.0,
-                    )
-                    yield _sse("mcp_call", mcp_meta)
-                    trace_stage(
-                        "knowledge_mcp_retrieve",
-                        kb_mcp_started_at,
-                        ok=bool(mcp_kb and mcp_kb.get("ok")),
-                        mcp_elapsed_ms=mcp_meta.get("elapsed_ms"),
-                    )
-                    if mcp_kb and mcp_kb.get("ok"):
-                        kb_data = mcp_kb.get("data") or {}
-                        ctx = str(kb_data.get("context") or "")
-                        hits = list(kb_data.get("hits") or [])
-                        names = list(kb_data.get("name_suggestions") or [])
-                    if not ctx and not hits and not names:
-                        kb_local_started_at = time.perf_counter()
-                        ctx, hits, names = knowledge_store.retrieve_for_query(
-                            root_dir,
-                            last_user,
-                            app_config=_app_ai_config(),
-                        )
-                        trace_stage(
-                            "knowledge_local_retrieve",
-                            kb_local_started_at,
-                            ctx_chars=len(ctx or ""),
-                            hit_count=len(hits or []),
-                            name_count=len(names or []),
-                        )
-                    if ctx.strip():
-                        knowledge_sections.append(_kb_section("文件知识库", ctx.strip()))
-                    if mode == "knowledge":
-                        todo_knowledge_started_at = time.perf_counter()
-                        todo_ctx, todo_hits = todo_kb_store.retrieve_for_query(
-                            _todo_kb_root_dir(),
-                            last_user,
-                            top_k=5,
-                            app_config=_app_ai_config(),
-                        )
-                        trace_stage(
-                            "knowledge_mode_todo_retrieve",
-                            todo_knowledge_started_at,
-                            ctx_chars=len(todo_ctx or ""),
-                            hit_count=len(todo_hits or []),
-                        )
-                        if todo_ctx.strip():
-                            knowledge_sections.append(_kb_section("待办知识库", todo_ctx.strip()))
-                        compare_manager = current_app.config.get("PRODUCT_COMPARE_MANAGER")
-                        if compare_manager is not None:
-                            product_knowledge_started_at = time.perf_counter()
-                            compare_ctx, product_compare_hits = product_compare_kb_store.retrieve_for_query(
-                                _product_compare_kb_root_dir(),
-                                last_user,
-                                top_k=5,
-                                app_config=_app_ai_config(),
-                            )
-                            trace_stage(
-                                "knowledge_mode_product_retrieve",
-                                product_knowledge_started_at,
-                                ctx_chars=len(compare_ctx or ""),
-                                hit_count=len(product_compare_hits or []),
-                            )
-                            if compare_ctx.strip():
-                                knowledge_sections.append(_kb_section("产品对比知识库", compare_ctx.strip()))
-                    if knowledge_sections:
-                        knowledge_attach = "\n\n--- 知识库摘录 ---\n\n" + "\n\n".join(knowledge_sections)
-                    else:
-                        knowledge_attach = (
-                            "\n\n--- 知识库摘录 ---\n\n"
-                            "(未命中正文；请确认已把目标 .md/.txt 加入知识库，或换更精确关键词。)"
-                        )
-                    knowledge_meta = {
-                        "hits": hits,
-                        "name_suggestions": names,
-                        "todo_hits": todo_hits,
-                        "product_compare_hits": product_compare_hits,
-                    }
-                    trace_flags["knowledge_attach"] = bool(knowledge_attach)
-                    trace_stage(
-                        "knowledge_context_ready",
-                        kb_ctx_started_at,
-                        attach_chars=len(knowledge_attach),
-                        section_count=len(knowledge_sections),
-                    )
-                    yield _sse("chat_progress", _chat_progress_payload("processing", "知识库上下文已就绪"))
+                elif context_event_type == "mcp_call":
+                    yield _sse("mcp_call", context_event.get("item") or {})
+                elif context_event_type == "todo_task_card":
+                    yield _sse("todo_task_card", context_event.get("item"))
+                elif context_event_type == "result":
+                    candidate_context = context_event.get("context")
+                    if isinstance(candidate_context, dict):
+                        prepared_context = candidate_context
+            context_plan = prepared_context.get("context_plan") or {}
+            tool_audit = list(prepared_context.get("tool_audit") or [])
+            todo_attach = str(prepared_context.get("todo_attach") or "")
+            erp_attach = str(prepared_context.get("erp_attach") or "")
+            knowledge_attach = str(prepared_context.get("knowledge_attach") or "")
+            knowledge_meta = prepared_context.get("knowledge_meta") if isinstance(prepared_context.get("knowledge_meta"), dict) else None
+            trace_flags["todo_attach"] = bool(todo_attach)
+            trace_flags["erp_attach"] = bool(erp_attach)
+            trace_flags["knowledge_attach"] = bool(knowledge_attach)
+            if mode == "erp" and not erp_attach:
+                yield _sse("error", {"message": "ERP 上下文不可用，请先确认 ERP 已初始化并存在本地数据。"})
+                yield _sse("done", {})
+                return
 
             if mode == "erp":
                 system = local_ai_skills.merge_primary_then_skills(
@@ -1392,7 +1221,8 @@ def register_local_ai_routes(app) -> None:
                 return
 
             if mode == "todo":
-                intent = todo_ai_bridge._heuristic_intent(last_user)
+                todo_strategy = context_plan.get("todo_strategy") if isinstance(context_plan.get("todo_strategy"), dict) else {}
+                intent = str(todo_strategy.get("intent") or "unknown")
                 force_mutate = bool(body.get("force_todo_mutate"))
                 if force_mutate or intent == "mutate":
                     if local_ai_engine.get_status(cfg)["loaded"]:
@@ -1422,6 +1252,11 @@ def register_local_ai_routes(app) -> None:
                             yield _sse("mcp_call", mcp_meta)
                             if mcp_plan and mcp_plan.get("ok"):
                                 d = mcp_plan.get("data") or {}
+                                pr["ops"] = d.get("ops") or pr.get("ops") or []
+                                pr["ops_display"] = todo_ai_bridge.display_todo_ops_with_refs(
+                                    pr.get("ops") or [],
+                                    todo_ai_bridge.build_mutate_ref_catalog_only(tm, last_user),
+                                )
                                 pr["preview"] = d.get("preview_lines") or pr.get("preview") or []
                                 pr["confirm_token"] = d.get("confirm_token")
                                 pr["expires_at"] = d.get("expires_at")
@@ -1439,63 +1274,21 @@ def register_local_ai_routes(app) -> None:
                     yield _sse("done", {})
                     return
 
-                snap, _todo_kb_hits = todo_kb_store.retrieve_for_query(
-                    _todo_kb_root_dir(),
-                    last_user,
-                    top_k=6,
-                    app_config=_app_ai_config(),
-                )
-                meta = None
-                mcp_ctx, mcp_meta = _mcp_call_with_meta(
-                    "todo_get_context_preview",
-                    {"level": "auto", "q": last_user},
-                    timeout_sec=8.0,
-                )
-                yield _sse("mcp_call", mcp_meta)
-                if not snap and mcp_ctx and mcp_ctx.get("ok"):
-                    snap = str((mcp_ctx.get("data") or {}).get("text") or "")
-                if not snap:
-                    snap, meta = todo_ai_bridge.build_adaptive_todo_context_and_meta(tm, last_user)
-                if meta and isinstance(meta, dict) and meta.get("task_card"):
-                    yield _sse("todo_task_card", meta.get("task_card"))
-                overview_extra = ""
-                if last_user and any(
-                    k in last_user
-                    for k in (
-                        "结构化",
-                        "概览表",
-                        "完整列表",
-                        "JSON",
-                        "所有任务id",
-                        "全部任务id",
-                        "描述",
-                        "详情",
-                        "评论",
-                        "评论历史",
-                        "更新历史",
-                        "变更历史",
-                        "属性",
-                        "字段",
-                    )
-                ):
-                    ov = todo_ai_bridge.build_todo_overview_dict(
-                        tm,
-                        limit_per_project=40,
-                        redact_ids=True,
-                        include_description=True,
-                        include_comments=True,
-                        include_history=True,
-                    )
-                    jtxt = json.dumps(ov, ensure_ascii=False)
-                    if len(jtxt) <= 8000:
-                        overview_extra = "\n\n[以下为结构化摘要 JSON，可与上文快照对照]\n" + jtxt
+                snap = str(prepared_context.get("todo_snapshot") or "")
+                semantic_extra = str(prepared_context.get("todo_semantic_extra") or "")
+                overview_extra = str(prepared_context.get("todo_overview_extra") or "")
                 system = local_ai_skills.merge_primary_then_skills(
+                    context_orchestrator.tool_audit_prompt_block(tool_audit, context_plan)
+                    + "\n"
+                    +
                     todo_ai_bridge.TODO_LLM_SCHEMA_GUIDE
+                    + "\n\n[待办数据源策略] primary=实时结构化待办数据；todo-kb 只用于补充长描述/评论/历史的语义命中，不用于决定项目/任务身份或写入目标。"
                     + "\n\n你是待办助手。根据下方数据用中文回答，不要编造。\n"
                     "**可读性**：用「项目名称」「任务标题」与快照中的序号指代，不要输出十六进制 id。\n"
                     "**写入类需求**：若用户要创建/修改任务，应提示在「待办」模式下勾选 **「强制解析为变更」**（或与列举类词分开提问）；"
                     "服务器会返回待确认补丁，**不要**只让用户去网页里手工添加。\n\n"
                     + snap
+                    + semantic_extra
                     + overview_extra,
                     skills_block,
                 )
@@ -1516,6 +1309,7 @@ def register_local_ai_routes(app) -> None:
                 return
 
             system: Optional[str] = None
+            audit_block = context_orchestrator.tool_audit_prompt_block(tool_audit, context_plan)
             if mode == "knowledge" and root_dir:
                 kb_body = (knowledge_attach.replace("\n\n--- 知识库摘录 ---\n\n", "") if knowledge_attach else "(无正文命中)").strip()
                 if todo_attach:
@@ -1539,7 +1333,7 @@ def register_local_ai_routes(app) -> None:
                             + erp_attach
                             + "\n\n"
                         )
-                system = local_ai_skills.merge_primary_then_skills(kb_intro + kb_body, skills_block)
+                system = local_ai_skills.merge_primary_then_skills(audit_block + "\n" + kb_intro + kb_body, skills_block)
                 yield _sse("knowledge_meta", knowledge_meta or {"hits": [], "name_suggestions": []})
             elif skills_block:
                 gen_base: Optional[str] = None
@@ -1556,9 +1350,13 @@ def register_local_ai_routes(app) -> None:
                     )
                 if knowledge_attach:
                     gen_base = (gen_base or "你是本服务器助手。") + knowledge_attach
+                if audit_block:
+                    gen_base = audit_block + "\n" + (gen_base or "")
                 system = local_ai_skills.merge_primary_then_skills(gen_base, skills_block)
             elif todo_attach:
                 system = (
+                    audit_block
+                    + "\n"
                     "你是本服务器助手。待办字段与查询方式见下文；写入类需求请提示用户：待办模式 + 「强制解析为变更」。\n\n"
                     + todo_attach
                 )
@@ -1567,9 +1365,9 @@ def register_local_ai_routes(app) -> None:
                 if erp_attach:
                     system = system + erp_attach
             elif erp_attach:
-                system = "你是本服务器助手。请仅根据以下 ERP 本地数据快照回答，不要编造。\n" + erp_attach
+                system = audit_block + "\n你是本服务器助手。请仅根据以下 ERP 本地数据快照回答，不要编造。\n" + erp_attach
             elif knowledge_attach:
-                system = "你是本服务器助手。请仅根据以下知识库摘录回答，不要编造。\n" + knowledge_attach
+                system = audit_block + "\n你是本服务器助手。请仅根据以下知识库摘录回答，不要编造。\n" + knowledge_attach
                 if knowledge_meta is not None:
                     yield _sse("knowledge_meta", knowledge_meta)
 
@@ -1637,6 +1435,11 @@ def register_local_ai_routes(app) -> None:
             )
             if mcp_plan and mcp_plan.get("ok"):
                 d = mcp_plan.get("data") or {}
+                pr["ops"] = d.get("ops") or pr.get("ops") or []
+                pr["ops_display"] = todo_ai_bridge.display_todo_ops_with_refs(
+                    pr.get("ops") or [],
+                    todo_ai_bridge.build_mutate_ref_catalog_only(tm, msg),
+                )
                 pr["preview"] = d.get("preview_lines") or pr.get("preview") or []
                 pr["confirm_token"] = d.get("confirm_token")
                 pr["expires_at"] = d.get("expires_at")
@@ -1714,6 +1517,9 @@ def register_local_ai_routes(app) -> None:
                 return jsonify({"success": False, "error": err, "preview": details.get("preview_lines") or [], "mcp_call": mcp_meta}), 400
 
         ops_expanded = todo_ai_bridge.expand_natural_todo_refs(ops, cat)
+        ops_expanded, normalize_err = todo_ai_bridge.normalize_todo_ops_for_user_message(tm, ref_q, ops_expanded)
+        if normalize_err:
+            return jsonify({"success": False, "error": normalize_err, "preview": []}), 400
         ops_expanded = todo_ai_bridge.enrich_todo_ops_due_dates(ops_expanded, ref_q)
         preview, err = todo_ai_bridge.validate_and_describe_ops(tm, ops_expanded)
         if err:
@@ -1906,6 +1712,9 @@ def register_local_ai_routes(app) -> None:
         tm = current_app.config.get("TODO_MANAGER")
         cat = todo_ai_bridge.build_mutate_ref_catalog_only(tm, ref_q)
         ops = todo_ai_bridge.expand_natural_todo_refs(ops, cat)
+        ops, normalize_err = todo_ai_bridge.normalize_todo_ops_for_user_message(tm, ref_q, ops)
+        if normalize_err:
+            return jsonify({"success": False, "error": normalize_err}), 400
         ops = todo_ai_bridge.enrich_todo_ops_due_dates(ops, ref_q)
         preview, err = todo_ai_bridge.validate_and_describe_ops(tm, ops)
         if err:
@@ -2017,6 +1826,14 @@ def register_local_ai_routes(app) -> None:
             return jsonify({"success": False, "error": "未登录"}), 401
         root = current_app.config.get("ROOT_DIR")
         path = request.args.get("path", "")
+        if _use_mcp_bridge():
+            mcp_res, mcp_meta = _mcp_call_with_meta("kb_get_entry", {"path": path}, timeout_sec=8.0)
+            if mcp_res and mcp_res.get("ok"):
+                data = mcp_res.get("data") or {}
+                return jsonify({"success": True, **data, "mcp": True, "trace_id": mcp_res.get("trace_id"), "mcp_call": mcp_meta})
+            if mcp_res and not mcp_res.get("ok"):
+                err = (mcp_res.get("error") or {}).get("message") or "MCP 知识库查询失败"
+                return jsonify({"success": False, "error": err, "mcp": True, "mcp_call": mcp_meta}), 400
         meta = knowledge_store.get_meta(path, root_dir=root)
         return jsonify({"success": True, "in_knowledge": meta is not None, "meta": meta})
 
@@ -2037,6 +1854,17 @@ def register_local_ai_routes(app) -> None:
             offset = 0
         query = str(request.args.get("q") or "").strip()
         problem_first = str(request.args.get("problem_first", "0")).strip().lower() in ("1", "true", "yes", "on")
+        if _use_mcp_bridge():
+            mcp_args = {"offset": offset, "problem_first": problem_first, "q": query}
+            if limit is not None:
+                mcp_args["limit"] = limit
+            mcp_res, mcp_meta = _mcp_call_with_meta("kb_list_entries", mcp_args, timeout_sec=10.0)
+            if mcp_res and mcp_res.get("ok"):
+                page = mcp_res.get("data") or {}
+                return jsonify({"success": True, **page, "mcp": True, "trace_id": mcp_res.get("trace_id"), "mcp_call": mcp_meta})
+            if mcp_res and not mcp_res.get("ok"):
+                err = (mcp_res.get("error") or {}).get("message") or "MCP 知识库列表失败"
+                return jsonify({"success": False, "error": err, "mcp": True, "mcp_call": mcp_meta}), 400
         page = knowledge_store.list_entries_page(
             root,
             limit=limit,
@@ -2055,6 +1883,13 @@ def register_local_ai_routes(app) -> None:
             return jsonify({"success": False, "error": "未设置根目录"}), 400
         body = request.get_json(silent=True) or {}
         run_async = bool(body.get("async", True))
+        if _use_mcp_bridge():
+            mcp_res, mcp_meta = _mcp_call_with_meta("kb_scan_files", {"async": run_async}, timeout_sec=20.0)
+            if mcp_res and mcp_res.get("ok"):
+                return jsonify({"success": True, **(mcp_res.get("data") or {}), "mcp": True, "trace_id": mcp_res.get("trace_id"), "mcp_call": mcp_meta})
+            if mcp_res and not mcp_res.get("ok"):
+                err = (mcp_res.get("error") or {}).get("message") or "MCP 知识库扫描失败"
+                return jsonify({"success": False, "error": err, "mcp": True, "mcp_call": mcp_meta}), 400
         try:
             if run_async:
                 job = knowledge_store.queue_scan_files(root)
@@ -2105,6 +1940,14 @@ def register_local_ai_routes(app) -> None:
         path = str(request.args.get("path") or "").strip()
         if not root or not path:
             return jsonify({"success": False, "error": "参数无效"}), 400
+        if _use_mcp_bridge():
+            mcp_res, mcp_meta = _mcp_call_with_meta("kb_preview_entry", {"path": path}, timeout_sec=8.0)
+            if mcp_res and mcp_res.get("ok"):
+                data = mcp_res.get("data") or {}
+                return jsonify({"success": True, **data, "mcp": True, "trace_id": mcp_res.get("trace_id"), "mcp_call": mcp_meta})
+            if mcp_res and not mcp_res.get("ok"):
+                err = (mcp_res.get("error") or {}).get("message") or "MCP 知识库预览失败"
+                return jsonify({"success": False, "error": err, "mcp": True, "mcp_call": mcp_meta}), 400
         try:
             item = knowledge_store.preview_entry(root, path)
             return jsonify({"success": True, "item": item})
@@ -2120,6 +1963,20 @@ def register_local_ai_routes(app) -> None:
             return jsonify({"success": False, "error": "未设置根目录"}), 400
         body = request.get_json(silent=True) or {}
         folder_path = str(body.get("folder_path") or "").strip()
+        paths = body.get("paths") or []
+        if not isinstance(paths, list):
+            return jsonify({"success": False, "error": "paths 必须为数组"}), 400
+        if _use_mcp_bridge():
+            mcp_res, mcp_meta = _mcp_call_with_meta(
+                "kb_bulk_index",
+                {"folder_path": folder_path, "paths": paths},
+                timeout_sec=20.0,
+            )
+            if mcp_res and mcp_res.get("ok"):
+                return jsonify({"success": True, **(mcp_res.get("data") or {}), "mcp": True, "trace_id": mcp_res.get("trace_id"), "mcp_call": mcp_meta})
+            if mcp_res and not mcp_res.get("ok"):
+                err = (mcp_res.get("error") or {}).get("message") or "MCP 知识库批量索引失败"
+                return jsonify({"success": False, "error": err, "mcp": True, "mcp_call": mcp_meta}), 400
         if folder_path:
             try:
                 result = knowledge_store.queue_folder_entries(
@@ -2131,9 +1988,6 @@ def register_local_ai_routes(app) -> None:
             except ValueError as e:
                 return jsonify({"success": False, "error": str(e)}), 400
 
-        paths = body.get("paths") or []
-        if not isinstance(paths, list):
-            return jsonify({"success": False, "error": "paths 必须为数组"}), 400
         queued = []
         errors = []
         for raw_path in paths:
@@ -2164,6 +2018,18 @@ def register_local_ai_routes(app) -> None:
         tags = body.get("tags")
         note = body.get("note", "")
         run_async = bool(body.get("async", True))
+        if _use_mcp_bridge():
+            mcp_res, mcp_meta = _mcp_call_with_meta(
+                "kb_set_entry",
+                {"path": path, "tags": tags, "note": note or "", "async": run_async},
+                timeout_sec=20.0,
+            )
+            if mcp_res and mcp_res.get("ok"):
+                data = mcp_res.get("data") or {}
+                return jsonify({"success": True, **data, "mcp": True, "trace_id": mcp_res.get("trace_id"), "mcp_call": mcp_meta})
+            if mcp_res and not mcp_res.get("ok"):
+                err = (mcp_res.get("error") or {}).get("message") or "MCP 知识库写入失败"
+                return jsonify({"success": False, "error": err, "mcp": True, "mcp_call": mcp_meta}), 400
         try:
             if run_async:
                 ent = knowledge_store.queue_entry(root, path, tags=tags, note=note or "", app_config=_app_ai_config())
@@ -2181,6 +2047,13 @@ def register_local_ai_routes(app) -> None:
         path = request.args.get("path", "")
         if not root or not path:
             return jsonify({"success": False, "error": "参数无效"}), 400
+        if _use_mcp_bridge():
+            mcp_res, mcp_meta = _mcp_call_with_meta("kb_remove_entry", {"path": path}, timeout_sec=10.0)
+            if mcp_res and mcp_res.get("ok"):
+                return jsonify({"success": True, "mcp": True, "trace_id": mcp_res.get("trace_id"), "mcp_call": mcp_meta})
+            if mcp_res and not mcp_res.get("ok"):
+                err = (mcp_res.get("error") or {}).get("message") or "MCP 知识库删除失败"
+                return jsonify({"success": False, "error": err, "mcp": True, "mcp_call": mcp_meta}), 400
         try:
             knowledge_store.remove_entry(root, path)
             return jsonify({"success": True})
@@ -2197,6 +2070,18 @@ def register_local_ai_routes(app) -> None:
         run_async = bool(body.get("async", True))
         if not root or not path:
             return jsonify({"success": False, "error": "参数无效"}), 400
+        if _use_mcp_bridge():
+            mcp_res, mcp_meta = _mcp_call_with_meta(
+                "kb_rebuild_entry",
+                {"path": path, "async": run_async},
+                timeout_sec=20.0,
+            )
+            if mcp_res and mcp_res.get("ok"):
+                data = mcp_res.get("data") or {}
+                return jsonify({"success": True, **data, "mcp": True, "trace_id": mcp_res.get("trace_id"), "mcp_call": mcp_meta})
+            if mcp_res and not mcp_res.get("ok"):
+                err = (mcp_res.get("error") or {}).get("message") or "MCP 知识库重建失败"
+                return jsonify({"success": False, "error": err, "mcp": True, "mcp_call": mcp_meta}), 400
         try:
             if run_async:
                 entry = knowledge_store.queue_rebuild_entry(root, path, app_config=_app_ai_config())
@@ -2220,6 +2105,18 @@ def register_local_ai_routes(app) -> None:
             limit_value = 50
         source_type = (request.args.get("source_type") or "").strip() or None
         source_key = (request.args.get("source_key") or "").strip() or None
+        if _use_mcp_bridge():
+            mcp_res, mcp_meta = _mcp_call_with_meta(
+                "kb_list_jobs",
+                {"limit": limit_value, "source_type": source_type or "", "source_key": source_key or ""},
+                timeout_sec=8.0,
+            )
+            if mcp_res and mcp_res.get("ok"):
+                data = mcp_res.get("data") or {}
+                return jsonify({"success": True, **data, "mcp": True, "trace_id": mcp_res.get("trace_id"), "mcp_call": mcp_meta})
+            if mcp_res and not mcp_res.get("ok"):
+                err = (mcp_res.get("error") or {}).get("message") or "MCP 知识库任务列表失败"
+                return jsonify({"success": False, "error": err, "mcp": True, "mcp_call": mcp_meta}), 400
         items = knowledge_store.list_jobs(root, limit=limit_value, source_type=source_type, source_key=source_key)
         return jsonify({"success": True, "items": items})
 
@@ -2227,6 +2124,16 @@ def register_local_ai_routes(app) -> None:
     def knowledge_job_detail(job_id: str):
         if not _auth_ok():
             return jsonify({"success": False, "error": "未登录"}), 401
+        if _use_mcp_bridge():
+            mcp_res, mcp_meta = _mcp_call_with_meta("kb_get_job", {"id": job_id}, timeout_sec=8.0)
+            if mcp_res and mcp_res.get("ok"):
+                data = mcp_res.get("data") or {}
+                if not data.get("found"):
+                    return jsonify({"success": False, "error": "job 不存在", "mcp": True, "mcp_call": mcp_meta}), 404
+                return jsonify({"success": True, "item": data.get("item"), "mcp": True, "trace_id": mcp_res.get("trace_id"), "mcp_call": mcp_meta})
+            if mcp_res and not mcp_res.get("ok"):
+                err = (mcp_res.get("error") or {}).get("message") or "MCP 知识库任务查询失败"
+                return jsonify({"success": False, "error": err, "mcp": True, "mcp_call": mcp_meta}), 400
         item = knowledge_store.get_job(job_id)
         if not item:
             return jsonify({"success": False, "error": "job 不存在"}), 404
@@ -2239,6 +2146,13 @@ def register_local_ai_routes(app) -> None:
         root = current_app.config.get("ROOT_DIR")
         if not root:
             return jsonify({"success": False, "error": "未设置根目录"}), 400
+        if _use_mcp_bridge():
+            mcp_res, mcp_meta = _mcp_call_with_meta("kb_index_status", {}, timeout_sec=8.0)
+            if mcp_res and mcp_res.get("ok"):
+                return jsonify({"success": True, "status": mcp_res.get("data") or {}, "mcp": True, "trace_id": mcp_res.get("trace_id"), "mcp_call": mcp_meta})
+            if mcp_res and not mcp_res.get("ok"):
+                err = (mcp_res.get("error") or {}).get("message") or "MCP 知识库状态查询失败"
+                return jsonify({"success": False, "error": err, "mcp": True, "mcp_call": mcp_meta}), 400
         return jsonify({"success": True, "status": knowledge_store.get_index_status(root)})
 
     @app.route("/api/knowledge/snippets", methods=["GET"])
@@ -2248,6 +2162,14 @@ def register_local_ai_routes(app) -> None:
         root = current_app.config.get("ROOT_DIR")
         if not root:
             return jsonify({"success": False, "error": "未设置根目录"}), 400
+        if _use_mcp_bridge():
+            mcp_res, mcp_meta = _mcp_call_with_meta("kb_list_snippets", {}, timeout_sec=8.0)
+            if mcp_res and mcp_res.get("ok"):
+                data = mcp_res.get("data") or {}
+                return jsonify({"success": True, **data, "mcp": True, "trace_id": mcp_res.get("trace_id"), "mcp_call": mcp_meta})
+            if mcp_res and not mcp_res.get("ok"):
+                err = (mcp_res.get("error") or {}).get("message") or "MCP 知识片段列表失败"
+                return jsonify({"success": False, "error": err, "mcp": True, "mcp_call": mcp_meta}), 400
         return jsonify({"success": True, "items": knowledge_store.list_snippets(root)})
 
     @app.route("/api/knowledge/snippet", methods=["POST"])
@@ -2258,6 +2180,23 @@ def register_local_ai_routes(app) -> None:
         body = request.get_json(silent=True) or {}
         if not root:
             return jsonify({"success": False, "error": "未设置根目录"}), 400
+        if _use_mcp_bridge():
+            mcp_res, mcp_meta = _mcp_call_with_meta(
+                "kb_add_snippet",
+                {
+                    "text": str(body.get("text") or ""),
+                    "title": str(body.get("title") or ""),
+                    "tags": body.get("tags"),
+                    "note": str(body.get("note") or ""),
+                },
+                timeout_sec=15.0,
+            )
+            if mcp_res and mcp_res.get("ok"):
+                data = mcp_res.get("data") or {}
+                return jsonify({"success": True, **data, "mcp": True, "trace_id": mcp_res.get("trace_id"), "mcp_call": mcp_meta})
+            if mcp_res and not mcp_res.get("ok"):
+                err = (mcp_res.get("error") or {}).get("message") or "MCP 知识片段新增失败"
+                return jsonify({"success": False, "error": err, "mcp": True, "mcp_call": mcp_meta}), 400
         try:
             item = knowledge_store.add_snippet(
                 root,
@@ -2280,6 +2219,24 @@ def register_local_ai_routes(app) -> None:
         snippet_id = str(body.get("id") or "").strip()
         if not root or not snippet_id:
             return jsonify({"success": False, "error": "参数无效"}), 400
+        if _use_mcp_bridge():
+            mcp_res, mcp_meta = _mcp_call_with_meta(
+                "kb_update_snippet",
+                {
+                    "id": snippet_id,
+                    "text": str(body.get("text") or ""),
+                    "title": str(body.get("title") or ""),
+                    "tags": body.get("tags"),
+                    "note": str(body.get("note") or ""),
+                },
+                timeout_sec=15.0,
+            )
+            if mcp_res and mcp_res.get("ok"):
+                data = mcp_res.get("data") or {}
+                return jsonify({"success": True, **data, "mcp": True, "trace_id": mcp_res.get("trace_id"), "mcp_call": mcp_meta})
+            if mcp_res and not mcp_res.get("ok"):
+                err = (mcp_res.get("error") or {}).get("message") or "MCP 知识片段更新失败"
+                return jsonify({"success": False, "error": err, "mcp": True, "mcp_call": mcp_meta}), 400
         try:
             item = knowledge_store.update_snippet(
                 root,
@@ -2302,5 +2259,12 @@ def register_local_ai_routes(app) -> None:
         snippet_id = str(request.args.get("id") or "").strip()
         if not root or not snippet_id:
             return jsonify({"success": False, "error": "参数无效"}), 400
+        if _use_mcp_bridge():
+            mcp_res, mcp_meta = _mcp_call_with_meta("kb_remove_snippet", {"id": snippet_id}, timeout_sec=8.0)
+            if mcp_res and mcp_res.get("ok"):
+                return jsonify({"success": True, **(mcp_res.get("data") or {}), "mcp": True, "trace_id": mcp_res.get("trace_id"), "mcp_call": mcp_meta})
+            if mcp_res and not mcp_res.get("ok"):
+                err = (mcp_res.get("error") or {}).get("message") or "MCP 知识片段删除失败"
+                return jsonify({"success": False, "error": err, "mcp": True, "mcp_call": mcp_meta}), 400
         knowledge_store.remove_snippet(root, snippet_id)
         return jsonify({"success": True})

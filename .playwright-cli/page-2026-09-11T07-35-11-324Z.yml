@@ -1,0 +1,132 @@
+- generic [active] [ref=e1]:
+  - banner [ref=e2]:
+    - generic [ref=e3]:
+      - generic [ref=e4]:
+        - link "返回文件列表" [ref=e5] [cursor=pointer]:
+          - /url: /file_browser?path=assemblies
+          - generic [aria-hidden] [ref=e6]: 
+        - generic [aria-hidden] [ref=e7]: 
+        - generic [ref=e8]:
+          - strong [ref=e9]: PCB 工作区
+          - generic [ref=e87]: 临时接收与整体变换
+      - group "工作区模式" [ref=e10]:
+        - button "装配" [pressed] [ref=e11] [cursor=pointer]
+        - button "演示" [ref=e12] [cursor=pointer]
+    - generic [ref=e13]:
+      - text: 
+      - generic [ref=e14]: 监听 8765
+      - text: 
+      - button "停止 PCB 接收" [ref=e90] [cursor=pointer]:
+        - generic [aria-hidden] [ref=e91]: 
+        - generic [ref=e92]: 停止接收
+      - button "适合视图" [ref=e20] [cursor=pointer]:
+        - generic [aria-hidden] [ref=e21]: 
+      - button "切换网格" [pressed] [ref=e22] [cursor=pointer]:
+        - generic [aria-hidden] [ref=e23]: 
+      - button "切换坐标轴" [pressed] [ref=e24] [cursor=pointer]:
+        - generic [aria-hidden] [ref=e25]: 
+      - button "切换全屏" [ref=e26] [cursor=pointer]:
+        - generic [aria-hidden] [ref=e27]: 
+      - button "保存 PCB 装配" [ref=e28] [cursor=pointer]:
+        - generic [aria-hidden] [ref=e29]: 
+        - generic [ref=e89]: 保存装配
+      - text: 
+  - main [ref=e30]:
+    - complementary "PCB 模型列表" [ref=e31]:
+      - generic [ref=e32]:
+        - generic [ref=e33]:
+          - text: 当前会话
+          - heading "PCB 模型" [level=2] [ref=e34]
+        - text: 
+      - generic [ref=e35]:
+        - strong [ref=e36]: 监听端口 8765
+        - generic [ref=e37]: 启动后回到嘉立创执行 Blender 导出，可连续接收多个 PCB。
+      - listbox "已接收 PCB" [ref=e38]:
+        - option "Control_Board 1 个 OBJ · 2026-09-11 15:33:43" [ref=e93] [cursor=pointer]:
+          - generic [aria-hidden] [ref=e94]: 
+          - generic [ref=e95]:
+            - strong [ref=e96]: Control_Board
+            - generic [ref=e97]: 1 个 OBJ · 2026-09-11 15:33:43
+        - option "Power_Board 1 个 OBJ · 2026-09-11 15:33:43" [selected] [ref=e98] [cursor=pointer]:
+          - generic [aria-hidden] [ref=e99]: 
+          - generic [ref=e100]:
+            - strong [ref=e101]: Power_Board
+            - generic [ref=e102]: 1 个 OBJ · 2026-09-11 15:33:43
+      - text: 
+    - region "PCB 装配画布" [ref=e43]:
+      - generic: Power_Board 已加入装配，可继续接收或调整位置。
+      - generic [ref=e46]:
+        - generic [ref=e47]: 2 个模型
+        - generic [ref=e48]: 位置 mm · 旋转 °
+    - complementary "模型变换" [ref=e49]:
+      - generic [ref=e50]:
+        - generic [ref=e51]:
+          - text: 选中模型
+          - heading "位置与旋转" [level=2] [ref=e52]
+        - text: 
+      - generic [ref=e53]: Power_Board
+      - generic [ref=e54]:
+        - group "位置 mm" [ref=e55]:
+          - generic [ref=e56]:
+            - text: 位置
+            - generic [ref=e57]: mm
+          - generic [ref=e58]:
+            - generic [ref=e59]: X
+            - spinbutton "X" [ref=e60]: "45"
+          - generic [ref=e61]:
+            - generic [ref=e62]: "Y"
+            - spinbutton "Y" [ref=e63]: "0"
+          - generic [ref=e64]:
+            - generic [ref=e65]: Z
+            - spinbutton "Z" [ref=e66]: "0"
+        - group "旋转 度" [ref=e67]:
+          - generic [ref=e68]:
+            - text: 旋转
+            - generic [ref=e69]: 度
+          - generic [ref=e70]:
+            - generic [ref=e71]: X
+            - spinbutton "X" [ref=e72]: "0"
+          - generic [ref=e73]:
+            - generic [ref=e74]: "Y"
+            - spinbutton "Y" [ref=e75]: "0"
+          - generic [ref=e76]:
+            - generic [ref=e77]: Z
+            - spinbutton "Z" [ref=e78]: "30"
+      - generic [ref=e79]:
+        - button "复位变换" [ref=e80] [cursor=pointer]:
+          - generic [aria-hidden] [ref=e81]: 
+          - text: 复位变换
+        - button "删除模型" [ref=e82] [cursor=pointer]:
+          - generic [aria-hidden] [ref=e83]: 
+          - text: 删除模型
+      - generic [ref=e84]:
+        - generic [ref=e85]: 保存目录
+        - strong [ref=e86]: F:\Work\YobboyFileServer\output\pcb-assembly-browser-root\assemblies
+  - text: 
+  - dialog [ref=e103]:
+    - generic [ref=e104]:
+      - banner [ref=e105]:
+        - generic [ref=e106]:
+          - text: 导出结果
+          - heading "保存 PCB 装配" [level=2] [ref=e107]
+        - button "关闭保存窗口" [ref=e108] [cursor=pointer]:
+          - generic [aria-hidden] [ref=e109]: 
+      - generic [ref=e110]:
+        - generic [ref=e111]: 文件名
+        - generic [ref=e112]:
+          - textbox "文件名" [ref=e113]: PCB双态演示
+          - generic [ref=e114]: .glb
+        - generic [ref=e115]:
+          - generic [ref=e116]: 保存到
+          - strong [ref=e117]: F:\Work\YobboyFileServer\output\pcb-assembly-browser-root\assemblies
+        - generic [ref=e122]:
+          - generic [aria-hidden] [ref=e123]: 
+          - generic [ref=e124]:
+            - strong [ref=e125]: 装配已保存
+            - generic [ref=e126]: PCB双态演示.glb
+          - button "切换到演示" [ref=e127] [cursor=pointer]
+      - contentinfo [ref=e118]:
+        - button "取消" [ref=e119] [cursor=pointer]
+        - button "保存 GLB" [ref=e120] [cursor=pointer]:
+          - generic [aria-hidden] [ref=e121]: 
+          - text: 保存 GLB

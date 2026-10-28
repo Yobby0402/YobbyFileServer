@@ -1,0 +1,67 @@
+- generic [active] [ref=f2e1]:
+  - banner "3D 查看工具" [ref=f2e2]:
+    - generic [ref=f2e3]:
+      - generic [aria-hidden] [ref=f2e4]: 
+      - generic [ref=f2e5]:
+        - strong [ref=f2e6]: two_part_model.gltf
+        - generic [ref=f2e7]: GLTF · 高级审阅
+    - generic [ref=f2e8]:
+      - text: 
+      - button "复位视角" [ref=f2e9] [cursor=pointer]:
+        - generic [aria-hidden] [ref=f2e10]: 
+      - button "切换线框" [ref=f2e11] [cursor=pointer]:
+        - generic [aria-hidden] [ref=f2e12]: 
+      - button "切换网格" [ref=f2e13] [cursor=pointer]:
+        - generic [aria-hidden] [ref=f2e14]: 
+      - button "切换坐标轴" [ref=f2e15] [cursor=pointer]:
+        - generic [aria-hidden] [ref=f2e16]: 
+      - button "切换背景" [ref=f2e17] [cursor=pointer]:
+        - generic [aria-hidden] [ref=f2e18]: 
+      - button "切换自动旋转" [ref=f2e19] [cursor=pointer]:
+        - generic [aria-hidden] [ref=f2e20]: 
+      - button "添加评论" [ref=f2e22] [cursor=pointer]:
+        - generic [aria-hidden] [ref=f2e23]: 
+      - text: 
+  - main [ref=f2e25]:
+    - complementary "零件树" [ref=f2e26]:
+      - generic [ref=f2e27]:
+        - generic [ref=f2e28]:
+          - text: 装配体
+          - heading "零件" [level=2] [ref=f2e29]
+        - generic [ref=f2e30]:
+          - button "显示全部零件" [ref=f2e31] [cursor=pointer]:
+            - generic [aria-hidden] [ref=f2e32]: 
+          - text: 
+      - generic [ref=f2e33]: 已识别 3 个节点
+      - tree [ref=f2e34]:
+        - treeitem [ref=f2e35]:
+          - button "折叠" [ref=f2e36] [cursor=pointer]:
+            - generic [aria-hidden] [ref=f2e37]: 
+          - button "Assembly" [ref=f2e38] [cursor=pointer]
+          - button "隐藏零件" [ref=f2e39] [cursor=pointer]:
+            - generic [aria-hidden] [ref=f2e40]: 
+        - treeitem [ref=f2e41]:
+          - button "LeftPart" [ref=f2e42] [cursor=pointer]
+          - button "隐藏零件" [ref=f2e43] [cursor=pointer]:
+            - generic [aria-hidden] [ref=f2e44]: 
+        - treeitem [ref=f2e45]:
+          - button "RightPart" [ref=f2e46] [cursor=pointer]
+          - button "隐藏零件" [ref=f2e47] [cursor=pointer]:
+            - generic [aria-hidden] [ref=f2e48]: 
+    - region "3D 模型画布" [ref=f2e49]:
+      - generic [ref=f2e52]:
+        - generic [ref=f2e53]: 爆炸视图
+        - slider "爆炸视图" [ref=f2e54]: "0"
+        - status [ref=f2e55]: 0%
+    - complementary "评论面板" [ref=f2e56]:
+      - generic [ref=f2e57]:
+        - generic [ref=f2e58]:
+          - text: 模型审阅
+          - heading "评论" [level=2] [ref=f2e59]
+        - text: 
+      - generic [ref=f2e60]: 正在读取评论...
+      - generic [ref=f2e62]:
+        - generic [aria-hidden] [ref=f2e63]: 
+        - strong [ref=f2e64]: 暂无评论
+        - generic [ref=f2e65]: 在工具栏开启添加模式，然后点击模型表面。
+      - text:      

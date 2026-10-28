@@ -284,6 +284,68 @@ Suitable for users who need to modify the code or do secondary development.
 - Windows/Linux/macOS
 - About 500MB disk space (including dependencies)
 
+#### ToDo Offline Speech Notes (Optional)
+
+The main application continues to use Python 3.13+. Local speech transcription is an
+independent Python 3.10 service so that its GPU dependencies do not affect the main
+application.
+
+1. In the desktop app, open **文件 -> 设置 -> 语音记录**, enable **ToDo 本地语音记录**,
+   and use the folder button beside **识别模型** to select a complete local
+   `Qwen3-ASR-1.7B` / `Qwen3-ASR-0.6B` folder or a SenseVoiceSmall folder.
+   An empty folder setting keeps the existing SenseVoiceSmall cache; the reset
+   button restores that default. Save and restart the file server.
+   The main app starts no speech process at boot.
+
+2. Put the CUDA 11.8 Python 3.10 wheels `torch-2.3.1+cu118-cp310-cp310-win_amd64.whl`
+   and `torchaudio-2.3.1+cu118-cp310-cp310-win_amd64.whl` in `speech_service/wheels/`.
+   The service uses those local files and loads the selected ASR model locally;
+   fsmn-vad and CAM++ still use the existing local ModelScope cache.
+   Selecting Qwen installs its runtime dependencies into the separate speech
+   environment on first use, without vLLM or a ForcedAligner. Complete this first
+   installation online before running fully offline. The original CUDA PyTorch
+   versions are retained. The Speech Notes settings tab shows each
+   stage. The service binds to `127.0.0.1:8899` only; do not expose that port to the
+   LAN. It exits automatically 60 seconds after the transcription queue becomes idle.
+
+   Qwen uses FP16 and bounded GPU weight placement with CPU offload on this
+   6 GB configuration. VAD and CAM++ run on CPU in the Qwen backend. On pre-Ampere
+   GPUs, cuDNN is disabled only during Qwen inference to avoid the verified
+   GTX 1660 FP16 numerical issue. Timestamps remain coarse speaker-turn times,
+   not word alignment. Qwen does not emit SenseVoice emotion/event labels.
+   Recording, uploads, speaker labels and chunk-based live captions keep their
+   existing API. Real-time throughput still depends on hardware and audio.
+   The folder picker configures the local Windows service. For a remote/Docker
+   service, set `TODO_SPEECH_MODEL_DIR` in that service's environment to its own
+   mounted model path instead.
+
+3. Open a meeting note while logged in. The microphone records in browsers with a
+   secure context; a LAN browser therefore needs the existing HTTPS mode. Uploaded
+   originals are retained in `data/todos/audio/`, while metadata is kept in
+   `data/todos/audio_notes.json`.
+
+   The **实时转写** switch is optional and remembered per browser. When enabled, the
+   browser detects a sentence boundary from roughly 0.7 seconds of silence and then
+   sends a temporary 16 kHz PCM chunk for provisional captions. The **最长** field
+   defaults to 15 seconds and prevents a continuously spoken segment from growing
+   without bound. Stopping the recording still uploads the complete original for the
+   final, speaker-separated note. With the switch off, the original recording keeps
+   the existing upload-after-stop behavior. A poor network can delay or skip
+   provisional captions; resumable upload of the complete original is not part of
+   this version.
+
+4. Create a device token from the meeting-note audio toolbar when an external phone
+   or script needs to upload. The plaintext token is shown only once. For example:
+   ```powershell
+   curl.exe -X POST http://HOST:5000/api/todo/v2/audio-notes `
+     -H "Authorization: Bearer YOUR_DEVICE_TOKEN" `
+     -F "date=2026-09-01" `
+     -F "file=@meeting.m4a"
+   ```
+
+   Device tokens can upload audio and query only their own jobs. They cannot access
+   ToDo data or meeting notes.
+
 ---
 
 ### 🔨 Option 3: Build Your Own exe

@@ -1,0 +1,29 @@
+- generic [active] [ref=e1]:
+  - banner "3D 查看工具" [ref=e2]:
+    - generic [ref=e3]:
+      - generic [aria-hidden] [ref=e4]: 
+      - generic [ref=e5]:
+        - strong [ref=e6]: two_part_model.gltf
+        - generic [ref=e7]: GLTF · 预览
+    - generic [ref=e8]:
+      - text: 
+      - button "复位视角" [ref=e9] [cursor=pointer]:
+        - generic [aria-hidden] [ref=e10]: 
+      - button "切换线框" [ref=e11] [cursor=pointer]:
+        - generic [aria-hidden] [ref=e12]: 
+      - button "切换网格" [ref=e13] [cursor=pointer]:
+        - generic [aria-hidden] [ref=e14]: 
+      - button "切换坐标轴" [ref=e15] [cursor=pointer]:
+        - generic [aria-hidden] [ref=e16]: 
+      - button "切换背景" [ref=e17] [cursor=pointer]:
+        - generic [aria-hidden] [ref=e18]: 
+      - button "切换自动旋转" [ref=e19] [cursor=pointer]:
+        - generic [aria-hidden] [ref=e20]: 
+      - text:  
+  - main [ref=e21]:
+    - text:      
+    - region "3D 模型画布" [ref=e22]:
+      - generic:
+        - strong: two_part_model.gltf
+        - generic: 24 个三角面 · 2.40 × 1.00 × 1.00
+    - text:        

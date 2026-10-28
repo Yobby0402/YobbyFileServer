@@ -1,0 +1,16 @@
+:root {
+  font-family: Arial, sans-serif;
+  color: #f3f4f6;
+  background: #111827;
+}
+
+html, body, #root { min-height: 100%; margin: 0; }
+
+.viewer-shell { min-height: 100vh; background: #111827; }
+.status, .drop-zone { min-height: 100vh; display: grid; place-items: center; padding: 24px; box-sizing: border-box; }
+.drop-zone section { max-width: 520px; text-align: center; }
+.drop-zone h1 { margin: 0 0 12px; font-size: 24px; }
+.drop-zone p { color: #d1d5db; line-height: 1.5; }
+.drop-zone button { border: 1px solid #60a5fa; border-radius: 4px; background: transparent; color: #dbeafe; padding: 8px 12px; cursor: pointer; }
+.drop-zone button:hover { background: #1d4ed8; }
+.error { color: #fca5a5 !important; }

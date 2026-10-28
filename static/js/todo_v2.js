@@ -28,7 +28,7 @@
         },
         expandedProjects: new Set(), // 存储展开的项目ID
         directAccess: document.body.dataset.directAccess === 'true',
-        currentStyle: localStorage.getItem('todoStyle') || 'scroll', // 'scroll', 'table' 或 'report'
+        currentStyle: localStorage.getItem('todoStyle') || 'timeline', // 'scroll', 'table', 'timeline' 或 'report'
         showArchivedProjects: localStorage.getItem('todoShowArchivedProjects') === 'true',
         pendingCollapsed: localStorage.getItem('pendingCollapsed') === 'true', // 待完成任务列表是否折叠
         // 表格风格相关状态
@@ -74,9 +74,14 @@
         commentForm: document.getElementById('commentForm'),
         styleScrollBtn: document.getElementById('styleScrollBtn'),
         styleTableBtn: document.getElementById('styleTableBtn'),
+        styleTimelineBtn: document.getElementById('styleTimelineBtn'),
         styleReportBtn: document.getElementById('styleReportBtn'),
         scrollStyleContainer: document.getElementById('scrollStyleContainer'),
         tableStyleContainer: document.getElementById('tableStyleContainer'),
+        timelineStyleContainer: document.getElementById('timelineStyleContainer'),
+        timelineViewport: document.getElementById('timelineViewport'),
+        timelineEmptyMessage: document.getElementById('timelineEmptyMessage'),
+        timelineRangeText: document.getElementById('timelineRangeText'),
         reportStyleContainer: document.getElementById('reportStyleContainer'),
         tableHead: document.getElementById('tableHead'),
         tableBody: document.getElementById('tableBody'),
@@ -88,6 +93,14 @@
         fullscreenReportBtn: document.getElementById('fullscreenReportBtn'),
         fontSizeInput: document.getElementById('fontSizeInput'),
     };
+
+    const timelineView = window.TodoTimelineView?.create({
+        panel: refs.timelineStyleContainer,
+        container: refs.timelineViewport,
+        emptyMessage: refs.timelineEmptyMessage,
+        rangeText: refs.timelineRangeText,
+        onTaskClick: openEditTaskModal,
+    });
 
     /** 汇报表与导出共用的数据块（仅含 show_in_report 为 true 的项目与任务） */
     function getReportProjectBlocks() {
@@ -1250,6 +1263,8 @@
         renderProjects();
         if (state.currentStyle === 'table') {
             renderTable();
+        } else if (state.currentStyle === 'timeline') {
+            renderTimeline();
         } else if (state.currentStyle === 'report') {
             renderReportTable();
         }
@@ -1263,6 +1278,8 @@
         if (state.currentStyle === 'table') {
             applyTableFilters();
             renderTable();
+        } else if (state.currentStyle === 'timeline') {
+            renderTimeline();
         } else if (state.currentStyle === 'report') {
             renderReportTable();
         }
@@ -2290,6 +2307,13 @@
 
     // ===== 风格切换 =====
 
+    function renderTimeline() {
+        timelineView?.render({
+            projects: getProjectsForCurrentViews(),
+            searchText: state.filters.text,
+        });
+    }
+
     function updateStyleButtons() {
         // 更新按钮的激活状态
         if (refs.styleScrollBtn) {
@@ -2308,6 +2332,15 @@
             } else {
                 refs.styleTableBtn.classList.remove('active', 'btn-info');
                 refs.styleTableBtn.classList.add('btn-outline-info');
+            }
+        }
+        if (refs.styleTimelineBtn) {
+            if (state.currentStyle === 'timeline') {
+                refs.styleTimelineBtn.classList.add('active', 'btn-info');
+                refs.styleTimelineBtn.classList.remove('btn-outline-info');
+            } else {
+                refs.styleTimelineBtn.classList.remove('active', 'btn-info');
+                refs.styleTimelineBtn.classList.add('btn-outline-info');
             }
         }
         if (refs.styleReportBtn) {
@@ -2335,6 +2368,10 @@
                 refs.tableStyleContainer.style.display = 'none';
                 refs.tableStyleContainer.classList.remove('active');
             }
+        if (refs.timelineStyleContainer) {
+            refs.timelineStyleContainer.style.display = 'none';
+            refs.timelineStyleContainer.classList.remove('active');
+        }
         if (refs.reportStyleContainer) {
             refs.reportStyleContainer.style.display = 'none';
             refs.reportStyleContainer.classList.remove('active');
@@ -2368,6 +2405,16 @@
                 applyTableFilters();
                 renderTable();
             }
+        } else if (style === 'timeline') {
+            if (refs.timelineStyleContainer) {
+                refs.timelineStyleContainer.style.display = 'flex';
+                refs.timelineStyleContainer.classList.add('active');
+            }
+            const pendingSection = document.querySelector('.pending-overview-section');
+            if (pendingSection) {
+                pendingSection.style.display = 'none';
+            }
+            renderTimeline();
         } else if (style === 'report') {
             if (refs.reportStyleContainer) {
                 refs.reportStyleContainer.style.display = 'block';
@@ -2773,6 +2820,818 @@
     let filteredNoteList = [];
     let noteSearchKeyword = '';
     let noteSortMode = 'date_desc';
+    let noteAudioRecords = [];
+    let noteAudioPollTimer = null;
+    let noteAudioTimer = null;
+    let noteAudioStartedAt = 0;
+    let noteAudioRecorder = null;
+    let noteAudioStream = null;
+    let noteAudioChunks = [];
+    let noteAudioDiscarding = false;
+    let noteSpeechAvailable = false;
+    let noteSpeechLeaseId = '';
+    let noteLiveSessionId = '';
+    let noteLiveAudioContext = null;
+    let noteLiveAudioSource = null;
+    let noteLiveAudioProcessor = null;
+    let noteLiveAudioSink = null;
+    let noteLivePcmBuffers = [];
+    let noteLivePcmBytes = 0;
+    let noteLiveOffsetMs = 0;
+    let noteLiveCaptionCursor = 0;
+    let noteLivePollTimer = null;
+    let noteLiveUploadChain = Promise.resolve();
+    let noteLivePendingUploads = 0;
+    let noteLiveEnabledForRecording = false;
+    let noteLiveSegmentDurationMs = 0;
+    let noteLiveSilenceMs = 0;
+    let noteLiveSegmentHasSpeech = false;
+    const noteLiveSilenceThreshold = 0.012;
+    const noteLiveSilenceEndMs = 700;
+    const noteLivePreRollMs = 350;
+    const noteAudioStatuses = new Map();
+
+    function updateNoteAudioStatus(message) {
+        const status = document.getElementById('noteAudioStatus');
+        if (status) status.textContent = message;
+    }
+
+    function noteRecordingNeedsHttps() {
+        return window.isSecureContext === false;
+    }
+
+    function getTodoHttpsUrl() {
+        return document.body?.dataset.todoHttpsUrl || '';
+    }
+
+    function updateNoteHttpsButton() {
+        const button = document.getElementById('openNoteHttpsBtn');
+        if (!button) return;
+        button.hidden = !noteRecordingNeedsHttps() || !getTodoHttpsUrl();
+    }
+
+    function updateNoteAudioTimer() {
+        const timer = document.getElementById('noteAudioTimer');
+        if (!timer) return;
+        const elapsed = Math.max(0, Math.floor((Date.now() - noteAudioStartedAt) / 1000));
+        const minutes = String(Math.floor(elapsed / 60)).padStart(2, '0');
+        const seconds = String(elapsed % 60).padStart(2, '0');
+        timer.textContent = `${minutes}:${seconds}`;
+    }
+
+    function setNoteAudioControls(recording = false, finishing = false) {
+        const start = document.getElementById('startNoteRecordingBtn');
+        const stop = document.getElementById('stopNoteRecordingBtn');
+        const upload = document.getElementById('uploadNoteAudioBtn');
+        const realtime = document.getElementById('noteRealtimeTranscription');
+        const maxDuration = document.getElementById('noteRealtimeMaxSeconds');
+        if (start) start.disabled = !noteSpeechAvailable || noteRecordingNeedsHttps() || recording || finishing;
+        if (stop) stop.disabled = !recording;
+        if (upload) upload.disabled = !noteSpeechAvailable || recording || finishing;
+        if (realtime) realtime.disabled = !noteSpeechAvailable || recording || finishing;
+        if (maxDuration) maxDuration.disabled = !noteSpeechAvailable || recording || finishing;
+    }
+
+    function clearNoteAudioTimer() {
+        if (noteAudioTimer) {
+            clearInterval(noteAudioTimer);
+            noteAudioTimer = null;
+        }
+        const timer = document.getElementById('noteAudioTimer');
+        if (timer) timer.textContent = '00:00';
+    }
+
+    function releaseNoteAudioStream() {
+        if (noteAudioStream) {
+            noteAudioStream.getTracks().forEach(track => track.stop());
+            noteAudioStream = null;
+        }
+    }
+
+    function setupNoteRealtimeToggle() {
+        const toggle = document.getElementById('noteRealtimeTranscription');
+        const maxDuration = document.getElementById('noteRealtimeMaxSeconds');
+        if (!toggle || toggle.dataset.initialized) return;
+        try {
+            toggle.checked = localStorage.getItem('todo.realtimeTranscription') === 'true';
+            if (maxDuration) {
+                const savedDuration = Number(localStorage.getItem('todo.realtimeMaxSeconds'));
+                if (Number.isFinite(savedDuration)) {
+                    maxDuration.value = String(Math.min(60, Math.max(5, Math.round(savedDuration))));
+                }
+            }
+        } catch (error) {
+            console.warn('无法读取实时转写偏好:', error);
+        }
+        toggle.addEventListener('change', () => {
+            try {
+                localStorage.setItem('todo.realtimeTranscription', String(toggle.checked));
+            } catch (error) {
+                console.warn('无法保存实时转写偏好:', error);
+            }
+        });
+        if (maxDuration) {
+            maxDuration.addEventListener('change', () => {
+                const seconds = Math.min(60, Math.max(5, Math.round(Number(maxDuration.value) || 15)));
+                maxDuration.value = String(seconds);
+                try {
+                    localStorage.setItem('todo.realtimeMaxSeconds', String(seconds));
+                } catch (error) {
+                    console.warn('无法保存实时转写时长偏好:', error);
+                }
+            });
+        }
+        toggle.dataset.initialized = 'true';
+    }
+
+    function clearNoteLiveTranscript(hide = true) {
+        const container = document.getElementById('noteLiveTranscript');
+        if (!container) return;
+        container.textContent = '';
+        container.style.display = hide ? 'none' : 'grid';
+    }
+
+    function formatLiveCaptionTime(value) {
+        const seconds = Math.max(0, Math.floor(Number(value || 0) / 1000));
+        return `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
+    }
+
+    function appendNoteLiveCaption(caption) {
+        const container = document.getElementById('noteLiveTranscript');
+        if (!container) return;
+        container.style.display = 'grid';
+        const row = document.createElement('div');
+        row.className = 'todo-live-transcript-row';
+        const time = document.createElement('span');
+        time.className = 'todo-live-transcript-time';
+        time.textContent = formatLiveCaptionTime(caption.start_ms);
+        const content = document.createElement('span');
+        content.textContent = caption.error
+            ? `该片段转写失败：${caption.error}`
+            : (caption.text || '');
+        if (caption.details && !caption.error) {
+            const info = document.createElement('span');
+            info.className = 'todo-live-transcript-info';
+            info.textContent = 'ℹ';
+            info.title = caption.details;
+            info.setAttribute('aria-label', `识别信息：${caption.details}`);
+            content.append(' ', info);
+        }
+        row.append(time, content);
+        container.appendChild(row);
+        container.scrollTop = container.scrollHeight;
+    }
+
+    function downsampleLiveAudio(samples, sourceRate) {
+        const targetRate = 16000;
+        if (!samples || !samples.length) return new Int16Array(0);
+        const ratio = sourceRate / targetRate;
+        const output = new Int16Array(Math.max(1, Math.floor(samples.length / ratio)));
+        for (let outputIndex = 0; outputIndex < output.length; outputIndex += 1) {
+            const start = Math.floor(outputIndex * ratio);
+            const end = Math.min(samples.length, Math.floor((outputIndex + 1) * ratio));
+            let sum = 0;
+            let count = 0;
+            for (let inputIndex = start; inputIndex < Math.max(start + 1, end); inputIndex += 1) {
+                sum += samples[Math.min(inputIndex, samples.length - 1)];
+                count += 1;
+            }
+            const value = Math.max(-1, Math.min(1, sum / count));
+            output[outputIndex] = value < 0 ? value * 0x8000 : value * 0x7fff;
+        }
+        return output;
+    }
+
+    function getNoteLiveMaxSegmentMs() {
+        const input = document.getElementById('noteRealtimeMaxSeconds');
+        const seconds = Math.min(60, Math.max(5, Math.round(Number(input?.value) || 15)));
+        return seconds * 1000;
+    }
+
+    function resetNoteLiveSegmentState() {
+        noteLiveSegmentDurationMs = 0;
+        noteLiveSilenceMs = 0;
+        noteLiveSegmentHasSpeech = false;
+    }
+
+    function trimNoteLivePcm(maxBytes) {
+        let bytesToRemove = Math.max(0, noteLivePcmBytes - maxBytes);
+        while (bytesToRemove && noteLivePcmBuffers.length) {
+            const first = noteLivePcmBuffers[0];
+            const removed = Math.min(bytesToRemove, first.byteLength);
+            if (removed === first.byteLength) {
+                noteLivePcmBuffers.shift();
+            } else {
+                noteLivePcmBuffers[0] = first.slice(removed);
+            }
+            noteLivePcmBytes -= removed;
+            bytesToRemove -= removed;
+            noteLiveOffsetMs += (removed / 2 / 16000) * 1000;
+        }
+        noteLiveSegmentDurationMs = (noteLivePcmBytes / 2 / 16000) * 1000;
+    }
+
+    function isNoteLiveVoice(samples) {
+        let total = 0;
+        for (let index = 0; index < samples.length; index += 1) total += samples[index] ** 2;
+        return Math.sqrt(total / samples.length) >= noteLiveSilenceThreshold;
+    }
+
+    function queueNoteLivePcm(pcm, hasVoice) {
+        if (!noteLiveSessionId || !pcm.byteLength) return;
+        const copy = new Uint8Array(pcm.byteLength);
+        copy.set(new Uint8Array(pcm.buffer, pcm.byteOffset, pcm.byteLength));
+        noteLivePcmBuffers.push(copy);
+        noteLivePcmBytes += copy.byteLength;
+        const durationMs = (copy.byteLength / 2 / 16000) * 1000;
+        noteLiveSegmentDurationMs += durationMs;
+        if (hasVoice) {
+            noteLiveSegmentHasSpeech = true;
+            noteLiveSilenceMs = 0;
+        } else if (noteLiveSegmentHasSpeech) {
+            noteLiveSilenceMs += durationMs;
+        } else {
+            trimNoteLivePcm(noteLivePreRollMs * 32);
+        }
+        if (noteLiveSegmentHasSpeech && (
+            noteLiveSilenceMs >= noteLiveSilenceEndMs
+            || noteLiveSegmentDurationMs >= getNoteLiveMaxSegmentMs()
+        )) {
+            flushNoteLivePcm();
+        }
+    }
+
+    function flushNoteLivePcm(force = false) {
+        if (!noteLiveSessionId || !noteLivePcmBytes) {
+            return noteLiveUploadChain;
+        }
+        if (!noteLiveSegmentHasSpeech) {
+            noteLiveOffsetMs += (noteLivePcmBytes / 2 / 16000) * 1000;
+            noteLivePcmBuffers = [];
+            noteLivePcmBytes = 0;
+            resetNoteLiveSegmentState();
+            return noteLiveUploadChain;
+        }
+        const sessionId = noteLiveSessionId;
+        const offsetMs = noteLiveOffsetMs;
+        const payload = new Uint8Array(noteLivePcmBytes);
+        let position = 0;
+        noteLivePcmBuffers.forEach(chunk => {
+            payload.set(chunk, position);
+            position += chunk.byteLength;
+        });
+        noteLiveOffsetMs += (payload.byteLength / 2 / 16000) * 1000;
+        noteLivePcmBuffers = [];
+        noteLivePcmBytes = 0;
+        resetNoteLiveSegmentState();
+        if (!force && noteLivePendingUploads >= 12) {
+            updateNoteAudioStatus('实时字幕网络拥堵，已跳过部分片段；停止后仍会完整转写');
+            return noteLiveUploadChain;
+        }
+        noteLivePendingUploads += 1;
+        noteLiveUploadChain = noteLiveUploadChain
+            .then(async () => {
+                const response = await fetch(
+                    `/api/todo/v2/audio/live-sessions/${encodeURIComponent(sessionId)}/chunks`,
+                    {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/octet-stream',
+                            'X-Todo-Live-Offset-Ms': String(Math.round(offsetMs))
+                        },
+                        body: payload
+                    }
+                );
+                const result = await response.json();
+                if (!response.ok || !result.success) {
+                    throw new Error(result.error || '实时音频片段上传失败');
+                }
+            })
+            .catch(error => {
+                console.warn('实时音频片段上传失败:', error);
+                updateNoteAudioStatus('实时字幕传输失败，停止后仍会完整转写');
+            })
+            .finally(() => {
+                noteLivePendingUploads = Math.max(0, noteLivePendingUploads - 1);
+            });
+        return noteLiveUploadChain;
+    }
+
+    async function pollNoteLiveCaptions(sessionId = noteLiveSessionId) {
+        if (!sessionId) return null;
+        const response = await fetch(
+            `/api/todo/v2/audio/live-sessions/${encodeURIComponent(sessionId)}?after=${noteLiveCaptionCursor}`
+        );
+        const result = await response.json();
+        if (!response.ok || !result.success) throw new Error(result.error || '无法读取实时字幕');
+        (result.captions || []).forEach(caption => {
+            noteLiveCaptionCursor = Math.max(noteLiveCaptionCursor, Number(caption.id || 0));
+            appendNoteLiveCaption(caption);
+        });
+        return result.session || {};
+    }
+
+    function scheduleNoteLiveCaptionPoll() {
+        if (noteLivePollTimer) clearTimeout(noteLivePollTimer);
+        if (!noteLiveSessionId) return;
+        noteLivePollTimer = setTimeout(async () => {
+            try {
+                await pollNoteLiveCaptions();
+            } catch (error) {
+                console.warn('读取实时字幕失败:', error);
+            }
+            scheduleNoteLiveCaptionPoll();
+        }, 1200);
+    }
+
+    async function startNoteLiveCapture() {
+        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+        if (!AudioContextClass) throw new Error('当前浏览器不支持实时音频采集');
+        noteLiveAudioContext = new AudioContextClass();
+        noteLiveAudioSource = noteLiveAudioContext.createMediaStreamSource(noteAudioStream);
+        noteLiveAudioProcessor = noteLiveAudioContext.createScriptProcessor(4096, 1, 1);
+        noteLiveAudioSink = noteLiveAudioContext.createGain();
+        noteLiveAudioSink.gain.value = 0;
+        noteLiveAudioProcessor.onaudioprocess = event => {
+            const samples = event.inputBuffer.getChannelData(0);
+            queueNoteLivePcm(
+                downsampleLiveAudio(samples, noteLiveAudioContext.sampleRate),
+                isNoteLiveVoice(samples)
+            );
+        };
+        noteLiveAudioSource.connect(noteLiveAudioProcessor);
+        noteLiveAudioProcessor.connect(noteLiveAudioSink);
+        noteLiveAudioSink.connect(noteLiveAudioContext.destination);
+        await noteLiveAudioContext.resume();
+    }
+
+    function stopNoteLiveCapture() {
+        if (noteLiveAudioProcessor) {
+            noteLiveAudioProcessor.onaudioprocess = null;
+            noteLiveAudioProcessor.disconnect();
+        }
+        if (noteLiveAudioSource) noteLiveAudioSource.disconnect();
+        if (noteLiveAudioSink) noteLiveAudioSink.disconnect();
+        if (noteLiveAudioContext) noteLiveAudioContext.close().catch(() => {});
+        noteLiveAudioContext = null;
+        noteLiveAudioSource = null;
+        noteLiveAudioProcessor = null;
+        noteLiveAudioSink = null;
+    }
+
+    async function startNoteLiveTranscription() {
+        clearNoteLiveTranscript(false);
+        const response = await fetch('/api/todo/v2/audio/live-sessions', { method: 'POST' });
+        const result = await response.json();
+        if (!response.ok || !result.success || !result.session?.id) {
+            throw new Error(result.error || '无法启动实时转写');
+        }
+        noteLiveSessionId = result.session.id;
+        noteLivePcmBuffers = [];
+        noteLivePcmBytes = 0;
+        noteLiveOffsetMs = 0;
+        noteLiveCaptionCursor = 0;
+        noteLiveUploadChain = Promise.resolve();
+        noteLivePendingUploads = 0;
+        resetNoteLiveSegmentState();
+        try {
+            await startNoteLiveCapture();
+            scheduleNoteLiveCaptionPoll();
+        } catch (error) {
+            const sessionId = noteLiveSessionId;
+            noteLiveSessionId = '';
+            await fetch(`/api/todo/v2/audio/live-sessions/${encodeURIComponent(sessionId)}`, { method: 'POST' }).catch(() => {});
+            stopNoteLiveCapture();
+            clearNoteLiveTranscript();
+            throw error;
+        }
+    }
+
+    async function stopNoteLiveTranscription() {
+        if (noteLivePollTimer) {
+            clearTimeout(noteLivePollTimer);
+            noteLivePollTimer = null;
+        }
+        stopNoteLiveCapture();
+        const sessionId = noteLiveSessionId;
+        if (!sessionId) {
+            noteLivePcmBuffers = [];
+            noteLivePcmBytes = 0;
+            noteLivePendingUploads = 0;
+            resetNoteLiveSegmentState();
+            return;
+        }
+        await flushNoteLivePcm(true);
+        noteLiveSessionId = '';
+        await fetch(`/api/todo/v2/audio/live-sessions/${encodeURIComponent(sessionId)}`, { method: 'POST' }).catch(error => {
+            console.warn('结束实时转写会话失败:', error);
+        });
+        for (let attempts = 0; attempts < 50; attempts += 1) {
+            try {
+                const liveSession = await pollNoteLiveCaptions(sessionId);
+                if (!liveSession?.pending_chunks) break;
+            } catch (error) {
+                console.warn('读取收尾实时字幕失败:', error);
+                break;
+            }
+            await new Promise(resolve => setTimeout(resolve, 1200));
+        }
+        noteLivePcmBuffers = [];
+        noteLivePcmBytes = 0;
+        noteLivePendingUploads = 0;
+        resetNoteLiveSegmentState();
+    }
+
+    function cleanupNoteAudio() {
+        clearNoteAudioTimer();
+        if (noteAudioPollTimer) {
+            clearTimeout(noteAudioPollTimer);
+            noteAudioPollTimer = null;
+        }
+        if (noteAudioRecorder && noteAudioRecorder.state !== 'inactive') {
+            noteAudioDiscarding = true;
+            noteAudioRecorder.stop();
+            return;
+        }
+        noteAudioRecorder = null;
+        stopNoteLiveTranscription().catch(error => console.warn('停止实时转写失败:', error));
+        releaseNoteAudioStream();
+        noteAudioChunks = [];
+        releaseNoteSpeechService();
+        setNoteAudioControls(false);
+    }
+
+    function formatAudioDate(value) {
+        if (!value) return '';
+        const timestamp = new Date(value).getTime();
+        return Number.isNaN(timestamp) ? '' : new Date(timestamp).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+    }
+
+    function audioStatusLabel(status) {
+        const labels = {
+            queued: '排队中',
+            transcribing: '转写中',
+            completed: '已完成',
+            failed: '失败'
+        };
+        return labels[status] || status || '未知';
+    }
+
+    function speechServiceStatusLabel(service) {
+        const labels = {
+            stopped: '等待录音或上传后自动启动',
+            starting: '正在启动本地语音服务',
+            creating_environment: '正在创建 Python 语音环境',
+            installing_pytorch: '正在安装 CUDA 版 PyTorch',
+            installing_dependencies: '正在安装语音依赖',
+            loading_models: '正在从本地缓存加载语音模型',
+            transcribing: '正在转写录音',
+            ready: '语音服务就绪',
+            failed: '语音服务启动失败'
+        };
+        if (service?.message) return service.message;
+        return labels[service?.state] || '正在检查语音服务';
+    }
+
+    function renderNoteAudioRecords() {
+        const container = document.getElementById('noteAudioList');
+        if (!container) return;
+        if (!noteAudioRecords.length) {
+            container.innerHTML = '';
+            return;
+        }
+        container.innerHTML = noteAudioRecords.map(record => {
+            const statusClass = record.status === 'failed' ? 'text-danger' : record.status === 'completed' ? 'text-success' : 'text-muted';
+            const title = record.title || record.original_filename || '录音';
+            const audio = record.status === 'completed'
+                ? `<audio controls preload="metadata" src="/api/todo/v2/audio-notes/${encodeURIComponent(record.id)}/file"></audio>`
+                : '';
+            const retry = record.status === 'failed'
+                ? `<button type="button" class="btn btn-sm btn-outline-primary" data-audio-retry="${record.id}" title="重试"><i class="fas fa-rotate-right"></i></button>`
+                : '';
+            return `
+                <article class="todo-audio-card">
+                    <div class="todo-audio-card-main">
+                        <div class="todo-audio-card-title">${escapeHtml(title)}</div>
+                        <div class="todo-audio-card-meta">
+                            <span class="small ${statusClass}">${audioStatusLabel(record.status)}</span>
+                            <span class="small text-muted">${escapeHtml(formatAudioDate(record.created_at))}</span>
+                            ${record.error ? `<span class="small text-danger">${escapeHtml(record.error)}</span>` : ''}
+                        </div>
+                        ${audio}
+                    </div>
+                    <div class="btn-group btn-group-sm">
+                        ${retry}
+                        <button type="button" class="btn btn-sm btn-outline-danger" data-audio-delete="${record.id}" title="删除录音"><i class="fas fa-trash"></i></button>
+                    </div>
+                </article>`;
+        }).join('');
+        container.querySelectorAll('[data-audio-retry]').forEach(button => {
+            button.addEventListener('click', () => retryNoteAudio(button.dataset.audioRetry));
+        });
+        container.querySelectorAll('[data-audio-delete]').forEach(button => {
+            button.addEventListener('click', () => deleteNoteAudio(button.dataset.audioDelete));
+        });
+    }
+
+    function scheduleNoteAudioPoll(records) {
+        if (noteAudioPollTimer) clearTimeout(noteAudioPollTimer);
+        if (records.some(record => record.status === 'queued' || record.status === 'transcribing')) {
+            noteAudioPollTimer = setTimeout(() => {
+                if (currentNoteDate) loadNoteAudioRecords(currentNoteDate);
+            }, 2000);
+        } else {
+            noteAudioPollTimer = null;
+        }
+    }
+
+    function refreshNoteContentAfterAudio() {
+        if (!currentNoteDate || noteEditor) return;
+        fetch(`/api/todo/v2/meeting_notes/${currentNoteDate}`)
+            .then(response => response.json())
+            .then(result => {
+                if (result.success) {
+                    noteOriginalContent = result.content || '';
+                    updateNotePreview(noteOriginalContent);
+                    loadNoteList();
+                }
+            })
+            .catch(error => console.warn('刷新录音转写内容失败:', error));
+    }
+
+    function loadNoteAudioRecords(dateStr) {
+        if (!dateStr) return;
+        fetch(`/api/todo/v2/meeting_notes/${encodeURIComponent(dateStr)}/audio-notes`)
+            .then(response => response.json())
+            .then(result => {
+                if (!result.success) throw new Error(result.error || '无法读取录音');
+                const records = result.records || [];
+                const hasNewCompletion = records.some(record =>
+                    record.status === 'completed' && noteAudioStatuses.get(record.id) && noteAudioStatuses.get(record.id) !== 'completed'
+                );
+                noteAudioStatuses.clear();
+                records.forEach(record => noteAudioStatuses.set(record.id, record.status));
+                noteAudioRecords = records;
+                renderNoteAudioRecords();
+                scheduleNoteAudioPoll(records);
+                if (hasNewCompletion) refreshNoteContentAfterAudio();
+            })
+            .catch(error => {
+                noteAudioRecords = [];
+                renderNoteAudioRecords();
+                if (!document.body.dataset.directAccess) updateNoteAudioStatus(error.message || '无法读取录音');
+            });
+    }
+
+    function checkNoteAudioHealth() {
+        fetch('/api/todo/v2/audio/health')
+            .then(response => response.json())
+            .then(result => {
+                if (!result.success || !result.enabled) {
+                    noteSpeechAvailable = false;
+                    updateNoteAudioStatus(result.error || '语音服务未启用');
+                } else {
+                    const service = result.service || {};
+                    noteSpeechAvailable = true;
+                    updateNoteAudioStatus(speechServiceStatusLabel(service));
+                }
+                if (noteRecordingNeedsHttps()) {
+                    updateNoteAudioStatus('浏览器要求 HTTPS 才能录音');
+                }
+                updateNoteHttpsButton();
+                setNoteAudioControls(false);
+            })
+            .catch(error => {
+                noteSpeechAvailable = false;
+                updateNoteAudioStatus(error.message || '无法检查语音服务');
+                updateNoteHttpsButton();
+                setNoteAudioControls(false);
+            });
+    }
+
+    async function ensureNoteSpeechService() {
+        updateNoteAudioStatus('正在启动本地语音服务');
+        const response = await fetch('/api/todo/v2/audio/service/start', { method: 'POST' });
+        const result = await response.json();
+        if (!response.ok || !result.success) {
+            throw new Error(result.error || '无法启动本地语音服务');
+        }
+        noteSpeechLeaseId = result.lease_id || '';
+        updateNoteAudioStatus(speechServiceStatusLabel(result.service || {}));
+    }
+
+    async function releaseNoteSpeechService() {
+        const leaseId = noteSpeechLeaseId;
+        noteSpeechLeaseId = '';
+        if (!leaseId) return;
+        try {
+            await fetch('/api/todo/v2/audio/service/release', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ lease_id: leaseId })
+            });
+        } catch (error) {
+            console.warn('释放语音服务预热租约失败:', error);
+        }
+    }
+
+    function audioFileExtension(mimeType) {
+        const mime = String(mimeType || '').toLowerCase();
+        if (mime.includes('ogg') || mime.includes('opus')) return 'ogg';
+        if (mime.includes('mp4') || mime.includes('aac')) return 'm4a';
+        return 'webm';
+    }
+
+    function uploadNoteAudio(file, title = '') {
+        if (!currentNoteDate) {
+            showAlert('warning', '请选择笔记日期');
+            return Promise.resolve();
+        }
+        const body = new FormData();
+        body.append('file', file);
+        body.append('date', currentNoteDate);
+        if (title) body.append('title', title);
+        updateNoteAudioStatus('正在上传录音');
+        return fetch('/api/todo/v2/audio-notes', { method: 'POST', body })
+            .then(async response => {
+                const result = await response.json();
+                if (!response.ok || !result.success) throw new Error(result.error || '上传录音失败');
+                updateNoteAudioStatus('录音已进入转写队列');
+                loadNoteAudioRecords(currentNoteDate);
+            })
+            .catch(error => {
+                updateNoteAudioStatus(error.message || '上传录音失败');
+                showAlert('danger', error.message || '上传录音失败');
+            });
+    }
+
+    async function startNoteRecording() {
+        if (!noteSpeechAvailable) {
+            checkNoteAudioHealth();
+            return;
+        }
+        if (noteRecordingNeedsHttps()) {
+            updateNoteHttpsButton();
+            showAlert('warning', getTodoHttpsUrl()
+                ? '浏览器要求 HTTPS 才能录音，请点击锁形按钮转到 HTTPS。'
+                : '浏览器要求 HTTPS 才能录音，请启用 HTTPS 服务。');
+            return;
+        }
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.MediaRecorder) {
+            showAlert('warning', '当前浏览器不支持录音，请上传已有录音');
+            return;
+        }
+        try {
+            await ensureNoteSpeechService();
+            noteAudioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            const preferred = 'audio/webm;codecs=opus';
+            const options = MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(preferred)
+                ? { mimeType: preferred }
+                : undefined;
+            noteAudioChunks = [];
+            noteAudioDiscarding = false;
+            noteLiveEnabledForRecording = Boolean(document.getElementById('noteRealtimeTranscription')?.checked);
+            if (noteLiveEnabledForRecording) {
+                try {
+                    await startNoteLiveTranscription();
+                } catch (error) {
+                    noteLiveEnabledForRecording = false;
+                    showAlert('warning', `实时转写不可用：${error.message || error}。录音停止后仍会自动转写。`);
+                }
+            } else {
+                clearNoteLiveTranscript();
+            }
+            noteAudioRecorder = new MediaRecorder(noteAudioStream, options);
+            noteAudioRecorder.addEventListener('dataavailable', event => {
+                if (event.data && event.data.size) noteAudioChunks.push(event.data);
+            });
+            noteAudioRecorder.addEventListener('stop', () => {
+                const mimeType = noteAudioRecorder?.mimeType || 'audio/webm';
+                const file = new File(
+                    noteAudioChunks,
+                    `recording-${Date.now()}.${audioFileExtension(mimeType)}`,
+                    { type: mimeType }
+                );
+                noteAudioRecorder = null;
+                noteAudioChunks = [];
+                releaseNoteAudioStream();
+                clearNoteAudioTimer();
+                setNoteAudioControls(false, true);
+                const upload = file.size && !noteAudioDiscarding
+                    ? uploadNoteAudio(file, '录音')
+                    : Promise.resolve();
+                Promise.all([upload, stopNoteLiveTranscription()])
+                    .catch(error => console.warn('停止录音收尾失败:', error))
+                    .finally(async () => {
+                        await releaseNoteSpeechService();
+                        setNoteAudioControls(false);
+                    });
+                noteAudioDiscarding = false;
+                noteLiveEnabledForRecording = false;
+            }, { once: true });
+            noteAudioRecorder.start();
+            noteAudioStartedAt = Date.now();
+            updateNoteAudioTimer();
+            noteAudioTimer = setInterval(updateNoteAudioTimer, 500);
+            updateNoteAudioStatus(noteLiveEnabledForRecording ? '录音中，实时转写中' : '录音中');
+            setNoteAudioControls(true);
+        } catch (error) {
+            noteLiveEnabledForRecording = false;
+            stopNoteLiveTranscription().catch(() => {});
+            releaseNoteAudioStream();
+            releaseNoteSpeechService();
+            showAlert('danger', `无法开始录音：${error.message || error}`);
+        }
+    }
+
+    function stopNoteRecording() {
+        if (noteAudioRecorder && noteAudioRecorder.state !== 'inactive') {
+            noteAudioRecorder.stop();
+            updateNoteAudioStatus('正在保存录音');
+        }
+    }
+
+    function retryNoteAudio(recordId) {
+        fetch(`/api/todo/v2/audio-notes/${encodeURIComponent(recordId)}/retry`, { method: 'POST' })
+            .then(response => response.json())
+            .then(result => {
+                if (!result.success) throw new Error(result.error || '重试失败');
+                updateNoteAudioStatus('已重新进入转写队列');
+                loadNoteAudioRecords(currentNoteDate);
+            })
+            .catch(error => showAlert('danger', error.message || '重试失败'));
+    }
+
+    function deleteNoteAudio(recordId) {
+        if (!confirm('删除原始录音？已生成的笔记文本会保留。')) return;
+        fetch(`/api/todo/v2/audio-notes/${encodeURIComponent(recordId)}`, { method: 'DELETE' })
+            .then(response => response.json())
+            .then(result => {
+                if (!result.success) throw new Error(result.error || '删除失败');
+                loadNoteAudioRecords(currentNoteDate);
+            })
+            .catch(error => showAlert('danger', error.message || '删除失败'));
+    }
+
+    function renderAudioTokens(tokens) {
+        const container = document.getElementById('audioTokenList');
+        if (!container) return;
+        container.innerHTML = (tokens || []).map(token => `
+            <div class="todo-audio-token-row">
+                <span class="small flex-grow-1">${escapeHtml(token.label || '未命名设备')}</span>
+                <span class="small text-muted">${token.revoked_at ? '已撤销' : ''}</span>
+                ${token.revoked_at ? '' : `<button type="button" class="btn btn-sm btn-outline-danger" data-token-revoke="${token.id}" title="撤销"><i class="fas fa-ban"></i></button>`}
+            </div>`).join('') || '<p class="small text-muted mb-0">暂无设备令牌</p>';
+        container.querySelectorAll('[data-token-revoke]').forEach(button => {
+            button.addEventListener('click', () => revokeAudioToken(button.dataset.tokenRevoke));
+        });
+    }
+
+    function loadAudioTokens() {
+        fetch('/api/todo/v2/audio-tokens')
+            .then(response => response.json())
+            .then(result => {
+                if (!result.success) throw new Error(result.error || '无法读取设备令牌');
+                renderAudioTokens(result.tokens || []);
+            })
+            .catch(error => {
+                const container = document.getElementById('audioTokenList');
+                if (container) container.innerHTML = `<p class="small text-danger mb-0">${escapeHtml(error.message || '无法读取设备令牌')}</p>`;
+            });
+    }
+
+    function createAudioToken() {
+        const input = document.getElementById('audioTokenLabelInput');
+        const label = input?.value?.trim() || '';
+        fetch('/api/todo/v2/audio-tokens', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ label })
+        })
+        .then(response => response.json())
+        .then(result => {
+            if (!result.success) throw new Error(result.error || '创建设备令牌失败');
+            if (input) input.value = '';
+            const secret = document.getElementById('audioTokenSecret');
+            if (secret) {
+                secret.textContent = result.secret || '';
+                secret.style.display = 'block';
+            }
+            loadAudioTokens();
+        })
+        .catch(error => showAlert('danger', error.message || '创建设备令牌失败'));
+    }
+
+    function revokeAudioToken(tokenId) {
+        if (!confirm('撤销这个设备令牌？')) return;
+        fetch(`/api/todo/v2/audio-tokens/${encodeURIComponent(tokenId)}`, { method: 'DELETE' })
+            .then(response => response.json())
+            .then(result => {
+                if (!result.success) throw new Error(result.error || '撤销失败');
+                loadAudioTokens();
+            })
+            .catch(error => showAlert('danger', error.message || '撤销失败'));
+    }
 
     // 打开笔记模态框
     function openMeetingNoteModal() {
@@ -2794,6 +3653,7 @@
                 document.getElementById('noteDateInput').value = today;
                 currentNoteDate = today;
                 loadNoteByDate(today);
+                checkNoteAudioHealth();
                 bindNoteEvents();
                 return;
             } else {
@@ -2833,6 +3693,7 @@
         
         // 尝试加载今天的笔记
         loadNoteByDate(today);
+        checkNoteAudioHealth();
         
         // 绑定事件
         bindNoteEvents();
@@ -2848,8 +3709,12 @@
     // 重置笔记模态框
     function resetNoteModal() {
         cleanupNoteEditor();
+        cleanupNoteAudio();
         currentNoteDate = null;
         noteOriginalContent = '';
+        noteAudioRecords = [];
+        noteAudioStatuses.clear();
+        renderNoteAudioRecords();
         const previewMode = document.getElementById('notePreviewMode');
         const editMode = document.getElementById('noteEditMode');
         const footer = document.getElementById('noteModalFooter');
@@ -3089,6 +3954,7 @@
                 noteOriginalContent = '';
                 updateNotePreview('');
             });
+        loadNoteAudioRecords(dateStr);
     }
 
     // 更新笔记预览
@@ -3343,6 +4209,7 @@
                 showAlert('success', '笔记保存成功');
                 loadNoteList(); // 刷新列表
                 cancelNoteEdit(); // 退出编辑模式
+                loadNoteByDate(currentNoteDate);
             } else {
                 showAlert('danger', '保存失败：' + (result.error || '未知错误'));
             }
@@ -3434,6 +4301,40 @@
                 }
             };
         }
+
+        const startRecordingBtn = document.getElementById('startNoteRecordingBtn');
+        const stopRecordingBtn = document.getElementById('stopNoteRecordingBtn');
+        const uploadAudioBtn = document.getElementById('uploadNoteAudioBtn');
+        const audioFileInput = document.getElementById('noteAudioFileInput');
+        const openNoteHttpsBtn = document.getElementById('openNoteHttpsBtn');
+        const tokenPanelBtn = document.getElementById('toggleAudioTokenPanelBtn');
+        const createTokenBtn = document.getElementById('createAudioTokenBtn');
+        setupNoteRealtimeToggle();
+        updateNoteHttpsButton();
+        if (startRecordingBtn) startRecordingBtn.onclick = startNoteRecording;
+        if (stopRecordingBtn) stopRecordingBtn.onclick = stopNoteRecording;
+        if (openNoteHttpsBtn) openNoteHttpsBtn.onclick = () => {
+            const url = getTodoHttpsUrl();
+            if (url) window.location.assign(url);
+        };
+        if (uploadAudioBtn && audioFileInput) {
+            uploadAudioBtn.onclick = () => audioFileInput.click();
+            audioFileInput.onchange = () => {
+                const file = audioFileInput.files && audioFileInput.files[0];
+                if (file) uploadNoteAudio(file, file.name.replace(/\.[^.]+$/, ''));
+                audioFileInput.value = '';
+            };
+        }
+        if (tokenPanelBtn) {
+            tokenPanelBtn.onclick = () => {
+                const panel = document.getElementById('audioTokenPanel');
+                if (!panel) return;
+                const isHidden = panel.style.display === 'none';
+                panel.style.display = isHidden ? 'block' : 'none';
+                if (isHidden) loadAudioTokens();
+            };
+        }
+        if (createTokenBtn) createTokenBtn.onclick = createAudioToken;
 
         // 搜索输入框
         const searchInput = document.getElementById('noteSearchInput');
@@ -4898,6 +5799,9 @@
         }
         if (refs.styleTableBtn) {
             refs.styleTableBtn.addEventListener('click', () => switchStyle('table'));
+        }
+        if (refs.styleTimelineBtn) {
+            refs.styleTimelineBtn.addEventListener('click', () => switchStyle('timeline'));
         }
         if (refs.styleReportBtn) {
             refs.styleReportBtn.addEventListener('click', () => switchStyle('report'));

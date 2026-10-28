@@ -1,0 +1,115 @@
+- generic [ref=e1]:
+  - banner "3D 查看工具" [ref=e2]:
+    - generic [ref=e3]:
+      - button "返回文件列表" [ref=e4] [cursor=pointer]:
+        - generic [aria-hidden] [ref=e5]: 
+      - text: 
+      - generic [ref=e7]:
+        - strong [ref=e8]: demo.glb
+        - generic [ref=e9]: GLB · 高级审阅
+    - generic [ref=e10]:
+      - button "打开零件树" [ref=e109] [cursor=pointer]:
+        - generic [aria-hidden] [ref=e110]: 
+      - button "复位视角" [ref=e11] [cursor=pointer]:
+        - generic [aria-hidden] [ref=e12]: 
+      - button "切换线框" [ref=e13] [cursor=pointer]:
+        - generic [aria-hidden] [ref=e14]: 
+      - button "切换网格" [ref=e15] [cursor=pointer]:
+        - generic [aria-hidden] [ref=e16]: 
+      - button "切换坐标轴" [ref=e17] [cursor=pointer]:
+        - generic [aria-hidden] [ref=e18]: 
+      - button "切换背景" [ref=e19] [cursor=pointer]:
+        - generic [aria-hidden] [ref=e20]: 
+      - button "隐藏所有评论" [ref=e21] [cursor=pointer]:
+        - generic [aria-hidden] [ref=e22]: 
+      - button "显示所有评论连线" [ref=e23] [cursor=pointer]:
+        - generic [aria-hidden] [ref=e24]: 
+      - button "切换自动旋转" [ref=e25] [cursor=pointer]:
+        - generic [aria-hidden] [ref=e26]: 
+      - text: 
+      - button "切换全屏" [ref=e27] [cursor=pointer]:
+        - generic [aria-hidden] [ref=e28]: 
+      - button "在模型表面放置评论 (C)" [ref=e111] [cursor=pointer]:
+        - generic [aria-hidden] [ref=e31]: 
+      - button "导出 GLB、STL、3MF 或 STEP 模型" [ref=e112] [cursor=pointer]:
+        - generic [aria-hidden] [ref=e34]: 
+      - button "导出 PDF 或 Word 审阅报告" [ref=e113] [cursor=pointer]:
+        - generic [aria-hidden] [ref=e37]: 
+      - button "打开评论面板" [ref=e114] [cursor=pointer]:
+        - generic [aria-hidden] [ref=e115]: 
+  - main [ref=e39]:
+    - complementary "零件树" [ref=e40]:
+      - generic [ref=e41]:
+        - generic [ref=e42]:
+          - text: 装配体
+          - heading "零件" [level=2] [ref=e43]
+        - generic [ref=e44]:
+          - button "显示全部零件" [ref=e45] [cursor=pointer]:
+            - generic [aria-hidden] [ref=e46]: 
+          - button "关闭零件树" [ref=e116] [cursor=pointer]:
+            - generic [aria-hidden] [ref=e117]: 
+      - generic [ref=e47]: 已识别 2 个节点
+      - tree [ref=e48]:
+        - treeitem [ref=e49]:
+          - button "MainBoard" [ref=e50] [cursor=pointer]
+          - button "解锁整组零件" [disabled] [pressed] [ref=e51] [cursor=pointer]:
+            - generic [aria-hidden] [ref=e52]: 
+          - button "隐藏零件" [ref=e53] [cursor=pointer]:
+            - generic [aria-hidden] [ref=e54]: 
+        - treeitem [ref=e55]:
+          - button "DisplayBoard" [ref=e56] [cursor=pointer]
+          - button "解锁整组零件" [disabled] [pressed] [ref=e57] [cursor=pointer]:
+            - generic [aria-hidden] [ref=e58]: 
+          - button "隐藏零件" [ref=e59] [cursor=pointer]:
+            - generic [aria-hidden] [ref=e60]: 
+    - region "3D 模型画布" [ref=e61]:
+      - application "视角立方体" [ref=e64]
+      - generic [ref=e66]:
+        - generic [ref=e67]: 爆炸视图
+        - slider "爆炸视图" [ref=e68]: "0"
+        - status [ref=e69]: 0%
+    - complementary "评论面板" [ref=e70]:
+      - generic [ref=e71]:
+        - generic [ref=e72]:
+          - text: 模型审阅
+          - heading "评论" [level=2] [ref=e73]
+        - button "关闭评论面板" [ref=e118] [cursor=pointer]:
+          - generic [aria-hidden] [ref=e119]: 
+      - generic [ref=e76]:
+        - generic [aria-hidden] [ref=e77]: 
+        - strong [ref=e78]: 暂无评论
+        - generic [ref=e79]: 在工具栏开启添加模式，然后点击模型表面。
+      - text:      
+  - text:              
+  - dialog [ref=e80]:
+    - generic [ref=e81]:
+      - banner [ref=e82]:
+        - generic [ref=e83]:
+          - text: 模型交付
+          - heading "导出模型" [level=2] [ref=e84]
+        - button "关闭模型导出" [active] [ref=e85] [cursor=pointer]:
+          - generic [aria-hidden] [ref=e86]: 
+      - generic [ref=e87]:
+        - generic [ref=e88]:
+          - generic [ref=e89]: 文件格式
+          - combobox "文件格式" [ref=e90] [cursor=pointer]:
+            - option "GLB"
+            - option "STL"
+            - option "3MF"
+            - option "STEP" [selected]
+        - group "包含的顶层零件" [ref=e91]:
+          - generic [ref=e93] [cursor=pointer]:
+            - checkbox "全部选择" [checked] [ref=e94]
+            - generic [ref=e95]: 全部选择
+          - generic [ref=e96]:
+            - generic [ref=e120] [cursor=pointer]:
+              - checkbox "MainBoard" [checked] [ref=e121]
+              - generic [ref=e122]: MainBoard
+            - generic [ref=e123] [cursor=pointer]:
+              - checkbox "DisplayBoard" [checked] [ref=e124]
+              - generic [ref=e125]: DisplayBoard
+        - status [ref=e103]: 已选择 2/2 个顶层零件
+      - contentinfo [ref=e104]:
+        - button "取消" [ref=e105] [cursor=pointer]
+        - button "导出文件" [ref=e106] [cursor=pointer]:
+          - generic [aria-hidden] [ref=e107]: 

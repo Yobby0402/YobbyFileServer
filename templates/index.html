@@ -12,6 +12,7 @@
     <!-- Theme System -->
     <link rel="stylesheet" href="{{ url_for('static', filename='css/themes.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/app_style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/git_operations.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/github-markdown-light.min.css') }}">
 
     <!-- CodeMirror 编辑器 -->
@@ -1222,6 +1223,12 @@
                                         <i class="fas fa-upload"></i> 上传
                                     </button>
 
+                                    <a class="btn btn-outline-success btn-sm" href="{{ url_for('pcb_assembly_workspace') }}"
+                                        target="_blank" rel="noopener" style="white-space: nowrap;"
+                                        title="打开 PCB 临时接收与简单装配工作区">
+                                        <i class="fas fa-cubes"></i> PCB 装配
+                                    </a>
+
                                     <!-- 搜索框 -->
                                     <div class="input-group" style="max-width: 300px;">
                                         <input type="text" id="searchInput" class="form-control" placeholder="搜索文件...">
@@ -1293,6 +1300,8 @@
                                     {% elif ext in ['py', 'js', 'html', 'css', 'scss', 'php', 'java', 'c', 'cpp', 'cs',
                                     'go', 'rb', 'sh', 'bat', 'sql', 'ts', 'tsx', 'jsx', 'json', 'xml', 'yaml', 'yml'] %}
                                     {% set file_type = 'code' %}
+                                    {% elif ext in ['gltf', 'glb', 'obj', 'stl', 'fbx', 'step', 'stp'] %}
+                                    {% set file_type = 'model' %}
                                     {% endif %}
                                     <li class="file-item" data-type="{{ file_type }}"
                                         data-name="{{ item.name.lower() }}" data-filepath="{{ item.path }}">
@@ -1318,12 +1327,18 @@
                                             <i class="fas fa-file-code" style="color: #007acc;"></i>
                                             {% elif ext in ['mp4', 'mov', 'avi', 'wmv', 'webm'] %}
                                             <i class="fas fa-file-video" style="color: #ff0000;"></i>
+                                            {% elif ext in ['gltf', 'glb', 'obj', 'stl', 'fbx', 'step', 'stp'] %}
+                                            <i class="fas fa-cube" style="color: #2d8f67;"></i>
                                             {% else %}
                                             <i class="fas fa-file" style="color: #6c757d;"></i>
                                             {% endif %}
                                         </span>
+                                        {% if ext in ['gltf', 'glb', 'obj', 'stl', 'fbx', 'step', 'stp'] %}
+                                        <a href="{{ url_for('view_model', filepath=item.path) }}" class="file-link model-viewer-link">{{ item.name }}</a>
+                                        {% else %}
                                         <a href="#" class="file-link preview-trigger" data-filepath="{{ item.path }}">{{
                                             item.name }}</a>
+                                        {% endif %}
                                         <div class="file-actions">
                                             <button class="share-btn" title="分享 {{ item.name }}"
                                                 data-filepath="{{ item.path }}" data-filename="{{ item.name }}">
@@ -1694,6 +1709,7 @@
     <!-- 本地 JS 资源 -->
     <script src="{{ url_for('static', filename='js/jquery-3.6.0.min.js') }}"></script>
     <script src="{{ url_for('static', filename='js/bootstrap.bundle.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/git_operations.js') }}"></script>
     {% include 'partials/local_ai_dock.html' %}
 
     <!-- CodeMirror 核心 -->
@@ -2836,13 +2852,20 @@
                                     } else if (['drawio', 'dio', 'xml'].includes(ext)) {
                                         iconClass = 'fas fa-project-diagram';
                                         iconColor = '#667eea';
+                                    } else if (['gltf', 'glb', 'obj', 'stl', 'fbx', 'step', 'stp'].includes(ext)) {
+                                        iconClass = 'fas fa-cube';
+                                        iconColor = '#2d8f67';
                                     }
-                                    
+
+                                    const isModel = ['gltf', 'glb', 'obj', 'stl', 'fbx', 'step', 'stp'].includes(ext);
+                                    const modelPath = String(item.filepath || '').replace(/\\/g, '/').split('/').map(encodeURIComponent).join('/');
+                                    const linkHref = isModel ? `/view_model/${modelPath}` : '#';
+                                    const linkClass = isModel ? 'file-link model-viewer-link' : 'file-link preview-trigger';
                                     li.innerHTML = `
                                         <span class="file-icon">
                                             <i class="${iconClass}" style="color: ${iconColor};"></i>
                                         </span>
-                                        <a href="#" class="file-link preview-trigger" data-filepath="${item.filepath}">
+                                        <a href="${linkHref}" class="${linkClass}" data-filepath="${item.filepath}">
                                             ${item.remark || item.filepath.split('/').pop()}
                                         </a>
                                     `;
@@ -5171,48 +5194,27 @@
                 alert('未选择仓库');
                 return;
             }
-            
             if (!confirm('确定要拉取远程更改吗？')) return;
-            
-            const btn = document.getElementById('gitPullBtn');
-            const originalHtml = btn.innerHTML;
-            btn.disabled = true;
-            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 拉取中...';
-            
-            fetch('/api/git/pull', {
+
+            const operation = GitOperationFeedback.start({
+                title: '正在拉取',
+                message: '正在获取远程分支并合并最新更改，请稍候…',
+                button: document.getElementById('gitPullBtn'),
+                buttonLabel: '拉取中...'
+            });
+
+            GitOperationFeedback.request('/api/git/pull', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({path: currentGitRepoPath})
-            })
-                .then(response => {
-                    // 检查响应状态
-                    if (!response.ok) {
-                        return response.json().catch(() => {
-                            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-                        });
-                    }
-                    return response.json();
-                })
-                .then(data => {
-                    btn.disabled = false;
-                    btn.innerHTML = originalHtml;
-                    
-                    if (data && data.success) {
-                        alert('拉取成功！');
-                        loadGitRepoStatus();
-                        loadGitRepoFiles(currentGitRepoPath, currentGitRepoFilePath);
-                    } else {
-                        const errorMsg = (data && data.error) ? data.error : (data && data.message) ? data.message : '未知错误';
-                        console.error('拉取失败详情:', data);
-                        alert('拉取失败: ' + errorMsg);
-                    }
-                })
-                .catch(error => {
-                    btn.disabled = false;
-                    btn.innerHTML = originalHtml;
-                    console.error('拉取操作异常:', error);
-                    alert('拉取失败: ' + (error.message || error.toString() || '网络错误或服务器无响应'));
-                });
+            }).then(data => {
+                operation.success('拉取成功', data.message || '远程更改已拉取到当前仓库。');
+                loadGitRepoStatus();
+                loadGitRepoFiles(currentGitRepoPath, currentGitRepoFilePath);
+            }).catch(error => {
+                console.error('拉取失败:', error);
+                operation.error('拉取失败', error);
+            });
         }
         
         // Git操作：推送
@@ -5298,16 +5300,12 @@
                 alert('请输入提交信息');
                 return;
             }
-            
-            // 先提交
-            commitChanges(message).then(success => {
-                if (success) {
-                    // 提交成功后推送
-                    performPush();
-                    // 关闭模态框
-                    const modal = bootstrap.Modal.getInstance(document.getElementById('gitCommitBeforePushModal'));
-                    if (modal) modal.hide();
-                }
+
+            commitChanges(message, true).then(success => {
+                if (!success) return;
+                const modal = bootstrap.Modal.getInstance(document.getElementById('gitCommitBeforePushModal'));
+                if (modal) modal.hide();
+                performPush();
             });
         }
         
@@ -5318,88 +5316,66 @@
                 alert('请输入提交信息');
                 return;
             }
-            
+
             commitChanges(message).then(success => {
-                if (success) {
-                    // 关闭模态框
-                    const modal = bootstrap.Modal.getInstance(document.getElementById('gitCommitBeforePushModal'));
-                    if (modal) modal.hide();
-                    // 刷新状态
-                    loadGitRepoStatus();
-                }
+                if (!success) return;
+                const modal = bootstrap.Modal.getInstance(document.getElementById('gitCommitBeforePushModal'));
+                if (modal) modal.hide();
+                loadGitRepoStatus();
             });
         }
         
         // 提交更改
-        function commitChanges(message) {
-            return fetch('/api/git/commit', {
+        function commitChanges(message, continueWithPush = false) {
+            const operation = GitOperationFeedback.start({
+                title: '正在提交',
+                message: '正在暂存文件并创建本地提交，请稍候…'
+            });
+
+            return GitOperationFeedback.request('/api/git/commit', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({
-                    path: currentGitRepoPath,
-                    message: message
-                })
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data && data.success) {
-                    alert('提交成功！');
-                    loadGitRepoStatus();
-                    return true;
+                body: JSON.stringify({path: currentGitRepoPath, message: message})
+            }).then(data => {
+                loadGitRepoStatus();
+                if (continueWithPush) {
+                    operation.update('提交成功', '本地提交已创建，正在准备推送…');
                 } else {
-                    alert('提交失败: ' + (data.error || '未知错误'));
-                    return false;
+                    const hashText = data.commit_hash ? '提交哈希：' + data.commit_hash : '本地提交已创建。';
+                    operation.success('提交成功', hashText);
                 }
-            })
-            .catch(error => {
+                return true;
+            }).catch(error => {
                 console.error('提交失败:', error);
-                alert('提交失败: ' + error.message);
+                operation.error('提交失败', error);
                 return false;
             });
         }
         
         // 执行推送
         function performPush() {
-            if (!confirm('确定要推送到远程仓库吗？')) return;
-            
-            const btn = document.getElementById('gitPushBtn');
-            const originalHtml = btn.innerHTML;
-            btn.disabled = true;
-            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 推送中...';
-            
-            fetch('/api/git/push', {
+            if (!confirm('确定要推送到远程仓库吗？')) return Promise.resolve(false);
+
+            const operation = GitOperationFeedback.start({
+                title: '正在推送',
+                message: '正在将当前分支推送到远程仓库，请稍候…',
+                button: document.getElementById('gitPushBtn'),
+                buttonLabel: '推送中...'
+            });
+
+            return GitOperationFeedback.request('/api/git/push', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({path: currentGitRepoPath})
-            })
-                .then(response => {
-                    // 检查响应状态
-                    if (!response.ok) {
-                        return response.json().catch(() => {
-                            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-                        });
-                    }
-                    return response.json();
-                })
-                .then(data => {
-                    btn.disabled = false;
-                    btn.innerHTML = originalHtml;
-                    
-                    if (data && data.success) {
-                        alert('推送成功！');
-                        loadGitRepoStatus();
-                    } else {
-                        const errorMsg = (data && data.error) ? data.error : (data && data.message) ? data.message : '未知错误';
-                        console.error('推送失败详情:', data);
-                        alert('推送失败: ' + errorMsg);
-                    }
-                })
-                .catch(error => {
-                    btn.disabled = false;
-                    btn.innerHTML = originalHtml;
-                    console.error('推送操作异常:', error);
-                    alert('推送失败: ' + (error.message || error.toString() || '网络错误或服务器无响应'));
-                });
+            }).then(data => {
+                operation.success('推送成功', data.message || '本地提交已推送到远程仓库。');
+                loadGitRepoStatus();
+                return true;
+            }).catch(error => {
+                console.error('推送失败:', error);
+                operation.error('推送失败', error);
+                return false;
+            });
         }
         
         // Git操作：同步（先拉取再推送）
@@ -5408,73 +5384,33 @@
                 alert('未选择仓库');
                 return;
             }
-            
-            if (!confirm('同步将先拉取远程更改，再推送本地更改。确定继续吗？')) return;
-            
-            const btn = document.getElementById('gitSyncBtn');
-            const originalHtml = btn.innerHTML;
-            btn.disabled = true;
-            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 同步中...';
-            
-            // 先拉取
-            fetch('/api/git/pull', {
+            if (!confirm('同步将先拉取远程更改，再推送本地提交。确定继续吗？')) return;
+
+            const operation = GitOperationFeedback.start({
+                title: '正在同步',
+                message: '第 1/2 步：正在拉取远程更改…',
+                button: document.getElementById('gitSyncBtn'),
+                buttonLabel: '同步中...'
+            });
+            const requestOptions = path => ({
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({path: currentGitRepoPath})
-            })
-                .then(response => {
-                    if (!response.ok) {
-                        return response.json().catch(() => {
-                            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-                        });
-                    }
-                    return response.json();
+                body: JSON.stringify({path: path})
+            });
+
+            GitOperationFeedback.request('/api/git/pull', requestOptions(currentGitRepoPath))
+                .then(() => {
+                    operation.update('正在同步', '第 2/2 步：拉取完成，正在推送本地提交…');
+                    return GitOperationFeedback.request('/api/git/push', requestOptions(currentGitRepoPath));
                 })
                 .then(data => {
-                    if (!data || !data.success) {
-                        btn.disabled = false;
-                        btn.innerHTML = originalHtml;
-                        const errorMsg = (data && data.error) ? data.error : (data && data.message) ? data.message : '未知错误';
-                        console.error('拉取失败详情:', data);
-                        alert('拉取失败: ' + errorMsg);
-                        return;
-                    }
-                    
-                    // 拉取成功后推送
-                    return fetch('/api/git/push', {
-                        method: 'POST',
-                        headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({path: currentGitRepoPath})
-                    });
-                })
-                .then(response => {
-                    if (!response) return null;
-                    if (!response.ok) {
-                        return response.json().catch(() => {
-                            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-                        });
-                    }
-                    return response.json();
-                })
-                .then(data => {
-                    btn.disabled = false;
-                    btn.innerHTML = originalHtml;
-                    
-                    if (data && data.success) {
-                        alert('同步成功！');
-                        loadGitRepoStatus();
-                        loadGitRepoFiles(currentGitRepoPath, currentGitRepoFilePath);
-                    } else if (data) {
-                        const errorMsg = (data && data.error) ? data.error : (data && data.message) ? data.message : '未知错误';
-                        console.error('推送失败详情:', data);
-                        alert('推送失败: ' + errorMsg);
-                    }
+                    operation.success('同步成功', data.message || '远程更改已拉取，本地提交已推送。');
+                    loadGitRepoStatus();
+                    loadGitRepoFiles(currentGitRepoPath, currentGitRepoFilePath);
                 })
                 .catch(error => {
-                    btn.disabled = false;
-                    btn.innerHTML = originalHtml;
-                    console.error('同步操作异常:', error);
-                    alert('同步失败: ' + (error.message || error.toString() || '网络错误或服务器无响应'));
+                    console.error('同步失败:', error);
+                    operation.error('同步失败', error);
                 });
         }
         
@@ -6227,43 +6163,36 @@
 
         function gitPull() {
             if (!confirm('确定要从远程拉取更新吗？')) return;
-            
-            fetch('/api/git/pull', {
+            const operation = GitOperationFeedback.start({
+                title: '正在拉取',
+                message: '正在获取并合并远程更新，请稍候…',
+                buttonLabel: '拉取中...'
+            });
+            GitOperationFeedback.request('/api/git/pull', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ path: currentGitPath })
-            })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.success) {
-                        alert('拉取成功！');
-                        refreshGitStatus();
-                        location.reload();
-                    } else {
-                        alert('拉取失败: ' + data.error);
-                    }
-                })
-                .catch(error => alert('操作失败: ' + error));
+            }).then(data => {
+                operation.success('拉取成功', data.message || '远程更新已拉取。');
+                refreshGitStatus();
+            }).catch(error => operation.error('拉取失败', error));
         }
 
         function gitPush() {
             if (!confirm('确定要推送到远程仓库吗？')) return;
-            
-            fetch('/api/git/push', {
+            const operation = GitOperationFeedback.start({
+                title: '正在推送',
+                message: '正在将当前分支推送到远程仓库，请稍候…',
+                buttonLabel: '推送中...'
+            });
+            GitOperationFeedback.request('/api/git/push', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ path: currentGitPath })
-            })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.success) {
-                        alert('推送成功！');
-                        refreshGitStatus();
-                    } else {
-                        alert('推送失败: ' + data.error);
-                    }
-                })
-                .catch(error => alert('操作失败: ' + error));
+            }).then(data => {
+                operation.success('推送成功', data.message || '本地提交已推送。');
+                refreshGitStatus();
+            }).catch(error => operation.error('推送失败', error));
         }
 
         function gitCommit() {
@@ -6272,25 +6201,23 @@
                 alert('请输入提交信息');
                 return;
             }
-            
             if (!confirm('确定要提交更改吗？')) return;
-            
-            fetch('/api/git/commit', {
+
+            const operation = GitOperationFeedback.start({
+                title: '正在提交',
+                message: '正在暂存文件并创建本地提交，请稍候…',
+                buttonLabel: '提交中...'
+            });
+            GitOperationFeedback.request('/api/git/commit', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ path: currentGitPath, message: message })
-            })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.success) {
-                        alert('提交成功！提交哈希: ' + (data.commit_hash || ''));
-                        document.getElementById('gitCommitMessage').value = '';
-                        refreshGitStatus();
-                    } else {
-                        alert('提交失败: ' + data.error);
-                    }
-                })
-                .catch(error => alert('操作失败: ' + error));
+            }).then(data => {
+                const hashText = data.commit_hash ? '提交哈希：' + data.commit_hash : '本地提交已创建。';
+                operation.success('提交成功', hashText);
+                document.getElementById('gitCommitMessage').value = '';
+                refreshGitStatus();
+            }).catch(error => operation.error('提交失败', error));
         }
 
         function showGitTagModal() {

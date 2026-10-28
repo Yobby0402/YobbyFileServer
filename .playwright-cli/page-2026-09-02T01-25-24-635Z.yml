@@ -1,0 +1,85 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - banner [ref=e3]:
+      - heading "ToDo 任务管理" [level=1] [ref=e4]
+      - generic [ref=e5]:
+        - generic [ref=e7]:
+          - generic [ref=e8]:
+            - generic [ref=e9]: 
+            - text: 数据文件
+          - textbox "默认使用todo_v2文件" [ref=e10]
+          - button " 选择文件" [ref=e11] [cursor=pointer]:
+            - generic [ref=e12]: 
+            - text: 选择文件
+          - button " 重置" [ref=e13] [cursor=pointer]:
+            - generic [ref=e14]: 
+            - text: 重置
+        - generic [ref=e16]:
+          - generic [ref=e17]:
+            - generic [ref=e18]: 搜索
+            - textbox "项目名称 / 任务简述 / 描述" [ref=e19]
+          - generic [ref=e20]:
+            - generic [ref=e21]:
+              - generic [ref=e22]: 字体大小：
+              - slider [ref=e23]: "14"
+              - generic [ref=e24]: "14"
+              - generic [ref=e25]: px
+            - group "显示风格切换" [ref=e27]:
+              - button " 卷轴" [ref=e28] [cursor=pointer]:
+                - generic [ref=e29]: 
+                - text: 卷轴
+              - button " 表格" [ref=e30] [cursor=pointer]:
+                - generic [ref=e31]: 
+                - text: 表格
+              - button " 时间轴" [ref=e32] [cursor=pointer]:
+                - generic [ref=e33]: 
+                - text: 时间轴
+              - button " 汇报" [ref=e34] [cursor=pointer]:
+                - generic [ref=e35]: 
+                - text: 汇报
+            - button "+ 新建项目" [ref=e36] [cursor=pointer]:
+              - generic [ref=e37]: +
+              - text: 新建项目
+            - button " 导出Excel" [ref=e38] [cursor=pointer]:
+              - generic [ref=e39]: 
+              - text: 导出Excel
+            - button " 已归档项目 7" [ref=e40] [cursor=pointer]:
+              - generic [ref=e41]: 
+              - text: 已归档项目
+              - generic [ref=e42]: "7"
+            - text:  
+            - generic [ref=e43]: 后门模式
+    - text: 
+    - main [ref=e44]:
+      - text: +                                                          +                                                                                                                      +                                                 +                                                         +                      
+      - generic [ref=e45]:
+        - generic [ref=e46]:
+          - generic [ref=e47]:
+            - heading "进行中任务时间轴" [level=2] [ref=e48]
+            - paragraph [ref=e49]: 按创建时间与预计完成时间展示任务跨度
+          - generic [ref=e50]:
+            - generic [ref=e51]: 
+            - text: 自动缩放，长周期可横向滚动
+        - generic [ref=e52]:
+          - generic [ref=e53]: 
+          - paragraph [ref=e54]: 暂无进行中的任务
+      - text: 
+  - text:  +       +       + +           
+  - generic [ref=e55]:
+    - button " 本地 AI" [ref=e56] [cursor=pointer]:
+      - generic [ref=e57]: 
+      - generic: 本地 AI
+    - button "切换主题" [ref=e58] [cursor=pointer]:
+      - generic [aria-hidden] [ref=e59]: 
+    - link "🏠 返回主界面" [ref=e60] [cursor=pointer]:
+      - /url: /
+      - text: 🏠
+      - generic: 返回主界面
+    - button "📝 会议记录" [ref=e61] [cursor=pointer]:
+      - text: 📝
+      - generic: 会议记录
+    - button "📊 日报 / 周报" [ref=e62] [cursor=pointer]:
+      - text: 📊
+      - generic: 日报 / 周报
+  - text: 
+  - tooltip

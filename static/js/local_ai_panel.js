@@ -1396,6 +1396,8 @@
 
     async function refreshStatus() {
         var el = $('localAiStatusLine');
+        var chatModelEl = $('localAiChatModel');
+        var embedModelEl = $('localAiEmbedModel');
         var ramFill = $('localAiRamFill');
         var ramCap = $('localAiRamCaption');
         var ramTrack = $('localAiRamTrack');
@@ -1412,12 +1414,21 @@
             }
             var bits = [
                 j.loaded ? 'LM Studio 已连接' : 'LM Studio 未连接',
-                j.model_id ? '模型 ' + j.model_id : '模型未选择',
                 j.api_base_url ? j.api_base_url : 'API 未配置',
             ];
             if (j.gpu_name) bits.push(j.gpu_name);
             if (!j.loaded && j.load_error) bits.push(j.load_error);
             if (el) el.textContent = bits.join(' · ');
+            if (chatModelEl) {
+                var chatModel = String(j.model_id || j.configured_model || '未加载');
+                chatModelEl.textContent = chatModel;
+                chatModelEl.title = chatModel;
+            }
+            if (embedModelEl) {
+                var embedModel = String((j.embedding && j.embedding.model) || '未配置');
+                embedModelEl.textContent = embedModel;
+                embedModelEl.title = embedModel;
+            }
 
             var ramPct = j.ram_percent;
             if ((ramPct == null || ramPct === '') && j.ram_total_mb > 0) {
@@ -1480,12 +1491,23 @@
             if (!raw) return;
             var r = JSON.parse(raw);
             if (typeof r.left !== 'number' || typeof r.top !== 'number') return;
-            panel.style.left = r.left + 'px';
-            panel.style.top = r.top + 'px';
+            var maxWidth = Math.max(280, window.innerWidth - 16);
+            var maxHeight = Math.max(260, window.innerHeight - 16);
+            if (typeof r.width === 'number' && r.width >= 260) {
+                panel.style.width = Math.min(r.width, maxWidth) + 'px';
+            }
+            if (typeof r.height === 'number' && r.height >= 240) {
+                panel.style.height = Math.min(r.height, maxHeight) + 'px';
+            }
+            var rect = panel.getBoundingClientRect();
+            var panelWidth = rect.width || Math.min(Number.parseFloat(panel.style.width) || 420, maxWidth);
+            var panelHeight = rect.height || Math.min(Number.parseFloat(panel.style.height) || 540, maxHeight);
+            var maxLeft = Math.max(8, window.innerWidth - panelWidth - 8);
+            var maxTop = Math.max(8, window.innerHeight - panelHeight - 8);
+            panel.style.left = Math.min(Math.max(8, r.left), maxLeft) + 'px';
+            panel.style.top = Math.min(Math.max(8, r.top), maxTop) + 'px';
             panel.style.right = 'auto';
             panel.style.bottom = 'auto';
-            if (typeof r.width === 'number' && r.width >= 260) panel.style.width = r.width + 'px';
-            if (typeof r.height === 'number' && r.height >= 240) panel.style.height = r.height + 'px';
         } catch (e) {}
     }
 
@@ -1587,6 +1609,7 @@
             mcp: '工具处理中',
             model_loading: '模型加载中',
             prompt_processing: '提示词处理中',
+            reasoning: '推理中',
             generating: '生成回答中',
             planning: '规划处理中',
             completed: '处理完成',
@@ -1661,6 +1684,21 @@
         wrap.appendChild(inner);
         renderAssistantMarkdown(inner, rawText);
         return inner;
+    }
+
+    function appendReasoningDetails(wrap, rawText) {
+        var text = String(rawText || '').trim();
+        if (!wrap || !text) return;
+        var details = document.createElement('details');
+        details.className = 'local-ai-reasoning';
+        var summary = document.createElement('summary');
+        summary.textContent = '推理过程（' + text.length + ' 字）';
+        var body = document.createElement('div');
+        body.className = 'local-ai-reasoning-body';
+        body.textContent = text;
+        details.appendChild(summary);
+        details.appendChild(body);
+        wrap.appendChild(details);
     }
 
     function replaceLoadingBubbleWithPlainText(wrap, rawText) {
@@ -1741,6 +1779,8 @@
         var assistantEl = loadingRefs ? loadingRefs.wrap : appendMsg('assistant', '');
         var inner = assistantMarkdownRoot(assistantEl);
         var full = '';
+        var reasoning = '';
+        var activeModel = '';
         var progressChars = 0;
         var progressPhase = 'requesting';
         var progressMessage = '正在发起请求…';
@@ -1820,7 +1860,12 @@
         function finalizeAssistantBubble(rawText) {
             if (!assistantEl || !assistantEl.parentNode) return;
             window.clearInterval(tick);
-            inner = replaceLoadingBubbleWithMarkdown(assistantEl, rawText || '');
+            assistantEl.innerHTML = '';
+            appendReasoningDetails(assistantEl, reasoning);
+            inner = document.createElement('div');
+            inner.className = 'local-ai-md markdown-body';
+            assistantEl.appendChild(inner);
+            renderAssistantMarkdown(inner, rawText || '');
             loadingRemoved = true;
         }
 
@@ -1836,6 +1881,18 @@
                     );
                     renderStreamingAssistantBubble(full);
                     setPhase('generating', '正在生成回答…', progressPercent);
+                } else if (e.event === 'reasoning' && e.data && e.data.t) {
+                    reasoning += e.data.t;
+                    progressChars = Math.max(progressChars, reasoning.length);
+                    setPhase('reasoning', '模型正在推理（已接收 ' + reasoning.length + ' 字）', 66);
+                } else if (e.event === 'model_instance' && e.data && e.data.model) {
+                    activeModel = String(e.data.model);
+                    var modelEl = $('localAiChatModel');
+                    if (modelEl) {
+                        modelEl.textContent = activeModel;
+                        modelEl.title = activeModel;
+                    }
+                    setRunStatus('本轮模型：' + activeModel);
                 } else if (e.event === 'meta' && e.data) {
                     if (e.data.trace_id) {
                         window._localAiLastTraceId = String(e.data.trace_id);
@@ -1939,7 +1996,9 @@
             window.clearInterval(tick);
         }
         if (!loadingRemoved && !String(full || '').trim()) {
-            full = '（本次请求未返回可展示文本）';
+            full = reasoning.trim()
+                ? '（模型只返回了推理内容，未返回最终答案。请检查 LM Studio 的模型模板和最大输出 token 设置。）'
+                : '（本次请求未返回可展示文本。请确认本轮模型已在 LM Studio 中加载。）';
         }
         if (assistantEl && assistantEl.parentNode) {
             finalizeAssistantBubble(full);

@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
+    {% include '_theme_bootstrap.html' %}
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ToDo 任务管理 - Yobboy 文件服务器</title>
@@ -10,6 +11,7 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/themes.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/app_style.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/todo_v2.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/todo_v2_timeline.css') }}">
     <!-- GitHub Markdown 样式 -->
     <link rel="stylesheet" href="{{ url_for('static', filename='css/github-markdown-light.min.css') }}">
     <!-- CodeMirror 编辑器样式 -->
@@ -103,20 +105,8 @@
             background-color: #f6f8fa;
         }
     </style>
-    <script>
-        (function() {
-            const savedTheme = localStorage.getItem('site_theme') || 'jasmine';
-            if (document.body) {
-                document.body.setAttribute('data-theme', savedTheme);
-            } else {
-                document.addEventListener('DOMContentLoaded', function() {
-                    document.body.setAttribute('data-theme', savedTheme);
-                });
-            }
-        })();
-    </script>
 </head>
-<body class="jasmine-body" data-direct-access="{{ 'true' if direct_access else 'false' }}">
+<body data-direct-access="{{ 'true' if direct_access else 'false' }}" data-todo-https-url="{{ todo_https_url }}">
     <div class="todo-v2-page container-fluid">
         <header class="todo-header">
             <h1 class="page-title">ToDo 任务管理</h1>
@@ -157,6 +147,9 @@
                                 </button>
                                 <button type="button" class="btn btn-sm btn-outline-info style-btn" data-style="table" id="styleTableBtn">
                                     <i class="fas fa-table"></i> 表格
+                                </button>
+                                <button type="button" class="btn btn-sm btn-outline-info style-btn" data-style="timeline" id="styleTimelineBtn">
+                                    <i class="fas fa-stream"></i> 时间轴
                                 </button>
                                 <button type="button" class="btn btn-sm btn-outline-info style-btn" data-style="report" id="styleReportBtn">
                                     <i class="fas fa-file-alt"></i> 汇报
@@ -233,6 +226,22 @@
                 <div id="tableEmptyMessage" class="empty-message" style="display: none;">
                     <i class="fas fa-inbox"></i>
                     <p>暂无数据或筛选结果为空</p>
+                </div>
+            </div>
+
+            <!-- 时间轴风格显示区域 -->
+            <div id="timelineStyleContainer" class="style-container timeline-style" style="display: none;">
+                <div class="timeline-heading">
+                    <div>
+                        <h2>进行中任务时间轴</h2>
+                        <p id="timelineRangeText">按创建时间与预计完成时间展示任务跨度</p>
+                    </div>
+                    <span class="timeline-hint"><i class="fas fa-arrows-alt-h"></i> 自动缩放，长周期可横向滚动</span>
+                </div>
+                <div id="timelineViewport" class="timeline-viewport" tabindex="0" aria-label="进行中任务时间轴，可横向滚动"></div>
+                <div id="timelineEmptyMessage" class="empty-message" style="display: none;">
+                    <i class="fas fa-stream"></i>
+                    <p>暂无进行中的任务</p>
                 </div>
             </div>
 
@@ -621,6 +630,50 @@
                             <div class="mb-3">
                                 <label class="form-label">日期</label>
                                 <input type="date" class="form-control" id="noteDateInput" required>
+                            </div>
+
+                            <div class="todo-audio-panel mb-3" aria-live="polite">
+                                <div class="todo-audio-toolbar">
+                                    <div class="btn-group btn-group-sm" role="group" aria-label="语音记录">
+                                        <button type="button" class="btn btn-outline-danger" id="startNoteRecordingBtn" title="开始录音">
+                                            <i class="fas fa-microphone"></i>
+                                        </button>
+                                        <button type="button" class="btn btn-outline-danger" id="stopNoteRecordingBtn" title="停止录音" disabled>
+                                            <i class="fas fa-stop"></i>
+                                        </button>
+                                        <button type="button" class="btn btn-outline-secondary" id="uploadNoteAudioBtn" title="上传录音">
+                                            <i class="fas fa-upload"></i>
+                                        </button>
+                                        <button type="button" class="btn btn-outline-primary" id="openNoteHttpsBtn" title="转到 HTTPS 录音" hidden>
+                                            <i class="fas fa-lock"></i>
+                                        </button>
+                                        <input type="file" id="noteAudioFileInput" accept="audio/wav,audio/mpeg,audio/mp4,audio/flac,audio/ogg,audio/webm,.opus" hidden>
+                                    </div>
+                                    <span class="todo-audio-timer" id="noteAudioTimer">00:00</span>
+                                    <div class="form-check form-switch todo-audio-realtime-toggle">
+                                        <input class="form-check-input" type="checkbox" role="switch" id="noteRealtimeTranscription">
+                                        <label class="form-check-label small" for="noteRealtimeTranscription">实时转写</label>
+                                    </div>
+                                    <label class="small text-muted mb-0" for="noteRealtimeMaxSeconds">最长</label>
+                                    <input type="number" class="form-control form-control-sm todo-audio-max-duration" id="noteRealtimeMaxSeconds" min="5" max="60" step="1" value="15" title="实时转写单段最长秒数">
+                                    <span class="small text-muted">秒</span>
+                                    <span class="small text-muted" id="noteAudioStatus">语音服务检查中</span>
+                                    <button type="button" class="btn btn-sm btn-outline-secondary ms-auto" id="toggleAudioTokenPanelBtn" title="外部设备令牌">
+                                        <i class="fas fa-key"></i>
+                                    </button>
+                                </div>
+                                <div id="noteLiveTranscript" class="todo-live-transcript" style="display: none;"></div>
+                                <div id="noteAudioList" class="todo-audio-list"></div>
+                                <div id="audioTokenPanel" class="todo-audio-token-panel" style="display: none;">
+                                    <div class="input-group input-group-sm">
+                                        <input type="text" class="form-control" id="audioTokenLabelInput" maxlength="120" placeholder="设备名称">
+                                        <button type="button" class="btn btn-outline-primary" id="createAudioTokenBtn" title="创建设备令牌">
+                                            <i class="fas fa-plus"></i>
+                                        </button>
+                                    </div>
+                                    <pre id="audioTokenSecret" class="todo-audio-secret" style="display: none;"></pre>
+                                    <div id="audioTokenList" class="todo-audio-token-list"></div>
+                                </div>
                             </div>
                             
                             <!-- 预览模式 -->
@@ -1102,6 +1155,7 @@
     <script src="{{ url_for('static', filename='libs/codemirror/mode/markdown/markdown.js') }}"></script>
     <!-- Marked.js 用于前端实时渲染Markdown -->
     <script src="{{ url_for('static', filename='libs/marked/marked.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/todo_v2_timeline.js') }}"></script>
     <script src="{{ url_for('static', filename='js/todo_v2.js') }}"></script>
     <script src="{{ url_for('static', filename='js/todo_v2_export.js') }}"></script>
     <script src="{{ url_for('static', filename='js/theme_floater.js') }}"></script>

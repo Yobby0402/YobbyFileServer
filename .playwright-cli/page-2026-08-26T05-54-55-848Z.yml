@@ -1,0 +1,162 @@
+- generic [ref=e1]:
+  - generic [ref=e2]:
+    - banner [ref=e3]:
+      - heading "ToDo 任务管理" [level=1] [ref=e4]
+      - generic [ref=e5]:
+        - generic [ref=e7]:
+          - generic [ref=e8]:
+            - generic [ref=e9]: 
+            - text: 数据文件
+          - textbox "默认使用todo_v2文件" [ref=e10]
+          - button " 选择文件" [ref=e11] [cursor=pointer]:
+            - generic [ref=e12]: 
+            - text: 选择文件
+          - button " 重置" [ref=e13] [cursor=pointer]:
+            - generic [ref=e14]: 
+            - text: 重置
+        - generic [ref=e16]:
+          - generic [ref=e17]:
+            - generic [ref=e18]: 搜索
+            - textbox "项目名称 / 任务简述 / 描述" [ref=e19]
+          - generic [ref=e20]:
+            - generic [ref=e21]:
+              - generic [ref=e22]: 字体大小：
+              - slider [ref=e23]: "14"
+              - generic [ref=e24]: "14"
+              - generic [ref=e25]: px
+            - group "显示风格切换" [ref=e27]:
+              - button " 卷轴" [ref=e28] [cursor=pointer]:
+                - generic [ref=e29]: 
+                - text: 卷轴
+              - button " 表格" [ref=e30] [cursor=pointer]:
+                - generic [ref=e31]: 
+                - text: 表格
+              - button " 时间轴" [ref=e32] [cursor=pointer]:
+                - generic [ref=e33]: 
+                - text: 时间轴
+              - button " 汇报" [ref=e34] [cursor=pointer]:
+                - generic [ref=e35]: 
+                - text: 汇报
+            - button "+ 新建项目" [ref=e36] [cursor=pointer]:
+              - generic [ref=e37]: +
+              - text: 新建项目
+            - button " 导出Excel" [ref=e38] [cursor=pointer]:
+              - generic [ref=e39]: 
+              - text: 导出Excel
+            - button " 已归档项目 7" [ref=e40] [cursor=pointer]:
+              - generic [ref=e41]: 
+              - text: 已归档项目
+              - generic [ref=e42]: "7"
+            - text:  
+            - generic [ref=e43]: 后门模式
+    - text: 
+    - main [ref=e44]:
+      - text: +                                                          +                                                                                                                 +                                                 +                                                         +                      
+      - generic [ref=e45]:
+        - generic [ref=e46]:
+          - generic [ref=e47]:
+            - heading "进行中任务时间轴" [level=2] [ref=e48]
+            - paragraph [ref=e49]: 2026-07-29 至 2026-08-26 · 1 个进行中任务
+          - generic [ref=e50]:
+            - generic [ref=e51]: 
+            - text: 自动缩放，长周期可横向滚动
+        - generic "进行中任务时间轴，可横向滚动" [ref=e52]:
+          - generic [ref=e86]:
+            - generic [ref=e87]:
+              - generic [ref=e88]: 项目 / 任务
+              - generic [ref=e89]:
+                - generic [ref=e90]: 2026-07-29
+                - generic [ref=e91]: 2026-07-31
+                - generic [ref=e92]: 2026-08-02
+                - generic [ref=e93]: 2026-08-04
+                - generic [ref=e94]: 2026-08-06
+                - generic [ref=e95]: 2026-08-08
+                - generic [ref=e96]: 2026-08-10
+                - generic [ref=e97]: 2026-08-12
+                - generic [ref=e98]: 2026-08-14
+                - generic [ref=e99]: 2026-08-16
+                - generic [ref=e100]: 2026-08-18
+                - generic [ref=e101]: 2026-08-20
+                - generic [ref=e102]: 2026-08-22
+                - generic [ref=e103]: 2026-08-24
+                - generic [ref=e104]: 2026-08-26
+            - generic: 今天
+            - generic [ref=e105]:
+              - generic [ref=e107]:
+                - strong [ref=e109]: "1204"
+                - generic [ref=e110]: ES1阶段
+                - generic [ref=e111]: 1 项
+              - generic [ref=e112]:
+                - generic "单板1204调研" [ref=e113]: 0%
+                - button "单板1204调研，2026-07-29 至 2026-07-31，进度 0%" [ref=e117] [cursor=pointer]:
+                  - generic [ref=e119]: 单板1204调研
+                  - generic [ref=e120]: 3天
+        - text: 
+      - text: 
+  - text:  +         + +           
+  - generic [ref=e78]:
+    - button " 本地 AI" [active] [ref=e79] [cursor=pointer]:
+      - generic [ref=e80]: 
+      - generic: 本地 AI
+    - button "切换主题" [ref=e81] [cursor=pointer]:
+      - generic [ref=e82]: 
+    - link "🏠 返回主界面" [ref=e83] [cursor=pointer]:
+      - /url: /
+      - text: 🏠
+      - generic: 返回主界面
+    - button "📝 会议记录" [ref=e84] [cursor=pointer]:
+      - text: 📝
+      - generic: 会议记录
+    - button "📊 日报 / 周报" [ref=e85] [cursor=pointer]:
+      - text: 📊
+      - generic: 日报 / 周报
+  - dialog "本地 AI 对话" [ref=e122]:
+    - generic "拖动移动窗口" [ref=e123]:
+      - generic [ref=e124]:
+        - generic [ref=e125]: 
+        - text: 本地 AI
+      - generic [ref=e126]:
+        - button "↺" [ref=e127] [cursor=pointer]
+        - button "×" [ref=e128] [cursor=pointer]
+    - generic [ref=e129]:
+      - generic [ref=e130]: 未登录或状态不可用
+      - generic "当前模型" [ref=e131]:
+        - generic [ref=e132]: 对话
+        - generic [ref=e133]: 未确定
+        - generic [ref=e134]: Embedding
+        - generic [ref=e135]: 未配置
+      - generic [ref=e136]: 对话状态：空闲
+      - generic [ref=e137]:
+        - generic [ref=e138]: 内存
+        - progressbar [ref=e139]
+        - generic [ref=e140]: —
+    - generic [ref=e141]:
+      - generic "连接与模型选择在桌面设置的 LM Studio 配置中完成" [ref=e142]: 由桌面设置管理连接
+      - button "知识库管理" [ref=e143] [cursor=pointer]
+      - button "待执行操作" [ref=e144] [cursor=pointer]
+      - button "清历史" [ref=e145] [cursor=pointer]
+    - generic [ref=e147]:
+      - generic [ref=e148]: MCP 调用记录
+      - generic [ref=e149]:
+        - button "展开" [ref=e150] [cursor=pointer]
+        - button "清空" [ref=e151] [cursor=pointer]
+    - group "对话模式" [ref=e155]:
+      - button "通用" [ref=e156] [cursor=pointer]
+      - button "知识库" [ref=e157] [cursor=pointer]
+      - button "待办" [ref=e158] [cursor=pointer]
+      - button "ERP" [ref=e159] [cursor=pointer]
+    - generic [ref=e160]:
+      - textbox "输入消息… (Enter 发送，Shift+Enter 换行)" [ref=e161]
+      - button "发送" [ref=e162] [cursor=pointer]
+  - tooltip "1204 单板1204调研 时间 2026-07-29 → 2026-07-31 进度 0% 优先级 3 需要调研板载天线与板载MEMS麦克风物料 点击可编辑任务":
+    - generic: "1204"
+    - generic: 单板1204调研
+    - generic:
+      - generic: 时间
+      - strong: 2026-07-29 → 2026-07-31
+      - generic: 进度
+      - strong: 0%
+      - generic: 优先级
+      - strong: "3"
+    - generic: 需要调研板载天线与板载MEMS麦克风物料
+    - generic: 点击可编辑任务

@@ -222,7 +222,7 @@ def copy_resources():
         return False
     
     # 需要复制的文件夹
-    folders_to_copy = ['static', 'templates']
+    folders_to_copy = ['static', 'templates', 'speech_service']
     optional_folders_to_copy = ['AI/skills']
     
     # 需要复制的文件（根目录资源 + MCP 运行时脚本）
@@ -250,7 +250,9 @@ def copy_resources():
             dst_folder = dist_path / folder_name
             if dst_folder.exists():
                 shutil.rmtree(dst_folder)
-            shutil.copytree(src_folder, dst_folder)
+            ignore = shutil.ignore_patterns('.venv', '__pycache__', '*.pyc', '*.pyo') \
+                if folder_name == 'speech_service' else None
+            shutil.copytree(src_folder, dst_folder, ignore=ignore)
             log(f'[OK] 已复制文件夹: {folder_name}')
             copied_count += 1
         else:
@@ -329,7 +331,9 @@ def verify_dist_resources(include_external_mcp_exe=False):
         Path('dist/yobboy_file_server/knowledge_job_manager.py'),
         Path('dist/yobboy_file_server/knowledge_store.py'),
         Path('dist/yobboy_file_server/local_ai_paths.py'),
+        Path('dist/yobboy_file_server/resources/model_review_3d_template.docx'),
         Path('dist/yobboy_file_server/todo_manager.py'),
+        Path('dist/speech_service/launcher.py'),
     ]
     erp_paths = [
         Path('templates/local_erp.html'),

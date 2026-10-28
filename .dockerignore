@@ -1,0 +1,4 @@
+# The Compose service bind-mounts the project at runtime. The image needs only
+# dependency metadata, so do not send source, models, archives, or local data.
+*
+!requirements.txt

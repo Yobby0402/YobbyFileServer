@@ -5,7 +5,7 @@
         { id: "forest", label: "雾林灰绿" },
         { id: "sunset", label: "暖砂橙" },
         { id: "lavender", label: "雾紫灰" },
-        { id: "graphite", label: "石墨银灰" }
+        { id: "graphite", label: "深海石墨" }
     ];
 
     const MORPH_STYLES = [
@@ -162,7 +162,7 @@
             width: 50px;
             height: 50px;
             border-radius: 50%;
-            background: color-mix(in srgb, var(--t-bg-panel-opaque) 88%, white);
+            background: color-mix(in srgb, var(--t-bg-panel-opaque) 90%, white);
             color: var(--t-text-main);
             border: 1px solid var(--t-border);
             box-shadow: 0 10px 24px rgba(75, 75, 69, 0.08);
@@ -177,7 +177,7 @@
         }
         .theme-btn:hover {
             transform: translateY(-1px);
-            background: color-mix(in srgb, var(--t-primary-faint) 76%, white);
+            background: color-mix(in srgb, var(--t-primary-faint) 72%, white);
             box-shadow: 0 14px 28px rgba(75, 75, 69, 0.1);
         }
         .theme-menu {

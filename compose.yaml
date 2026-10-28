@@ -1,0 +1,33 @@
+services:
+  yobboy-file-server:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "${YFS_PORT:-5001}:5001"
+      - "${YFS_HTTPS_PORT:-5002}:${YFS_HTTPS_PORT:-5002}"
+    volumes:
+      # Source is mounted for daily development: code changes do not rebuild the image.
+      - .:/app
+      # Keep application data outside the container lifecycle.
+      - "${YFS_DATA_DIR:-./data}:/app/data"
+      - "${YFS_ROOT_DIR:-./workspace}:/workspace"
+      - "${YFS_LOG_DIR:-./logs}:/app/logs"
+      - ./docker/config.ini:/app/config.ini
+    command: ["python", "main.py", "run"]
+    depends_on:
+      - speech-service
+
+  speech-service:
+    build:
+      context: ./speech_service
+    restart: unless-stopped
+    gpus: all
+    environment:
+      TODO_SPEECH_MODEL_CACHE: /models
+      TODO_SPEECH_DEVICE: cuda:0
+      TODO_SPEECH_STATUS_FILE: /data/todos/speech_service_status.json
+      MODELSCOPE_OFFLINE: "1"
+      HF_HUB_OFFLINE: "1"
+    volumes:
+      - "${YFS_SPEECH_MODELS_DIR}:/models:ro"
+      - "${YFS_DATA_DIR:-./data}:/data"

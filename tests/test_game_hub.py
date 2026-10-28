@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import sqlite3
+
 import pytest
 
 import yobboy_file_server.game_hub as game_hub_module
@@ -105,3 +107,20 @@ def test_grant_score_compensation_rejects_non_positive_amount(tmp_path, monkeypa
 
     with pytest.raises(ValueError, match="补偿积分必须大于 0"):
         store.grant_score_compensation("player-1", 0)
+
+
+def test_leaderboards_include_all_time_total_across_weeks(tmp_path, monkeypatch):
+    db_path = tmp_path / "game_hub.sqlite3"
+    monkeypatch.setattr(game_hub_module, "games_db_path", lambda: str(db_path))
+    store = GameHubStore()
+
+    store.record_score("player-1", "2048", 100, session_key="p1")
+    store.record_score("player-2", "2048", 250, session_key="p2")
+    with sqlite3.connect(db_path) as conn:
+        conn.execute("UPDATE game_scores SET week_key = '2026-W01' WHERE ip = 'player-2'")
+
+    leaderboard = store.leaderboards(limit=10)
+
+    assert [entry["ip"] for entry in leaderboard["all_time_total"]] == ["player-2", "player-1"]
+    assert leaderboard["all_time_total"][0]["total_score"] == 250
+    assert [entry["ip"] for entry in leaderboard["weekly_total"]] == ["player-1"]

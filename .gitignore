@@ -13,6 +13,10 @@ dist-*/
 build/
 *.egg
 
+# 本地依赖安装包与发布压缩包
+/speech_service/wheels/
+/dist.zip
+
 # IDE
 .vscode/
 .idea/
@@ -40,6 +44,7 @@ build/
 
 # 配置文件（本地配置）
 config.ini
+.env
 
 # 数据库
 *.db

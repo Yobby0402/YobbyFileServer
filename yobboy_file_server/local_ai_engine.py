@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 import threading
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -16,6 +17,7 @@ _backend: str = "none"  # none | lm_studio_api
 _load_error: Optional[str] = None
 _api_root: Optional[str] = None
 _active_model: Optional[str] = None
+_probe_cache: Dict[str, Any] = {"key": None, "ts": 0.0, "ttl": 0.0, "result": None}
 
 
 def _normalize_base_url(raw: str) -> str:
@@ -144,8 +146,11 @@ def _http_json(method: str, url: str, body: Optional[Dict[str, Any]] = None, tim
     return json.loads(payload.decode("utf-8"))
 
 
-def _looks_like_embedding_model(model_id: str) -> bool:
+def _looks_like_embedding_model(model_id: str, model_type: str = "") -> bool:
     low = (model_id or "").strip().lower()
+    type_low = (model_type or "").strip().lower()
+    if type_low in ("embedding", "embeddings", "text-embedding"):
+        return True
     return any(
         token in low
         for token in (
@@ -161,7 +166,7 @@ def _looks_like_embedding_model(model_id: str) -> bool:
     )
 
 
-def _model_ids_from_payload(payload: Any) -> List[str]:
+def _model_candidates_from_payload(payload: Any) -> List[Dict[str, Any]]:
     """
     解析 GET …/models 的 JSON：
     - OpenAI 兼容：{ "data": [ { "id": "…" } ] }（LM Studio 的 /v1/models）
@@ -171,22 +176,23 @@ def _model_ids_from_payload(payload: Any) -> List[str]:
         return []
     data_arr = payload.get("data")
     if isinstance(data_arr, list) and data_arr:
-        llm_like: List[str] = []
-        embedding_like: List[str] = []
+        candidates: List[Dict[str, Any]] = []
         for it in data_arr:
             if isinstance(it, dict):
                 iid = str(it.get("id") or "").strip()
                 if iid:
-                    if _looks_like_embedding_model(iid):
-                        embedding_like.append(iid)
-                    else:
-                        llm_like.append(iid)
-        return llm_like + embedding_like
+                    candidates.append(
+                        {
+                            "id": iid,
+                            "type": str(it.get("type") or it.get("object") or "").strip().lower(),
+                            # /v1/models only exposes models available to the server, which are usable now.
+                            "loaded": True,
+                        }
+                    )
+        return candidates
     models_arr = payload.get("models")
     if isinstance(models_arr, list) and models_arr:
-        loaded_llm: List[str] = []
-        other_llm: List[str] = []
-        rest: List[str] = []
+        candidates = []
         for it in models_arr:
             if not isinstance(it, dict):
                 continue
@@ -196,15 +202,75 @@ def _model_ids_from_payload(payload: Any) -> List[str]:
             typ = str(it.get("type") or "").lower()
             inst = it.get("loaded_instances")
             loaded = isinstance(inst, list) and len(inst) > 0
-            if typ == "llm" and loaded:
-                loaded_llm.append(key)
-            elif typ == "llm":
-                other_llm.append(key)
-            else:
-                rest.append(key)
-        ordered = loaded_llm + other_llm + rest
-        return list(dict.fromkeys(ordered))
+            if not loaded:
+                candidates.append({"id": key, "model_key": key, "type": typ, "loaded": False})
+                continue
+            for loaded_instance in inst:
+                instance = loaded_instance if isinstance(loaded_instance, dict) else {}
+                instance_id = str(instance.get("id") or key).strip()
+                candidate = {
+                    "id": instance_id,
+                    "model_key": key,
+                    "type": typ,
+                    "loaded": True,
+                }
+                if instance.get("id"):
+                    candidate["model_instance_id"] = instance_id
+                candidates.append(candidate)
+        return candidates
     return []
+
+
+def _model_ids_from_payload(payload: Any) -> List[str]:
+    candidates = _model_candidates_from_payload(payload)
+    loaded_chat: List[str] = []
+    unloaded_chat: List[str] = []
+    embedding: List[str] = []
+    for item in candidates:
+        model_id = str(item.get("id") or "")
+        if _looks_like_embedding_model(model_id, str(item.get("type") or "")):
+            embedding.append(model_id)
+        elif item.get("loaded"):
+            loaded_chat.append(model_id)
+        else:
+            unloaded_chat.append(model_id)
+    return list(dict.fromkeys(loaded_chat + unloaded_chat + embedding))
+
+
+def _select_chat_model(configured_model: str, candidates: List[Dict[str, Any]]) -> Dict[str, Any]:
+    configured = (configured_model or "").strip()
+    if configured:
+        matched = next((item for item in candidates if str(item.get("id") or "") == configured), None)
+        if not matched:
+            matched = next((item for item in candidates if str(item.get("model_key") or "") == configured), None)
+        if not matched:
+            raise RuntimeError(f"LM Studio 未找到已配置模型：{configured}")
+        if _looks_like_embedding_model(configured, str(matched.get("type") or "")):
+            raise RuntimeError(f"已配置模型是 Embedding 模型，不能用于对话：{configured}")
+        if not matched.get("loaded"):
+            raise RuntimeError(f"已配置对话模型尚未在 LM Studio 加载：{configured}")
+        return matched
+
+    loaded_chat = [
+        item
+        for item in candidates
+        if item.get("loaded")
+        and not _looks_like_embedding_model(str(item.get("id") or ""), str(item.get("type") or ""))
+    ]
+    if loaded_chat:
+        return loaded_chat[0]
+
+    unloaded_chat = [
+        str(item.get("id") or "")
+        for item in candidates
+        if not item.get("loaded")
+        and not _looks_like_embedding_model(str(item.get("id") or ""), str(item.get("type") or ""))
+    ]
+    if unloaded_chat:
+        raise RuntimeError("LM Studio 已连接，但对话模型尚未加载：" + unloaded_chat[0])
+    if candidates:
+        raise RuntimeError("LM Studio 已连接，但只发现 Embedding 模型，未发现已加载的对话模型。")
+    raise RuntimeError("LM Studio 已连接，但当前未加载任何模型。")
 
 
 def _candidate_roots(base_url: str) -> List[str]:
@@ -246,30 +312,26 @@ def probe_connection(app_config: Dict[str, Any], timeout: float = 5.0) -> Dict[s
     for root in _candidate_roots(base_url):
         try:
             data = _http_json("GET", root + "/models", timeout=timeout)
+            candidates = _model_candidates_from_payload(data)
             model_ids = _model_ids_from_payload(data)
-            selected = configured_model or (model_ids[0] if model_ids else "")
-            if configured_model and configured_model not in model_ids:
+            try:
+                selected = _select_chat_model(configured_model, candidates)
+            except RuntimeError as exc:
                 return {
                     "success": False,
-                    "error": f"LM Studio 已连接，但未找到已配置模型：{configured_model}",
+                    "error": str(exc),
                     "api_root": root,
                     "models": model_ids,
                     "model": configured_model,
-                }
-            if not selected:
-                return {
-                    "success": False,
-                    "error": "LM Studio 已连接，但当前未加载任何模型。",
-                    "api_root": root,
-                    "models": model_ids,
-                    "model": "",
                 }
             return {
                 "success": True,
                 "error": "",
                 "api_root": root,
                 "models": model_ids,
-                "model": selected,
+                "model": selected["id"],
+                "model_key": selected.get("model_key") or selected["id"],
+                "model_instance_id": selected.get("model_instance_id") or "",
             }
         except Exception as e:
             errors.append(f"{root}: {e}")
@@ -282,6 +344,40 @@ def probe_connection(app_config: Dict[str, Any], timeout: float = 5.0) -> Dict[s
         "models": [],
         "model": configured_model,
     }
+
+
+def _probe_cache_key(app_config: Dict[str, Any]) -> tuple[str, str]:
+    return (
+        (app_config.get("LOCAL_AI_API_BASE_URL") or "").strip(),
+        (app_config.get("LOCAL_AI_API_MODEL") or "").strip(),
+    )
+
+
+def probe_connection_cached(
+    app_config: Dict[str, Any],
+    timeout: float = 5.0,
+    *,
+    success_ttl: float = 15.0,
+    failure_ttl: float = 2.0,
+    force: bool = False,
+) -> Dict[str, Any]:
+    """Short-lived cache for LM Studio /models probing; generation should not pay this cost every request."""
+    key = _probe_cache_key(app_config)
+    now = time.monotonic()
+    with _engine_lock:
+        cached = _probe_cache.get("result")
+        if (
+            not force
+            and cached is not None
+            and _probe_cache.get("key") == key
+            and now - float(_probe_cache.get("ts") or 0.0) < float(_probe_cache.get("ttl") or 0.0)
+        ):
+            return dict(cached)
+    result = probe_connection(app_config, timeout=timeout)
+    ttl = success_ttl if result.get("success") else failure_ttl
+    with _engine_lock:
+        _probe_cache.update({"key": key, "ts": now, "ttl": ttl, "result": dict(result)})
+    return result
 
 
 def get_system_stats() -> Dict[str, Any]:
@@ -318,7 +414,7 @@ def get_system_stats() -> Dict[str, Any]:
 
 def get_status(app_config: Dict[str, Any]) -> Dict[str, Any]:
     global _backend, _load_error, _api_root, _active_model
-    probe = probe_connection(app_config, timeout=3.0)
+    probe = probe_connection_cached(app_config, timeout=3.0, success_ttl=5.0, failure_ttl=2.0)
     with _engine_lock:
         if probe["success"]:
             _backend = "lm_studio_api"
@@ -343,12 +439,13 @@ def get_status(app_config: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def unload() -> None:
-    global _backend, _load_error, _api_root, _active_model
+    global _backend, _load_error, _api_root, _active_model, _probe_cache
     with _engine_lock:
         _backend = "none"
         _load_error = None
         _api_root = None
         _active_model = None
+        _probe_cache = {"key": None, "ts": 0.0, "ttl": 0.0, "result": None}
 
 
 def inference_dependencies() -> Dict[str, Any]:
@@ -360,7 +457,7 @@ def inference_dependencies() -> Dict[str, Any]:
 def load(app_config: Dict[str, Any]) -> Dict[str, Any]:
     """LM Studio 模式下的“加载”即测试连接并记录当前可用模型。"""
     global _backend, _load_error, _api_root, _active_model
-    probe = probe_connection(app_config, timeout=5.0)
+    probe = probe_connection_cached(app_config, timeout=5.0, force=True)
     with _engine_lock:
         if probe["success"]:
             _backend = "lm_studio_api"
@@ -519,9 +616,9 @@ def _prepare_generation_request(
     global _backend, _load_error, _api_root, _active_model
     ctx = _effective_lm_context_tokens(app_config)
     min_reply = max(192, min(1024, ctx // 5))
-    max_tok_req = max_new_tokens if max_new_tokens is not None else int(app_config.get("LOCAL_AI_MAX_NEW_TOKENS", 512) or 512)
+    max_tok_req = max_new_tokens if max_new_tokens is not None else int(app_config.get("LOCAL_AI_MAX_NEW_TOKENS", 2048) or 2048)
     max_tok_req = max(16, min(int(max_tok_req), max(ctx // 2, 256)))
-    probe = probe_connection(app_config, timeout=10.0)
+    probe = probe_connection_cached(app_config, timeout=5.0, success_ttl=30.0, failure_ttl=2.0)
     if not probe["success"]:
         with _engine_lock:
             _backend = "none"
@@ -594,6 +691,28 @@ def _iter_sse_json(resp: Any) -> Generator[tuple[str, Any], None, None]:
                 yield event_name, {"raw": data_text}
 
 
+def _final_chat_output(result: Dict[str, Any]) -> tuple[str, str]:
+    text_parts: List[str] = []
+    reasoning_parts: List[str] = []
+    output_items = result.get("output")
+    if isinstance(output_items, list):
+        for item in output_items:
+            if not isinstance(item, dict):
+                continue
+            content = item.get("content") or item.get("text") or ""
+            if not content:
+                continue
+            if str(item.get("type") or "").lower() == "reasoning":
+                reasoning_parts.append(str(content))
+            else:
+                text_parts.append(str(content))
+    if not text_parts:
+        fallback_text = result.get("output_text") or result.get("text") or result.get("content") or ""
+        if fallback_text:
+            text_parts.append(str(fallback_text))
+    return "".join(text_parts), "".join(reasoning_parts)
+
+
 def _stream_generate_rest_events(
     app_config: Dict[str, Any],
     prepared: Dict[str, Any],
@@ -606,10 +725,13 @@ def _stream_generate_rest_events(
         "temperature": float(app_config.get("LOCAL_AI_TEMPERATURE", 0.7) or 0.7),
         "top_p": float(app_config.get("LOCAL_AI_TOP_P", 0.95) or 0.95),
         "max_output_tokens": int(prepared["max_tok"]),
-        "context_length": int(prepared["ctx"]),
         "stream": True,
         "store": False,
     }
+    # A loaded LM Studio instance already owns its context configuration. Sending
+    # a different context_length can create another instance of the same model.
+    if not probe.get("model_instance_id"):
+        body["context_length"] = int(prepared["ctx"])
     if system_prompt:
         body["system_prompt"] = system_prompt
     data = json.dumps(body).encode("utf-8")
@@ -625,6 +747,8 @@ def _stream_generate_rest_events(
     )
 
     emitted = ""
+    emitted_reasoning = ""
+    yield {"type": "model", "model": str(probe["model"]), "source": "requested"}
     with urllib.request.urlopen(req, timeout=300) as resp:
         for event_name, obj in _iter_sse_json(resp):
             if obj == "[DONE]":
@@ -632,6 +756,10 @@ def _stream_generate_rest_events(
             if not isinstance(obj, dict):
                 continue
             typ = str(obj.get("type") or event_name or "").strip()
+            if typ in ("chat.start", "response.start"):
+                model_instance = str(obj.get("model_instance_id") or probe["model"])
+                yield {"type": "model", "model": model_instance, "source": "instance"}
+                continue
             if typ in ("model_load.progress", "prompt_processing.progress"):
                 raw_progress = obj.get("progress")
                 try:
@@ -654,7 +782,17 @@ def _stream_generate_rest_events(
                     "stage_percent": round(stage_percent, 1) if stage_percent is not None else None,
                 }
                 continue
-            if typ in ("message.start", "response.start"):
+            if typ == "model_load.start":
+                model_instance = str(obj.get("model_instance_id") or probe["model"])
+                yield {"type": "model", "model": model_instance, "source": "loading"}
+                yield {
+                    "type": "progress",
+                    "phase": "model_loading",
+                    "message": "LM Studio 正在加载本轮模型",
+                    "percent": 6.0,
+                }
+                continue
+            if typ == "message.start":
                 yield {
                     "type": "progress",
                     "phase": "generating",
@@ -673,21 +811,37 @@ def _stream_generate_rest_events(
                     emitted += str(text)
                     yield {"type": "token", "text": str(text)}
                 continue
-            if typ in ("reasoning.delta", "response.reasoning.delta"):
+            if typ in ("reasoning.start", "response.reasoning.start"):
                 yield {
                     "type": "progress",
-                    "phase": "generating",
+                    "phase": "reasoning",
+                    "message": "LM Studio 正在推理",
+                    "percent": 66.0,
+                }
+                continue
+            if typ in ("reasoning.delta", "response.reasoning.delta"):
+                reasoning = (
+                    obj.get("content")
+                    or obj.get("text")
+                    or obj.get("delta")
+                    or ((obj.get("reasoning") or {}).get("content") if isinstance(obj.get("reasoning"), dict) else "")
+                )
+                if reasoning:
+                    emitted_reasoning += str(reasoning)
+                    yield {"type": "reasoning", "text": str(reasoning)}
+                yield {
+                    "type": "progress",
+                    "phase": "reasoning",
                     "message": "LM Studio 正在推理",
                     "percent": 66.0,
                 }
                 continue
             if typ in ("chat.end", "response.completed", "message.end"):
                 result = obj.get("result") if isinstance(obj.get("result"), dict) else {}
-                output_text = ""
-                if result:
-                    output_text = str(result.get("output_text") or result.get("text") or "")
-                    if not output_text and isinstance(result.get("content"), str):
-                        output_text = str(result.get("content") or "")
+                output_text, final_reasoning = _final_chat_output(result)
+                if final_reasoning and not emitted_reasoning:
+                    emitted_reasoning += final_reasoning
+                    yield {"type": "reasoning", "text": final_reasoning}
                 if output_text and not emitted:
                     emitted += output_text
                     yield {"type": "token", "text": output_text}
@@ -715,6 +869,7 @@ def _stream_generate_openai_events(
 ) -> Generator[Dict[str, Any], None, None]:
     probe = prepared["probe"]
     body = prepared["body"]
+    yield {"type": "model", "model": str(probe["model"]), "source": "requested"}
     if fallback_reason:
         yield {
             "type": "progress",
@@ -761,6 +916,9 @@ def _stream_generate_openai_events(
                 content = delta.get("content")
                 if content:
                     yield {"type": "token", "text": content}
+                reasoning = delta.get("reasoning_content") or delta.get("reasoning")
+                if reasoning:
+                    yield {"type": "reasoning", "text": str(reasoning)}
     except urllib.error.HTTPError as e:
         detail = e.read().decode("utf-8", errors="ignore")
         yield {"type": "error", "message": f"HTTP {e.code}: {detail or e.reason}"}

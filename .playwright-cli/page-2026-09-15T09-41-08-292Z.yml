@@ -1,0 +1,146 @@
+- generic [active] [ref=e1]:
+  - banner "3D 查看工具" [ref=e2]:
+    - generic [ref=e3]:
+      - button "返回文件列表" [ref=e4] [cursor=pointer]:
+        - generic [aria-hidden] [ref=e5]: 
+      - generic [aria-hidden] [ref=e6]: 
+      - generic [ref=e7]:
+        - strong [ref=e8]: PCB装配_2026-09-15_1701.glb
+        - generic [ref=e9]: GLB · 高级审阅
+    - generic [ref=e10]:
+      - text: 
+      - button "复位视角" [ref=e11] [cursor=pointer]:
+        - generic [aria-hidden] [ref=e12]: 
+      - button "切换线框" [ref=e13] [cursor=pointer]:
+        - generic [aria-hidden] [ref=e14]: 
+      - button "切换网格" [ref=e15] [cursor=pointer]:
+        - generic [aria-hidden] [ref=e16]: 
+      - button "切换坐标轴" [ref=e17] [cursor=pointer]:
+        - generic [aria-hidden] [ref=e18]: 
+      - button "切换背景" [ref=e19] [cursor=pointer]:
+        - generic [aria-hidden] [ref=e20]: 
+      - button "隐藏所有评论" [ref=e21] [cursor=pointer]:
+        - generic [aria-hidden] [ref=e22]: 
+      - button "显示所有评论连线" [ref=e23] [cursor=pointer]:
+        - generic [aria-hidden] [ref=e24]: 
+      - button "切换自动旋转" [ref=e25] [cursor=pointer]:
+        - generic [aria-hidden] [ref=e26]: 
+      - text: 
+      - button "切换全屏" [ref=e27] [cursor=pointer]:
+        - generic [aria-hidden] [ref=e28]: 
+      - button "添加评论" [ref=e30] [cursor=pointer]:
+        - generic [aria-hidden] [ref=e31]: 
+      - button "导出报告" [ref=e33] [cursor=pointer]:
+        - generic [aria-hidden] [ref=e34]: 
+      - text: 
+  - main [ref=e36]:
+    - complementary "零件树" [ref=e37]:
+      - generic [ref=e38]:
+        - generic [ref=e39]:
+          - text: 装配体
+          - heading "零件" [level=2] [ref=e40]
+        - generic [ref=e41]:
+          - button "显示全部零件" [ref=e42] [cursor=pointer]:
+            - generic [aria-hidden] [ref=e43]: 
+          - text: 
+      - generic [ref=e44]: 已识别 10 个节点 · 当前模型不支持爆炸视图
+      - tree [ref=e45]:
+        - treeitem [ref=e46]:
+          - button "折叠" [ref=e47] [cursor=pointer]:
+            - generic [aria-hidden] [ref=e48]: 
+          - button "组件 1" [ref=e49] [cursor=pointer]
+          - button "解锁整组零件" [pressed] [ref=e50] [cursor=pointer]:
+            - generic [aria-hidden] [ref=e51]: 
+          - button "隐藏零件" [ref=e52] [cursor=pointer]:
+            - generic [aria-hidden] [ref=e53]: 
+        - treeitem [ref=e54]:
+          - button "折叠" [ref=e55] [cursor=pointer]:
+            - generic [aria-hidden] [ref=e56]: 
+          - button "PCB_Assembly" [ref=e57] [cursor=pointer]
+          - button "与父级一起爆炸" [pressed] [ref=e58] [cursor=pointer]:
+            - generic [aria-hidden] [ref=e59]: 
+          - button "隐藏零件" [ref=e60] [cursor=pointer]:
+            - generic [aria-hidden] [ref=e61]: 
+        - treeitem [ref=e62]:
+          - button "折叠" [ref=e63] [cursor=pointer]:
+            - generic [aria-hidden] [ref=e64]: 
+          - button "主控板" [ref=e65] [cursor=pointer]
+          - button "与父级一起爆炸" [pressed] [ref=e66] [cursor=pointer]:
+            - generic [aria-hidden] [ref=e67]: 
+          - button "隐藏零件" [ref=e68] [cursor=pointer]:
+            - generic [aria-hidden] [ref=e69]: 
+        - treeitem [ref=e70]:
+          - button "折叠" [ref=e71] [cursor=pointer]:
+            - generic [aria-hidden] [ref=e72]: 
+          - button "组件 4" [ref=e73] [cursor=pointer]
+          - button "与父级一起爆炸" [pressed] [ref=e74] [cursor=pointer]:
+            - generic [aria-hidden] [ref=e75]: 
+          - button "隐藏零件" [ref=e76] [cursor=pointer]:
+            - generic [aria-hidden] [ref=e77]: 
+        - treeitem [ref=e78]:
+          - button "折叠" [ref=e79] [cursor=pointer]:
+            - generic [aria-hidden] [ref=e80]: 
+          - button "组件 5" [ref=e81] [cursor=pointer]
+          - button "与父级一起爆炸" [pressed] [ref=e82] [cursor=pointer]:
+            - generic [aria-hidden] [ref=e83]: 
+          - button "隐藏零件" [ref=e84] [cursor=pointer]:
+            - generic [aria-hidden] [ref=e85]: 
+        - treeitem [ref=e86]:
+          - button "board" [ref=e87] [cursor=pointer]
+          - button "与父级一起爆炸" [pressed] [ref=e88] [cursor=pointer]:
+            - generic [aria-hidden] [ref=e89]: 
+          - button "隐藏零件" [ref=e90] [cursor=pointer]:
+            - generic [aria-hidden] [ref=e91]: 
+        - treeitem [ref=e92]:
+          - button "折叠" [ref=e93] [cursor=pointer]:
+            - generic [aria-hidden] [ref=e94]: 
+          - button "接口板" [ref=e95] [cursor=pointer]
+          - button "与父级一起爆炸" [pressed] [ref=e96] [cursor=pointer]:
+            - generic [aria-hidden] [ref=e97]: 
+          - button "隐藏零件" [ref=e98] [cursor=pointer]:
+            - generic [aria-hidden] [ref=e99]: 
+        - treeitem [ref=e100]:
+          - button "折叠" [ref=e101] [cursor=pointer]:
+            - generic [aria-hidden] [ref=e102]: 
+          - button "组件 8" [ref=e103] [cursor=pointer]
+          - button "与父级一起爆炸" [pressed] [ref=e104] [cursor=pointer]:
+            - generic [aria-hidden] [ref=e105]: 
+          - button "隐藏零件" [ref=e106] [cursor=pointer]:
+            - generic [aria-hidden] [ref=e107]: 
+        - treeitem [ref=e108]:
+          - button "折叠" [ref=e109] [cursor=pointer]:
+            - generic [aria-hidden] [ref=e110]: 
+          - button "组件 9" [ref=e111] [cursor=pointer]
+          - button "与父级一起爆炸" [pressed] [ref=e112] [cursor=pointer]:
+            - generic [aria-hidden] [ref=e113]: 
+          - button "隐藏零件" [ref=e114] [cursor=pointer]:
+            - generic [aria-hidden] [ref=e115]: 
+        - treeitem [ref=e116]:
+          - button "board_1" [ref=e117] [cursor=pointer]
+          - button "与父级一起爆炸" [pressed] [ref=e118] [cursor=pointer]:
+            - generic [aria-hidden] [ref=e119]: 
+          - button "隐藏零件" [ref=e120] [cursor=pointer]:
+            - generic [aria-hidden] [ref=e121]: 
+    - region "3D 模型画布" [ref=e122]:
+      - application "视角立方体" [ref=e125]
+      - button "1. 检查背面连接器" [ref=e127] [cursor=pointer]
+      - button "1 检查背面连接器" [ref=e128] [cursor=pointer]:
+        - generic [ref=e129]: "1"
+        - generic [ref=e130]: 检查背面连接器
+      - generic [ref=e131]:
+        - generic [ref=e132]: 爆炸视图
+        - slider "爆炸视图" [disabled] [ref=e133]: "0"
+        - status [ref=e134]: 0%
+    - complementary "评论面板" [ref=e135]:
+      - generic [ref=e136]:
+        - generic [ref=e137]:
+          - text: 模型审阅
+          - heading "评论" [level=2] [ref=e138]
+        - text: 
+      - button "1 检查背面连接器 空间锚点" [ref=e140] [cursor=pointer]:
+        - generic [ref=e141]: "1"
+        - generic [ref=e142]:
+          - strong [ref=e143]: 检查背面连接器
+          - generic [ref=e144]: 空间锚点
+      - text:       
+  - text:              

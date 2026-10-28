@@ -1,0 +1,147 @@
+- generic [active] [ref=e1]:
+  - banner [ref=e2]:
+    - generic [ref=e3]:
+      - generic [ref=e4]:
+        - link "返回文件列表" [ref=e5] [cursor=pointer]:
+          - /url: /file_browser?path=output/playwright/pcb-assembly-qa/assemblies
+          - generic [aria-hidden] [ref=e6]: 
+        - text: 
+      - group "工作区模式" [ref=e10]:
+        - button "装配" [pressed] [ref=e11] [cursor=pointer]
+        - button "演示" [ref=e12] [cursor=pointer]
+    - generic [ref=e13]:
+      - button "打开模型列表" [ref=e127] [cursor=pointer]:
+        - generic [aria-hidden] [ref=e128]: 
+      - generic [ref=e14]: 监听 8765
+      - text: 
+      - button "停止 PCB 接收" [ref=e135] [cursor=pointer]:
+        - generic [aria-hidden] [ref=e136]: 
+      - button "适合视图" [ref=e20] [cursor=pointer]:
+        - generic [aria-hidden] [ref=e21]: 
+      - text:  
+      - button "切换背景" [ref=e26] [cursor=pointer]:
+        - generic [aria-hidden] [ref=e27]: 
+      - button "切换全屏" [ref=e28] [cursor=pointer]:
+        - generic [aria-hidden] [ref=e29]: 
+      - button "保存 PCB 装配" [ref=e30] [cursor=pointer]:
+        - generic [aria-hidden] [ref=e31]: 
+      - button "打开变换参数" [ref=e129] [cursor=pointer]:
+        - generic [aria-hidden] [ref=e130]: 
+  - main [ref=e32]:
+    - complementary "PCB 模型列表" [ref=e33]:
+      - generic [ref=e34]:
+        - generic [ref=e35]:
+          - text: 当前会话
+          - heading "PCB 模型" [level=2] [ref=e36]
+        - button "关闭模型列表" [ref=e131] [cursor=pointer]:
+          - generic [aria-hidden] [ref=e132]: 
+      - generic [ref=e37]:
+        - strong [ref=e38]: 监听端口 8765
+        - generic [ref=e39]: 启动后回到嘉立创执行 3D 导出，可连续接收多个 PCB。
+      - listbox "已接收 PCB" [ref=e40]:
+        - option "主控板 1 个 OBJ · 2026-09-15 17:00:46" [ref=e137] [cursor=pointer]:
+          - generic [aria-hidden] [ref=e138]: 
+          - generic [ref=e139]:
+            - strong [ref=e140]: 主控板
+            - generic [ref=e141]: 1 个 OBJ · 2026-09-15 17:00:46
+        - option "接口板 1 个 OBJ · 2026-09-15 17:00:46" [selected] [ref=e142] [cursor=pointer]:
+          - generic [aria-hidden] [ref=e143]: 
+          - generic [ref=e144]:
+            - strong [ref=e145]: 接口板
+            - generic [ref=e146]: 1 个 OBJ · 2026-09-15 17:00:46
+      - text: 
+    - region "PCB 装配画布" [ref=e45]:
+      - application "视角立方体" [ref=e48]
+      - generic: 接口板 已加入装配，可继续接收或调整位置。
+      - generic [ref=e50]:
+        - generic [ref=e51]: 2 个模型
+        - generic [ref=e52]: 位置 mm · 旋转 °
+    - complementary "模型变换" [ref=e53]:
+      - generic [ref=e54]:
+        - generic [ref=e55]:
+          - text: 选中模型
+          - heading "位置与旋转" [level=2] [ref=e56]
+        - button "关闭变换参数" [ref=e133] [cursor=pointer]:
+          - generic [aria-hidden] [ref=e134]: 
+      - generic [ref=e57]: 接口板
+      - generic [ref=e58]:
+        - group "位置 mm" [ref=e59]:
+          - generic [ref=e60]:
+            - text: 位置
+            - generic [ref=e61]: mm
+          - generic [ref=e62]:
+            - generic [ref=e63]: X
+            - spinbutton "X" [ref=e64]: "0"
+          - generic [ref=e65]:
+            - generic [ref=e66]: "Y"
+            - spinbutton "Y" [ref=e67]: "0"
+          - generic [ref=e68]:
+            - generic [ref=e69]: Z
+            - spinbutton "Z" [ref=e70]: "0"
+        - group "旋转 度" [ref=e71]:
+          - generic [ref=e72]:
+            - text: 旋转
+            - generic [ref=e73]: 度
+          - generic [ref=e74]:
+            - generic [ref=e75]: X
+            - spinbutton "X" [ref=e76]: "0"
+          - generic [ref=e77]:
+            - generic [ref=e78]: "Y"
+            - spinbutton "Y" [ref=e79]: "0"
+          - generic [ref=e80]:
+            - generic [ref=e81]: Z
+            - spinbutton "Z" [ref=e82]: "0"
+      - generic [ref=e83]:
+        - button "复位变换" [ref=e84] [cursor=pointer]:
+          - generic [aria-hidden] [ref=e85]: 
+          - text: 复位变换
+        - button "删除模型" [ref=e86] [cursor=pointer]:
+          - generic [aria-hidden] [ref=e87]: 
+          - text: 删除模型
+      - generic [ref=e88]:
+        - generic [ref=e89]: 保存目录
+        - strong [ref=e90]: F:\Work\YobboyFileServer\output\playwright\pcb-assembly-qa\output\playwright\pcb-assembly-qa\assemblies
+  - text: 
+  - dialog [ref=e91]:
+    - generic [ref=e92]:
+      - banner [ref=e93]:
+        - generic [ref=e94]:
+          - text: 导出结果
+          - heading "保存 PCB 装配" [level=2] [ref=e95]
+        - button "关闭保存窗口" [ref=e96] [cursor=pointer]:
+          - generic [aria-hidden] [ref=e97]: 
+      - generic [ref=e98]:
+        - generic [ref=e99]: 文件名
+        - generic [ref=e100]:
+          - textbox "文件名" [ref=e101]: PCB装配_2026-09-15_1701
+          - generic [ref=e102]: .glb
+        - group "附加导出格式" [ref=e103]:
+          - generic [ref=e105] [cursor=pointer]:
+            - checkbox "STL 合并网格，适合切片和打印" [ref=e106]
+            - generic [ref=e107]:
+              - strong [ref=e108]: STL
+              - generic [ref=e109]: 合并网格，适合切片和打印
+          - generic [ref=e110] [cursor=pointer]:
+            - checkbox "3MF 保留装配中的多个模型" [ref=e111]
+            - generic [ref=e112]:
+              - strong [ref=e113]: 3MF
+              - generic [ref=e114]: 保留装配中的多个模型
+        - generic [ref=e115] [cursor=pointer]:
+          - checkbox "按板子分别导出 额外生成 2 个顶层板子模型" [checked] [ref=e147]
+          - generic [ref=e117]:
+            - strong [ref=e118]: 按板子分别导出
+            - generic [ref=e119]: 额外生成 2 个顶层板子模型
+        - generic [ref=e120]:
+          - generic [ref=e121]: 保存到
+          - strong [ref=e122]: F:\Work\YobboyFileServer\output\playwright\pcb-assembly-qa\output\playwright\pcb-assembly-qa\assemblies
+        - generic [ref=e148]:
+          - generic [aria-hidden] [ref=e149]: 
+          - generic [ref=e150]:
+            - strong [ref=e151]: 装配已保存
+            - generic [ref=e152]: PCB装配_2026-09-15_1701.glb、PCB装配_2026-09-15_1701_主控板.glb、PCB装配_2026-09-15_1701_接口板.glb
+          - button "切换到演示" [ref=e153] [cursor=pointer]
+      - contentinfo [ref=e123]:
+        - button "取消" [ref=e124] [cursor=pointer]
+        - button "保存文件" [ref=e125] [cursor=pointer]:
+          - generic [aria-hidden] [ref=e126]: 
+          - text: 保存文件

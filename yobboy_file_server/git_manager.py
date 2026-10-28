@@ -9,6 +9,8 @@ import sys
 import platform
 
 from .logging_setup import parse_log_level
+from .git_config_manager import secure_ssh_private_key
+from .git_error_utils import format_git_remote_error
 import subprocess
 from typing import Dict, List, Optional, Tuple, Callable
 
@@ -158,9 +160,17 @@ class GitManager:
         env = os.environ.copy()
         if config and config.get('auth_type') == 'ssh':
             ssh_key_path = config.get('ssh_key_path', '')
-            if ssh_key_path and os.path.exists(ssh_key_path):
-                # 使用GIT_SSH_COMMAND指定SSH密钥
-                env['GIT_SSH_COMMAND'] = f'ssh -i "{ssh_key_path}" -o StrictHostKeyChecking=no'
+            if not ssh_key_path:
+                raise ValueError('SSH 私钥路径不能为空')
+            if not os.path.isfile(ssh_key_path):
+                raise FileNotFoundError(f'SSH 私钥文件不存在: {ssh_key_path}')
+
+            secure_ssh_private_key(ssh_key_path)
+            # 使用GIT_SSH_COMMAND指定SSH密钥
+            env['GIT_SSH_COMMAND'] = (
+                f'ssh -i "{ssh_key_path}" -o IdentitiesOnly=yes '
+                '-o BatchMode=yes -o StrictHostKeyChecking=no'
+            )
         return env
     
     def check_repo(self, path: str) -> Dict:
@@ -556,14 +566,7 @@ class GitManager:
                 
                 if auth_type == 'ssh':
                     # SSH认证（适用于完整SSH URL或相对路径）
-                    ssh_key_path = config.get('ssh_key_path', '')
-                    if ssh_key_path and os.path.exists(ssh_key_path):
-                        # 设置SSH环境变量
-                        import os as os_module
-                        if env is None:
-                            env = os_module.environ.copy()
-                        # 使用GIT_SSH_COMMAND指定SSH密钥
-                        env['GIT_SSH_COMMAND'] = f'ssh -i {ssh_key_path} -o StrictHostKeyChecking=no'
+                    env = self._get_git_env(config)
                 elif auth_type == 'https':
                     # HTTPS认证（仅适用于HTTPS URL或相对路径）
                     if not is_full_url or final_url.startswith(('http://', 'https://')):
@@ -1245,7 +1248,7 @@ class GitManager:
                     if result.returncode != 0:
                         error_msg = result.stderr or result.stdout or '拉取失败'
                         log_message(f"拉取失败: {error_msg}", 'ERROR')
-                        return {'success': False, 'error': error_msg}
+                        return format_git_remote_error(error_msg, repo.active_branch.name)
                     log_message(f"拉取成功: {result.stdout}", 'INFO')
                 else:
                     # 没有环境变量，使用GitPython的pull方法
@@ -1352,7 +1355,7 @@ class GitManager:
                     if result.returncode != 0:
                         error_msg = result.stderr or result.stdout or '推送失败'
                         log_message(f"推送失败 (退出码 {result.returncode}): {error_msg}", 'ERROR')
-                        return {'success': False, 'error': error_msg}
+                        return format_git_remote_error(error_msg, current_branch)
                     output_msg = result.stdout or result.stderr or '推送成功'
                     log_message(f"推送成功: {output_msg}", 'INFO')
                 else:
@@ -1701,6 +1704,29 @@ class GitManager:
                     search_path = base_path.rstrip('/')
                 else:
                     search_path = server_base_path
+
+                if server_base_path.endswith('.git') and not base_path:
+                    env = self._get_git_env(config)
+                    result = _run_subprocess(
+                        _git_base_cmd() + ['ls-remote', '--heads', server_url],
+                        env=env,
+                        capture_output=True,
+                        text=True,
+                        timeout=10
+                    )
+                    if result.returncode != 0:
+                        error = (result.stderr or result.stdout or '').strip()
+                        return {'success': False, 'error': error or '无法访问远程仓库'}
+
+                    repo_name = server_base_path[:-4]
+                    return {
+                        'success': True,
+                        'repos': [{
+                            'name': repo_name,
+                            'path': server_base_path,
+                            'full_url': server_url
+                        }]
+                    }
                 
                 import subprocess
                 env = os.environ.copy()

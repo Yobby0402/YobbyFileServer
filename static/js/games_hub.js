@@ -182,6 +182,7 @@
         metaEntryBtn: null,
         historyList: document.getElementById("gamesHistoryList"),
         weeklyTotalList: document.getElementById("gamesWeeklyTotalList"),
+        allTimeTotalList: document.getElementById("gamesAllTimeTotalList"),
         weeklyGameList: document.getElementById("gamesWeeklyGameList"),
         weeklyGameTitle: document.getElementById("gamesWeeklyGameTitle"),
         weekKey: document.getElementById("gamesWeekKey"),
@@ -814,13 +815,15 @@
     }
 
     function renderLeaderboards() {
-        if (!els.weeklyTotalList || !els.weeklyGameList || !els.weekKey || !els.weeklyGameTitle) {
+        if (!els.weeklyTotalList || !els.allTimeTotalList || !els.weeklyGameList || !els.weekKey || !els.weeklyGameTitle) {
             return;
         }
         els.weeklyTotalList.innerHTML = "";
+        els.allTimeTotalList.innerHTML = "";
         els.weeklyGameList.innerHTML = "";
         if (!state.leaderboards) {
             els.weeklyTotalList.appendChild(emptyNode("榜单尚未加载。"));
+            els.allTimeTotalList.appendChild(emptyNode("榜单尚未加载。"));
             els.weeklyGameList.appendChild(emptyNode("榜单尚未加载。"));
             return;
         }
@@ -841,6 +844,24 @@
                     '<div class="games-ranking-score">' + escapeHtml(entry.total_score) + "</div>"
                 ].join("");
                 els.weeklyTotalList.appendChild(node);
+            });
+        }
+
+        const allTimeTotal = state.leaderboards.all_time_total || [];
+        if (!allTimeTotal.length) {
+            els.allTimeTotalList.appendChild(emptyNode("还没有历史积分记录。"));
+        } else {
+            allTimeTotal.forEach(function (entry, index) {
+                const node = document.createElement("div");
+                node.className = "games-ranking-item";
+                node.innerHTML = [
+                    "<div>",
+                    '  <div class="games-ranking-main">#' + (index + 1) + " " + renderRankedName(entry) + "</div>",
+                    '  <div class="games-ranking-meta">累计局数 ' + escapeHtml(entry.play_count) + " · 累计积分 " + escapeHtml(entry.total_score) + "</div>",
+                    "</div>",
+                    '<div class="games-ranking-score">' + escapeHtml(entry.total_score) + "</div>"
+                ].join("");
+                els.allTimeTotalList.appendChild(node);
             });
         }
 

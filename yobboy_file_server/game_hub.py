@@ -1376,6 +1376,22 @@ class GameHubStore:
                     (week_key, take),
                 ).fetchall()
 
+                all_time_total_rows = conn.execute(
+                    """
+                    SELECT s.ip,
+                           COALESCE(NULLIF(p.nickname, ''), '') AS nickname,
+                           COALESCE(p.avatar_filename, '') AS avatar_filename,
+                           COALESCE(SUM(s.score), 0) AS total_score,
+                           COUNT(*) AS play_count
+                    FROM game_scores s
+                    LEFT JOIN ip_profiles p ON p.ip = s.ip
+                    GROUP BY s.ip
+                    ORDER BY total_score DESC, play_count DESC, s.ip ASC
+                    LIMIT ?
+                    """,
+                    (take,),
+                ).fetchall()
+
                 all_time_recent_rows = conn.execute(
                     """
                     SELECT s.id,
@@ -1432,6 +1448,7 @@ class GameHubStore:
                 conn.close()
 
         badge_identities = [str(row["ip"] or "") for row in weekly_total_rows]
+        badge_identities.extend(str(row["ip"] or "") for row in all_time_total_rows)
         badge_identities.extend(str(row["ip"] or "") for row in all_time_recent_rows)
         for rows in per_game_weekly.values():
             badge_identities.extend(str(row.get("ip") or "") for row in rows)
@@ -1451,6 +1468,19 @@ class GameHubStore:
                     "achievement_badge": achievement_badges.get(str(row["ip"] or ""), {}),
                 }
                 for row in weekly_total_rows
+            ],
+            "all_time_total": [
+                {
+                    "ip": row["ip"],
+                    "display_name": row["nickname"] or format_visitor_label(row["ip"]),
+                    "avatar_filename": row["avatar_filename"],
+                    "total_score": int(row["total_score"] or 0),
+                    "play_count": int(row["play_count"] or 0),
+                    "lifetime_score": int(row["total_score"] or 0),
+                    "rank": rank_info_for_identity(row["ip"], row["total_score"] or 0, top_identity),
+                    "achievement_badge": achievement_badges.get(str(row["ip"] or ""), {}),
+                }
+                for row in all_time_total_rows
             ],
             "weekly_by_game": {
                 game_id: [

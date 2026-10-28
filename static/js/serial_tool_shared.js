@@ -7,7 +7,6 @@
     const SOURCE_BROWSER_SERIAL = 'browser_serial';
 
     const originalInit = SerialToolApp.prototype.init;
-    const originalBindEvents = SerialToolApp.prototype.bindEvents;
     const originalOnModeChange = SerialToolApp.prototype.onModeChange;
     const originalAddRemotePort = SerialToolApp.prototype.addRemotePort;
     const originalEnsureRemoteConnection = SerialToolApp.prototype.ensureRemoteConnection;
@@ -16,9 +15,10 @@
     const originalRefreshTerminalDisplay = SerialToolApp.prototype.refreshTerminalDisplay;
     const originalDisplayTerminalData = SerialToolApp.prototype.displayTerminalData;
     const originalStartCaptureLogging = SerialToolApp.prototype.startCaptureLogging;
-    const originalDisconnectPort = SerialToolApp.prototype.disconnectPort;
-    const originalSendRawBytes = SerialToolApp.prototype.sendRawBytes;
-    const originalSendData = SerialToolApp.prototype.sendData;
+    const originalStartCaptureStatusRefresh = SerialToolApp.prototype.startCaptureStatusRefresh;
+    const originalStopCaptureStatusRefresh = SerialToolApp.prototype.stopCaptureStatusRefresh;
+    const originalDisconnectPortTransport = SerialToolApp.prototype.disconnectPortTransport;
+    const originalWritePortData = SerialToolApp.prototype.writePortData;
     const originalRenderCapturePorts = SerialToolApp.prototype.renderCapturePorts;
 
     function socketParityToWebSerial(parityCode) {
@@ -103,12 +103,20 @@
         this.mySharedChannelIds = new Set();
         this.browserSharedPorts = new Map();
         this.sharedChannelToLocalPortId = new Map();
+        this.sharedChannelCatalog = new Map();
+        this.serialRelays = new Map();
         this.remoteCatalogLoaded = false;
         this.historyPageSize = 200;
         this.maxHistoryEntriesPerPort = 1000;
+        this.captureLogCursors = new Map();
+        this.captureLogPollTimer = null;
+        this.captureLogPollInFlight = false;
         const result = originalInit.call(this);
         this.connectWebSocket()
-            .then(() => this.requestSharedChannels())
+            .then(() => {
+                this.requestSharedChannels();
+                this.requestSerialRelays();
+            })
             .catch(() => this.requestSharedChannels(false));
         return result;
     };
@@ -168,8 +176,7 @@
         }
     };
 
-    SerialToolApp.prototype.bindEvents = function patchedBindEvents() {
-        originalBindEvents.call(this);
+    SerialToolApp.prototype.bindAdditionalEvents = function bindAdditionalEvents() {
         this.ensureSharedUiElements();
 
         const sharePortBtn = document.getElementById('sharePortBtn');
@@ -182,6 +189,21 @@
         if (loadMoreHistoryBtn && !loadMoreHistoryBtn.dataset.bound) {
             loadMoreHistoryBtn.dataset.bound = 'true';
             loadMoreHistoryBtn.addEventListener('click', () => this.loadMoreHistory());
+        }
+
+        const startRelayBtn = document.getElementById('startRelayBtn');
+        if (startRelayBtn && !startRelayBtn.dataset.bound) {
+            startRelayBtn.dataset.bound = 'true';
+            startRelayBtn.addEventListener('click', () => this.startSerialRelay());
+        }
+
+        const relayList = document.getElementById('relayList');
+        if (relayList && !relayList.dataset.bound) {
+            relayList.dataset.bound = 'true';
+            relayList.addEventListener('click', (event) => {
+                const button = event.target.closest('[data-relay-stop]');
+                if (button) this.stopSerialRelay(button.dataset.relayStop);
+            });
         }
     };
 
@@ -231,6 +253,96 @@
         }
     };
 
+    SerialToolApp.prototype.requestSerialRelays = function requestSerialRelays() {
+        if (this.websocket && this.websocket.connected) {
+            this.websocket.emit('list_relays');
+        }
+    };
+
+    SerialToolApp.prototype.handleSerialRelays = function handleSerialRelays(payload) {
+        const relays = Array.isArray(payload?.relays) ? payload.relays : [];
+        this.serialRelays = new Map(relays.map((relay) => [relay.relay_id, relay]));
+        this.renderRelayControls();
+        this.renderPortList();
+    };
+
+    SerialToolApp.prototype.renderRelayControls = function renderRelayControls() {
+        const firstSelect = document.getElementById('relayChannelA');
+        const secondSelect = document.getElementById('relayChannelB');
+        const startButton = document.getElementById('startRelayBtn');
+        const relayList = document.getElementById('relayList');
+        if (!firstSelect || !secondSelect || !startButton || !relayList) return;
+
+        const previousFirst = firstSelect.value;
+        const previousSecond = secondSelect.value;
+        const channels = Array.from(this.sharedChannelCatalog.values())
+            .filter((channel) => channel.state !== 'offline' && !channel.relay_id)
+            .sort((left, right) => String(left.display_name || left.channel_id).localeCompare(String(right.display_name || right.channel_id)));
+        const options = ['<option value="">请选择共享通道</option>'].concat(
+            channels.map((channel) => `<option value="${this.escapeHtml(channel.channel_id)}">${this.escapeHtml(channel.display_name || channel.device || channel.channel_id)}</option>`)
+        ).join('');
+        firstSelect.innerHTML = options;
+        secondSelect.innerHTML = options;
+        if (channels.some((channel) => channel.channel_id === previousFirst)) firstSelect.value = previousFirst;
+        if (channels.some((channel) => channel.channel_id === previousSecond)) secondSelect.value = previousSecond;
+        startButton.disabled = channels.length < 2;
+
+        const relays = Array.from(this.serialRelays.values());
+        relayList.innerHTML = relays.length === 0
+            ? '暂无透传任务'
+            : relays.map((relay) => `
+                <div class="d-flex align-items-center justify-content-between gap-2 mb-1">
+                    <span>${this.escapeHtml(relay.channel_a_name || relay.channel_a)} ↔ ${this.escapeHtml(relay.channel_b_name || relay.channel_b)}</span>
+                    <button type="button" class="btn btn-sm btn-outline-danger py-0" data-relay-stop="${this.escapeHtml(relay.relay_id)}">停止</button>
+                </div>
+            `).join('');
+    };
+
+    SerialToolApp.prototype.startSerialRelay = async function startSerialRelay() {
+        const channelA = document.getElementById('relayChannelA')?.value || '';
+        const channelB = document.getElementById('relayChannelB')?.value || '';
+        if (!channelA || !channelB || channelA === channelB) {
+            alert('请选择两个不同的共享串口');
+            return;
+        }
+
+        try {
+            if (!this.websocket || !this.websocket.connected) {
+                await this.connectWebSocket();
+            }
+            const result = await createSocketRequest(
+                this.websocket,
+                'start_relay',
+                'relay_started',
+                { channel_a: channelA, channel_b: channelB }
+            );
+            if (!result.success) {
+                throw new Error(result.error || 'relay_start_failed');
+            }
+            this.addLog(`已启动串口透传: ${result.relay.channel_a_name} ↔ ${result.relay.channel_b_name}`, 'info');
+        } catch (error) {
+            this.addLog(`启动串口透传失败: ${error.message || error}`, 'error');
+        }
+    };
+
+    SerialToolApp.prototype.stopSerialRelay = async function stopSerialRelay(relayId) {
+        if (!relayId || !this.websocket || !this.websocket.connected) return;
+        try {
+            const result = await createSocketRequest(
+                this.websocket,
+                'stop_relay',
+                'relay_stopped',
+                { relay_id: relayId }
+            );
+            if (!result.success) {
+                throw new Error(result.error || 'relay_stop_failed');
+            }
+            this.addLog('已停止串口透传', 'info');
+        } catch (error) {
+            this.addLog(`停止串口透传失败: ${error.message || error}`, 'error');
+        }
+    };
+
     SerialToolApp.prototype.findLocalPortIdBySharedChannel = function findLocalPortIdBySharedChannel(channelId) {
         if (!channelId) return null;
         const mappedPortId = this.sharedChannelToLocalPortId.get(channelId);
@@ -272,6 +384,7 @@
         portInfo.captureStartedAt = channel.capture_started_at || null;
         portInfo.latestSeq = channel.latest_seq || 0;
         portInfo.lastError = channel.last_error || '';
+        portInfo.relayId = channel.relay_id || null;
         this.ports.set(portId, portInfo);
         return true;
     };
@@ -294,16 +407,19 @@
         portInfo.captureStartedAt = null;
         portInfo.latestSeq = 0;
         portInfo.lastError = '';
+        portInfo.relayId = null;
         this.ports.set(portId, portInfo);
     };
 
     SerialToolApp.prototype.handleSharedChannels = function handleSharedChannels(payload) {
         const channels = Array.isArray(payload?.channels) ? payload.channels : [];
         const validIds = new Set();
+        this.sharedChannelCatalog = new Map();
 
         channels.forEach((channel) => {
             if (!channel || !channel.channel_id) return;
             validIds.add(channel.channel_id);
+            this.sharedChannelCatalog.set(channel.channel_id, channel);
             this.applySharedChannel(channel);
         });
 
@@ -325,6 +441,7 @@
         this.renderPortList();
         this.renderCapturePorts();
         this.updateLoadMoreHistoryButton();
+        this.renderRelayControls();
     };
 
     SerialToolApp.prototype.applySharedChannel = function applySharedChannel(channel) {
@@ -351,6 +468,7 @@
             subscriberCount: channel.subscriber_count || 0,
             latestSeq: channel.latest_seq || 0,
             lastError: channel.last_error || '',
+            relayId: channel.relay_id || null,
             connected: Boolean(existing.connected),
             available: channel.state !== 'offline',
             isSharedByMe: this.mySharedChannelIds.has(channel.channel_id),
@@ -366,77 +484,34 @@
 
     SerialToolApp.prototype.handleChannelState = function handleChannelState(channel) {
         if (!channel || !channel.channel_id) return;
+        this.sharedChannelCatalog.set(channel.channel_id, channel);
         this.applySharedChannel(channel);
         this.renderPortList();
         this.renderCapturePorts();
         this.updateLoadMoreHistoryButton();
+        this.renderRelayControls();
     };
 
-    SerialToolApp.prototype.connectWebSocket = async function patchedConnectWebSocket() {
-        if (this.websocket && this.websocket.connected) {
-            return;
-        }
-        if (typeof this.ensureSocketIoLoaded === 'function') {
-            await this.ensureSocketIoLoaded();
-        }
-        if (typeof io === 'undefined') {
-            throw new Error('Socket.IO not loaded');
-        }
-
-        await new Promise((resolve, reject) => {
-            const socket = io('/serial', {
-                transports: ['polling', 'websocket'],
-            });
-
-            let settled = false;
-            const finishResolve = () => {
-                if (!settled) {
-                    settled = true;
-                    resolve();
-                }
-            };
-            const finishReject = (error) => {
-                if (!settled) {
-                    settled = true;
-                    reject(error);
-                }
-            };
-
-            this.websocket = socket;
-
-            socket.on('connected', () => {
-                this.addLog('已连接到共享串口服务', 'info');
-                finishResolve();
-            });
-
-            socket.on('connect_error', (error) => {
-                console.error('WebSocket connect error:', error);
-                finishReject(error);
-            });
-
-            socket.on('disconnect', () => {
-                this.addLog('共享串口连接已断开', 'info');
-                this.renderPortList();
-            });
-
-            socket.on('ports_list', (data) => this.handleRemotePortsList(data));
-            socket.on('shared_channels', (data) => this.handleSharedChannels(data));
-            socket.on('channel_state', (data) => this.handleChannelState(data?.channel));
-            socket.on('port_opened', (data) => this.handleRemotePortOpened(data));
-            socket.on('port_closed', (data) => this.handleRemotePortClosed(data));
-            socket.on('serial_data', (data) => this.handleRemoteSerialEvent(data));
-            socket.on('data_written', (data) => this.handleRemoteDataWritten(data));
-            socket.on('browser_channel_activate', (data) => this.handleBrowserChannelActivate(data));
-            socket.on('browser_channel_sleep', (data) => this.handleBrowserChannelSleep(data));
-            socket.on('browser_write_request', (data) => this.handleBrowserWriteRequest(data));
-            socket.on('channel_error', (data) => {
-                if (data?.error) {
-                    this.addLog(`共享串口错误: ${data.error}`, 'error');
-                }
-            });
+    SerialToolApp.prototype.bindSerialSocketFeatureEvents = function bindSerialSocketFeatureEvents(socket) {
+        socket.on('ports_list', (data) => this.handleRemotePortsList(data));
+        socket.on('shared_channels', (data) => this.handleSharedChannels(data));
+        socket.on('serial_relays', (data) => this.handleSerialRelays(data));
+        socket.on('channel_state', (data) => this.handleChannelState(data?.channel));
+        socket.on('port_opened', (data) => this.handleRemotePortOpened(data));
+        socket.on('port_closed', (data) => this.handleRemotePortClosed(data));
+        socket.on('serial_data', (data) => this.handleRemoteSerialEvent(data));
+        socket.on('data_written', (data) => this.handleRemoteDataWritten(data));
+        socket.on('browser_channel_activate', (data) => this.handleBrowserChannelActivate(data));
+        socket.on('browser_channel_sleep', (data) => this.handleBrowserChannelSleep(data));
+        socket.on('browser_write_request', (data) => this.handleBrowserWriteRequest(data));
+        socket.on('channel_error', (data) => {
+            if (data?.error) {
+                this.addLog(`共享串口错误: ${data.error}`, 'error');
+            }
         });
-
-        this.requestSharedChannels();
+        socket.on('relay_error', (data) => {
+            this.addLog(`串口透传已停止: ${data?.error || 'relay_error'}`, 'error');
+        });
     };
 
     SerialToolApp.prototype.addRemotePort = async function patchedAddRemotePort() {
@@ -800,8 +875,7 @@
             timestamp: new Date(),
             format: this.dataFormat,
         };
-        this.txBytes += dataBytes.length;
-        this.updateStats();
+        this.addPortBytes(portId, 'tx', dataBytes.length);
         this.dataLog.push(record);
         if (!this.isPaused && this.currentPort === portId) {
             this.displayData(record);
@@ -876,16 +950,14 @@
         const seq = data.entry?.seq ?? null;
 
         if (direction === 'rx') {
-            this.rxBytes += dataBytes.length;
-            this.updateStats();
+            this.addPortBytes(portId, 'rx', dataBytes.length);
             if (typeof this.ingestRxForDisplay === 'function') {
                 this.ingestRxForDisplay(portId, dataBytes, timestamp, { seq });
             }
             return;
         }
 
-        this.txBytes += dataBytes.length;
-        this.updateStats();
+        this.addPortBytes(portId, 'tx', dataBytes.length);
 
         const record = {
             portId,
@@ -960,24 +1032,11 @@
             return;
         }
 
-        display.innerHTML = '';
         const terminalText = this.getSortedPortRecords(this.currentPort)
             .filter((record) => !(this.isTerminalReplMode() && record.direction === 'tx'))
             .map((record) => formatTerminalRecord(record, this.dataFormat, this))
             .join('');
-
-        if (terminalText) {
-            display.appendChild(document.createTextNode(terminalText));
-        }
-
-        const cursor = document.createElement('span');
-        cursor.className = 'terminal-cursor';
-        cursor.textContent = '\u00A0';
-        display.appendChild(cursor);
-
-        if (this.autoScroll) {
-            display.scrollTop = display.scrollHeight;
-        }
+        this.resetTerminalDisplay(terminalText);
     };
 
     SerialToolApp.prototype.displayTerminalData = function patchedDisplayTerminalData(data) {
@@ -1032,6 +1091,12 @@
                     format: this.dataFormat,
                     seq,
                 });
+                if (seq != null) {
+                    this.captureLogCursors.set(
+                        portId,
+                        Math.max(this.captureLogCursors.get(portId) || 0, Number(seq))
+                    );
+                }
             });
 
             this.trimPortRecords(portId);
@@ -1059,6 +1124,88 @@
         const state = this.historyMarkers.get(this.currentPort);
         if (!state || !state.hasMore) return;
         await this.loadHistoricalLog(this.currentPort, { reset: false });
+    };
+
+    SerialToolApp.prototype.startCaptureLogPolling = function startCaptureLogPolling() {
+        if (this.captureLogPollTimer) return;
+        this.captureLogPollTimer = setInterval(() => this.pollSelectedCaptureLog(), 1000);
+    };
+
+    SerialToolApp.prototype.stopCaptureLogPolling = function stopCaptureLogPolling() {
+        if (!this.captureLogPollTimer) return;
+        clearInterval(this.captureLogPollTimer);
+        this.captureLogPollTimer = null;
+    };
+
+    SerialToolApp.prototype.pollSelectedCaptureLog = async function pollSelectedCaptureLog() {
+        const portId = this.currentPort;
+        const portInfo = portId ? this.ports.get(portId) : null;
+        if (
+            this.captureLogPollInFlight ||
+            !portId ||
+            !this.captureSessions.has(portId) ||
+            !portInfo ||
+            portInfo.connected
+        ) {
+            return;
+        }
+
+        this.captureLogPollInFlight = true;
+        try {
+            const cursor = this.captureLogCursors.get(portId) || 0;
+            const response = await fetch(
+                `/api/serial/capture/log/${encodeURIComponent(portId)}?after_seq=${encodeURIComponent(cursor)}&limit=500`
+            );
+            const result = await response.json();
+            if (!response.ok || !result.success) {
+                throw new Error(result.error || '读取持续日志失败');
+            }
+
+            const entries = Array.isArray(result.entries) ? result.entries : [];
+            entries.forEach((entry) => {
+                const seq = Number(entry.seq || 0);
+                if (!seq || seq <= (this.captureLogCursors.get(portId) || 0)) return;
+
+                const data = this.hexToUint8(entry.hex);
+                const timestamp = entry.ts ? new Date(entry.ts) : new Date();
+                this.captureLogCursors.set(portId, seq);
+                if (entry.dir === 'tx') {
+                    const record = {
+                        portId,
+                        portName: portInfo.name || portId,
+                        direction: 'tx',
+                        data,
+                        timestamp,
+                        format: this.dataFormat,
+                        seq,
+                    };
+                    this.addPortBytes(portId, 'tx', data.length);
+                    this.dataLog.push(record);
+                    if (!this.isPaused && this.currentPort === portId) this.displayData(record);
+                } else {
+                    this.addPortBytes(portId, 'rx', data.length);
+                    this.ingestRxForDisplay(portId, data, timestamp, { seq });
+                }
+            });
+            this.trimPortRecords(portId);
+            if (result.has_more) {
+                setTimeout(() => this.pollSelectedCaptureLog(), 0);
+            }
+        } catch (error) {
+            console.warn('读取持续日志失败:', error);
+        } finally {
+            this.captureLogPollInFlight = false;
+        }
+    };
+
+    SerialToolApp.prototype.startCaptureStatusRefresh = function patchedStartCaptureStatusRefresh() {
+        originalStartCaptureStatusRefresh.call(this);
+        this.startCaptureLogPolling();
+    };
+
+    SerialToolApp.prototype.stopCaptureStatusRefresh = function patchedStopCaptureStatusRefresh() {
+        originalStopCaptureStatusRefresh.call(this);
+        if (this.captureSessions.size === 0) this.stopCaptureLogPolling();
     };
 
     SerialToolApp.prototype.updateLoadMoreHistoryButton = function updateLoadMoreHistoryButton() {
@@ -1107,86 +1254,6 @@
         }
     };
 
-    SerialToolApp.prototype.renderPortList = function patchedRenderPortList() {
-        const portList = document.getElementById('portList');
-        if (!portList) return;
-
-        const entries = [];
-        this.ports.forEach((info, portId) => {
-            if (this.connectionMode === 'local') {
-                if (info.type === 'local') entries.push([portId, info]);
-            } else if (info.type !== 'local') {
-                entries.push([portId, info]);
-            }
-        });
-
-        if (entries.length === 0) {
-            portList.innerHTML = `
-                <div class="text-center text-muted p-3">
-                    <i class="fas fa-plug"></i>
-                    <p class="mb-0 mt-2">暂无可用串口</p>
-                    <small>${this.connectionMode === 'remote' ? '可连接服务器串口或共享本地串口' : '点击“添加”连接本地串口'}</small>
-                </div>
-            `;
-            return;
-        }
-
-        entries.sort((left, right) => {
-            const a = left[1];
-            const b = right[1];
-            const activeRank = (value) => (value.connected ? 0 : value.captureActive ? 1 : value.available === false ? 3 : 2);
-            return activeRank(a) - activeRank(b) || String(a.name || '').localeCompare(String(b.name || ''));
-        });
-
-        portList.innerHTML = '';
-        entries.forEach(([portId, portInfo]) => {
-            const item = document.createElement('div');
-            item.className = `port-item ${portId === this.currentPort ? 'active' : ''}`;
-
-            const isRemote = portInfo.type !== 'local';
-            const typeIcon = isRemote ? getRemoteSourceIcon(portInfo.sourceType) : '💻';
-            const stateText = isRemote ? formatChannelState(portInfo.channelState, portInfo.connected) : '已连接';
-            const config = portInfo.config || {};
-            const actionButtons = [];
-
-            if (isRemote) {
-                if (portInfo.connected) {
-                    actionButtons.push(`<button type="button" class="btn btn-sm btn-outline-danger" title="断开与此串口的连接" aria-label="断开连接" onclick="serialApp.disconnectPort('${portId}')"><i class="fas fa-times"></i></button>`);
-                } else if (portInfo.available !== false) {
-                    actionButtons.push(`<button type="button" class="btn btn-sm btn-outline-primary" title="连接此串口以收发数据" aria-label="连接串口" onclick="serialApp.connectSharedChannel('${portId}')"><i class="fas fa-plug"></i></button>`);
-                }
-                if (portInfo.captureActive) {
-                    actionButtons.push(`<button type="button" class="btn btn-sm btn-outline-warning" title="停止服务器侧后台持续记录（不影响当前监控区）" aria-label="停止后台记录" onclick="serialApp.toggleCaptureForPort('${portId}', false)"><i class="fas fa-stop"></i></button>`);
-                } else {
-                    actionButtons.push(`<button type="button" class="btn btn-sm btn-outline-success" title="在服务器侧开启后台持续记录，便于事后查看文件" aria-label="开启后台记录" onclick="serialApp.toggleCaptureForPort('${portId}', true)"><i class="fas fa-circle"></i></button>`);
-                }
-                if (portInfo.isSharedByMe) {
-                    actionButtons.push(`<button type="button" class="btn btn-sm btn-outline-secondary" title="取消将本机串口共享到服务器" aria-label="取消共享" onclick="serialApp.unregisterSharedPort('${portId}')"><i class="fas fa-unlink"></i></button>`);
-                }
-            } else if (portInfo.connected) {
-                actionButtons.push(`<button type="button" class="btn btn-sm btn-outline-danger" title="断开连接" aria-label="断开连接" onclick="serialApp.disconnectPort('${portId}')"><i class="fas fa-times"></i></button>`);
-            }
-
-            item.innerHTML = `
-                <div class="port-info">
-                    <span class="port-name">${typeIcon} ${portInfo.name || portId}${portInfo.captureActive ? '<span class="badge bg-warning text-dark ms-2">日志</span>' : ''}</span>
-                    <span class="port-config">${config.baudRate || config.baudrate || '--'} bps, ${config.dataBits || config.bytesize || '--'} ${String(config.parity || 'N')} ${config.stopBits || config.stopbits || '--'} (${stateText})</span>
-                </div>
-                <div class="port-status">
-                    <span class="status-indicator ${portInfo.connected || portInfo.channelState === 'active' ? 'connected' : 'disconnected'}"></span>
-                    <div class="port-actions">${actionButtons.join('')}</div>
-                </div>
-            `;
-
-            item.addEventListener('click', (event) => {
-                if (!event.target.closest('.port-actions')) {
-                    this.selectPort(portId, { resetHistory: true });
-                }
-            });
-            portList.appendChild(item);
-        });
-    };
-
     SerialToolApp.prototype.renderPortList = function unifiedRenderPortList() {
         const portList = document.getElementById('portList');
         if (!portList) return;
@@ -1226,7 +1293,6 @@
             item.className = `port-item ${className} ${portId === this.currentPort ? 'active' : ''}`;
 
             const config = portInfo.config || {};
-            const actionButtons = [];
             const typeIcon = isLocal ? '💻' : getRemoteSourceIcon(portInfo.sourceType);
             const badgeClass = isLocal
                 ? (isLocalShared ? 'local-shared' : 'local-private')
@@ -1238,37 +1304,52 @@
                 ? (isLocalShared ? `共享状态：${formatChannelState(portInfo.sharedChannelState, false)}` : '仅本机可用')
                 : formatChannelState(portInfo.channelState, portInfo.connected);
             const logBadge = portInfo.captureActive ? '<span class="badge bg-warning text-dark ms-2">日志</span>' : '';
-
-            if (isLocal) {
-                if (isLocalShared) {
-                    actionButtons.push(`<button type="button" class="btn btn-sm btn-outline-warning" title="取消共享" aria-label="取消共享" onclick="serialApp.toggleLocalPortSharing('${portId}', false)"><i class="fas fa-unlink"></i></button>`);
-                } else {
-                    actionButtons.push(`<button type="button" class="btn btn-sm btn-outline-success" title="共享串口" aria-label="共享串口" onclick="serialApp.toggleLocalPortSharing('${portId}', true)"><i class="fas fa-share-alt"></i></button>`);
-                }
-                actionButtons.push(`<button type="button" class="btn btn-sm btn-outline-danger" title="关闭本地串口" aria-label="关闭本地串口" onclick="serialApp.disconnectPort('${portId}')"><i class="fas fa-times"></i></button>`);
-            } else {
-                if (portInfo.connected) {
-                    actionButtons.push(`<button type="button" class="btn btn-sm btn-outline-danger" title="断开连接" aria-label="断开连接" onclick="serialApp.disconnectPort('${portId}')"><i class="fas fa-times"></i></button>`);
-                } else if (portInfo.available !== false) {
-                    actionButtons.push(`<button type="button" class="btn btn-sm btn-outline-primary" title="使用该共享串口" aria-label="使用共享串口" onclick="serialApp.connectSharedChannel('${portId}')"><i class="fas fa-plug"></i></button>`);
-                }
-                if (portInfo.captureActive) {
-                    actionButtons.push(`<button type="button" class="btn btn-sm btn-outline-warning" title="停止后台记录" aria-label="停止后台记录" onclick="serialApp.toggleCaptureForPort('${portId}', false)"><i class="fas fa-stop"></i></button>`);
-                } else {
-                    actionButtons.push(`<button type="button" class="btn btn-sm btn-outline-success" title="开启后台记录" aria-label="开启后台记录" onclick="serialApp.toggleCaptureForPort('${portId}', true)"><i class="fas fa-circle"></i></button>`);
-                }
-            }
+            const relayBadge = portInfo.relayId ? '<span class="badge bg-primary ms-2">透传</span>' : '';
 
             item.innerHTML = `
                 <div class="port-info">
-                    <span class="port-name">${typeIcon} ${this.escapeHtml(portInfo.name || portId)}<span class="port-badge ${badgeClass}">${badgeText}</span>${logBadge}</span>
-                    <span class="port-config">${config.baudRate || config.baudrate || '--'} bps, ${config.dataBits || config.bytesize || '--'} ${String(config.parity || 'N')} ${config.stopBits || config.stopbits || '--'} (${stateText})</span>
+                    <span class="port-name">${typeIcon} ${this.escapeHtml(portInfo.name || portId)}<span class="port-badge ${badgeClass}">${badgeText}</span>${logBadge}${relayBadge}</span>
+                    <span class="port-config">${this.escapeHtml(config.baudRate || config.baudrate || '--')} bps, ${this.escapeHtml(config.dataBits || config.bytesize || '--')} ${this.escapeHtml(String(config.parity || 'N'))} ${this.escapeHtml(config.stopBits || config.stopbits || '--')} (${this.escapeHtml(stateText)})</span>
                 </div>
                 <div class="port-status">
                     <span class="status-indicator ${portInfo.connected || portInfo.channelState === 'active' || portInfo.sharedChannelState === 'active' ? 'connected' : 'disconnected'}"></span>
-                    <div class="port-actions">${actionButtons.join('')}</div>
+                    <div class="port-actions"></div>
                 </div>
             `;
+
+            const actions = item.querySelector('.port-actions');
+            const addAction = (className, title, iconClass, handler) => {
+                const button = document.createElement('button');
+                button.type = 'button';
+                button.className = `btn btn-sm ${className}`;
+                button.title = title;
+                button.setAttribute('aria-label', title);
+                button.innerHTML = `<i class="fas ${iconClass}"></i>`;
+                button.addEventListener('click', handler);
+                actions.appendChild(button);
+            };
+
+            if (isLocal) {
+                addAction(
+                    isLocalShared ? 'btn-outline-warning' : 'btn-outline-success',
+                    isLocalShared ? '取消共享' : '共享串口',
+                    isLocalShared ? 'fa-unlink' : 'fa-share-alt',
+                    () => this.toggleLocalPortSharing(portId, !isLocalShared),
+                );
+                addAction('btn-outline-danger', '关闭本地串口', 'fa-times', () => this.disconnectPort(portId));
+            } else {
+                if (portInfo.connected) {
+                    addAction('btn-outline-danger', '断开连接', 'fa-times', () => this.disconnectPort(portId));
+                } else if (portInfo.available !== false) {
+                    addAction('btn-outline-primary', '使用共享串口', 'fa-plug', () => this.connectSharedChannel(portId));
+                }
+                addAction(
+                    portInfo.captureActive ? 'btn-outline-warning' : 'btn-outline-success',
+                    portInfo.captureActive ? '停止后台记录' : '开启后台记录',
+                    portInfo.captureActive ? 'fa-stop' : 'fa-circle',
+                    () => this.toggleCaptureForPort(portId, !portInfo.captureActive),
+                );
+            }
 
             item.addEventListener('click', (event) => {
                 if (!event.target.closest('.port-actions')) {
@@ -1293,6 +1374,10 @@
             }
             await this.loadCaptureStatus(true);
             this.requestSharedChannels();
+            if (shouldStart) {
+                await this.selectPort(portId, { resetHistory: true });
+                this.startCaptureLogPolling();
+            }
         } catch (error) {
             alert(`持续记录操作失败: ${error.message || error}`);
         }
@@ -1310,19 +1395,21 @@
         if (portInfo && portInfo.type === 'remote') {
             return this.toggleCaptureForPort(this.currentPort, true);
         }
-        return originalStartCaptureLogging.call(this);
+        const session = await originalStartCaptureLogging.call(this);
+        const channelId = session?.channel_id || session?.port_id;
+        if (channelId) {
+            await this.selectPort(channelId, { resetHistory: true });
+            this.startCaptureLogPolling();
+        }
+        return session;
     };
 
-    SerialToolApp.prototype.disconnectPort = async function patchedDisconnectPort(portId) {
-        const portInfo = this.ports.get(portId);
-        if (!portInfo) {
-            return originalDisconnectPort.call(this, portId);
-        }
+    SerialToolApp.prototype.disconnectPortTransport = async function disconnectPortTransport(portId, portInfo) {
         if (portInfo.type === 'local') {
             if (portInfo.sharedChannelId) {
                 await this.unregisterSharedPort(portInfo.sharedChannelId);
             }
-            return originalDisconnectPort.call(this, portId);
+            return originalDisconnectPortTransport.call(this, portId, portInfo);
         }
 
         if (this.websocket && this.websocket.connected) {
@@ -1330,67 +1417,20 @@
         }
         portInfo.connected = false;
         this.ports.set(portId, portInfo);
-        if (this.currentPort === portId) {
-            const sendBtn = document.getElementById('sendBtn');
-            if (sendBtn) sendBtn.disabled = true;
-        }
-        this.renderPortList();
+        return { removePort: false };
     };
 
-    SerialToolApp.prototype.sendRawBytes = async function patchedSendRawBytes(bytes) {
-        const portInfo = this.currentPort ? this.ports.get(this.currentPort) : null;
+    SerialToolApp.prototype.writePortData = async function patchedWritePortData(portId, portInfo, data) {
         if (!portInfo || portInfo.type === 'local') {
-            return originalSendRawBytes.call(this, bytes);
+            return originalWritePortData.call(this, portId, portInfo, data);
         }
         if (!portInfo.connected || !this.websocket || !this.websocket.connected) {
-            throw new Error('remote_channel_not_connected');
+            throw new Error('远程共享串口连接已断开');
         }
         this.websocket.emit('write_data', {
-            channel_id: this.currentPort,
-            data: Array.from(new Uint8Array(bytes)),
+            channel_id: portId,
+            data: Array.from(data),
         });
-    };
-
-    SerialToolApp.prototype.sendData = async function patchedSendData() {
-        const portInfo = this.currentPort ? this.ports.get(this.currentPort) : null;
-        if (!portInfo || portInfo.type === 'local') {
-            return originalSendData.call(this);
-        }
-
-        if (!portInfo.connected) {
-            alert('当前共享串口未连接');
-            return;
-        }
-
-        const input = document.getElementById('sendInput').value;
-        if (!input) {
-            alert('请输入要发送的数据');
-            return;
-        }
-
-        let dataToSend;
-        if (this.sendFormat === 'hex') {
-            const hexStr = input.replace(/\s+/g, '');
-            if (!/^[0-9A-Fa-f]*$/.test(hexStr)) {
-                alert('HEX 格式错误');
-                return;
-            }
-            const bytes = [];
-            for (let index = 0; index < hexStr.length; index += 2) {
-                bytes.push(parseInt(hexStr.substr(index, 2), 16));
-            }
-            dataToSend = new Uint8Array(bytes);
-        } else {
-            let text = input;
-            if (document.getElementById('appendCRLF').checked) {
-                text += '\r\n';
-            }
-            dataToSend = new TextEncoder().encode(text);
-        }
-
-        this.websocket.emit('write_data', {
-            channel_id: this.currentPort,
-            data: Array.from(dataToSend),
-        });
+        return { awaitRemoteRecord: true };
     };
 })();

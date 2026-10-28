@@ -1,0 +1,238 @@
+- generic [ref=f5e1]:
+  - banner "3D 查看工具" [ref=f5e2]:
+    - generic [ref=f5e3]:
+      - button "返回文件列表" [ref=f5e4] [cursor=pointer]:
+        - generic [aria-hidden] [ref=f5e5]: 
+      - generic [aria-hidden] [ref=f5e6]: 
+      - generic [ref=f5e7]:
+        - strong [ref=f5e8]: PCB装配_2026-09-15_1701.glb
+        - generic [ref=f5e9]: GLB · 高级审阅
+    - generic [ref=f5e10]:
+      - text: 
+      - button "复位视角" [ref=f5e11] [cursor=pointer]:
+        - generic [aria-hidden] [ref=f5e12]: 
+      - button "切换线框" [ref=f5e13] [cursor=pointer]:
+        - generic [aria-hidden] [ref=f5e14]: 
+      - button "切换网格" [ref=f5e15] [cursor=pointer]:
+        - generic [aria-hidden] [ref=f5e16]: 
+      - button "切换坐标轴" [ref=f5e17] [cursor=pointer]:
+        - generic [aria-hidden] [ref=f5e18]: 
+      - button "切换背景" [ref=f5e19] [cursor=pointer]:
+        - generic [aria-hidden] [ref=f5e20]: 
+      - button "隐藏所有评论" [ref=f5e21] [cursor=pointer]:
+        - generic [aria-hidden] [ref=f5e22]: 
+      - button "显示所有评论连线" [ref=f5e23] [cursor=pointer]:
+        - generic [aria-hidden] [ref=f5e24]: 
+      - button "切换自动旋转" [ref=f5e25] [cursor=pointer]:
+        - generic [aria-hidden] [ref=f5e26]: 
+      - text: 
+      - button "切换全屏" [ref=f5e27] [cursor=pointer]:
+        - generic [aria-hidden] [ref=f5e28]: 
+      - button "添加评论" [ref=f5e30] [cursor=pointer]:
+        - generic [aria-hidden] [ref=f5e31]: 
+      - button "导出报告" [ref=f5e33] [cursor=pointer]:
+        - generic [aria-hidden] [ref=f5e34]: 
+      - text: 
+  - main [ref=f5e36]:
+    - complementary "零件树" [ref=f5e37]:
+      - generic [ref=f5e38]:
+        - generic [ref=f5e39]:
+          - text: 装配体
+          - heading "零件" [level=2] [ref=f5e40]
+        - generic [ref=f5e41]:
+          - button "显示全部零件" [ref=f5e42] [cursor=pointer]:
+            - generic [aria-hidden] [ref=f5e43]: 
+          - text: 
+      - generic [ref=f5e44]: 已识别 10 个节点 · 当前模型不支持爆炸视图
+      - tree [ref=f5e45]:
+        - treeitem [ref=f5e46]:
+          - button "折叠" [ref=f5e47] [cursor=pointer]:
+            - generic [aria-hidden] [ref=f5e48]: 
+          - button "组件 1" [ref=f5e49] [cursor=pointer]
+          - button "解锁整组零件" [pressed] [ref=f5e50] [cursor=pointer]:
+            - generic [aria-hidden] [ref=f5e51]: 
+          - button "隐藏零件" [ref=f5e52] [cursor=pointer]:
+            - generic [aria-hidden] [ref=f5e53]: 
+        - treeitem [ref=f5e54]:
+          - button "折叠" [ref=f5e55] [cursor=pointer]:
+            - generic [aria-hidden] [ref=f5e56]: 
+          - button "PCB_Assembly" [ref=f5e57] [cursor=pointer]
+          - button "与父级一起爆炸" [pressed] [ref=f5e58] [cursor=pointer]:
+            - generic [aria-hidden] [ref=f5e59]: 
+          - button "隐藏零件" [ref=f5e60] [cursor=pointer]:
+            - generic [aria-hidden] [ref=f5e61]: 
+        - treeitem [ref=f5e62]:
+          - button "折叠" [ref=f5e63] [cursor=pointer]:
+            - generic [aria-hidden] [ref=f5e64]: 
+          - button "主控板" [ref=f5e65] [cursor=pointer]
+          - button "与父级一起爆炸" [pressed] [ref=f5e66] [cursor=pointer]:
+            - generic [aria-hidden] [ref=f5e67]: 
+          - button "隐藏零件" [ref=f5e68] [cursor=pointer]:
+            - generic [aria-hidden] [ref=f5e69]: 
+        - treeitem [ref=f5e70]:
+          - button "折叠" [ref=f5e71] [cursor=pointer]:
+            - generic [aria-hidden] [ref=f5e72]: 
+          - button "组件 4" [ref=f5e73] [cursor=pointer]
+          - button "与父级一起爆炸" [pressed] [ref=f5e74] [cursor=pointer]:
+            - generic [aria-hidden] [ref=f5e75]: 
+          - button "隐藏零件" [ref=f5e76] [cursor=pointer]:
+            - generic [aria-hidden] [ref=f5e77]: 
+        - treeitem [ref=f5e78]:
+          - button "折叠" [ref=f5e79] [cursor=pointer]:
+            - generic [aria-hidden] [ref=f5e80]: 
+          - button "组件 5" [ref=f5e81] [cursor=pointer]
+          - button "与父级一起爆炸" [pressed] [ref=f5e82] [cursor=pointer]:
+            - generic [aria-hidden] [ref=f5e83]: 
+          - button "隐藏零件" [ref=f5e84] [cursor=pointer]:
+            - generic [aria-hidden] [ref=f5e85]: 
+        - treeitem [ref=f5e86]:
+          - button "board" [ref=f5e87] [cursor=pointer]
+          - button "与父级一起爆炸" [pressed] [ref=f5e88] [cursor=pointer]:
+            - generic [aria-hidden] [ref=f5e89]: 
+          - button "隐藏零件" [ref=f5e90] [cursor=pointer]:
+            - generic [aria-hidden] [ref=f5e91]: 
+        - treeitem [ref=f5e92]:
+          - button "折叠" [ref=f5e93] [cursor=pointer]:
+            - generic [aria-hidden] [ref=f5e94]: 
+          - button "接口板" [ref=f5e95] [cursor=pointer]
+          - button "与父级一起爆炸" [pressed] [ref=f5e96] [cursor=pointer]:
+            - generic [aria-hidden] [ref=f5e97]: 
+          - button "隐藏零件" [ref=f5e98] [cursor=pointer]:
+            - generic [aria-hidden] [ref=f5e99]: 
+        - treeitem [ref=f5e100]:
+          - button "折叠" [ref=f5e101] [cursor=pointer]:
+            - generic [aria-hidden] [ref=f5e102]: 
+          - button "组件 8" [ref=f5e103] [cursor=pointer]
+          - button "与父级一起爆炸" [pressed] [ref=f5e104] [cursor=pointer]:
+            - generic [aria-hidden] [ref=f5e105]: 
+          - button "隐藏零件" [ref=f5e106] [cursor=pointer]:
+            - generic [aria-hidden] [ref=f5e107]: 
+        - treeitem [ref=f5e108]:
+          - button "折叠" [ref=f5e109] [cursor=pointer]:
+            - generic [aria-hidden] [ref=f5e110]: 
+          - button "组件 9" [ref=f5e111] [cursor=pointer]
+          - button "与父级一起爆炸" [pressed] [ref=f5e112] [cursor=pointer]:
+            - generic [aria-hidden] [ref=f5e113]: 
+          - button "隐藏零件" [ref=f5e114] [cursor=pointer]:
+            - generic [aria-hidden] [ref=f5e115]: 
+        - treeitem [ref=f5e116]:
+          - button "board_1" [ref=f5e117] [cursor=pointer]
+          - button "与父级一起爆炸" [pressed] [ref=f5e118] [cursor=pointer]:
+            - generic [aria-hidden] [ref=f5e119]: 
+          - button "隐藏零件" [ref=f5e120] [cursor=pointer]:
+            - generic [aria-hidden] [ref=f5e121]: 
+    - region "3D 模型画布" [ref=f5e122]:
+      - application "视角立方体" [ref=f5e125]
+      - button "1. 检查背面连接器" [ref=f5e127] [cursor=pointer]
+      - button "1 检查背面连接器" [ref=f5e128] [cursor=pointer]:
+        - generic [ref=f5e129]: "1"
+        - generic [ref=f5e130]: 检查背面连接器
+      - generic [ref=f5e131]:
+        - generic [ref=f5e132]: 爆炸视图
+        - slider "爆炸视图" [disabled] [ref=f5e133]: "0"
+        - status [ref=f5e134]: 0%
+    - complementary "评论面板" [ref=f5e135]:
+      - generic [ref=f5e136]:
+        - generic [ref=f5e137]:
+          - text: 模型审阅
+          - heading "评论" [level=2] [ref=f5e138]
+        - text: 
+      - button "1 检查背面连接器 空间锚点" [ref=f5e140] [cursor=pointer]:
+        - generic [ref=f5e141]: "1"
+        - generic [ref=f5e142]:
+          - strong [ref=f5e143]: 检查背面连接器
+          - generic [ref=f5e144]: 空间锚点
+      - text:       
+  - dialog [ref=f5e145]:
+    - generic [ref=f5e146]:
+      - banner [ref=f5e147]:
+        - generic [ref=f5e148]:
+          - text: 审阅交付
+          - heading "导出报告" [level=2] [ref=f5e149]
+        - button "关闭导出设置" [ref=f5e150] [cursor=pointer]:
+          - generic [aria-hidden] [ref=f5e151]: 
+      - generic [ref=f5e152]:
+        - generic [ref=f5e153]:
+          - generic [ref=f5e154]: 主要标题
+          - textbox "主要标题" [ref=f5e155]: PCB装配_2026-09-15_1701 3D 审阅报告
+        - group "输出格式" [ref=f5e156]:
+          - generic [ref=f5e158] [cursor=pointer]:
+            - radio "仅 PDF"
+            - generic [aria-hidden] [ref=f5e159]: 
+            - generic [ref=f5e160]: 仅 PDF
+          - generic [ref=f5e161] [cursor=pointer]:
+            - radio "仅 Word"
+            - generic [aria-hidden] [ref=f5e162]: 
+            - generic [ref=f5e163]: 仅 Word
+          - generic [ref=f5e164] [cursor=pointer]:
+            - radio "PDF + Word ZIP" [checked]
+            - generic [aria-hidden] [ref=f5e165]: 
+            - generic [ref=f5e166]: PDF + Word ZIP
+        - group "基础预览数量" [ref=f5e167]:
+          - generic [ref=f5e169] [cursor=pointer]:
+            - radio "6 张" [checked]
+            - generic [ref=f5e170]:
+              - generic [aria-hidden] [ref=f5e171]: 
+              - text: 6 张
+          - generic [ref=f5e172] [cursor=pointer]:
+            - radio "8 张"
+            - generic [ref=f5e173]:
+              - generic [aria-hidden] [ref=f5e174]: 
+              - text: 8 张
+          - generic [ref=f5e175] [cursor=pointer]:
+            - radio "10 张"
+            - generic [ref=f5e176]:
+              - generic [aria-hidden] [ref=f5e177]: 
+              - text: 10 张
+          - generic [ref=f5e178] [cursor=pointer]:
+            - radio "12 张"
+            - generic [ref=f5e179]:
+              - generic [aria-hidden] [ref=f5e180]: 
+              - text: 12 张
+          - generic [ref=f5e181] [cursor=pointer]:
+            - radio "14 张"
+            - generic [ref=f5e182]:
+              - generic [aria-hidden] [ref=f5e183]: 
+              - text: 14 张
+        - status [ref=f5e184]: 已选择 6 张，将生成 6 页基础预览
+        - generic [ref=f5e185] [cursor=pointer]:
+          - checkbox "包含评论页面 共 1 条，每条评论各占一页" [checked] [ref=f5e186]
+          - generic [ref=f5e187]:
+            - strong [ref=f5e188]: 包含评论页面
+            - generic [ref=f5e189]: 共 1 条，每条评论各占一页
+        - group "每条评论的视角数量" [ref=f5e190]:
+          - generic [ref=f5e192] [cursor=pointer]:
+            - radio "1 个" [checked] [active]
+            - generic [ref=f5e193]:
+              - generic [aria-hidden] [ref=f5e194]: 
+              - text: 1 个
+          - generic [ref=f5e195] [cursor=pointer]:
+            - radio "2 个"
+            - generic [ref=f5e196]:
+              - generic [aria-hidden] [ref=f5e197]: 
+              - text: 2 个
+          - generic [ref=f5e198] [cursor=pointer]:
+            - radio "3 个"
+            - generic [ref=f5e199]:
+              - generic [aria-hidden] [ref=f5e200]: 
+              - text: 3 个
+          - generic [ref=f5e201] [cursor=pointer]:
+            - radio "4 个"
+            - generic [ref=f5e202]:
+              - generic [aria-hidden] [ref=f5e203]: 
+              - text: 4 个
+        - status [ref=f5e204]: 每条评论将生成 1 个完整模型视角
+        - generic [ref=f5e205] [cursor=pointer]:
+          - checkbox "嵌入交互式 3D 模型 仅用于 Word；关闭后生成普通静态文档" [checked] [ref=f5e206]
+          - generic [ref=f5e207]:
+            - strong [ref=f5e208]: 嵌入交互式 3D 模型
+            - generic [ref=f5e209]: 仅用于 Word；关闭后生成普通静态文档
+        - generic [ref=f5e210] [cursor=pointer]:
+          - checkbox "分别嵌入顶层板子 在同一 Word 中额外嵌入 2 个独立板子模型" [ref=f5e211]
+          - generic [ref=f5e212]:
+            - strong [ref=f5e213]: 分别嵌入顶层板子
+            - generic [ref=f5e214]: 在同一 Word 中额外嵌入 2 个独立板子模型
+      - contentinfo [ref=f5e215]:
+        - button "取消" [ref=f5e216] [cursor=pointer]
+        - button "生成报告" [ref=f5e217] [cursor=pointer]:
+          - generic [aria-hidden] [ref=f5e218]: 

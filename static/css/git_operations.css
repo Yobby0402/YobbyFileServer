@@ -1,0 +1,28 @@
+.git-operation-modal .modal-content {
+    border: 1px solid var(--t-border-light, rgba(95, 191, 174, 0.24));
+    border-radius: 18px;
+    background: var(--t-bg-panel-opaque, #fff);
+    box-shadow: var(--t-shadow-lg, 0 20px 50px rgba(15, 23, 42, 0.2));
+}
+.git-operation-modal .modal-body { padding: 2rem; text-align: center; }
+.git-operation-icon {
+    width: 64px; height: 64px; margin: 0 auto 1rem; display: grid; place-items: center;
+    border-radius: 50%; font-size: 1.75rem;
+}
+.git-operation-icon.is-loading { color: var(--t-primary, #198754); background: rgba(25, 135, 84, 0.12); }
+.git-operation-icon.is-success { color: #198754; background: rgba(25, 135, 84, 0.12); animation: git-operation-pop 220ms ease-out; }
+.git-operation-icon.is-error { color: #dc3545; background: rgba(220, 53, 69, 0.12); animation: git-operation-pop 220ms ease-out; }
+.git-operation-message {
+    margin: 0; color: var(--t-text-muted, #6c757d); line-height: 1.7; white-space: pre-line;
+}
+.git-operation-details { margin-top: 1rem; text-align: left; }
+.git-operation-details summary { cursor: pointer; color: var(--t-text-muted, #6c757d); font-size: 0.875rem; }
+.git-operation-details pre {
+    max-height: 180px; margin: 0.75rem 0 0; padding: 0.75rem; overflow: auto; border-radius: 10px;
+    background: var(--t-bg-soft, #f8f9fa); color: var(--t-text-main, #212529); font-size: 0.78rem;
+    white-space: pre-wrap; word-break: break-word;
+}
+@keyframes git-operation-pop { from { transform: scale(0.82); opacity: 0.4; } to { transform: scale(1); opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+    .git-operation-icon.is-success, .git-operation-icon.is-error { animation: none; }
+}

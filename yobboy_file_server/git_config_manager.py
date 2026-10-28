@@ -5,12 +5,14 @@ Git配置管理器
 """
 import logging
 import os
+import sys
 import re
 import shutil
 import stat
 import subprocess
 import tempfile
 import json
+import getpass
 from datetime import datetime
 from typing import Dict, List, Optional
 
@@ -41,6 +43,31 @@ def sanitize_ssh_key_name(name: str) -> str:
         cleaned = f"id_rsa_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     return cleaned
 
+
+def secure_ssh_private_key(private_key_path: str) -> None:
+    """Restrict a private key to the current user so OpenSSH will accept it."""
+    os.chmod(private_key_path, stat.S_IRUSR | stat.S_IWUSR)
+    if not sys.platform.startswith('win'):
+        return
+
+    username = getpass.getuser()
+    commands = [
+        ['icacls', private_key_path, '/reset'],
+        ['icacls', private_key_path, '/inheritance:r'],
+        ['icacls', private_key_path, '/grant:r', f'{username}:(F)'],
+    ]
+    for command in commands:
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            creationflags=subprocess.CREATE_NO_WINDOW
+        )
+        if result.returncode != 0:
+            error = (result.stderr or result.stdout or '').strip()
+            raise RuntimeError(error or '无法收紧 SSH 私钥权限')
+
+
 class GitConfigManager:
     """Git配置管理器"""
     
@@ -55,6 +82,8 @@ class GitConfigManager:
             if os.path.exists(self.configs_path):
                 with open(self.configs_path, 'r', encoding='utf-8') as f:
                     data = json.load(f)
+                    if self._migrate_managed_ssh_key_paths(data):
+                        self.save_configs(data)
                     return data
             else:
                 # 创建默认配置结构
@@ -70,6 +99,25 @@ class GitConfigManager:
                 'configs': [],
                 'default_config_id': None
             }
+
+    def _migrate_managed_ssh_key_paths(self, data: Dict) -> bool:
+        """Update managed key paths after the application directory is moved."""
+        changed = False
+        current_key_dir = os.path.normpath(get_git_ssh_keys_dir())
+        managed_suffix = os.path.normcase(os.path.join('data', 'file_server', 'ssh_keys'))
+
+        for config in data.get('configs', []):
+            key_path = os.path.normpath(config.get('ssh_key_path') or '')
+            if not key_path:
+                continue
+
+            old_key_dir = os.path.normcase(os.path.dirname(key_path))
+            candidate = os.path.join(current_key_dir, os.path.basename(key_path))
+            if old_key_dir.endswith(managed_suffix) and os.path.isfile(candidate):
+                config['ssh_key_path'] = os.path.normpath(candidate)
+                changed = True
+
+        return changed
     
     def save_configs(self, configs: Optional[Dict] = None):
         """保存Git配置"""
@@ -256,11 +304,8 @@ class GitConfigManager:
                 finally:
                     shutil.rmtree(temp_dir, ignore_errors=True)
 
-            try:
-                os.chmod(private_key_path, stat.S_IRUSR | stat.S_IWUSR)
-                os.chmod(public_key_path, stat.S_IRUSR | stat.S_IWUSR)
-            except Exception:
-                pass
+            secure_ssh_private_key(private_key_path)
+            os.chmod(public_key_path, stat.S_IRUSR | stat.S_IWUSR)
 
             return {
                 'success': True,

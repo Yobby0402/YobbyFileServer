@@ -1,0 +1,41 @@
+{
+  "asset": {"version": "2.0", "generator": "YobboyFileServer explosion grouping fixture"},
+  "extensionsUsed": ["KHR_materials_unlit"],
+  "scene": 0,
+  "scenes": [{"nodes": [0, 6]}],
+  "nodes": [
+    {"name": "AssemblyA", "children": [1, 2, 3, 4, 5]},
+    {"name": "A1", "mesh": 0, "translation": [-3.0, 0.0, 0.0]},
+    {"name": "A2", "mesh": 0, "translation": [-2.4, 0.8, 0.0]},
+    {"name": "A3", "mesh": 0, "translation": [-2.4, -0.8, 0.0]},
+    {"name": "A4", "mesh": 0, "translation": [-1.8, 0.4, 0.0]},
+    {"name": "A5", "mesh": 0, "translation": [-1.8, -0.4, 0.0]},
+    {"name": "AssemblyB", "children": [7, 8, 9, 10, 11]},
+    {"name": "B1", "mesh": 0, "translation": [1.8, 0.0, 0.0]},
+    {"name": "B2", "mesh": 0, "translation": [2.4, 0.8, 0.0]},
+    {"name": "B3", "mesh": 0, "translation": [2.4, -0.8, 0.0]},
+    {"name": "B4", "mesh": 0, "translation": [3.0, 0.4, 0.0]},
+    {"name": "B5", "mesh": 0, "translation": [3.0, -0.4, 0.0]}
+  ],
+  "meshes": [{
+    "name": "ReviewCube",
+    "primitives": [{"attributes": {"POSITION": 0}, "indices": 1, "material": 0}]
+  }],
+  "materials": [{
+    "name": "ReviewGreen",
+    "pbrMetallicRoughness": {"baseColorFactor": [0.22, 0.68, 0.49, 1]},
+    "extensions": {"KHR_materials_unlit": {}}
+  }],
+  "buffers": [{
+    "byteLength": 168,
+    "uri": "data:application/octet-stream;base64,AAAAvwAAAL8AAAC/AAAAPwAAAL8AAAC/AAAAPwAAAD8AAAC/AAAAvwAAAD8AAAC/AAAAvwAAAL8AAAA/AAAAPwAAAL8AAAA/AAAAPwAAAD8AAAA/AAAAvwAAAD8AAAA/AAABAAIAAAACAAMABAAGAAUABAAHAAYAAAAEAAUAAAAFAAEAAQAFAAYAAQAGAAIAAgAGAAcAAgAHAAMABAAAAAMABAADAAcA"
+  }],
+  "bufferViews": [
+    {"buffer": 0, "byteOffset": 0, "byteLength": 96, "target": 34962},
+    {"buffer": 0, "byteOffset": 96, "byteLength": 72, "target": 34963}
+  ],
+  "accessors": [
+    {"bufferView": 0, "componentType": 5126, "count": 8, "type": "VEC3", "min": [-0.5, -0.5, -0.5], "max": [0.5, 0.5, 0.5]},
+    {"bufferView": 1, "componentType": 5123, "count": 36, "type": "SCALAR"}
+  ]
+}

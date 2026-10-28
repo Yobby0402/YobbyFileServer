@@ -401,6 +401,29 @@
                         <small class="text-muted">定时发送上方输入框的内容</small>
                     </div>
                 </div>
+
+                <div class="card mt-3" id="serialRelayCard">
+                    <div class="card-header">
+                        <strong>远程串口透传</strong>
+                    </div>
+                    <div class="card-body">
+                        <div class="mb-2">
+                            <label class="form-label" for="relayChannelA">通道 A</label>
+                            <select class="form-select form-select-sm" id="relayChannelA"></select>
+                        </div>
+                        <div class="mb-2">
+                            <label class="form-label" for="relayChannelB">通道 B</label>
+                            <select class="form-select form-select-sm" id="relayChannelB"></select>
+                        </div>
+                        <div class="d-grid mb-2">
+                            <button class="btn btn-sm btn-outline-primary" id="startRelayBtn" disabled>
+                                <i class="fas fa-exchange-alt"></i> 开始双向透传
+                            </button>
+                        </div>
+                        <div id="relayList" class="small text-muted">暂无透传任务</div>
+                        <small class="text-muted d-block mt-2">仅转发接收字节；设备硬件回显可能造成重复数据。</small>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -534,6 +557,7 @@
     <script>
         window.SERIAL_SERVER_CONFIG = {{ (serial_server_config or {}) | tojson }};
     </script>
+    <script src="{{ url_for('static', filename='js/serial_tool_utils.js') }}?v={{ range(1, 99999) | random }}"></script>
     <script src="{{ url_for('static', filename='js/serial_tool.js') }}?v={{ range(1, 99999) | random }}"></script>
     <script src="{{ url_for('static', filename='js/serial_tool_shared.js') }}?v={{ range(1, 99999) | random }}"></script>
     <script src="{{ url_for('static', filename='js/theme_floater.js') }}"></script>

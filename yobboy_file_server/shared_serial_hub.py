@@ -47,6 +47,8 @@ class SharedSerialHub:
         self.socket_subscriptions: Dict[str, Set[str]] = {}
         self.owner_channels: Dict[str, Set[str]] = {}
         self.pending_writes: Dict[str, Dict] = {}
+        self.relays: Dict[str, Dict] = {}
+        self.channel_relays: Dict[str, str] = {}
 
         self.history_root = get_logs_path("shared_serial_history")
         os.makedirs(self.history_root, exist_ok=True)
@@ -156,6 +158,8 @@ class SharedSerialHub:
                 return None, []
 
             actions = []
+            _stopped_relays, relay_actions = self._stop_relays_for_channel_locked(channel_id, reason)
+            actions.extend(relay_actions)
             if channel["state"] in (STATE_ACTIVE, STATE_ACTIVATING):
                 actions.append(
                     {
@@ -206,6 +210,11 @@ class SharedSerialHub:
                 channel = self.channels.get(channel_id)
                 if not channel:
                     continue
+                _stopped_relays, relay_actions = self._stop_relays_for_channel_locked(
+                    channel_id,
+                    "owner_disconnected",
+                )
+                actions.extend(relay_actions)
                 channel["owner_sid"] = None
                 channel["state"] = STATE_OFFLINE
                 channel["last_error"] = "owner_disconnected"
@@ -279,6 +288,88 @@ class SharedSerialHub:
         with self._lock:
             channel = self.channels.get(channel_id)
             return self._serialize_channel(channel) if channel else None
+
+    def start_relay(
+        self,
+        channel_a: str,
+        channel_b: str,
+        started_by: Optional[str] = None,
+    ) -> Tuple[Optional[Dict], List[Dict], Optional[str]]:
+        first_id = (channel_a or "").strip()
+        second_id = (channel_b or "").strip()
+        if not first_id or not second_id:
+            return None, [], "channel_required"
+        if first_id == second_id:
+            return None, [], "relay_channels_must_differ"
+
+        with self._lock:
+            first = self.channels.get(first_id)
+            second = self.channels.get(second_id)
+            if not first or not second:
+                return None, [], "channel_not_found"
+            if first["state"] == STATE_OFFLINE or second["state"] == STATE_OFFLINE:
+                return None, [], "channel_offline"
+            if first_id in self.channel_relays or second_id in self.channel_relays:
+                return None, [], "channel_already_relayed"
+
+            now = _utcnow_iso()
+            relay_id = f"relay_{uuid.uuid4().hex[:12]}"
+            relay = {
+                "relay_id": relay_id,
+                "channel_a": first_id,
+                "channel_b": second_id,
+                "started_at": now,
+                "started_by": started_by or "",
+                "stop_reason": None,
+            }
+            self.relays[relay_id] = relay
+            self.channel_relays[first_id] = relay_id
+            self.channel_relays[second_id] = relay_id
+
+            actions = []
+            actions.extend(self._activation_actions_locked(first))
+            actions.extend(self._activation_actions_locked(second))
+            return self._serialize_relay(relay), actions, None
+
+    def stop_relay(
+        self,
+        relay_id: str,
+        reason: str = "manual",
+    ) -> Tuple[Optional[Dict], List[Dict], Optional[str]]:
+        with self._lock:
+            relay = self.relays.get((relay_id or "").strip())
+            if not relay:
+                return None, [], "relay_not_found"
+            stopped, actions = self._stop_relay_locked(relay, reason)
+            return stopped, actions, None
+
+    def stop_relays_for_channel(
+        self,
+        channel_id: str,
+        reason: str,
+    ) -> Tuple[List[Dict], List[Dict]]:
+        with self._lock:
+            return self._stop_relays_for_channel_locked(channel_id, reason)
+
+    def list_relays(self) -> List[Dict]:
+        with self._lock:
+            return [self._serialize_relay(relay) for relay in self.relays.values()]
+
+    def get_relay_target(self, channel_id: str) -> Optional[Dict]:
+        with self._lock:
+            relay_id = self.channel_relays.get(channel_id)
+            relay = self.relays.get(relay_id) if relay_id else None
+            if not relay:
+                return None
+            target_id = relay["channel_b"] if relay["channel_a"] == channel_id else relay["channel_a"]
+            target = self.channels.get(target_id)
+            if not target:
+                return None
+            return {
+                "relay_id": relay_id,
+                "source_channel_id": channel_id,
+                "target_channel": self._serialize_channel(target),
+            }
 
     def close(self) -> None:
         with self._lock:
@@ -494,14 +585,89 @@ class SharedSerialHub:
         next_cursor = collected[0]["seq"] if collected else None
         return collected, next_cursor, found_older, None
 
+    def get_history_after(
+        self,
+        channel_id: str,
+        after_seq: int,
+        limit: Optional[int] = None,
+    ) -> Tuple[List[Dict], Optional[int], bool, Optional[str]]:
+        """Return new history entries in sequence order for a live log viewer."""
+        page_size = max(1, min(int(limit or self.page_size), 1000))
+        cursor = max(0, int(after_seq or 0))
+
+        with self._lock:
+            channel = self.channels.get(channel_id)
+            if not channel:
+                return [], None, False, "channel_not_found"
+            self._flush_history_handle_locked(channel)
+            segments = list(channel["segments"])
+
+        collected: List[Dict] = []
+        has_more = False
+        for segment in segments:
+            if segment["end_seq"] <= cursor:
+                continue
+            for raw_line in self._read_segment_lines(segment["path"]):
+                line = raw_line.strip()
+                if not line:
+                    continue
+                try:
+                    entry = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if int(entry.get("seq", 0)) <= cursor:
+                    continue
+                if len(collected) >= page_size:
+                    has_more = True
+                    break
+                collected.append(entry)
+            if has_more:
+                break
+
+        next_cursor = collected[-1]["seq"] if collected else None
+        return collected, next_cursor, has_more, None
+
     # ------------------------------------------------------------------ #
     # Helpers for channel state
     # ------------------------------------------------------------------ #
+    def _stop_relay_locked(self, relay: Dict, reason: str) -> Tuple[Dict, List[Dict]]:
+        relay_id = relay["relay_id"]
+        channel_ids = [relay["channel_a"], relay["channel_b"]]
+        self.relays.pop(relay_id, None)
+        for channel_id in channel_ids:
+            if self.channel_relays.get(channel_id) == relay_id:
+                self.channel_relays.pop(channel_id, None)
+
+        stopped = self._serialize_relay(relay)
+        stopped["stop_reason"] = reason
+        actions: List[Dict] = []
+        for channel_id in channel_ids:
+            channel = self.channels.get(channel_id)
+            if channel:
+                actions.extend(self._sleep_actions_locked(channel))
+        return stopped, actions
+
+    def _stop_relays_for_channel_locked(
+        self,
+        channel_id: str,
+        reason: str,
+    ) -> Tuple[List[Dict], List[Dict]]:
+        relay_id = self.channel_relays.get(channel_id)
+        relay = self.relays.get(relay_id) if relay_id else None
+        if not relay:
+            return [], []
+        stopped, actions = self._stop_relay_locked(relay, reason)
+        return [stopped], actions
+
     def _activation_actions_locked(self, channel: Dict) -> List[Dict]:
         if channel["state"] in (STATE_ACTIVE, STATE_ACTIVATING, STATE_OFFLINE):
             return []
 
-        needs_activation = bool(channel["subscribers"]) or channel["capture"]["active"]
+        needs_activation = (
+            bool(channel["subscribers"])
+            or channel["capture"]["active"]
+            or channel["channel_id"] in self.channel_relays
+        )
         if not needs_activation:
             return []
 
@@ -533,6 +699,8 @@ class SharedSerialHub:
         if channel["capture"]["active"]:
             return []
         if channel["subscribers"]:
+            return []
+        if channel["channel_id"] in self.channel_relays:
             return []
         if channel["state"] not in (STATE_ACTIVE, STATE_ACTIVATING):
             return []
@@ -706,6 +874,21 @@ class SharedSerialHub:
             "browser_port": dict(channel["browser_port"]),
             "last_error": channel["last_error"],
             "latest_seq": channel["next_seq"] - 1,
+            "relay_id": self.channel_relays.get(channel["channel_id"]),
+        }
+
+    def _serialize_relay(self, relay: Dict) -> Dict:
+        first = self.channels.get(relay["channel_a"])
+        second = self.channels.get(relay["channel_b"])
+        return {
+            "relay_id": relay["relay_id"],
+            "channel_a": relay["channel_a"],
+            "channel_b": relay["channel_b"],
+            "channel_a_name": first.get("display_name", relay["channel_a"]) if first else relay["channel_a"],
+            "channel_b_name": second.get("display_name", relay["channel_b"]) if second else relay["channel_b"],
+            "started_at": relay["started_at"],
+            "started_by": relay.get("started_by", ""),
+            "stop_reason": relay.get("stop_reason"),
         }
 
     def _serialize_capture(self, channel: Dict) -> Dict:

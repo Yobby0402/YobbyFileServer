@@ -1958,3 +1958,476 @@ html[data-morph="claymorphism"] .todo-header #toggleArchivedProjectsBtn.active .
     max-height: calc(100vh - 100px);
     overflow-y: auto;
 }
+
+/* Theme readability overrides: keep ToDo surfaces readable across all color themes. */
+body {
+    background: var(--t-bg-body);
+    color: var(--t-text-main);
+}
+
+.todo-header {
+    background: var(--t-bg-panel);
+    border: 1px solid var(--t-border);
+    box-shadow: var(--t-shadow-sm);
+    color: var(--t-text-main);
+}
+
+.todo-header .page-title,
+.todo-header label,
+.todo-header .input-group-text,
+.font-size-label,
+.font-size-value,
+.font-size-unit,
+.switch-label {
+    color: var(--t-text-strong);
+}
+
+.file-selector-row .input-group,
+.search-filter-row .input-group,
+.font-size-controls,
+.style-switch {
+    background: var(--t-bg-panel-opaque);
+    border: 1px solid var(--t-border);
+    border-radius: 10px;
+}
+
+.todo-header .input-group-text,
+.todo-header .form-control,
+.todo-header .form-select {
+    background: var(--t-input-bg);
+    border-color: var(--t-input-border);
+    color: var(--t-input-text);
+}
+
+.todo-header .form-control::placeholder,
+.todo-header .form-select::placeholder {
+    color: var(--t-text-muted);
+    opacity: 1;
+}
+
+.todo-header .form-control:focus,
+.todo-header .form-select:focus {
+    background: var(--t-input-bg);
+    border-color: var(--t-primary);
+    color: var(--t-input-text);
+    box-shadow: var(--t-focus-ring);
+}
+
+.todo-header .form-control[readonly],
+#fileSelectorDisplay {
+    background: var(--t-bg-soft);
+    color: var(--t-text-strong);
+    opacity: 1;
+}
+
+.todo-header .btn-outline-primary,
+.todo-header .btn-outline-info,
+.todo-header .btn-outline-light,
+.todo-header .btn-outline-secondary {
+    background: var(--t-bg-panel-opaque);
+    border-color: var(--t-primary);
+    color: var(--t-primary-hover);
+}
+
+html[data-theme-color="graphite"] .todo-header .btn-outline-primary,
+html[data-theme-color="graphite"] .todo-header .btn-outline-info,
+html[data-theme-color="graphite"] .todo-header .btn-outline-light,
+html[data-theme-color="graphite"] .todo-header .btn-outline-secondary,
+body[data-theme-color="graphite"] .todo-header .btn-outline-primary,
+body[data-theme-color="graphite"] .todo-header .btn-outline-info,
+body[data-theme-color="graphite"] .todo-header .btn-outline-light,
+body[data-theme-color="graphite"] .todo-header .btn-outline-secondary {
+    border-color: #38BDF8;
+    color: #7DD3FC;
+}
+
+.todo-header .btn-outline-primary:hover,
+.todo-header .btn-outline-info:hover,
+.todo-header .btn-outline-light:hover,
+.todo-header .btn-outline-secondary:hover,
+.todo-header .btn-outline-primary:focus,
+.todo-header .btn-outline-info:focus,
+.todo-header .btn-outline-light:focus,
+.todo-header .btn-outline-secondary:focus {
+    background: var(--t-primary);
+    border-color: var(--t-primary);
+    color: var(--t-text-light);
+}
+
+.todo-header .btn-primary,
+.todo-header .btn-success,
+.todo-header .btn-info {
+    color: var(--t-text-light);
+}
+
+.todo-header #fileSelectorBtn,
+.todo-header #resetFileBtn {
+    background: var(--t-primary) !important;
+    border-color: var(--t-primary) !important;
+    color: var(--t-text-light) !important;
+}
+
+.todo-header #fileSelectorBtn:hover,
+.todo-header #fileSelectorBtn:focus,
+.todo-header #resetFileBtn:hover,
+.todo-header #resetFileBtn:focus {
+    background: var(--t-primary-hover) !important;
+    border-color: var(--t-primary-hover) !important;
+    color: var(--t-text-light) !important;
+}
+
+.file-status-badge {
+    color: var(--t-text-light);
+}
+
+.text-muted,
+.form-text,
+small.text-muted {
+    color: var(--t-text-muted) !important;
+}
+
+.panel,
+.table-style,
+.project-table-wrapper,
+.pending-card,
+.filter-panel,
+.modal-content,
+.report-table-container,
+.report-style:fullscreen {
+    background: var(--t-bg-panel);
+    border-color: var(--t-border);
+    color: var(--t-text-main);
+    box-shadow: var(--t-shadow-sm);
+}
+
+.panel-title,
+.project-name,
+.pending-card-summary,
+.task-summary,
+.filter-header h6,
+.modal-title,
+.section-title,
+.report-summary {
+    color: var(--t-text-strong);
+}
+
+.project-section-header,
+.task-history,
+.task-comments,
+.task-history-row,
+.history-info,
+.column-list,
+.quick-switch {
+    background: var(--t-bg-soft);
+    border-color: var(--t-border);
+    color: var(--t-text-main);
+}
+
+.project-section-title,
+.project-progress-text,
+.task-progress-text,
+.task-comment-content,
+.history-item-content,
+.column-item .column-name,
+.project-table td,
+.preview-table td,
+.report-table td {
+    color: var(--t-text-main);
+}
+
+.project-meta,
+.project-section-description,
+.task-description-content,
+.task-updated-at,
+.pending-card-project,
+.pending-card-meta,
+.history-time,
+.task-comment-time,
+.report-description,
+.report-weekly-plan {
+    color: var(--t-text-muted);
+}
+
+.preview-table,
+.project-table tbody,
+.report-table,
+.column-item,
+.history-item,
+#noteListContainer .list-group-item {
+    background: var(--t-bg-panel-opaque);
+    color: var(--t-text-main);
+}
+
+.preview-table thead,
+.project-table thead,
+.report-table thead {
+    background: var(--t-bg-soft);
+}
+
+.preview-table th,
+.project-table th,
+.report-table th {
+    color: var(--t-text-strong);
+    border-color: var(--t-border);
+}
+
+.preview-table tbody tr,
+.project-table tbody tr,
+.report-table tbody tr td,
+.task-history-item,
+.task-comment,
+.config-section,
+.filter-header,
+.filter-footer {
+    border-color: var(--t-border-light);
+}
+
+.preview-table tbody tr:nth-child(even),
+.preview-table tbody tr:nth-child(odd),
+.project-table tbody tr.task-history-row {
+    background: var(--t-bg-panel-opaque);
+}
+
+.preview-table tbody tr:hover,
+.project-table tbody tr:hover,
+.report-table tbody tr:hover,
+.column-item:hover,
+#noteListContainer .list-group-item:hover {
+    background: var(--t-primary-faint) !important;
+}
+
+.task-description-content.collapsed::after {
+    background: linear-gradient(to bottom, transparent, var(--t-bg-panel-opaque));
+}
+
+.form-control,
+.form-select,
+textarea.form-control,
+input.form-control {
+    background-color: var(--t-input-bg) !important;
+    border-color: var(--t-input-border) !important;
+    color: var(--t-input-text) !important;
+}
+
+.form-control:focus,
+.form-select:focus,
+textarea.form-control:focus,
+input.form-control:focus {
+    border-color: var(--t-primary) !important;
+    box-shadow: var(--t-focus-ring) !important;
+}
+
+.form-control::placeholder,
+textarea.form-control::placeholder {
+    color: var(--t-text-muted);
+    opacity: 1;
+}
+
+.markdown-body,
+#descriptionLivePreview,
+#notePreview,
+#noteLivePreview,
+#todoReportPreview {
+    background: var(--t-bg-panel-opaque) !important;
+    border-color: var(--t-border) !important;
+    color: var(--t-text-main) !important;
+}
+
+.markdown-body table th,
+.markdown-body table td,
+#descriptionLivePreview .markdown-body table th,
+#descriptionLivePreview .markdown-body table td,
+#notePreview .markdown-body table th,
+#notePreview .markdown-body table td,
+#noteLivePreview .markdown-body table th,
+#noteLivePreview .markdown-body table td {
+    border-color: var(--t-border) !important;
+}
+
+.markdown-body table th,
+#descriptionLivePreview .markdown-body table th,
+#notePreview .markdown-body table th,
+#noteLivePreview .markdown-body table th {
+    background: var(--t-bg-soft) !important;
+    color: var(--t-text-strong) !important;
+}
+
+.todo-audio-panel {
+    border: 1px solid var(--t-border);
+    background: var(--t-bg-soft);
+    padding: 10px;
+}
+
+.todo-audio-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 32px;
+}
+
+.todo-audio-timer {
+    min-width: 48px;
+    font-family: Consolas, Monaco, monospace;
+    font-variant-numeric: tabular-nums;
+    color: var(--t-text-strong);
+}
+
+.todo-audio-realtime-toggle {
+    margin: 0;
+    white-space: nowrap;
+}
+
+.todo-audio-max-duration {
+    width: 56px;
+    min-width: 56px;
+    padding-right: 3px;
+}
+
+.todo-live-transcript {
+    display: grid;
+    gap: 4px;
+    max-height: 132px;
+    margin-top: 8px;
+    padding: 7px 8px;
+    overflow-y: auto;
+    color: var(--t-text-main);
+    background: var(--t-bg-panel-opaque);
+    border: 1px solid var(--t-border-light);
+    font-size: 13px;
+    line-height: 1.45;
+}
+
+.todo-live-transcript-row {
+    display: grid;
+    grid-template-columns: 48px minmax(0, 1fr);
+    gap: 6px;
+}
+
+.todo-live-transcript-time {
+    color: var(--t-text-muted);
+    font-family: Consolas, Monaco, monospace;
+    font-variant-numeric: tabular-nums;
+}
+
+.todo-live-transcript-info {
+    margin-left: 2px;
+    color: var(--t-text-muted);
+    cursor: help;
+}
+
+.todo-audio-list {
+    display: grid;
+    gap: 6px;
+    margin-top: 8px;
+    max-height: 176px;
+    overflow-y: auto;
+}
+
+.todo-audio-card {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
+    align-items: center;
+    padding: 7px 8px;
+    background: var(--t-bg-panel-opaque);
+    border: 1px solid var(--t-border-light);
+}
+
+.todo-audio-card-main {
+    min-width: 0;
+}
+
+.todo-audio-card-title {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--t-text-strong);
+}
+
+.todo-audio-card-meta {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 3px;
+}
+
+.todo-audio-card audio {
+    width: min(280px, 100%);
+    height: 28px;
+    margin-top: 6px;
+}
+
+.todo-audio-token-panel {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid var(--t-border-light);
+}
+
+.todo-audio-token-list {
+    display: grid;
+    gap: 5px;
+    margin-top: 8px;
+}
+
+.todo-audio-token-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 0;
+    border-bottom: 1px solid var(--t-border-light);
+}
+
+.todo-audio-token-row:last-child {
+    border-bottom: 0;
+}
+
+.todo-audio-secret {
+    white-space: pre-wrap;
+    word-break: break-all;
+    margin: 8px 0 0;
+    padding: 8px;
+    color: var(--t-text-main);
+    background: var(--t-bg-panel-opaque);
+    border: 1px solid var(--t-border);
+}
+
+@media (max-width: 768px) {
+    #meetingNoteModal .modal-dialog {
+        width: auto;
+        max-width: calc(100vw - 16px);
+        margin: 8px;
+    }
+
+    #meetingNoteModal .modal-body > div {
+        flex-direction: column;
+        height: calc(100vh - 132px) !important;
+        min-height: 0 !important;
+    }
+
+    #meetingNoteModal .modal-body > div > div:first-child {
+        width: auto !important;
+        max-height: 160px;
+        border-right: 0 !important;
+        border-bottom: 1px solid var(--t-border);
+    }
+
+    #meetingNoteModal .modal-body > div > div:last-child {
+        min-height: 0;
+    }
+
+    .todo-audio-toolbar {
+        flex-wrap: wrap;
+    }
+
+    .todo-audio-card {
+        grid-template-columns: 1fr;
+    }
+}
+
+.markdown-body table tr:nth-child(2n),
+#descriptionLivePreview .markdown-body table tr:nth-child(2n),
+#notePreview .markdown-body table tr:nth-child(2n),
+#noteLivePreview .markdown-body table tr:nth-child(2n) {
+    background: var(--t-primary-faint) !important;
+}

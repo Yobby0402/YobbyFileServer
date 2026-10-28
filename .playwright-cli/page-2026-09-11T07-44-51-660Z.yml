@@ -1,0 +1,94 @@
+- generic [active] [ref=e1]:
+  - banner [ref=e2]:
+    - generic [ref=e3]:
+      - generic [ref=e4]:
+        - link "返回文件列表" [ref=e5] [cursor=pointer]:
+          - /url: /file_browser?path=assemblies
+          - generic [aria-hidden] [ref=e6]: 
+        - generic [aria-hidden] [ref=e7]: 
+        - strong [ref=e9]: PCB 工作区
+      - group "工作区模式" [ref=e10]:
+        - button "装配" [pressed] [ref=e11] [cursor=pointer]
+        - button "演示" [disabled] [ref=e12]
+    - generic [ref=e13]:
+      - text: 
+      - generic [ref=e14]: 未监听
+      - button "启动 PCB 接收" [ref=e17] [cursor=pointer]:
+        - generic [aria-hidden] [ref=e18]: 
+      - text: 
+      - button "适合视图" [ref=e20] [cursor=pointer]:
+        - generic [aria-hidden] [ref=e21]: 
+      - button "切换网格" [pressed] [ref=e22] [cursor=pointer]:
+        - generic [aria-hidden] [ref=e23]: 
+      - button "切换坐标轴" [pressed] [ref=e24] [cursor=pointer]:
+        - generic [aria-hidden] [ref=e25]: 
+      - button "切换全屏" [ref=e26] [cursor=pointer]:
+        - generic [aria-hidden] [ref=e27]: 
+      - button "保存 PCB 装配" [ref=e28] [cursor=pointer]:
+        - generic [aria-hidden] [ref=e29]: 
+      - text: 
+  - main [ref=e30]:
+    - complementary "PCB 模型列表" [ref=e31]:
+      - generic [ref=e32]:
+        - generic [ref=e33]:
+          - text: 当前会话
+          - heading "PCB 模型" [level=2] [ref=e34]
+        - text: 
+      - generic [ref=e35]:
+        - strong [ref=e36]: 监听端口 8765
+        - generic [ref=e37]: 启动后回到嘉立创执行 Blender 导出，可连续接收多个 PCB。
+      - listbox "已接收 PCB" [ref=e38]
+      - generic [ref=e39]:
+        - generic [aria-hidden] [ref=e40]: 
+        - strong [ref=e41]: 尚未接收模型
+        - generic [ref=e42]: 点击顶部“启动接收”，然后从嘉立创导出。
+    - region "PCB 装配画布" [ref=e43]:
+      - generic: 启动接收后，从嘉立创执行 Blender 导出。
+      - generic [ref=e46]:
+        - generic [ref=e47]: 0 个模型
+        - generic [ref=e48]: 位置 mm · 旋转 °
+    - complementary "模型变换" [ref=e49]:
+      - generic [ref=e50]:
+        - generic [ref=e51]:
+          - text: 选中模型
+          - heading "位置与旋转" [level=2] [ref=e52]
+        - text: 
+      - generic [ref=e53]: 未选择模型
+      - generic [ref=e54]:
+        - group "位置 mm" [ref=e55]:
+          - generic [ref=e56]:
+            - text: 位置
+            - generic [ref=e57]: mm
+          - generic [ref=e58]:
+            - generic [ref=e59]: X
+            - spinbutton "X" [disabled] [ref=e60]: "0"
+          - generic [ref=e61]:
+            - generic [ref=e62]: "Y"
+            - spinbutton "Y" [disabled] [ref=e63]: "0"
+          - generic [ref=e64]:
+            - generic [ref=e65]: Z
+            - spinbutton "Z" [disabled] [ref=e66]: "0"
+        - group "旋转 度" [ref=e67]:
+          - generic [ref=e68]:
+            - text: 旋转
+            - generic [ref=e69]: 度
+          - generic [ref=e70]:
+            - generic [ref=e71]: X
+            - spinbutton "X" [disabled] [ref=e72]: "0"
+          - generic [ref=e73]:
+            - generic [ref=e74]: "Y"
+            - spinbutton "Y" [disabled] [ref=e75]: "0"
+          - generic [ref=e76]:
+            - generic [ref=e77]: Z
+            - spinbutton "Z" [disabled] [ref=e78]: "0"
+      - generic [ref=e79]:
+        - button "复位变换" [disabled] [ref=e80]:
+          - generic [aria-hidden] [ref=e81]: 
+          - text: 复位变换
+        - button "删除模型" [disabled] [ref=e82]:
+          - generic [aria-hidden] [ref=e83]: 
+          - text: 删除模型
+      - generic [ref=e84]:
+        - generic [ref=e85]: 保存目录
+        - strong [ref=e86]: F:\Work\YobboyFileServer\output\pcb-assembly-browser-root\assemblies
+  - text:    

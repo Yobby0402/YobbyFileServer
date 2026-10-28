@@ -1,0 +1,57 @@
+- generic [ref=f1e2]:
+  - generic "六位密码输入区域" [ref=f1e4]:
+    - generic [ref=f1e5]:
+      - generic [ref=f1e6]:
+        - generic [ref=f1e7]: Yobboy Server
+        - heading "ACCESS GATE" [level=1] [ref=f1e8]
+        - paragraph [ref=f1e9]: 6 位口令输入后仅回显 Yobboy，真实密码不会被直接暴露。
+      - generic:
+        - textbox [active] [aria-hidden]
+      - generic [aria-hidden] [ref=f1e10]:
+        - generic [ref=f1e11]:
+          - generic [ref=f1e12]: M
+          - generic [ref=f1e15]: "5"
+          - generic [ref=f1e16]: "8"
+          - generic [ref=f1e17]: J
+          - generic [ref=f1e18]: I
+          - generic [ref=f1e19]: P
+        - generic [ref=f1e20]:
+          - generic [ref=f1e21]: "["
+          - generic [ref=f1e24]: ">"
+          - generic [ref=f1e25]: "]"
+          - generic [ref=f1e26]: O
+          - generic [ref=f1e27]: /
+          - generic [ref=f1e28]: X
+        - generic [ref=f1e29]:
+          - generic [ref=f1e30]: "{"
+          - generic [ref=f1e33]: D
+          - generic [ref=f1e34]: J
+          - generic [ref=f1e35]: $
+          - generic [ref=f1e36]: L
+          - generic [ref=f1e37]: "|"
+        - generic [ref=f1e38]:
+          - generic [ref=f1e39]: "3"
+          - generic [ref=f1e42]: "&"
+          - generic [ref=f1e43]: "["
+          - generic [ref=f1e44]: D
+          - generic [ref=f1e45]: "&"
+          - generic [ref=f1e46]: O
+        - generic [ref=f1e47]:
+          - generic [ref=f1e48]: K
+          - generic [ref=f1e51]: L
+          - generic [ref=f1e52]: "@"
+          - generic [ref=f1e53]: \
+          - generic [ref=f1e54]: I
+          - generic [ref=f1e55]: +
+        - generic [ref=f1e56]:
+          - generic [ref=f1e57]: "#"
+          - generic [ref=f1e60]: O
+          - generic [ref=f1e61]: "&"
+          - generic [ref=f1e62]: X
+          - generic [ref=f1e63]: P
+          - generic [ref=f1e64]: "2"
+      - generic [ref=f1e65]:
+        - generic [ref=f1e66]: INPUT SLOT 01
+        - button "切换到俄罗斯方块登录" [ref=f1e67] [cursor=pointer]
+      - text: 
+  - text:  

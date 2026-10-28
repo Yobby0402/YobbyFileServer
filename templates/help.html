@@ -719,6 +719,15 @@ port = 5000
                         </ul>
                     </div>
                     <div class="feature-card">
+                        <h3><i class="fas fa-exchange-alt"></i> 远程串口透传</h3>
+                        <ul>
+                            <li>在串口页选择两个不同的共享通道，由服务器双向转发两侧收到的原始字节。</li>
+                            <li>支持服务器 PySerial 串口与浏览器 Web Serial 共享串口混合中继，待机通道会按需激活。</li>
+                            <li>每个通道同一时间只能加入一个透传任务；共享端离线或写入失败时任务自动停止。</li>
+                            <li>透传任务不会跨服务器重启保存；设备自身硬件回显仍可能导致重复数据。</li>
+                        </ul>
+                    </div>
+                    <div class="feature-card">
                         <h3><i class="fas fa-clipboard-list"></i> 持续日志捕获</h3>
                         <ul>
                             <li>在“持续日志”面板选择串口和参数，点击“开启持续日志”即可后台写入 JSONL。</li>
